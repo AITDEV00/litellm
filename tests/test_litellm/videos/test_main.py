@@ -34,7 +34,7 @@ import os
 import sys
 from contextlib import ExitStack
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -95,9 +95,7 @@ def seams():
     get_config = MagicMock(return_value=config)
 
     with ExitStack() as stack:
-        stack.enter_context(
-            patch.object(videos_main, "base_llm_http_handler", handler)
-        )
+        stack.enter_context(patch.object(videos_main, "base_llm_http_handler", handler))
         stack.enter_context(
             patch.object(
                 videos_main.ProviderConfigManager,
@@ -337,12 +335,15 @@ def test_unsupported_provider_raises_without_dispatch(seams):
 @pytest.mark.asyncio
 async def test_avideo_generation__delegates_with_async_flag():
     sentinel = VideoObject(id="v-async", object="video", status="queued")
-    with patch.object(
-        videos_main, "video_generation", MagicMock(return_value=sentinel)
-    ) as sync, patch.object(
-        litellm,
-        "get_llm_provider",
-        MagicMock(return_value=("sora-2", "openai", None, None)),
+    with (
+        patch.object(
+            videos_main, "video_generation", MagicMock(return_value=sentinel)
+        ) as sync,
+        patch.object(
+            litellm,
+            "get_llm_provider",
+            MagicMock(return_value=("sora-2", "openai", None, None)),
+        ),
     ):
         result = await videos_main.avideo_generation(prompt="x", model="sora-2")
 
@@ -377,3 +378,81 @@ async def test_avideo_content__pre_decodes_provider_before_delegating():
     assert result is sentinel
     assert sync.call_args.kwargs["async_call"] is True
     assert sync.call_args.kwargs["custom_llm_provider"] == "azure"
+
+
+# =========================================================================== #
+# Credential passthrough - DB/YAML model-config credentials the router injects
+# via kwargs must reach the provider call for EVERY video handler, carried in
+# litellm_params. Distinct per-field values catch a cross-wired field.
+# =========================================================================== #
+
+DB_YAML_CREDS = {
+    "api_key": "sk-db-credential",
+    "api_base": "https://db-resource.test",
+    "api_version": "2024-12-31",
+    "vertex_project": "db-project-xyz",
+}
+
+CREDENTIAL_OPERATIONS = [
+    (
+        "video_generation_handler",
+        lambda: videos_main.video_generation(
+            prompt="p", model="sora-2", **DB_YAML_CREDS
+        ),
+    ),
+    (
+        "video_status_handler",
+        lambda: videos_main.video_status(video_id=AZURE_VIDEO_ID, **DB_YAML_CREDS),
+    ),
+    (
+        "video_content_handler",
+        lambda: videos_main.video_content(video_id=AZURE_VIDEO_ID, **DB_YAML_CREDS),
+    ),
+    (
+        "video_remix_handler",
+        lambda: videos_main.video_remix(
+            video_id=AZURE_VIDEO_ID, prompt="p", **DB_YAML_CREDS
+        ),
+    ),
+    (
+        "video_edit_handler",
+        lambda: videos_main.video_edit(
+            video_id=AZURE_VIDEO_ID, prompt="p", **DB_YAML_CREDS
+        ),
+    ),
+    (
+        "video_extension_handler",
+        lambda: videos_main.video_extension(
+            video_id=AZURE_VIDEO_ID, prompt="p", seconds="5", **DB_YAML_CREDS
+        ),
+    ),
+    (
+        "video_list_handler",
+        lambda: videos_main.video_list(**DB_YAML_CREDS),
+    ),
+    (
+        "video_create_character_handler",
+        lambda: videos_main.video_create_character(
+            name="hero", video=MagicMock(name="vid"), **DB_YAML_CREDS
+        ),
+    ),
+    (
+        "video_get_character_handler",
+        lambda: videos_main.video_get_character(character_id="char_1", **DB_YAML_CREDS),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "handler_name,invoke",
+    CREDENTIAL_OPERATIONS,
+    ids=[op[0] for op in CREDENTIAL_OPERATIONS],
+)
+def test_db_yaml_credentials_reach_every_handler(seams, handler_name, invoke):
+    invoke()
+
+    litellm_params = seams.kwargs_of(handler_name)["litellm_params"]
+    assert litellm_params.get("api_key") == DB_YAML_CREDS["api_key"]
+    assert litellm_params.get("api_base") == DB_YAML_CREDS["api_base"]
+    assert litellm_params.get("api_version") == DB_YAML_CREDS["api_version"]
+    assert litellm_params.get("vertex_project") == DB_YAML_CREDS["vertex_project"]
