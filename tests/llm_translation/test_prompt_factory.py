@@ -1,5 +1,6 @@
 #### What this tests ####
 #    This tests if prompts are being correctly formatted
+import base64
 import os
 import sys
 
@@ -606,7 +607,14 @@ def test_no_messages_yields_user_text():
 
 
 def test_convert_url():
-    convert_url_to_base64("https://picsum.photos/id/237/200/300")
+    png_bytes = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f"
+        "15c4890000000a49444154789c6360000002000154a24f7c000000004945"
+        "4e44ae426082"
+    )
+    data_url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("utf-8")
+
+    assert convert_url_to_base64(data_url) == data_url
 
 
 def test_azure_tool_call_invoke_helper():
