@@ -7,7 +7,13 @@ import litellm
 from litellm import constants
 from litellm.litellm_core_utils.prompt_templates import image_handling
 from litellm.litellm_core_utils.prompt_templates.image_handling import (
+    async_convert_url_to_base64,
     convert_url_to_base64,
+)
+
+_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
 )
 
 
@@ -232,3 +238,12 @@ def test_image_size_limit_disabled(monkeypatch):
 
     assert "Image URL download is disabled" in str(excinfo.value)
     assert "MAX_IMAGE_URL_DOWNLOAD_SIZE_MB=0" in str(excinfo.value)
+
+
+def test_data_url_returned_unchanged_sync():
+    assert convert_url_to_base64(_PNG_DATA_URL) == _PNG_DATA_URL
+
+
+@pytest.mark.asyncio
+async def test_data_url_returned_unchanged_async():
+    assert await async_convert_url_to_base64(_PNG_DATA_URL) == _PNG_DATA_URL
