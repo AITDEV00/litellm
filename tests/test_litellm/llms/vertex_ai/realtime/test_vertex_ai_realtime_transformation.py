@@ -120,6 +120,29 @@ def test_vertex_session_update_defaults_to_audio_modality():
     assert setup_payload["generationConfig"]["responseModalities"] == ["AUDIO"]
 
 
+def test_vertex_audio_only_live_model_coerces_text_modality_to_audio():
+    """Regression: TEXT-only responseModalities causes 1007 on native-audio Live models."""
+    cfg = VertexAIRealtimeConfig(
+        access_token="tok", project="my-proj", location="us-central1"
+    )
+    session_update = {
+        "type": "session.update",
+        "session": {
+            "modalities": ["text"],
+            "instructions": "You are a terse assistant.",
+        },
+    }
+
+    messages = cfg.transform_realtime_request(
+        json.dumps(session_update),
+        "gemini-live-2.5-flash-native-audio",
+        session_configuration_request=None,
+    )
+
+    setup = json.loads(messages[0])["setup"]
+    assert setup["generationConfig"]["responseModalities"] == ["AUDIO"]
+
+
 def test_vertex_session_update_normalizes_ga_remapped_fields():
     """GA-format clients send ``output_modalities`` and nested
     ``audio.input.transcription`` / ``audio.input.turn_detection``. These must
@@ -152,7 +175,7 @@ def test_vertex_session_update_normalizes_ga_remapped_fields():
     assert len(messages) == 1
     setup_payload = json.loads(messages[0])["setup"]
 
-    assert setup_payload["generationConfig"]["responseModalities"] == ["TEXT"]
+    assert setup_payload["generationConfig"]["responseModalities"] == ["AUDIO"]
     assert setup_payload["inputAudioTranscription"] == {}
     assert (
         setup_payload["realtimeInputConfig"]["automaticActivityDetection"][
@@ -346,3 +369,56 @@ def test_vertex_does_not_warn_when_dropping_non_guardrail_session_update(caplog)
         "Vertex AI Realtime" in record.message and "session.update" in record.message
         for record in caplog.records
     )
+
+
+def test_vertex_backend_url_must_not_include_client_query_params():
+    """Regression: appending ?model= to Vertex Live WSS URLs causes 1007 errors."""
+    from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
+
+    cfg = VertexAIRealtimeConfig(
+        access_token="tok", project="my-proj", location="us-central1"
+    )
+    backend_url = cfg.get_complete_url(
+        api_base=None, model="gemini-live-2.5-flash-native-audio"
+    )
+    client_query_params = {
+        "model": "gemini-live-2.5-flash-native-audio",
+        "intent": "chat",
+    }
+
+    assert "?" not in backend_url
+    polluted_url = BaseLLMHTTPHandler._append_query_params(
+        backend_url, client_query_params
+    )
+    assert "model=" in polluted_url
+    assert polluted_url != backend_url
+
+
+def test_vertex_function_call_output_omits_id():
+    """Regression: Vertex Live rejects ``id`` on toolResponse.functionResponses (1007)."""
+    cfg = VertexAIRealtimeConfig(
+        access_token="tok", project="my-proj", location="us-central1"
+    )
+    cfg._tool_call_id_to_name["call_abc123"] = "terminate_call"
+
+    messages = cfg.transform_realtime_request(
+        json.dumps(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_abc123",
+                    "output": '{"status": "ok"}',
+                },
+            }
+        ),
+        "gemini-live-2.5-flash-native-audio",
+        session_configuration_request="existing",
+    )
+
+    assert len(messages) == 1
+    payload = json.loads(messages[0])
+    function_response = payload["toolResponse"]["functionResponses"][0]
+    assert "id" not in function_response
+    assert function_response["name"] == "terminate_call"
+    assert function_response["response"] == {"status": "ok"}
