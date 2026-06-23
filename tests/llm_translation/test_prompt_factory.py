@@ -606,15 +606,33 @@ def test_no_messages_yields_user_text():
     assert contents == expected_output
 
 
-def test_convert_url():
-    png_bytes = bytes.fromhex(
-        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f"
-        "15c4890000000a49444154789c6360000002000154a24f7c000000004945"
-        "4e44ae426082"
-    )
-    data_url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("utf-8")
+def test_convert_url(monkeypatch):
+    import base64
+    from unittest.mock import MagicMock
 
-    assert convert_url_to_base64(data_url) == data_url
+    import httpx
+
+    from litellm.litellm_core_utils.prompt_templates.image_handling import (
+        in_memory_cache,
+    )
+
+    url = "https://picsum.photos/id/237/200/300"
+    image_bytes = b"\x89PNG\r\n\x1a\nfake-png-bytes"
+
+    mock_client = MagicMock()
+    mock_client.get.return_value = httpx.Response(
+        200, content=image_bytes, headers={"Content-Type": "image/png"}
+    )
+
+    monkeypatch.setattr(litellm, "user_url_validation", False, raising=False)
+    monkeypatch.setattr(litellm, "module_level_client", mock_client, raising=False)
+    in_memory_cache.flush_cache()
+
+    result = convert_url_to_base64(url)
+
+    expected = "data:image/png;base64," + base64.b64encode(image_bytes).decode("utf-8")
+    assert result == expected
+    mock_client.get.assert_called_once()
 
 
 def test_azure_tool_call_invoke_helper():
