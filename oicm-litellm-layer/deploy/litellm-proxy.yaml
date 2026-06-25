@@ -1,0 +1,177 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-master-key
+  namespace: mlops
+type: Opaque
+stringData:
+  master-key: sk-1234
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-db-credentials
+  namespace: mlops
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: mlops
+data:
+  config.yaml: |
+    model_list: []
+    litellm_settings:
+      store_model_in_db: true
+      callbacks: litellm_hooks.vllm_param_injector.vllm_param_injector
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-hooks
+  namespace: mlops
+data:
+  vllm_param_injector.py: |
+    import os
+    from typing import Any, Dict, Optional
+    from litellm.integrations.custom_logger import CustomLogger
+    from litellm.utils import get_secret
+
+
+    class VllmParamInjector(CustomLogger):
+        """Pre-call hook that injects vLLM-specific parameters from the
+        upstream model deployment's ConfigMap into the request."""
+
+        @staticmethod
+        def _target_matches(model_info: dict, target_model: str) -> bool:
+            litellm_params = model_info.get("litellm_params", {})
+            return litellm_params.get("model", "") == target_model
+
+        async def async_pre_call_hook(
+            self,
+            user_api_key_dict: Dict,
+            cache: Any,
+            data: Dict,
+            call_type: str,
+        ) -> Optional[Dict]:
+            from litellm.proxy.proxy_server import llm_router
+
+            if llm_router is None or not hasattr(llm_router, "get_model_list"):
+                return data
+
+            target_model = data.get("model")
+            if not target_model:
+                return data
+
+            for model_info in llm_router.get_model_list():
+                if self._target_matches(model_info, target_model):
+                    model_info_extra = model_info.get("model_info", {})
+                    extra_body = {}
+                    for key, value in model_info_extra.items():
+                        if key.startswith("vllm_") and value is not None:
+                            param_name = key[len("vllm_"):]
+                            extra_body[param_name] = value
+                    if extra_body:
+                        existing = data.get("extra_body") or {}
+                        existing.update(extra_body)
+                        data["extra_body"] = existing
+                    break
+
+            return data
+
+
+    vllm_param_injector = VllmParamInjector()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: mlops
+  labels:
+    app: litellm-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy
+  template:
+    metadata:
+      labels:
+        app: litellm-proxy
+    spec:
+      containers:
+        - name: litellm
+          image: docker.litellm.ai/berriai/litellm:main-stable
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials
+                  key: DATABASE_URL
+          command:
+            - "litellm"
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            - "--use_v2_migration_resolver"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: hooks
+              mountPath: /app/litellm_hooks
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+        - name: hooks
+          configMap:
+            name: litellm-hooks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy
+  namespace: mlops
+spec:
+  selector:
+    app: litellm-proxy
+  ports:
+    - port: 4000
+      targetPort: http
+      name: http

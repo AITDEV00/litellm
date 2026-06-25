@@ -244,7 +244,11 @@ litellm-proxy-extras = { workspace = true }
 litellm-enterprise = { workspace = true }
 
 [tool.uv.workspace]
-members = ["enterprise", "litellm-proxy-extras"]
+members = [
+    "enterprise",
+    "litellm-proxy-extras",
+    "oicm-litellm-layer",
+]
 
 [tool.uv.build-backend]
 module-root = ""

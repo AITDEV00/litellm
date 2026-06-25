@@ -1,0 +1,18 @@
+diff --git a/litellm/llms/hosted_vllm/embedding/transformation.py b/litellm/llms/hosted_vllm/embedding/transformation.py
+index 1234567..abcdefg 100644
+--- a/litellm/llms/hosted_vllm/embedding/transformation.py
++++ b/litellm/llms/hosted_vllm/embedding/transformation.py
+@@ -95,6 +95,13 @@ class HostedVLLMEmbeddingConfig(OpenAIEmbeddingConfig):
+         optional_params = super().map_openai_params(
+             non_default_params=non_default_params, optional_params=optional_params
+         )
++        
++        # Merge extra_body for vLLM-specific embedding params
++        # (e.g., truncate_prompt_tokens, pooling_type, etc.)
++        extra_body = non_default_params.pop("extra_body", None)
++        if extra_body and isinstance(extra_body, dict):
++            optional_params.update(extra_body)
++        
+         return optional_params
+ 
+     def transform_embedding_request(
