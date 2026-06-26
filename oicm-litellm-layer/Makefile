@@ -5,9 +5,10 @@ HARBOR_PASS  := CustomImages123
 
 DISCOVERY_IMG := $(REGISTRY)/$(REPO_PATH)/oicm-discovery-controller
 LITELLM_IMG   := docker.litellm.ai/berriai/litellm:main-stable
+LITELLM_HARBOR_IMG := $(REGISTRY)/$(REPO_PATH)/litellm
 TAG           := latest
 
-.PHONY: all pull-discovery pull-litellm pull build push login deploy clean
+.PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean
 
 all: pull build push
 
@@ -30,8 +31,14 @@ login:
 	@echo "$(HARBOR_PASS)" | podman login --tls-verify=false $(REGISTRY) -u $(HARBOR_USER) --password-stdin
 
 ## Push images to Harbor (insecure, internal registry)
-push:
+push: push-discovery push-litellm
+
+push-discovery:
 	podman push --tls-verify=false $(DISCOVERY_IMG):$(TAG)
+
+push-litellm:
+	podman tag $(LITELLM_IMG) $(LITELLM_HARBOR_IMG):$(TAG)
+	podman push --tls-verify=false $(LITELLM_HARBOR_IMG):$(TAG)
 
 ## Deploy both manifests to the cluster
 deploy:

@@ -7,6 +7,91 @@ reverse chronological order (newest first).
 
 ## 2026-06-25
 
+### Ingress TLS fix (`deploy/litellm-ingress.yaml`)
+
+The ingress was only serving on port 80 (HTTP), not 443 (HTTPS). Added a `tls:`
+block referencing `litellm.adeoaiengine.ecouncil.ae-tls`. The nginx ingress
+controller uses its `--default-ssl-certificate` (wildcard
+`*.adeoaiengine.ecouncil.ae`) to serve TLS on 443 for any ingress with a `tls:`
+section, so no cert-manager annotation is needed.
+
+### api_base /v1 suffix fix (`controller/discovery.py`)
+
+Chat completion requests through LiteLLM returned 404
+(`Hosted_vllmException - {"detail":"Not Found"}`). Root cause: the discovery
+controller registered models with `api_base` set to
+`http://s-{uuid}.adeo.svc.cluster.local:8080` (no `/v1` suffix). LiteLLM's
+`hosted_vllm` provider inherits from the OpenAI-like handler, which appends
+`/chat/completions` to `api_base` in `_validate_environment()`
+(`litellm/llms/openai_like/common_utils.py:53`). Without `/v1`, the final URL
+became `.../8080/chat/completions` instead of `.../8080/v1/chat/completions`,
+and vLLM returned 404.
+
+Fix: added `/v1` to the `api_base` property in `OicmModel`:
+```python
+return f"http://s-{self.uuid}.{self.namespace}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1"
+```
+
+After fixing, all 20 existing models in LiteLLM had to be deleted and
+re-registered (the old registrations had the broken `api_base`). Rebuilt and
+pushed the controller image, deleted the 20 old models via `/model/delete`,
+restarted the controller deployment, and verified 20 models re-registered with
+the correct `/v1` api_base. Chat completion confirmed working with 200 OK.
+
+Note: vLLM-specific params like `chat_template_kwargs` must be sent inside
+`extra_body` in the request, not at the top level. The `vllm_param_injector`
+hook (currently wired in the config) only handles `vllm_` prefixed params in
+`model_info`, not arbitrary top-level params.
+
+### Ingress manifest for LiteLLM proxy + web UI (`deploy/litellm-ingress.yaml`)
+
+Created an nginx Ingress manifest that exposes the LiteLLM proxy (inference API
+and admin UI) on `https://litellm.adeoaiengine.ecouncil.ae` via port 443. The
+ingress routes all paths (`/`) to the `litellm-proxy` service on port 4000,
+which serves both the OpenAI-compatible API endpoints (`/v1/chat/completions`,
+`/v1/embeddings`, `/model/info`, etc.) and the admin web UI at `/ui/`.
+
+No TLS block is needed in the manifest because the nginx ingress controller is
+configured with `--default-ssl-certificate=wildcard-ingress-tls-cert`, a
+wildcard certificate covering `*.adeoaiengine.ecouncil.ae`. The controller
+serves TLS on 443 automatically for any ingress.
+
+Nginx annotations copied from the existing OICM inference ingress
+(`oicm-api-gateway-ingress-external`) to support LLM streaming:
+`proxy-buffering: "false"`, `proxy-request-buffering: "false"`,
+`proxy-read-timeout: "3600"`, `proxy-send-timeout: "3600"`,
+`proxy-body-size: "0"`.
+
+Requires a DNS A record for `litellm.adeoaiengine.ecouncil.ae` pointing to
+`10.34.104.100` (the nginx ingress controller LoadBalancer external IP).
+
+### Discovery controller health server fix (`controller/discovery.py`)
+
+The discovery controller was crash-looping (exit code 137, 5 restarts) because
+the liveness probe on `:8090/health` had nothing answering it. Added a minimal
+`aiohttp` web server to `DiscoveryController.start()` that listens on `0.0.0.0:8090`
+and responds to `GET /health` with 200 OK. The server is cleaned up in `stop()`.
+
+Rebuilt and pushed the updated image to Harbor, then restarted the deployment.
+Both pods are now 1/1 Running with 0 restarts. The first sync registered 20
+models in LiteLLM (visible via `GET /model/info`).
+
+### LiteLLM image pushed to Harbor (air-gapped cluster)
+
+The K8s cluster has no internet access, so the `docker.litellm.ai/berriai/litellm:main-stable`
+image cannot be pulled at pod startup. The image was tagged and pushed to the
+internal Harbor registry at
+`registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm:latest`.
+
+Changes:
+- `Makefile`: Added `LITELLM_HARBOR_IMG` variable, split `push` into
+  `push-discovery` and `push-litellm` targets. `push-litellm` tags the upstream
+  image and pushes it to Harbor.
+- `deploy/litellm-proxy.yaml`: Changed the container image from
+  `docker.litellm.ai/berriai/litellm:main-stable` to the Harbor-hosted
+  `registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm:latest`.
+- Verified the image is visible in Harbor via the registry API.
+
 ### Deployment YAML rewrite (`deploy/litellm-proxy.yaml`)
 
 The previous `litellm-proxy.yaml` did not align with the actual LiteLLM source

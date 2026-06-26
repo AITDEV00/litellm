@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 import httpx
+from aiohttp import web
 from kubernetes import client, config, watch
 
 logger = logging.getLogger("oicm-discovery")
@@ -51,7 +52,7 @@ class OicmModel:
 
     @property
     def api_base(self) -> str:
-        return f"http://s-{self.uuid}.{self.namespace}.{CLUSTER_DOMAIN}:{MODEL_PORT}"
+        return f"http://s-{self.uuid}.{self.namespace}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1"
 
     @property
     def is_ready(self) -> bool:
@@ -289,6 +290,12 @@ class DiscoveryController:
     async def start(self):
         logger.info("Starting OICM Discovery Controller")
         self._running = True
+        self._runner = web.AppRunner(web.Application())
+        self._runner.app.router.add_get("/health", self._health)
+        await self._runner.setup()
+        self._site = web.TCPSite(self._runner, "0.0.0.0", 8090)
+        await self._site.start()
+        logger.info("Health server listening on :8090")
         await self.full_sync()
         await asyncio.gather(
             self._watch_loop(),
@@ -297,7 +304,12 @@ class DiscoveryController:
 
     async def stop(self):
         self._running = False
+        if hasattr(self, "_runner"):
+            await self._runner.cleanup()
         logger.info("Stopped OICM Discovery Controller")
+
+    async def _health(self, request):
+        return web.Response(text="ok")
 
     async def full_sync(self):
         logger.info("Starting full sync...")
@@ -477,7 +489,6 @@ def run():
     finally:
         loop.run_until_complete(controller.stop())
         loop.close()
-
 
 if __name__ == "__main__":
     import sys

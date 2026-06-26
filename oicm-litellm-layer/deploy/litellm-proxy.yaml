@@ -105,7 +105,7 @@ spec:
     spec:
       containers:
         - name: litellm
-          image: docker.litellm.ai/berriai/litellm:main-stable
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm:latest
           ports:
             - containerPort: 4000
               name: http
