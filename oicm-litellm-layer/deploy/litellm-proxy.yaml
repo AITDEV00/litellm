@@ -105,7 +105,7 @@ spec:
     spec:
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm:latest
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.89.3
           ports:
             - containerPort: 4000
               name: http
@@ -122,6 +122,10 @@ spec:
                 secretKeyRef:
                   name: litellm-db-credentials
                   key: DATABASE_URL
+            - name: UI_LOGO_PATH
+              value: /app/assets/adeo-ai-gateway.jpg
+            - name: LITELLM_FAVICON_URL
+              value: /app/assets/favicon.png
           command:
             - "litellm"
             - "--config"
@@ -135,6 +139,9 @@ spec:
               subPath: config.yaml
             - name: hooks
               mountPath: /app/litellm_hooks
+              readOnly: true
+            - name: logo
+              mountPath: /app/assets
               readOnly: true
           readinessProbe:
             httpGet:
@@ -153,8 +160,8 @@ spec:
               cpu: "500m"
               memory: 1Gi
             limits:
-              cpu: "1"
-              memory: 2Gi
+              cpu: "4"
+              memory: 8Gi
       volumes:
         - name: config
           configMap:
@@ -162,6 +169,9 @@ spec:
         - name: hooks
           configMap:
             name: litellm-hooks
+        - name: logo
+          configMap:
+            name: litellm-logo
 ---
 apiVersion: v1
 kind: Service

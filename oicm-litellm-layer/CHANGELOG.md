@@ -5,6 +5,77 @@ reverse chronological order (newest first).
 
 ---
 
+## 2026-06-29
+
+### Custom logo and favicon via ConfigMap (`deploy/litellm-proxy.yaml`, `Makefile`)
+
+Branded the LiteLLM dashboard with the ADEO AI Gateway logo and favicon. The
+original 1024x1024 / 127KB JPEG was downsized to 256x256 / 11KB (metadata
+stripped, quality 85) using ImageMagick. A 32x32 PNG favicon (1.9KB) was
+generated from the same source.
+
+Both files are mounted into the pod via a `litellm-logo` ConfigMap volume at
+`/app/assets/`, and litellm is configured via env vars to serve them:
+
+- `UI_LOGO_PATH=/app/assets/adeo-ai-gateway.jpg` — served by `/get_image`
+- `LITELLM_FAVICON_URL=/app/assets/favicon.png` — served by `/get_favicon`
+
+The navbar (`navbar.tsx:48`) falls back to `/get_image` when no `logo_url` is
+set in the theme settings DB, so the logo appears automatically. The
+`ThemeContext` applies the favicon dynamically at runtime.
+
+A `litellm-logo` Makefile target creates/updates the ConfigMap from the files
+in `decor/`. No image rebuild required to change the logo; just update the
+ConfigMap and restart the pod.
+
+Note: the SVG variant (`adeo-ai-gateway.svg`) was not used because the
+`detect_local_image_media_type()` function in `static_asset_utils.py` only
+recognizes PNG, JPEG, GIF, WebP, and ICO by magic bytes. SVG files are
+rejected and fall back to the default.
+
+### Logo redirect loop fix
+
+Setting `logo_url` in the DB theme settings to the full HTTPS URL
+(`https://litellm.adeoaiengine.ecouncil.ae/get_image`) caused an
+`ERR_TOO_MANY_REDIRECTS` loop. The `update_ui_theme_settings` backend
+(`proxy_setting_endpoints.py:985`) overwrites the `UI_LOGO_PATH` env var with
+the DB value. The `/get_image` endpoint then saw `UI_LOGO_PATH` starting with
+`https://` and returned a `RedirectResponse` to that same URL, creating an
+infinite redirect.
+
+Fix: reset `logo_url` to `null` in the DB (via `PATCH
+/update/ui_theme_settings`), which restored the `UI_LOGO_PATH` env var from
+the K8s deployment spec (`/app/assets/adeo-ai-gateway.jpg`). Pod restarted to
+get a clean `os.environ` state. Verified `/get_image` returns the correct ADEO
+logo (MD5 match, 10613 bytes, `image/jpeg`).
+
+Lesson: do not set `logo_url` in the DB to an HTTPS URL pointing back at
+`/get_image`. The env var `UI_LOGO_PATH` with a local file path is the correct
+approach for ConfigMap-mounted logos. The DB `logo_url` field is only for
+external CDN URLs that do not route back through the proxy itself.
+
+### Enterprise license gating: fix `/health/license` has_license (source: `litellm/proxy/auth/litellm_license.py`)
+
+The UI's enterprise feature pages (Organizations, Admin Panel, etc.) gate on
+`premiumUser`, which the frontend reads from two sources: the JWT token's
+`premium_user` claim (decoded client-side in `AuthContext.tsx`) and the
+`/health/license` endpoint's `has_license` field (used by `UsageIndicator`).
+
+The previous override only patched `LicenseCheck.is_premium()` to return True
+early, which set the `premium_user` global (and thus the JWT claim) correctly.
+However the early return skipped the `self.license_str = os.getenv(...)` line,
+so `_license_check.license_str` remained None. The `/health/license` endpoint
+checks `has_license = bool(getattr(_license_check, "license_str", None))`
+separately from `is_premium()`, so it returned `has_license: false`.
+
+Fix: set `self.license_str = "dev-trial-override"` inside the override block so
+both the `is_premium()` return value and the `license_str` attribute are
+consistent. Verified at runtime: `premium_user=True`, `is_premium()=True`,
+`license_str="dev-trial-override"`, `/health/license` returns
+`has_license: true, license_type: enterprise`.
+
+Image rebuilt, pushed, and deployment restarted.
+
 ## 2026-06-25
 
 ### Ingress TLS fix (`deploy/litellm-ingress.yaml`)

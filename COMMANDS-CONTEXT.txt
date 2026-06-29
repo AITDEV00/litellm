@@ -2,5 +2,5 @@
 ###This is ran to create a tunnel from this machine (machine 1) to access a virtual machine (machine 2) because machine 2 has access to the k8 cluster via a kubemanifest.
 This same kubemanifest is in ~/.kube/oicm-alain.conf path in machine 1 right now
 ssh -fN -L 6443:10.34.104.10:6443 adeo@10.34.104.99
-#password is Password 123
+#password is Password123
 
