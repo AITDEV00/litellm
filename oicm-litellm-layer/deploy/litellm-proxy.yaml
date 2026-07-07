@@ -16,6 +16,16 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
+# The litellm-logo ConfigMap is created separately with binary files.
+# To create or update the logo, run:
+#   kubectl create configmap litellm-logo -n mlops \
+#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
+#     --from-file=favicon.png=./assets/favicon.png
+# To update an existing one, delete and recreate, or use:
+#   kubectl delete configmap litellm-logo -n mlops && \
+#   kubectl create configmap litellm-logo -n mlops \
+#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
+#     --from-file=favicon.png=./assets/favicon.png
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -27,7 +37,24 @@ data:
     model_list: []
     litellm_settings:
       store_model_in_db: true
+      cache: true
+      cache_params:
+        type: redis
+        max_connections: 500
+        socket_timeout: 10.0
+      enable_redis_auth_cache: true
       callbacks: litellm_hooks.vllm_param_injector.vllm_param_injector
+    general_settings:
+      use_redis_transaction_buffer: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-redis-password
+  namespace: mlops
+type: Opaque
+stringData:
+  password: litellm-redis-7f3a9b2e
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -94,7 +121,12 @@ metadata:
   labels:
     app: litellm-proxy
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: litellm-proxy
@@ -103,6 +135,13 @@ spec:
       labels:
         app: litellm-proxy
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: litellm-proxy
       containers:
         - name: litellm
           image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.89.3
@@ -122,6 +161,17 @@ spec:
                 secretKeyRef:
                   name: litellm-db-credentials
                   key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "litellm-redis.redis.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-redis-password
+                  key: password
+            - name: REDIS_CONNECTION_POOL_TIMEOUT
+              value: "10"
             - name: UI_LOGO_PATH
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
@@ -132,6 +182,9 @@ spec:
             - "/app/config.yaml"
             - "--port"
             - "4000"
+            - "--run_granian"
+            - "--num_workers"
+            - "4"
             - "--use_v2_migration_resolver"
           volumeMounts:
             - name: config
@@ -147,18 +200,18 @@ spec:
             httpGet:
               path: /health/readiness
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
               cpu: "500m"
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "4"
               memory: 8Gi
@@ -185,3 +238,14 @@ spec:
     - port: 4000
       targetPort: http
       name: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: litellm-proxy-pdb
+  namespace: mlops
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy

@@ -1,0 +1,190 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-redis-password
+  namespace: redis
+type: Opaque
+stringData:
+  password: litellm-redis-7f3a9b2e
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-redis-config
+  namespace: redis
+data:
+  redis.conf: |
+    port 6379
+    bind 0.0.0.0
+    protected-mode no
+
+    dir /data
+
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+
+    timeout 60
+    tcp-keepalive 60
+    tcp-backlog 511
+
+    io-threads 4
+    io-threads-do-reads yes
+
+    appendonly yes
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    save ""
+
+    lazyfree-lazy-eviction yes
+    lazyfree-lazy-expire yes
+    lazyfree-lazy-server-del yes
+
+    hz 10
+    dynamic-hz yes
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: litellm-redis
+  namespace: redis
+  labels:
+    app: litellm-redis
+spec:
+  replicas: 1
+  serviceName: litellm-redis
+  selector:
+    matchLabels:
+      app: litellm-redis
+  template:
+    metadata:
+      labels:
+        app: litellm-redis
+    spec:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: docker.io/bitnamilegacy/redis:7.4.3-debian-12-r0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              name: redis
+              protocol: TCP
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD_FILE
+              value: /opt/bitnami/redis/secrets/redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              export REDIS_PASSWORD="$(< $REDIS_PASSWORD_FILE)"
+              exec redis-server \
+                --port "$REDIS_PORT" \
+                --requirepass "$REDIS_PASSWORD" \
+                --include /opt/bitnami/redis/mounted-etc/redis.conf
+          volumeMounts:
+            - name: redis-password
+              mountPath: /opt/bitnami/redis/secrets/
+              readOnly: true
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+              readOnly: true
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  export REDIS_PASSWORD="$(< $REDIS_PASSWORD_FILE)"
+                  export REDISCLI_AUTH="$REDIS_PASSWORD"
+                  redis-cli -h localhost -p "$REDIS_PORT" ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  export REDIS_PASSWORD="$(< $REDIS_PASSWORD_FILE)"
+                  export REDISCLI_AUTH="$REDIS_PASSWORD"
+                  redis-cli -h localhost -p "$REDIS_PORT" ping
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: redis-password
+          secret:
+            secretName: litellm-redis-password
+            defaultMode: 420
+            items:
+              - key: password
+                path: redis-password
+        - name: config
+          configMap:
+            name: litellm-redis-config
+            defaultMode: 420
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: longhorn-rwx-crypto-retain
+        volumeMode: Filesystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-redis
+  namespace: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: litellm-redis
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
