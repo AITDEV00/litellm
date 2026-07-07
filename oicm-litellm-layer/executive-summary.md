@@ -99,7 +99,7 @@ At c=600 (peak throughput tier), the optimized setup delivers:
 
 The LiteLLM gateway was optimized from a non-functional baseline to a production-ready state in four steps, completed over the course of a single working day. Each step addressed a specific bottleneck identified through benchmark testing.
 
-### Step 1: Replace the web server (~2 hours)
+### Step 1: Replace the web server (~2.5 hours)
 
 The original web server (uvicorn) processes everything in a single line of work. When 200 requests arrive at the same time, they all queue up behind each other because only one can be handled at a time. This is like having a single cashier at a supermarket; during a rush, the line backs up and eventually the store stops letting people in.
 
@@ -107,7 +107,7 @@ Granian is a different web server that handles the "greeting and directing" part
 
 **Result:** The gateway stopped refusing connections. At 100 concurrent requests, throughput went from 40 rps (with 40% failure rate) to 77 rps (zero failures). The baseline could not handle 300+ concurrent connections at all; the new setup handles them reliably.
 
-### Step 2: Add a dedicated Redis cache (~1.5 hours)
+### Step 2: Add a dedicated Redis cache (~2 hours)
 
 Every time a request comes in, the gateway checks whether the API key is valid, whether the user has hit their rate limit, and how much they have spent. Without a cache, these checks hit the database every time, which is slow. Redis is an in-memory cache that stores this information so it can be read in under a millisecond.
 
@@ -127,9 +127,9 @@ A PodDisruptionBudget ensures at least one replica is always running during main
 
 **Result:** The gateway can be updated, restarted, or survive hardware failures without dropping traffic.
 
-### Benchmark validation (~1 hour)
+### Benchmark validation (~1.5 hours)
 
-Ran a full concurrency sweep (100 to 1,000 concurrent requests, 1,000 requests per run, 5 runs per level, 50,000 total requests) against both the original baseline and the final production setup, via both direct internal IP and gateway URL. Total time from start of optimization to validated production-ready state: approximately 6 hours.
+Ran a full concurrency sweep (100 to 1,000 concurrent requests, 1,000 requests per run, 5 runs per level, 50,000 total requests) against both the original baseline and the final production setup, via both direct internal IP and gateway URL. Total time from start of optimization to validated production-ready state: approximately 8 hours.
 
 ### Final results: Baseline vs Production-Ready
 
