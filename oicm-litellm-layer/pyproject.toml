@@ -10,4 +10,4 @@ dependencies = [
 ]
 
 [project.scripts]
-oicm-discovery = "controller.discovery:run"
+oicm-discovery = "controller.__main__:run"

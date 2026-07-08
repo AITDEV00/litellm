@@ -5,6 +5,100 @@ reverse chronological order (newest first).
 
 ---
 
+## 2026-07-08
+
+### Discovery controller rewrite: VSA refactor, dedup fix, concurrent batch HTTP
+
+Rewrote the discovery controller from a single 730-line `discovery.py` into
+eight single-responsibility modules following vertical slice architecture.
+Fixed three runtime bugs (None model_id 422 errors, shutdown race condition,
+TypeError on empty batches in asyncio.gather). Added concurrent HTTP batching
+for all LiteLLM API operations. Cleaned up 17,716 duplicate models that had
+accumulated from the old controller's unconditional registration on every
+watch reconnect.
+
+#### VSA refactoring (`controller/` package)
+
+Split `discovery.py` into:
+
+- `config.py`: env vars, constants, logging configuration
+- `models.py`: `OicmModel` dataclass, `sanitize_model_id`, `detect_mode`
+- `k8s_discovery.py`: `K8sDiscoverer` (list deployments, read ConfigMaps,
+  query /v1/models)
+- `litellm_client.py`: `LiteLLMClient` (batch register/deregister/patch,
+  list_all_models_by_uuid)
+- `reconciler.py`: `SyncReconciler` (pure `compute_plan` + `execute`,
+  `_pick_richest_entry`)
+- `controller.py`: `DiscoveryController` (start/stop, full_sync, watch loop,
+  event handlers)
+- `__main__.py`: entry point with signal handling
+
+Dependency graph is strictly one-directional with no cycles. Each module has
+a single responsibility and can be tested in isolation. `DiscoveryController`
+and `LiteLLMClient` constructors accept injected dependencies, enabling unit
+testing without monkeypatching.
+
+Dockerfile CMD changed from `python -m controller.discovery` to
+`python -m controller`. Pyproject.toml entry point updated accordingly.
+
+#### Duplicate model fix: model_id field location
+
+Root cause: `/model/info` returns each model with the id at
+`model_info.id`, not at the top level. The old code did
+`entry.get("model_id")` which returned `None` for all 17,700+ entries,
+causing 422 validation errors on delete and preventing dedup from working.
+Verified against LiteLLM source: `model_management_endpoints.py` and
+`proxy_server.py` consistently access the id as
+`model.get("model_info", {}).get("id")`.
+
+Fix: `list_all_models_by_uuid` now normalizes each entry by setting
+`m["model_id"] = info.get("id")` when grouping, so all downstream code
+(`_pick_richest_entry`, `full_sync` Case 1-4) reads a consistent field.
+
+Also added `None` filtering in `deregister_many` (defense in depth) and a
+`_running` guard in `_handle_add` to prevent registrations during shutdown.
+
+#### Concurrent HTTP batching (`litellm_client.py`)
+
+Replaced sequential `await` in a for-loop (17,700 deletes at ~16ms each =
+~280s) with `asyncio.gather` + `Semaphore(50)` bounded concurrency (~6s).
+All three operation types (delete, register, patch) are batched into a single
+`batch()` call that fires all three groups concurrently through one shared
+`httpx.AsyncClient` with connection pooling.
+
+The semaphore is created once in `__init__` rather than per-call, so
+concurrency is bounded across the entire client lifetime. Individual
+convenience methods (`register_model`, `deregister_model`, `patch_model`)
+delegate to `batch()` so the watch loop's single-event handlers get the same
+connection pooling.
+
+Fixed a `TypeError: unhashable type: 'list'` bug where empty operation lists
+were passed as bare `[]` to the outer `asyncio.gather`, which treated them as
+awaitables. Replaced with an `_empty_list()` async coroutine that returns
+`[]`.
+
+#### Config preservation during dedup (`reconciler.py`)
+
+`_pick_richest_entry` scores each duplicate entry by how many CONFIG_KEYS
+(rpm, tpm, max_parallel_requests, input/output_cost_per_token,
+input/output_cost_per_second) are set, keeping the one with the most
+admin-applied config. Loser entries are deleted. When a model's name changes
+(needing delete + re-register), `inherited_params` copies the old entry's
+litellm_params into the new registration so RPM/TPM profiles survive.
+
+When only the api_base or model path changes (same model_name), the
+controller PATCHes via `/model/{id}/update` instead of delete + re-register,
+preserving all admin config in place.
+
+#### Result
+
+Model count in LiteLLM: 17,735 -> 19 (matching exactly the 19 k8s model
+deployments). Controller runs clean sync cycles with zero errors. Two full
+syncs verified in logs: `Patched 19/19 models`, `Full sync complete: 19
+models registered`.
+
+---
+
 ## 2026-07-07 (benchmark sweep)
 
 ### Performance validation: text-only benchmark sweep c=100-1000
