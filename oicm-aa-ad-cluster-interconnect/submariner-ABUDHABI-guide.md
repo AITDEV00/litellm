@@ -350,7 +350,7 @@ kubectl -n adeo get svc   # should show a submariner-* service with EXTERNAL-IP 
 
 Submariner 0.24.0 has no built-in mechanism to auto-export every service in a namespace.
 `ServiceExport` objects must be created manually per-service, and if a service is deleted the
-orphaned export lingers. This CronJob runs every 5 minutes to:
+orphaned export lingers. This CronJob runs every 1 minute to:
 1. Create a `ServiceExport` for every service in `adeo` that doesn't have one yet
 2. Delete any `ServiceExport` whose backing service no longer exists
 
@@ -445,7 +445,7 @@ them in the FORWARD chain.
 - **Calico GlobalNetworkPolicy**: the `allow-submariner-cross-cluster` policy (§7f) is applied
   outside Helm. Re-apply after any Calico upgrade or cluster rebuild. Add it to a GitOps manifest
   set for persistence.
-- **Auto-export CronJob** (§7i): runs every 5 minutes to ensure all `adeo` services have
+- **Auto-export CronJob** (§7i): runs every 1 minute to ensure all `adeo` services have
   `ServiceExport` objects and cleans up orphans. Apply the manifest from
   `auto-export-adeo-services.yaml` after any cluster rebuild.
 - Clean up any credential temp files and debug pods.

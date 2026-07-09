@@ -37,7 +37,7 @@ metadata:
   name: auto-export-adeo-services
   namespace: submariner-operator
 spec:
-  schedule: "*/5 * * * *"
+  schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
