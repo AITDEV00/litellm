@@ -1,0 +1,18 @@
+# Cloned upstream repo (dependency, not our code)
+submariner-operator/
+
+# Large binary tarballs (downloaded via instructions in README.md)
+*.tgz
+*.tar.gz
+*.tar.xz
+*.tar
+*.gz
+
+# Extracted binaries
+linux-amd64/
+subctl
+helm
+
+# Dump outputs
+/tmp/*.txt
+*-dump.txt
