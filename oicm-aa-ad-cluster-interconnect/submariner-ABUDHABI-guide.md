@@ -346,6 +346,42 @@ kubectl -n adeo get svc   # should show a submariner-* service with EXTERNAL-IP 
 > It has the globalnet IP as its ExternalIP and the same selector as the original service, so
 > kube-proxy's `KUBE-SERVICES` chain DNATs `242.0.0.253:8080` to the pod IP.
 
+### 7i. **Auto-export all services in the `adeo` namespace (CronJob)**
+
+Submariner 0.24.0 has no built-in mechanism to auto-export every service in a namespace.
+`ServiceExport` objects must be created manually per-service, and if a service is deleted the
+orphaned export lingers. This CronJob runs every 5 minutes to:
+1. Create a `ServiceExport` for every service in `adeo` that doesn't have one yet
+2. Delete any `ServiceExport` whose backing service no longer exists
+
+The manifest is at `oicm-aa-ad-cluster-interconnect/auto-export-adeo-services.yaml`. It deploys
+a ServiceAccount + Role + RoleBinding (scoped to the `adeo` namespace) and the CronJob itself.
+
+**How it works**: the nettest image doesn't ship `kubectl`, so the pod mounts the host filesystem
+at `/host` and calls `/host/usr/bin/kubectl` directly (verified on RKE2 nodes at that path). Auth
+uses the in-cluster ServiceAccount token (auto-mounted at
+`/var/run/secrets/kubernetes.io/serviceaccount/`), so no kubeconfig or ConfigMap is needed.
+
+**Deploy**:
+```bash
+kubectl apply -f auto-export-adeo-services.yaml
+```
+
+**Trigger a manual sync**:
+```bash
+kubectl -n submariner-operator create job --from=cronjob/auto-export-adeo-services manual-sync-1
+kubectl -n submariner-operator logs job/manual-sync-1
+```
+
+**Verify**:
+```bash
+kubectl -n adeo get serviceexports          # every service should have one
+kubectl get serviceimports -A               # visible from the peer cluster (Al Ain)
+```
+
+**Customize the namespace**: change the `NAMESPACE=adeo` variable in the CronJob command, and
+update the Role/RoleBinding namespace to match.
+
 ---
 
 ## 8. Verify Abu Dhabi is healthy
@@ -409,6 +445,9 @@ them in the FORWARD chain.
 - **Calico GlobalNetworkPolicy**: the `allow-submariner-cross-cluster` policy (§7f) is applied
   outside Helm. Re-apply after any Calico upgrade or cluster rebuild. Add it to a GitOps manifest
   set for persistence.
+- **Auto-export CronJob** (§7i): runs every 5 minutes to ensure all `adeo` services have
+  `ServiceExport` objects and cleans up orphans. Apply the manifest from
+  `auto-export-adeo-services.yaml` after any cluster rebuild.
 - Clean up any credential temp files and debug pods.
 
 ---
