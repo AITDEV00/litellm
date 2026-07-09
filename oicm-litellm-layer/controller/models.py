@@ -15,9 +15,13 @@ class OicmModel:
     mode: str = "chat"
     litellm_model_id: Optional[str] = None
     extra_args: str = ""
+    source: str = "local"
+    api_base_override: Optional[str] = None
 
     @property
     def api_base(self) -> str:
+        if self.api_base_override:
+            return self.api_base_override
         return (
             f"http://s-{self.uuid}.{self.namespace}.{CLUSTER_DOMAIN}"
             f":{MODEL_PORT}/v1"

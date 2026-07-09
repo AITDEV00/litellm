@@ -1,11 +1,12 @@
 import asyncio
 import logging
-from typing import Dict
+from typing import Dict, List
 
 from aiohttp import web
 from kubernetes import watch
 
 from .config import (
+    ENABLE_SUBMARINER_IMPORTS,
     HEALTH_PORT,
     MODEL_DEPLOYMENT_TYPE,
     NAMESPACE,
@@ -16,10 +17,12 @@ from .config import (
 )
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
-from .k8s_discovery import K8sDiscoverer
 from .litellm_client import LiteLLMClient
 from .models import OicmModel, detect_mode, sanitize_model_id
 from .reconciler import SyncReconciler
+from .sources import ModelSource
+from .sources.local_deployments import LocalDeploymentSource
+from .sources.submariner_imports import SubmarinerImportSource
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -27,10 +30,21 @@ logger = logging.getLogger("oicm-discovery")
 class DiscoveryController:
     def __init__(
         self,
-        discoverer: K8sDiscoverer | None = None,
+        sources: List[ModelSource] | None = None,
         litellm: LiteLLMClient | None = None,
     ):
-        self.discoverer = discoverer or K8sDiscoverer()
+        if sources is not None:
+            self.sources = sources
+        else:
+            self.sources: List[ModelSource] = [LocalDeploymentSource()]
+            if ENABLE_SUBMARINER_IMPORTS:
+                self.sources.append(SubmarinerImportSource())
+                logger.info("Submariner import source enabled")
+            else:
+                logger.info("Submariner import source disabled")
+
+        self.local_source = self.sources[0]
+
         self.litellm = litellm or LiteLLMClient()
         self.reconciler = SyncReconciler(self.litellm)
         self.fallback_reconciler = FallbackReconciler(
@@ -70,10 +84,23 @@ class DiscoveryController:
     async def full_sync(self):
         logger.info("Starting full sync...")
 
-        k8s_models = await self.discoverer.list_model_deployments()
+        discovered: Dict[str, OicmModel] = {}
+        for source in self.sources:
+            try:
+                models = await source.discover()
+                discovered.update(models)
+                logger.info(
+                    f"Source {source.__class__.__name__}: "
+                    f"discovered {len(models)} models"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Source {source.__class__.__name__} failed: {e}"
+                )
+
         litellm_by_uuid = await self.litellm.list_all_models_by_uuid()
 
-        plan = await self.reconciler.compute_plan(k8s_models, litellm_by_uuid)
+        plan = await self.reconciler.compute_plan(discovered, litellm_by_uuid)
         await self.reconciler.execute(plan)
 
         self._state = plan.new_state
@@ -98,7 +125,7 @@ class DiscoveryController:
             events = []
             try:
                 for event in w.stream(
-                    self.discoverer.apps_api.list_namespaced_deployment,
+                    self.local_source.apps_api.list_namespaced_deployment,
                     namespace=NAMESPACE,
                     label_selector=f"{WORKLOAD_TYPE_LABEL}={MODEL_DEPLOYMENT_TYPE}",
                     timeout_seconds=WATCH_TIMEOUT,
@@ -139,8 +166,8 @@ class DiscoveryController:
             logger.info(f"Deployment j-{uuid[:8]} not ready yet, skipping")
             return
 
-        model_id = await self.discoverer.discover_model_id(uuid)
-        extra_args = await self.discoverer.get_configmap_field(uuid, "EXTRA_ARGS") or ""
+        model_id = await self.local_source.discover_model_id(uuid)
+        extra_args = await self.local_source.get_configmap_field(uuid, "EXTRA_ARGS") or ""
 
         if not model_id:
             model_id = uuid
@@ -158,6 +185,7 @@ class DiscoveryController:
             total_replicas=dep.status.replicas or 0,
             mode=mode,
             extra_args=extra_args,
+            source="local",
         )
 
         if mode == "tts_skip":

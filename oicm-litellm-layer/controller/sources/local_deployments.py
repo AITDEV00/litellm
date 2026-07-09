@@ -6,7 +6,7 @@ from typing import Dict, Optional
 import httpx
 from kubernetes import client, config
 
-from .config import (
+from ..config import (
     CLUSTER_DOMAIN,
     MODEL_DEPLOYMENT_TYPE,
     MODEL_PORT,
@@ -14,12 +14,13 @@ from .config import (
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
-from .models import OicmModel, detect_mode, sanitize_model_id
+from ..models import OicmModel, detect_mode, sanitize_model_id
+from .base import ModelSource
 
 logger = logging.getLogger("oicm-discovery")
 
 
-class K8sDiscoverer:
+class LocalDeploymentSource(ModelSource):
     def __init__(self):
         kubeconfig_path = os.getenv("KUBECONFIG")
         try:
@@ -37,7 +38,7 @@ class K8sDiscoverer:
         self.apps_api = client.AppsV1Api()
         self.core_api = client.CoreV1Api()
 
-    async def list_model_deployments(self) -> Dict[str, OicmModel]:
+    async def discover(self) -> Dict[str, OicmModel]:
         loop = asyncio.get_event_loop()
         deployments = await loop.run_in_executor(
             None,
@@ -76,6 +77,7 @@ class K8sDiscoverer:
                 total_replicas=total,
                 mode=mode,
                 extra_args=extra_args,
+                source="local",
             )
 
         return models

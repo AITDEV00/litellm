@@ -160,6 +160,7 @@ class LiteLLMClient:
                 "mode": litellm_mode,
                 "oicm_uuid": model.uuid,
                 "oicm_namespace": model.namespace,
+                "oicm_source": model.source,
             },
         }
 
