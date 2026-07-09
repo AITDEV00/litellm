@@ -265,6 +265,87 @@ kubectl -n <privileged-ns> exec <hostpath-pod> -- sh -c \
 Abu Dhabi's gateway (`prd-oi-k8worker01`) — confirm whether UFW is active here too; if so, allow
 4800 from the Al Ain and local subnets.
 
+### 7f. **Calico dropping cross-cluster traffic (data-plane failure)** — REQUIRED for Canal/Calico clusters
+When Submariner is healthy (tunnel up, ServiceImport synced, DNS resolving) but `curl` to a
+globalnet IP times out, the root cause is Calico's default FORWARD policy. Packets arrive via
+flannel.1 with a remote-cluster globalnet source IP (e.g. `242.0.1.1` from Al Ain), and Calico's
+`cali-FORWARD` chain drops them because the source is not in the local pod CIDR (`10.42.0.0/16`)
+and there is no explicit allow policy. The packet flow is: Al Ain sends to `242.0.0.253:8080` via
+WireGuard, the Abu Dhabi gateway DNATs to `10.42.6.80:8080` via kube-proxy, flannel.1 delivers the
+packet to the pod's node, but Calico drops it at the FORWARD chain before it reaches the pod.
+
+**Do NOT work around this with manual `iptables -I` rules.** A raw iptables rule is fragile: it
+must be inserted at position 1 (before `cali-FORWARD`), it won't survive a reboot, and Calico can
+overwrite it during reconciliation. Use a Calico GlobalNetworkPolicy instead, which is managed by
+the Calico controller, applies to all nodes automatically, and persists across reboots:
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-submariner-cross-cluster
+spec:
+  order: 100
+  selector: all()
+  types:
+  - Ingress
+  ingress:
+  - action: Allow
+    source:
+      nets:
+      - 242.0.0.0/24   # Abu Dhabi globalnet (for symmetric return traffic)
+      - 242.0.1.0/24   # Al Ain globalnet (remote cluster)
+EOF
+
+# verify:
+kubectl get globalnetworkpolicy -A
+```
+> **Why both CIDRs:** The policy allows ingress from both clusters' globalnet ranges. Al Ain's
+> `242.0.1.0/24` is the remote source that needs to reach Abu Dhabi pods. Abu Dhabi's own
+> `242.0.0.0/24` is needed for return traffic from the gateway back to pods during DNAT.
+>
+> **Verification:** after applying, `curl http://242.0.0.253:8080/v1/models` from Al Ain should
+> return HTTP 200. Run 5 rapid curls to confirm no alternating/unstable behavior.
+
+### 7g. **`brokerK8sInsecure=true` — TLS certificate hostname mismatch**
+If the Lighthouse agent logs show `failed to sync ServiceImports: x509: certificate signed by
+unknown authority` or `certificate is valid for X, not Y`, the broker API server's TLS certificate
+doesn't match the IP/hostname that Al Ain uses to reach it (common when firewall rules route through
+a different IP than the cert was issued for). Patch the Submariner CR on the consuming cluster
+(Al Ain in this case, but documented here for completeness):
+```bash
+kubectl -n submariner-operator patch submariner submariner --type=merge \
+  -p '{"spec":{"brokerK8sInsecure":true}}'
+# restart the lighthouse agent to pick up the change:
+kubectl -n submariner-operator delete pod -l app=submariner-lighthouse-agent
+```
+> This skips TLS verification for broker API calls only. It is acceptable in air-gapped
+> environments where the broker IP is reached via firewall NAT and the cert was issued for
+> a different hostname.
+
+### 7h. **ServiceExport disappearing — globalnet IP not allocated**
+If `kubectl get globalingressips.submariner.io -A` returns `No resources found` and the globalnet
+IP (e.g. `242.0.0.253`) is not assigned as an ExternalIP on any service, the ServiceExport was
+lost. Without it, the globalnet daemon never creates the internal K8s service with the globalnet
+ExternalIP, so kube-proxy has no DNAT rule and cross-cluster packets are routed out the physical
+interface instead of being delivered to the pod. Re-create it:
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: s-766b1720-f516-4077-b22c-6ce97c045470
+  namespace: adeo
+EOF
+
+# verify the globalnet IP was allocated and the internal service was created:
+kubectl get globalingressips.submariner.io -A
+kubectl -n adeo get svc   # should show a submariner-* service with EXTERNAL-IP 242.0.0.253
+```
+> The internal service name is auto-generated (e.g. `submariner-adh66xzl7h2o7p723odni2axzs2heyu3`).
+> It has the globalnet IP as its ExternalIP and the same selector as the original service, so
+> kube-proxy's `KUBE-SERVICES` chain DNATs `242.0.0.253:8080` to the pod IP.
+
 ---
 
 ## 8. Verify Abu Dhabi is healthy
@@ -300,33 +381,44 @@ the UFW rule in §7e, enforced host-side, not usually a perimeter-firewall item.
 
 ---
 
-## 10. The three root causes (why this was hard) — reference
+## 10. The root causes (why this was hard) — reference
 
-The multi-hour outage was **three independent bugs stacked**, each hiding the next; fixing one alone
-left `subctl` still showing `error`:
+The outage was **multiple independent bugs stacked**, each hiding the next; fixing one alone
+left `subctl` still showing `error` or cross-cluster traffic still failing:
 
 1. **PSK mismatch** — Abu Dhabi had no PSK, Al Ain did → WireGuard silently dropped handshakes. Fix: identical `ceIPSecPSK` on both (§4).
 2. **UFW blocking UDP 4800** — intra-cluster VXLAN dropped by host firewall → pinger failed. Fix: allow 4800 on the gateway node (§7e).
 3. **Missing globalnet RBAC** — chart never created it → globalnet pod never scheduled → no global IP → health check failed. Fix: apply the 5 RBAC objects from source (§7d).
+4. **TLS certificate mismatch** — broker API reached via firewall NAT IP, cert issued for different hostname → Lighthouse agent couldn't sync ServiceImports. Fix: `brokerK8sInsecure=true` on the Submariner CR (§7g).
+5. **ServiceExport lost** — globalnet daemon had no ServiceExport to process → no globalnet IP allocated → no DNAT rule → packets routed out physical interface. Fix: re-create the ServiceExport (§7h).
+6. **Calico dropping cross-cluster traffic** — packets arrived via flannel.1 with remote globalnet source IP, Calico's default FORWARD policy dropped them before they reached the pod. Fix: Calico GlobalNetworkPolicy allowing globalnet CIDRs (§7f). This was the final data-plane blocker.
 
 Diagnostic lessons: for a CrashLooper, `kubectl logs --previous` has the truth; trust the CRDs and
 `ip -s link show submariner` counters (RX frozen while TX climbs = return path / crypto reject) over
-pod status; `subctl diagnose all` explicitly flags the VXLAN(4800) and CNI issues.
+pod status; `subctl diagnose all` explicitly flags the VXLAN(4800) and CNI issues. For data-plane
+issues (tunnel up, DNS resolves, but curl times out), use `tcpdump -i any -n "port 8080 and host
+<globalnet-ip>"` on both the gateway and the pod's node simultaneously to trace where packets die.
+If packets arrive on `flannel.1` but never appear on the pod's `cali` interface, Calico is dropping
+them in the FORWARD chain.
 
 ---
 
 ## 11. Post-deployment hardening
 - **Rotate the broker token** (exposed in logs during debugging): delete + recreate `submariner-k8s-broker-client-token`.
 - **Persist out-of-Helm fixes**: the PSK, air-gapped flag, and globalnet RBAC were applied via patch/apply. Put PSK + air-gapped in your values file; re-apply globalnet RBAC after any `helm upgrade`.
+- **Calico GlobalNetworkPolicy**: the `allow-submariner-cross-cluster` policy (§7f) is applied
+  outside Helm. Re-apply after any Calico upgrade or cluster rebuild. Add it to a GitOps manifest
+  set for persistence.
 - Clean up any credential temp files and debug pods.
 
 ---
 
 # APPENDIX A — Full working command reference (Abu Dhabi side)
 
-Abu Dhabi was mostly the "correct" cluster, but two of the three root causes touch it directly:
-the **PSK must be set here** (it was empty — root cause #1), and its gateway node **may also have
-UFW** blocking the tunnel/VXLAN ports. Full commands below.
+Abu Dhabi was mostly the "correct" cluster, but several of the root causes touch it directly:
+the **PSK must be set here** (it was empty — root cause #1), its gateway node **may also have
+UFW** blocking the tunnel/VXLAN ports, the **Calico policy** must be applied for data-plane
+traffic, and the **ServiceExport** must exist for the globalnet IP to be allocated. Full commands below.
 
 ## A.1 PSK — set on Abu Dhabi to match Al Ain (root cause #1)
 
@@ -411,3 +503,116 @@ kubectl -n submariner-k8s-broker get secret submariner-k8s-broker-client-token \
 
 Same ConfigMap + chroot approach as the Al Ain guide §A.3, substituting `prd-oi-k8worker01` and the
 Abu Dhabi Harbor image. Use it to confirm `latest handshake` appears once the PSK matches on both sides.
+
+## A.5 Calico GlobalNetworkPolicy — allow Submariner cross-cluster traffic (root cause #6)
+
+This is the fix that enabled cross-cluster data-plane traffic. Without it, packets arrive at the
+pod's node via flannel.1 but Calico drops them in the FORWARD chain because the source IP
+(`242.0.1.1` from Al Ain) is not in the local pod CIDR. Apply the policy once; Calico distributes
+it to all nodes automatically:
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-submariner-cross-cluster
+spec:
+  order: 100
+  selector: all()
+  types:
+  - Ingress
+  ingress:
+  - action: Allow
+    source:
+      nets:
+      - 242.0.0.0/24   # Abu Dhabi globalnet
+      - 242.0.1.0/24   # Al Ain globalnet
+EOF
+
+# verify:
+kubectl get globalnetworkpolicy -A
+```
+
+### Verifying the data-plane end-to-end
+After applying the policy, verify from the Al Ain side (from a pod or node that can reach the
+WireGuard tunnel):
+```bash
+# globalnet IP (Submariner allocated):
+curl -sv --connect-timeout 10 http://242.0.0.253:8080/v1/models
+
+# DNS-based (from a pod using cluster DNS):
+curl -sv --connect-timeout 10 \
+  http://s-766b1720-f516-4077-b22c-6ce97c045470.adeo.svc.clusterset.local:8080/v1/models
+
+# stability check (5 rapid curls, all should return 200):
+for i in 1 2 3 4 5; do
+  curl -s -o /dev/null -w "%{http_code}\n" --connect-timeout 5 http://242.0.0.253:8080/v1/models
+done
+```
+
+### Data-plane debugging commands (if curl still times out)
+Trace the packet flow across both Abu Dhabi nodes simultaneously to find where packets die:
+```bash
+# 1. On the Abu Dhabi gateway node, confirm packets arrive via WireGuard and get DNATed:
+tcpdump -i any -n -c 20 "host 242.0.0.253 and port 8080"
+#    expect: "submariner In IP 242.0.1.1.xxxx > 242.0.0.253.8080: Flags [S]"
+#    then:   "flannel.1 Out IP 242.0.1.1.xxxx > 10.42.6.80.8080: Flags [S]"  (DNATed)
+
+# 2. On the pod's node, confirm packets arrive via flannel.1:
+tcpdump -i any -n -c 20 "port 8080 and host 242.0.1.1"
+#    expect: "flannel.1 In IP 242.0.1.1.xxxx > 10.42.6.80.8080: Flags [S]"
+#    if nothing arrives, the gateway's DNAT or route is broken
+
+# 3. On the pod's node, check if packets reach the pod's cali interface:
+tcpdump -i <cali-interface> -n -c 20 "host 242.0.1.1"
+#    if 0 packets, Calico is dropping them in FORWARD. Apply the GlobalNetworkPolicy (above).
+
+# 4. Check Calico FORWARD chain for drops:
+iptables -L FORWARD -n -v | head -10
+iptables -L cali-FORWARD -n -v | head -20
+```
+
+## A.6 ServiceExport — re-create if globalnet IP is not allocated (root cause #5)
+
+If `kubectl get globalingressips.submariner.io -A` returns no resources, the ServiceExport was
+lost and the globalnet daemon has nothing to process. Without it, no internal service with the
+globalnet ExternalIP is created, so kube-proxy has no DNAT rule for `242.0.0.253`:
+```bash
+# check current state:
+kubectl get serviceexport -A
+kubectl get globalingressips.submariner.io -A
+kubectl -n adeo get svc   # look for a submariner-* service with EXTERNAL-IP 242.0.0.253
+
+# if missing, re-create:
+kubectl apply -f - <<'EOF'
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: s-766b1720-f516-4077-b22c-6ce97c045470
+  namespace: adeo
+EOF
+
+# verify (within a few seconds):
+kubectl get globalingressips.submariner.io -A
+kubectl -n adeo get svc   # should now show submariner-* with EXTERNAL-IP 242.0.0.253
+```
+
+## A.7 `brokerK8sInsecure=true` — TLS cert mismatch on broker API (root cause #4)
+
+If the Lighthouse agent can't sync ServiceImports due to TLS errors, the broker API is being
+reached via a different IP than the cert was issued for (firewall NAT). Skip TLS verification
+for broker calls:
+```bash
+# check current value:
+kubectl -n submariner-operator get submariner submariner -o jsonpath='{.spec.brokerK8sInsecure}{"\n"}'
+
+# patch:
+kubectl -n submariner-operator patch submariner submariner --type=merge \
+  -p '{"spec":{"brokerK8sInsecure":true}}'
+
+# restart lighthouse agent:
+kubectl -n submariner-operator delete pod -l app=submariner-lighthouse-agent
+
+# verify ServiceImports are syncing:
+kubectl get serviceimport -A
+```

@@ -5,7 +5,7 @@ existing Abu Dhabi Submariner broker (0.24.0). Al Ain runs the **operator chart 
 the broker already exists in Abu Dhabi. End goal: Al Ain's LiteLLM gateway reaches the
 GLM 5.2 model in Abu Dhabi over an encrypted tunnel.
 
-> Al Ain is the harder side. It hit **seven** distinct problems the first time. Every one is
+> Al Ain is the harder side. It hit **six** distinct problems the first time. Every one is
 > pre-empted below. Do the steps in order — especially the PSA label (§4) BEFORE install.
 
 ---
@@ -234,6 +234,96 @@ kubectl -n oik8s-cilium-system exec host-debug -- sh -c 'chroot /host /usr/sbin/
 > Only the **gateway node** needs 4800 inbound (non-gateway nodes only send *to* it). If you add a
 > second gateway for HA later, that node needs the same rule.
 
+### 7e. **Pin lighthouse pods to the gateway node** — clean broker access without NAT
+
+The broker API server (`10.10.128.71:6443`) is only reachable from `adeo-gpu-03` (`10.34.104.19`)
+through the firewall. The lighthouse-agent and lighthouse-coredns pods need broker access to sync
+ServiceImports. By default they land on master nodes that can't reach the broker.
+
+The clean fix: pin them to `adeo-gpu-03` using the Submariner CR's built-in `nodeSelector` and
+`tolerations` fields. The operator propagates these to the ServiceDiscovery CR, which propagates
+them to the lighthouse deployments. Pod traffic to the broker is SNAT'd by Cilium's default
+MASQUERADE rule to the node IP `10.34.104.19`, which the firewall allows.
+
+```bash
+# 1) verify the node has the hostname label and gateway label:
+kubectl get node adeo-gpu-03 -o jsonpath='{.metadata.labels.kubernetes\.io/hostname}{"\n"}'   # adeo-gpu-03
+kubectl get node adeo-gpu-03 -o jsonpath='{.metadata.labels.submariner\.io/gateway}{"\n"}'    # true
+
+# 2) verify a pod on adeo-gpu-03 can reach the broker (Cilium SNAT -> node IP -> firewall):
+kubectl -n oik8s-cilium-system exec <debug-pod> -- timeout 5 bash -c \
+  'echo | nc -w 3 10.10.128.71 6443 && echo REACHABLE || echo UNREACHABLE'
+
+# 3) patch the Submariner CR (NOT the ServiceDiscovery CR; the Submariner controller overwrites SD spec):
+kubectl -n submariner-operator patch submariner submariner --type=merge -p '{
+  "spec": {
+    "nodeSelector": { "kubernetes.io/hostname": "adeo-gpu-03" },
+    "tolerations": [ { "operator": "Exists" } ]
+  }
+}'
+
+# 4) wait for the operator to reconcile (it propagates Submariner.spec.nodeSelector -> ServiceDiscovery.spec -> deployments):
+sleep 15
+kubectl -n submariner-operator get deploy submariner-lighthouse-agent -o jsonpath='{.spec.template.spec.nodeSelector}{"\n"}'
+#   should show: {"kubernetes.io/hostname":"adeo-gpu-03"}
+
+# 5) if the pods don't reschedule within 30s, force a rollout:
+kubectl -n submariner-operator rollout restart deploy/submariner-lighthouse-agent deploy/submariner-lighthouse-coredns
+sleep 30
+kubectl -n submariner-operator get pods -l 'app in (submariner-lighthouse-agent,submariner-lighthouse-coredns)' -o wide
+#   all pods should show NODE=adeo-gpu-03
+```
+
+> **Why not the ServiceDiscovery CR?** The Submariner controller's `serviceDiscoveryReconciler`
+> rebuilds the ServiceDiscovery spec from `submariner.spec` on every reconcile, so any fields you set
+> directly on the ServiceDiscovery CR get overwritten. Set them on the Submariner CR and they
+> propagate downward automatically.
+>
+> **Why not a NAT gateway?** A manual iptables MASQUERADE + static routes on every node is fragile
+> (not persistent across reboots, not managed by Kubernetes, breaks on node replacement). Pinning the
+> pods to the gateway node is a one-line CR patch that survives operator restarts and Helm upgrades.
+
+### 7f. **TLS certificate mismatch** — `brokerK8sInsecure=true`
+
+If the broker API server's TLS certificate doesn't match the IP the lighthouse agent connects to
+(common when using an IP instead of a hostname), the agent gets `x509: certificate signed by
+unknown authority` or `x509: hostname mismatch` errors. The fix is to set `brokerK8sInsecure` on
+the Submariner CR:
+
+```bash
+kubectl -n submariner-operator patch submariner submariner --type=merge \
+  -p '{"spec":{"brokerK8sInsecure":true}}'
+# verify it propagated to the ServiceDiscovery CR:
+kubectl -n submariner-operator get servicediscovery service-discovery \
+  -o jsonpath='{.spec.brokerK8sInsecure}{"\n"}'   # true
+# restart lighthouse agent to pick up the change:
+kubectl -n submariner-operator rollout restart deploy/submariner-lighthouse-agent
+```
+
+### 7g. **ServiceExport lost** — re-create it if the globalnet IP disappears
+
+If the ServiceExport is deleted (or never created), the globalnet daemon won't allocate a global
+ingress IP, and cross-cluster DNS resolution fails. On the **Abu Dhabi** cluster (where the service
+lives):
+
+```bash
+# check if the ServiceExport exists:
+kubectl get serviceexport -A | grep <service-name>
+# if missing, create it:
+kubectl apply -f - <<EOF
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: <service-name>
+  namespace: <service-namespace>
+EOF
+# verify the globalnet IP was allocated (on Abu Dhabi):
+kubectl get globalingressip -A | grep <service-name>
+# verify from Al Ain:
+kubectl get serviceimport -A | grep <service-name>
+kubectl -n oik8s-cilium-system exec <debug-pod> -- nslookup <service-name>.<namespace>.svc.clusterset.local
+```
+
 ---
 
 ## 8. Debugging with `wg show` (no SSH, no wg in the image)
@@ -285,27 +375,36 @@ Fully working end-state:
 |---|---|---|---|---|
 | `10.34.104.19` ↔ `10.10.128.72` (both ways) | | **4500** | UDP | WireGuard tunnel data |
 | `10.34.104.19` ↔ `10.10.128.72` (both ways) | | **4490** | UDP | NAT-traversal discovery |
-| `10.34.104.19` → `10.10.128.71` | | **6443** | TCP | Broker (metadata) |
+| `10.34.104.19` → `10.10.128.71` | | **6443** | TCP | Broker API (lighthouse agent, pinned to `adeo-gpu-03` via §7e) |
 | Al Ain nodes `10.34.104.0/24` → `adeo-gpu-03` | | **4800** | UDP | **Intra-cluster VXLAN (UFW, §7d)** |
 
 Bidirectional is required for 4490/4500 (WireGuard reply must return; stateful rules can expire in
-the handshake gaps). **51820 is NOT used.**
+the handshake gaps). **51820 is NOT used.** Only `adeo-gpu-03` needs TCP 6443 to the broker because
+the lighthouse pods are pinned there (§7e); other nodes don't need broker access. The same rule
+also lets you run `kubectl` against the Abu Dhabi cluster from `adeo-gpu-03` for ops/debugging
+(see Appendix A.11).
 
 ---
 
-## 11. The three root causes of the long outage (reference)
+## 11. Root causes of the outage (reference)
 
-Three independent bugs, stacked — each hid the next, so fixing one alone still showed `error`:
+Six independent bugs, stacked — each hid the next, so fixing one alone still showed `error`:
 
 1. **PSK mismatch** — Abu Dhabi had no PSK, Al Ain did → WireGuard silently dropped handshake responses (MAC verify fails). Fix: identical `ceIPSecPSK` both clusters.
 2. **UFW blocking UDP 4800** — intra-cluster VXLAN dropped on the gateway node → pinger failed. Fix: `ufw allow ... 4800/udp` on `adeo-gpu-03` (via chroot).
 3. **Missing globalnet RBAC** — chart never created it → globalnet pod never scheduled → `submariner` interface had no global IP → health check failed. Fix: apply the 5 RBAC objects from source.
+4. **TLS certificate mismatch** — broker API cert didn't match the IP → lighthouse agent got x509 errors. Fix: `brokerK8sInsecure=true` on the Submariner CR (§7f).
+5. **ServiceExport lost** — no globalnet IP allocated, cross-cluster DNS failed. Fix: re-create the ServiceExport on Abu Dhabi (§7g).
+6. **Lighthouse pods on wrong node** — broker API (10.10.128.71:6443) only reachable from `adeo-gpu-03` through the firewall, but lighthouse pods landed on master nodes. Fix: pin lighthouse pods to `adeo-gpu-03` via Submariner CR `nodeSelector`/`tolerations` (§7e).
 
 Empirical lessons that cracked it: tcpdump proved packets *were* arriving (ruled out "firewall
 return-path"); `wg show` (via chroot) proved the handshake state; reading the operator RBAC from
 source revealed the chart gap; checking UFW on the actual host (not the pod) found the 4800 block.
 `subctl diagnose all` independently flagged the VXLAN(4800) and CNI issues. Ground-truth inspection
-beat reasoning-from-symptoms every time.
+beat reasoning-from-symptoms every time. For the broker access problem, reading the Submariner
+operator source code revealed that `submariner.spec.nodeSelector` propagates to the ServiceDiscovery
+CR and then to the lighthouse deployments — a clean, Kubernetes-native fix that replaces the
+fragile manual NAT gateway (iptables MASQUERADE + static routes on every node).
 
 ---
 
@@ -339,7 +438,17 @@ kubectl -n oik8s-cilium-system exec host-debug -- \
 ## 13. Cleanup + hardening
 - Delete debug artefacts: `kubectl -n oik8s-cilium-system delete pod host-debug wgcheck --ignore-not-found; kubectl -n oik8s-cilium-system delete configmap wg-binary --ignore-not-found`.
 - `rm -f /tmp/broker-blob.txt broker-creds.yaml /tmp/wg.b64` (hold the token/PSK).
-- **Persist out-of-Helm fixes** so `helm upgrade --reuse-values` doesn't revert them: PSK + air-gapped in values; re-apply globalnet RBAC after any upgrade; UFW 4800 rule is host-side (already persistent).
+- **Persist out-of-Helm fixes** so `helm upgrade --reuse-values` doesn't revert them: PSK + air-gapped in values; re-apply globalnet RBAC after any upgrade; UFW 4800 rule is host-side (already persistent). The `nodeSelector`/`tolerations` on the Submariner CR (§7e) and `brokerK8sInsecure` (§7f) are in the CR spec, so they survive operator restarts but NOT `helm upgrade` (Helm re-applies the Submariner CR from values). Add these to your Helm values file:
+  ```yaml
+  submariner:
+    spec:
+      brokerK8sInsecure: true
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+      - operator: Exists
+  ```
+- **Remove the old NAT gateway** if upgrading from the manual approach: delete the iptables MASQUERADE + FORWARD rules on `adeo-gpu-03`, and delete the static route `10.10.128.0/24 via 10.34.104.19` on all other nodes (use the routeagent pods which have hostNetwork access). See Appendix A.9.
 - Rotate the broker token (exposed during debugging).
 
 ---
@@ -701,3 +810,195 @@ kubectl -n oik8s-cilium-system delete pod nettest sniff sniff-hex ipt-check ufw-
 kubectl -n oik8s-cilium-system delete configmap wg-binary --ignore-not-found
 rm -f /tmp/wg.b64 /tmp/broker-blob.txt broker-creds.yaml
 ```
+
+## A.9 Remove the old manual NAT gateway (replaced by §7e)
+
+If you previously set up a manual NAT gateway (iptables MASQUERADE + static routes on every node)
+before switching to the clean `nodeSelector` approach (§7e), remove the old rules. Use the `nat-debug`
+pod on `adeo-gpu-03` (or any privileged hostPath pod on that node) and the routeagent pods on other
+nodes (they run with `hostNetwork` so they see the host routing table):
+
+```bash
+# 1) Remove iptables MASQUERADE + FORWARD rules on adeo-gpu-03:
+kubectl -n oik8s-cilium-system exec nat-debug -- chroot /host sh -c '
+  iptables -t nat -D POSTROUTING -d 10.10.128.0/24 -j MASQUERADE 2>/dev/null
+  iptables -D FORWARD -s 10.34.104.0/24 -d 10.10.128.0/24 -j ACCEPT 2>/dev/null
+  iptables -D FORWARD -s 10.10.128.0/24 -d 10.34.104.0/24 -j ACCEPT 2>/dev/null
+  echo "Remaining custom NAT/FORWARD rules for 10.10.128.0/24:"
+  iptables -t nat -S | grep "10.10.128.0/24" | grep -v CILIUM
+  iptables -S FORWARD | grep "10.10.128.0/24"
+'   # both outputs should be empty
+
+# 2) Remove static routes on all non-gateway nodes (routeagent pods have hostNetwork):
+for pod in $(kubectl -n submariner-operator get pods -l app=submariner-routeagent -o jsonpath='{.items[*].metadata.name}'); do
+    node=$(kubectl -n submariner-operator get pod $pod -o jsonpath='{.spec.nodeName}')
+    [ "$node" != "adeo-gpu-03" ] && \
+      echo "Cleaning $node" && \
+      kubectl -n submariner-operator exec $pod -- ip route del 10.10.128.0/24 via 10.34.104.19 dev bond0 2>/dev/null
+done
+
+# 3) Verify no node still has the static route:
+for pod in $(kubectl -n submariner-operator get pods -l app=submariner-routeagent -o jsonpath='{.items[*].metadata.name}'); do
+    node=$(kubectl -n submariner-operator get pod $pod -o jsonpath='{.spec.nodeName}')
+    route=$(kubectl -n submariner-operator exec $pod -- ip route show 10.10.128.0/24 2>/dev/null)
+    echo "$node: ${route:-CLEAN}"
+done
+```
+
+## A.10 Verify lighthouse broker sync after pinning pods (§7e)
+
+After pinning lighthouse pods to `adeo-gpu-03`, confirm the agent can still sync ServiceImports
+from the broker:
+
+```bash
+# lighthouse agent logs should show ServiceImport sync (not connection errors):
+kubectl -n submariner-operator logs -l app=submariner-lighthouse-agent --tail=20 | grep -iE 'serviceimport|Ready|broker|error'
+
+# cross-cluster connectivity (from any pod on adeo-gpu-03):
+kubectl -n oik8s-cilium-system exec nat-debug -- curl -s -o /dev/null -w '%{http_code}\n' \
+  --connect-timeout 5 http://242.0.0.253:8080/health   # should return 200
+```
+
+## A.11 Running kubectl against Abu Dhabi from adeo-gpu-03
+
+Only `adeo-gpu-03` (`10.34.104.19`) has the firewall rule allowing TCP 6443 to the Abu Dhabi API
+server (`10.10.128.71`). You can't reach Abu Dhabi's kubectl from `aitdev00` or any other Al Ain
+node. To run kubectl against Abu Dhabi, create a privileged debug pod on `adeo-gpu-03` with the
+kubeconfig mounted, then use the host's `kubectl` binary via chroot.
+
+**Step 1 — Export the Abu Dhabi kubeconfig from `aitdev00`:**
+
+The kubeconfig must point at `10.10.128.71:6443` (the broker API server, which is the only Abu
+Dhabi API server reachable through the firewall). If it points at a different server IP (e.g.
+`10.10.128.75`), fix it:
+```bash
+# on aitdev00:
+sed 's|10.10.128.75:6443|10.10.128.71:6443|g' /tmp/abudhabi-kubeconfig > /tmp/abudhabi-kubeconfig-fixed
+grep server /tmp/abudhabi-kubeconfig-fixed   # must show 10.10.128.71:6443
+```
+
+**Step 2 — Ship the kubeconfig into a pod on `adeo-gpu-03` via ConfigMap:**
+
+The nettest image lacks `tar` so `kubectl cp` doesn't work. Use a ConfigMap instead:
+```bash
+kubectl -n oik8s-cilium-system create configmap abudhabi-kubeconfig \
+  --from-file=abudhabi-kubeconfig-fixed=/tmp/abudhabi-kubeconfig-fixed
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata: { name: ad-debug, namespace: oik8s-cilium-system }
+spec:
+  hostNetwork: true
+  hostPID: true
+  nodeSelector: { kubernetes.io/hostname: adeo-gpu-03 }
+  tolerations: [{ operator: Exists }]
+  containers:
+  - name: debug
+    image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
+    command: ["sleep","600"]
+    securityContext: { privileged: true }
+    volumeMounts:
+    - { name: host, mountPath: /host }
+    - { name: kubeconfig, mountPath: /kubeconfig }
+  volumes:
+  - { name: host, hostPath: { path: /, type: Directory } }
+  - { name: kubeconfig, configMap: { name: abudhabi-kubeconfig } }
+  restartPolicy: Never
+EOF
+
+kubectl -n oik8s-cilium-system wait --for=condition=Ready pod/ad-debug --timeout=30s
+```
+
+**Step 3 — Run kubectl against Abu Dhabi via the host's binary:**
+
+The host has `kubectl` at `/usr/bin/kubectl`. Copy the kubeconfig to the host filesystem so chroot
+can read it, then run any kubectl command:
+```bash
+# copy kubeconfig into the host filesystem:
+kubectl -n oik8s-cilium-system exec ad-debug -- \
+  sh -c 'cp /kubeconfig/abudhabi-kubeconfig-fixed /host/tmp/abudhabi-kubeconfig'
+
+# now run kubectl against Abu Dhabi (chroot uses the host's kubectl binary):
+kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl -n submariner-operator get pods -o wide'
+
+# examples:
+kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get nodes -o wide'
+
+kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl -n submariner-operator get servicediscovery -o yaml'
+
+kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get globalingressip -A'
+```
+
+**Step 4 — Clean up when done:**
+```bash
+kubectl -n oik8s-cilium-system delete pod ad-debug --ignore-not-found --force --grace-period=0
+kubectl -n oik8s-cilium-system delete configmap abudhabi-kubeconfig --ignore-not-found
+rm -f /tmp/abudhabi-kubeconfig-fixed
+# /tmp/abudhabi-kubeconfig remains on the adeo-gpu-03 host (contains broker token; delete it if concerned):
+#   kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c 'rm -f /tmp/abudhabi-kubeconfig'
+```
+
+> **Why not `kubectl cp`?** The nettest image doesn't include `tar`, which `kubectl cp` requires.
+> The ConfigMap approach avoids this entirely. If you have an image with `kubectl` built in
+> (e.g. `bitnami/kubectl`), you can skip the chroot and run directly in the container.
+>
+> **Why `10.10.128.71` and not `10.10.128.75`?** The firewall rule only allows
+> `10.34.104.19 -> 10.10.128.71:6443`. Other Abu Dhabi API server IPs (`.72`-`.76`) are not
+> reachable from Al Ain. The kubeconfig may list a different server; always fix it to `.71`.
+
+**Reference — the full Abu Dhabi kubeconfig (server already fixed to `10.10.128.71`):**
+
+Save this as `/tmp/abudhabi-kubeconfig` on `aitdev00` and skip Step 1 entirely:
+```yaml
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJlVENDQVIrZ0F3SUJBZ0lCQURBS0J
+nZ3Foa2pPUFFRREFqQWtNU0l3SUFZRFZRUUREQmx5YTJVeUxYTmwKY25abGNpMWpZVUF4TnpVNU1UVXpPREkwTUI0WERUSTFNRGt5T1
+RFek5UQXlORm9YRFRNMU1Ea3lOekV6TlRBeQpORm93SkRFaU1DQUdBMVVFQXd3WmNtdGxNaTF6WlhKMlpYSXRZMkZBTVRjMU9URTFNe
+md5TkRCWk1CTUdCeXFHClNNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJPWXJUMUhUSFpOT2xndHRVRDV2L2EwYWNQOUVWWFdjcWFxQlc2
+MnEKT3JzcDg4NzJ5UGRxbEk0amlkd3dNTUNmWEFjTFVSYzBQMjAvZWdZZEF5YzRpb1dqUWpCQU1BNEdBMVVkRHdFQgovd1FFQXdJQ3B
+EQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGNxRVhCZGwxOW5tdktraWhPCnluRERMZHNrelRBS0JnZ3Foa2pPUF
+FRREFnTklBREJGQWlCaFVvdFhvdTJpQk9pL0lkNkdWTWNBU2FjcC9LazIKYkFyOThPL2RtOHdIT0FJaEFKSDZRTE5yb3BGNERkUENRN
+GFodDBSVGN5aTZwc3MxUHdjWDd4YWtXYk9yCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+    server: https://10.10.128.71:6443
+  name: default
+contexts:
+- context:
+    cluster: default
+    user: default
+  name: default
+current-context: default
+kind: Config
+preferences: {}
+users:
+- name: default
+  user:
+    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJrekNDQVRpZ0F3SUJBZ0lJSnZZNHc0L0
+txLzR3Q2dZSUtvWkl6ajBFQXdJd0pERWlNQ0FHQTFVRUF3d1oKY210bE1pMWpiR2xsYm5RdFkyRkFNVGMxT1RFMU16Z3lOREFlRncwe
+U5UQTVNamt4TXpVd01qUmFGdzB5TmpBNQpNamt4TXpVd01qUmFNREF4RnpBVkJnTlZCQW9URG5ONWMzUmxiVHB0WVhOMFpYSnpNUlV3
+RXdZRFZRUURFd3h6CmVYTjBaVzA2WVdSdGFXNHdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVEMyaXhyeklVMEhKMHg
+KVCtWSVhOWTJyOUJXN3hJRTdSUnlxeGoySHNrKzdvdGM0MkpKYk92djdmREpEYVJlNkRvR1k3WksvaVl3a2ZBZQpnQTFnTU5mOW8wZ3
+dSakFPQmdOVkhROEJBZjhFQkFNQ0JhQXdFd1lEVlIwbEJBd3dDZ1lJS3dZQkJRVUhBd0l3Ckh3WURWUjBqQkJnd0ZvQVVhSDY5Q0tOT
+XIzcXVYU1A2UDRHR2FVQVNVZ0F3Q2dZSUtvWkl6ajBFQXdJRFNRQXcKUmdJaEFPNXpDVk9PcFFxcnhYSXhTTFZrU1REVndzTEtEcm42
+NDkyazl0aFdwc2FWQWlFQTEvR0IxZVhHV0w3awprMmwxU1hEc3hTenl2cXN6MmhMM3ByMm9pTHBPTTU4PQotLS0tLUVORCBDRVJUSUZ
+JQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlCZURDQ0FSK2dBd0lCQWdJQkFEQUtCZ2dxaGtqT1BRUURBak
+FrTVNJd0lBWURWUVFEREJseWEyVXlMV05zCmFXVnVkQzFqWVVBeE56VTVNVFV6T0RJME1CNFhEVEkxTURreU9URXpOVEF5TkZvWERU
+TTFNRGt5TnpFek5UQXkKTkZvd0pERWlNQ0FHQTFVRUF3d1pjbXRsTWkxamJHbGxiblF0WTJGQU1UYzFPVEUxTXpneU5EQlpNQk1HQnlx
+RwpTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSXo2WHhwdWhuY0gyYUd6V29Dc3JvM0puK21XQXFhalh0VmNoY1I2CjljTUVZSmhKOUN
+1cW9VVUlXV1VYUlVhK2NQdE1RcXVoemlEa2N3RzZqTEhvZFhLalFqQkFNQTRHQTFVZER3RUIKL3dRRUF3SUNwREFQQmdOVkhSTUJBZj
+hFQlRBREFRSC9NQjBHQTFVZERnUVdCQlJvZnIwSW8weXZlcTVkSS9vLwpnWVpwUUJKU0FEQUtCZ2dxaGtqT1BRUURBZ05IQURCRUFpQ
+VZjQ3htMFNKZEpUMXYrMHNzbzNEWDZXeVlBdXplCktOcmtvWXpDNXc0bjNBSWdVOGhCR0o3VlBLa2NKZ2hZVWV1N09NNDJLYWUxd1d2
+VjhpZUY1YzNwV1MwPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+    client-key-data: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUx5MEtXa2V2YTBXOTZZNlZEZGMyN3
+NVeG1kbnJtZW1MOWpWQ3dpazhWTzlvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFd3Rvc2E4eUZOQnlkTVUvbFNGeldOcS9RVnU4U0JP
+MFVjcXNZOWg3SlB1NkxYT05pU1d6cgo3KzN3eVEya1h1ZzZCbU8yU3Y0bU1KSHdIb0FOWUREWC9RPT0KLS0tLS1FTkQgRUMgUFJJVk
+FURSBLRVktLS0tLQo=
+```
+> This kubeconfig uses client certificate/key auth (not a bearer token). The certificate is tied to
+> the Abu Dhabi cluster's CA. If the cert expires, re-export from an Abu Dhabi master node.
