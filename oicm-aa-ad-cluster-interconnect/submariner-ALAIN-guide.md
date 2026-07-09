@@ -231,8 +231,11 @@ kubectl -n oik8s-cilium-system exec host-debug -- sh -c 'chroot /host /usr/sbin/
 kubectl -n oik8s-cilium-system exec host-debug -- sh -c 'chroot /host /usr/sbin/ufw allow to any port 4800 proto udp'
 kubectl -n oik8s-cilium-system exec host-debug -- sh -c 'chroot /host /usr/sbin/ufw status numbered | grep 4800'
 ```
-> Only the **gateway node** needs 4800 inbound (non-gateway nodes only send *to* it). If you add a
-> second gateway for HA later, that node needs the same rule.
+> Only the **gateway node** needs 4800 inbound for basic tunnel health (non-gateway nodes only send
+> *to* it). If you add a second gateway for HA later, that node needs the same rule. Note that even
+> with 4800 open on all nodes, non-gateway pods still cannot reach globalnet IPs due to the Cilium
+> BPF limitation documented in §12.1; services that need cross-cluster connectivity must run on the
+> gateway node itself.
 
 ### 7e. **Pin lighthouse pods to the gateway node** — clean broker access without NAT
 
@@ -367,6 +370,11 @@ Fully working end-state:
 - ping the remote health-check IP `242.0.0.254` → 0% loss (via the host-debug pod).
 - (`Network plugin: generic` still shows — cosmetic; the tunnel works regardless.)
 
+> **Verify from the gateway node only.** Cross-cluster connectivity from non-gateway pods does not
+> work due to the Cilium BPF limitation in §12.1. All verification commands above use
+> `nodeSelector: adeo-gpu-03` for this reason. If you test from any other node the connection will
+> time out even when the tunnel is perfectly healthy.
+
 ---
 
 ## 10. Firewall summary
@@ -382,7 +390,8 @@ Bidirectional is required for 4490/4500 (WireGuard reply must return; stateful r
 the handshake gaps). **51820 is NOT used.** Only `adeo-gpu-03` needs TCP 6443 to the broker because
 the lighthouse pods are pinned there (§7e); other nodes don't need broker access. The same rule
 also lets you run `kubectl` against the Abu Dhabi cluster from `adeo-gpu-03` for ops/debugging
-(see Appendix A.11).
+(see Appendix A.11). Even with 4800 open on all nodes, non-gateway pods cannot reach globalnet IPs
+due to the Cilium BPF limitation (§12.1); cross-cluster services must run on `adeo-gpu-03`.
 
 ---
 
@@ -432,6 +441,95 @@ kubectl get serviceimports -A | grep -i <glm-service-name>
 kubectl -n oik8s-cilium-system exec host-debug -- \
   nslookup <glm-service>.<glm-namespace>.svc.clusterset.local
 ```
+
+---
+
+## 12.1. Cilium BPF limitation: non-gateway pods cannot reach globalnet IPs
+
+Submariner's cross-cluster traffic works perfectly from the **gateway node** (`adeo-gpu-03`). Pods
+running on any other Al Ain node, however, cannot reach Abu Dhabi globalnet IPs (`242.0.0.0/24`).
+This is a fundamental interaction between Submariner's Globalnet datapath and Cilium's BPF
+kube-proxy replacement, not a configuration error.
+
+### Root cause
+
+The outbound and return paths use different datapaths, and Cilium's BPF drops the return packet:
+
+1. **Outbound** (pod on non-gateway node → Abu Dhabi globalnet IP): Cilium BPF routes the pod's
+   packet through `cilium_host`, Submariner's nftables SNATs the source to a global IP, and the
+   packet exits via `vx-submariner` to the gateway node, then via the WireGuard tunnel to Abu Dhabi.
+   This works.
+
+2. **Return** (Abu Dhabi → non-gateway pod): The return packet arrives at the gateway node via the
+   WireGuard tunnel with `src=242.0.0.x dst=10.42.x.x` (the pod's real cluster IP). Submariner's
+   nftables forwards it onto `vx-submariner` toward the destination node. The kernel FORWARD chain
+   accepts it. But when it arrives at the destination node's `cilium_host` interface, Cilium's
+   `cil_to_host` BPF program (tcx/ingress on `cilium_host`) treats it as an **unsolicited
+   world-to-pod packet** because the source IP (`242.0.0.x`) maps to Cilium identity
+   `reserved:world` and there is no matching conntrack entry on the receiving node's BPF CT. The
+   packet is silently dropped.
+
+### Evidence
+
+Traced with `cilium monitor`, `cilium bpf ct list`, `tcpdump` on `vx-submariner`, and nftables
+counters across multiple nodes:
+
+- On the gateway (`adeo-gpu-03`): return traffic arrives via the `submariner` WireGuard interface,
+  is forwarded onto `vx-submariner` (TX counter climbs), and `SUBMARINER-FORWARD` nftables counter
+  climbs. A policy route fix (`ip route ... table 151` + `ip rule ... priority 90`) was needed to
+  route return traffic onto `vx-submariner` instead of `cilium_host`.
+- On the receiving node (`adeo-gpu-01`): `vx-submariner` RX counter climbs (packet arrives), kernel
+  FORWARD chain accepts it (`CILIUM_FORWARD: any->cilium_host`), but Cilium BPF CT shows the
+  outbound SYN entry with `Packets=0 RxFlagsSeen=0x00` (no return ever processed). Cilium monitor
+  shows only outbound traffic, no return.
+- A nftables SNAT probe (rewrite return source from `242.0.0.x` to the receiving node's
+  `cilium_host` IP) was installed to test whether Cilium would accept the packet if it appeared to
+  come from a known local identity. The probe counter stayed at 0; the rule never matched because
+  `10.42.x.x` is local to the node, so the packet goes to INPUT, not FORWARD/postrouting.
+
+### Workaround
+
+**Run any service that needs cross-cluster connectivity on the gateway node (`adeo-gpu-03`).** This
+is the only reliable solution with the current Submariner 0.24 + Cilium 1.18 (kube-proxy-replacement
++ tunnel mode) stack. Pin the Deployment with `nodeSelector` and `tolerations`:
+
+```yaml
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+```
+
+For multi-replica services (e.g. LiteLLM proxy with 2 replicas), use `topologySpreadConstraints`
+with `whenUnsatisfiable: ScheduleAnyway` so both replicas land on gpu-03 but spread across
+availability zones if the node has multiple. Since there is only one gateway node, both replicas
+will co-locate on gpu-03.
+
+### What does NOT work
+
+- Policy route fix on the gateway (table 151 + ip rule priority 90): routes return traffic onto
+  `vx-submariner` correctly, but Cilium BPF on the receiving node still drops it.
+- `rp_filter` adjustments (loose mode on `vx-submariner` and `submariner` interfaces): does not
+  affect the drop because it happens in BPF, not the kernel.
+- SNAT of return traffic to the receiving node's `cilium_host` IP: the packet never reaches
+  postrouting because the destination is local.
+- Cilium NetworkPolicies: none are present; the drop is in BPF conntrack, not policy enforcement.
 
 ---
 
