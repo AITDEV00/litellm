@@ -83,7 +83,19 @@ class SubmarinerImportSource(ModelSource):
                     f"using UUID as fallback"
                 )
 
-            model_name = f"{source_cluster}-{sanitize_model_id(model_id)}"
+            # The model_name is the raw model_id from the upstream /v1/models endpoint
+            # (e.g. "zai-org/GLM-5.2-FP8"). We deliberately do NOT prefix it with the
+            # source cluster name. The model_id is already globally unique across clusters
+            # (it comes from the HuggingFace model registry), and adding a cluster prefix
+            # (e.g. "abudhabi-zai-org/GLM-5.2-FP8") would make the model name differ from
+            # what clients expect, breaking compatibility with any code that references
+            # models by their canonical HuggingFace IDs.
+            #
+            # If two clusters ever serve the same model_id, the controller will register
+            # them under the same LiteLLM model name with different api_base overrides,
+            # and LiteLLM's router will load-balance across them. That is the desired
+            # behavior, not a collision to avoid with a prefix.
+            model_name = sanitize_model_id(model_id)
             mode = detect_mode(model_id, "")
             api_base_override = f"http://{globalnet_ip}:{port}/v1"
 

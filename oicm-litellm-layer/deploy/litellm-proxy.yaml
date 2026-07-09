@@ -131,6 +131,35 @@ data:
 
     vllm_param_injector = VllmParamInjector()
 ---
+# LiteLLM Proxy Deployment
+#
+# Both replicas are pinned to adeo-gpu-03 (the Submariner gateway node) because Cilium's BPF
+# kube-proxy replacement drops return traffic from Submariner globalnet IPs (242.0.0.0/24) for
+# pods on non-gateway nodes. The gateway node is the only node where the outbound and return
+# paths use the same datapath (Cilium BPF + nftables SNAT + vx-submariner). See the Al Ain
+# Submariner guide §12.1 for the full root cause analysis.
+#
+# Commands used to apply this configuration:
+#
+#   kubectl patch deploy litellm-proxy -n mlops --type=json -p='[
+#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
+#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
+#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
+#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
+#       {"key":"target","value":"k8s","effect":"NoSchedule"},
+#       {"key":"target","value":"k8s","effect":"NoExecute"},
+#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
+#     ]}
+#   ]'
+#
+# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
+# for all three are required. topologySpreadConstraints with ScheduleAnyway lets both replicas
+# co-locate on gpu-03 (the only gateway node) while still attempting to spread across zones.
+#
+# IMPORTANT: Do not add a second gateway node for HA without also addressing the Cilium BPF
+# limitation. Non-gateway pods will time out reaching globalnet IPs regardless of tunnel health.
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -153,6 +182,23 @@ spec:
       labels:
         app: litellm-proxy
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

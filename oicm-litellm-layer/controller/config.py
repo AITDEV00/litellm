@@ -17,7 +17,7 @@ WORKLOAD_TYPE_LABEL = "oip/workload-type"
 WORKLOAD_ID_LABEL = "oip/workload-id"
 MODEL_DEPLOYMENT_TYPE = "model_deployment"
 
-ENABLE_SUBMARINE_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (
+ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (
     "true",
     "1",
     "yes",
