@@ -14,6 +14,8 @@ from .config import (
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
+from .fallbacks import FallbackReconciler
+from .fallbacks.client import FallbackClient
 from .k8s_discovery import K8sDiscoverer
 from .litellm_client import LiteLLMClient
 from .models import OicmModel, detect_mode, sanitize_model_id
@@ -31,6 +33,12 @@ class DiscoveryController:
         self.discoverer = discoverer or K8sDiscoverer()
         self.litellm = litellm or LiteLLMClient()
         self.reconciler = SyncReconciler(self.litellm)
+        self.fallback_reconciler = FallbackReconciler(
+            FallbackClient(
+                base_url=self.litellm.base_url,
+                headers=self.litellm.headers,
+            )
+        )
         self._state: Dict[str, OicmModel] = {}
         self._litellm_id_map: Dict[str, str] = {}
         self._running = False
@@ -71,6 +79,8 @@ class DiscoveryController:
         self._state = plan.new_state
         self._litellm_id_map = plan.new_id_map
         logger.info(f"Full sync complete: {len(self._state)} models registered")
+
+        await self.fallback_reconciler.reconcile()
 
     async def _watch_loop(self):
         while self._running:
@@ -164,6 +174,7 @@ class DiscoveryController:
         if litellm_id:
             await self.litellm.deregister_model(litellm_id)
             self._state.pop(uuid, None)
+            await self.fallback_reconciler.reconcile()
         else:
             logger.warning(
                 f"Delete event for j-{uuid[:8]} but no litellm_id in map; "

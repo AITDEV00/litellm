@@ -44,6 +44,24 @@ data:
         socket_timeout: 10.0
       enable_redis_auth_cache: true
       callbacks: litellm_hooks.vllm_param_injector.vllm_param_injector
+      priority_reservation:
+        prior1: 0.50
+        prior2: 0.30
+        prior3: 0.20
+      priority_reservation_settings:
+        saturation_threshold: 0.80
+      # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
+      # prior2 and prior3 fall into a shared default_pool at default_priority.
+      # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
+      # priority_reservation:
+      #   prior1: 1.0
+      # priority_reservation_settings:
+      #   saturation_threshold: 0.75
+      #   default_priority: 0.50
+    # THIS IS NOT REQURIED AS THE DEFAULT RETRY TWICE WITH ZERO TIMEOUT IS OK FOR NOW.
+    # router_settings:
+    #   num_retries: 0
+    #   timeout: 5
     general_settings:
       use_redis_transaction_buffer: true
 ---
