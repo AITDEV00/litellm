@@ -181,36 +181,34 @@ return results
 """
 
 HTB_CHECK_AND_INCREMENT_SCRIPT = """
--- HTB (Hierarchical Token Bucket) check-and-increment with activity tracking.
+-- HTB (Hierarchical Token Bucket) check-and-increment with proportional borrowing.
 --
 -- Two buckets: a priority bucket (guaranteed rate) and a model-wide bucket
 -- (total capacity). The priority bucket can BORROW from unused model-wide
 -- capacity, but borrowing is capped so that active siblings' guaranteed
 -- rates are always reservable.
 --
--- Activity tracking: each priority sets an activity flag on every request.
--- The flag has a TTL longer than the rate-limit window, so it persists
--- across windows. This enables gradual transition: when prior1 starts
--- sending traffic, prior3's borrow ceiling shrinks over the next window
--- to make room.
+-- Proportional reservation: for each sibling, the reservation is
+-- min(sibling_current, sibling_guaranteed). This means:
+--   - Sibling with 0 usage: reserves 0, fully borrowable
+--   - Sibling with 10 usage (guaranteed=50): reserves 10
+--   - Sibling with 50+ usage (guaranteed=50): reserves 50 (capped)
+-- This gives smooth, real-time transitions as sibling traffic ramps up.
 --
 -- Semantics:
---   1. If priority is within guaranteed rate (priority_current < priority_limit):
+--   1. Within guaranteed rate (priority_current < priority_limit):
 --      ALLOW if model_current < model_limit.
---   2. If priority has exhausted its guaranteed rate (priority_current >=
---      priority_limit): ALLOW only if model_current < borrow_ceiling, where
---      borrow_ceiling = min(saturation_cap, model_limit - sum_of_active_sibling_guaranteed).
---      Inactive siblings (no activity flag) contribute 0, so their guaranteed
---      capacity is available for borrowing.
+--   2. Borrowing (priority_current >= priority_limit):
+--      ALLOW if priority_current < borrow_ceiling AND model_current < model_limit.
+--      borrow_ceiling = min(saturation_cap, model_limit) - sum_of_sibling_reservations
 --   3. Otherwise: DENY.
 --
--- KEYS layout (5 + num_siblings keys):
+-- KEYS layout (4 + 2*num_siblings keys):
 --   KEYS[1] = priority window key
 --   KEYS[2] = priority counter key
 --   KEYS[3] = model window key
 --   KEYS[4] = model counter key
---   KEYS[5] = this priority's activity flag key
---   KEYS[6..] = sibling activity flag keys (one per sibling)
+--   KEYS[5..] = pairs of (sibling window key, sibling counter key)
 --
 -- ARGV layout:
 --   ARGV[1] = priority_limit        (guaranteed rate for this priority)
@@ -219,8 +217,7 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --   ARGV[4] = window_size           (sliding-window length in seconds)
 --   ARGV[5] = num_siblings          (number of sibling priority entries)
 --   ARGV[6] = saturation_cap        (model_limit * saturation_threshold)
---   ARGV[7] = activity_ttl          (TTL for activity flags, in seconds)
---   ARGV[8..] = sibling_guaranteed_rates (one per sibling)
+--   ARGV[7..] = sibling_guaranteed_rates (one per sibling)
 --
 -- Return:
 --   { 0, priority_counter, model_counter, borrowed_flag }
@@ -232,7 +229,6 @@ local priority_window = KEYS[1]
 local priority_counter_key = KEYS[2]
 local model_window = KEYS[3]
 local model_counter_key = KEYS[4]
-local my_activity_key = KEYS[5]
 
 local priority_limit = tonumber(ARGV[1])
 local model_limit = tonumber(ARGV[2])
@@ -240,7 +236,6 @@ local ttl = tonumber(ARGV[3])
 local window_size = tonumber(ARGV[4])
 local num_siblings = tonumber(ARGV[5])
 local saturation_cap = tonumber(ARGV[6])
-local activity_ttl = tonumber(ARGV[7])
 
 -- Helper: read counter with window expiry
 local function read_counter(window_key, counter_key)
@@ -277,37 +272,35 @@ end
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
--- Set activity flag for this priority so siblings know we are active.
-redis.call('SET', my_activity_key, '1', 'EX', activity_ttl)
-
--- Compute borrow ceiling: min(saturation_cap, model_limit) - active_sibling_guaranteed.
--- Active siblings are those with an activity flag set (recently seen traffic).
--- Inactive siblings contribute 0, so their guaranteed capacity is borrowable.
+-- Proportional borrow ceiling.
+-- For each sibling, reserve min(sibling_current, sibling_guaranteed).
+-- This gives smooth transitions: as sibling usage grows from 0 to guaranteed,
+-- the borrow ceiling shrinks proportionally.
 local borrow_ceiling = math.min(saturation_cap, model_limit)
-local arg_idx = 8
-local key_idx = 6
+local arg_idx = 7
+local key_idx = 5
 for i = 1, num_siblings do
-    local sibling_activity_key = KEYS[key_idx]
+    local sibling_window_key = KEYS[key_idx]
+    local sibling_counter_key = KEYS[key_idx + 1]
     local sibling_guaranteed = tonumber(ARGV[arg_idx])
-    local sibling_active = redis.call('EXISTS', sibling_activity_key)
-    if sibling_active == 1 then
-        borrow_ceiling = borrow_ceiling - sibling_guaranteed
-    end
+    local sibling_current, _ = read_counter(sibling_window_key, sibling_counter_key)
+    local reservation = math.min(sibling_current, sibling_guaranteed)
+    borrow_ceiling = borrow_ceiling - reservation
     arg_idx = arg_idx + 1
-    key_idx = key_idx + 1
+    key_idx = key_idx + 2
 end
 if borrow_ceiling < priority_limit then
     borrow_ceiling = priority_limit
 end
 
-if priority_current >= priority_limit then
-    if model_current >= borrow_ceiling then
-        return { 1, priority_current, priority_limit, 0 }
-    end
-else
-    if model_current >= model_limit then
-        return { 1, priority_current, priority_limit, 0 }
-    end
+-- DENY checks:
+-- 1. Borrowing and priority has exceeded its borrow ceiling
+-- 2. Model is at total capacity (safety net, always checked)
+if priority_current >= priority_limit and priority_current >= borrow_ceiling then
+    return { 1, priority_current, priority_limit, 0 }
+end
+if model_current >= model_limit then
+    return { 1, priority_current, priority_limit, 0 }
 end
 
 local borrowed = 0
@@ -1087,23 +1080,22 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         # leaving a buffer (e.g., 20 RPM on 100 RPM model) for priority transitions.
         saturation_cap = int(model_limit * saturation_threshold)
 
-        # Activity flag: persists across windows so siblings can detect that
-        # this priority is recently active and reserve its guaranteed capacity.
-        activity_ttl = window_size * 2
-        my_activity_key = f"{{{htb_hash}}}:{priority_suffix}:active"
-
-        # Build sibling keys (activity flag key) and guaranteed rates for
-        # borrow ceiling computation.
+        # Build sibling keys (window + counter pairs) and guaranteed rates.
+        # The Lua script reads sibling counters to compute proportional reservations:
+        #   reservation = min(sibling_current, sibling_guaranteed)
+        # This gives smooth transitions as sibling traffic ramps up.
         sibling_keys: List[str] = []
         sibling_args: List[int] = []
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sibling_activity_key = f"{{{htb_hash}}}:{sibling_key}:active"
-                sibling_keys.append(sibling_activity_key)
+                sibling_window_key = f"{{{htb_hash}}}:{sibling_key}:window"
+                sibling_counter_key = f"{{{htb_hash}}}:{sibling_key}:requests"
+                sibling_keys.append(sibling_window_key)
+                sibling_keys.append(sibling_counter_key)
                 sibling_args.append(int(sibling_limit))
 
-        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key, my_activity_key] + sibling_keys
-        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or []), saturation_cap, activity_ttl] + sibling_args
+        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key] + sibling_keys
+        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or []), saturation_cap] + sibling_args
 
         if self.htb_check_and_increment_script is not None:
             try:
@@ -1129,7 +1121,6 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 sibling_priorities=sibling_priorities,
                 saturation_threshold=saturation_threshold,
                 htb_hash=htb_hash,
-                priority_suffix=priority_suffix,
             )
 
     def _build_htb_response(
@@ -1193,7 +1184,6 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         sibling_priorities: Optional[List[Tuple[str, int]]] = None,
         saturation_threshold: float = 1.0,
         htb_hash: str = "",
-        priority_suffix: str = "",
     ) -> RateLimitResponse:
         """In-memory HTB fallback. Caller holds the lock."""
         now_int = int(self._get_current_time().timestamp())
@@ -1237,31 +1227,21 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        # Set activity flag for this priority (persists across windows).
-        activity_ttl = window_size * 2
-        my_activity_key = f"{{{htb_hash}}}:{priority_suffix}:active"
-        await self.internal_usage_cache.async_set_cache(
-            key=my_activity_key, value="1", ttl=activity_ttl,
-            litellm_parent_otel_span=parent_otel_span, local_only=True,
-        )
-
-        # Borrow ceiling: min(saturation_cap, model_limit) - active_sibling_guaranteed.
+        # Proportional borrow ceiling.
+        # For each sibling, reserve min(sibling_current, sibling_guaranteed).
         saturation_cap = int(model_limit * saturation_threshold)
         borrow_ceiling = min(saturation_cap, model_limit)
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sibling_activity_key = f"{{{htb_hash}}}:{sibling_key}:active"
-                sibling_active = await self.internal_usage_cache.async_get_cache(
-                    key=sibling_activity_key,
-                    litellm_parent_otel_span=parent_otel_span,
-                    local_only=True,
-                )
-                if sibling_active is not None:
-                    borrow_ceiling -= sibling_limit
+                sib_window = f"{{{htb_hash}}}:{sibling_key}:window"
+                sib_counter = f"{{{htb_hash}}}:{sibling_key}:requests"
+                sib_current, _ = await _read(sib_window, sib_counter)
+                reservation = min(sib_current, sibling_limit)
+                borrow_ceiling -= reservation
         if borrow_ceiling < priority_limit:
             borrow_ceiling = priority_limit
 
-        if priority_current >= priority_limit and model_current >= borrow_ceiling:
+        if priority_current >= priority_limit and priority_current >= borrow_ceiling:
             return RateLimitResponse(
                 overall_code="OVER_LIMIT",
                 statuses=[
@@ -1274,7 +1254,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                     )
                 ],
             )
-        if priority_current < priority_limit and model_current >= model_limit:
+        if model_current >= model_limit:
             return RateLimitResponse(
                 overall_code="OVER_LIMIT",
                 statuses=[
