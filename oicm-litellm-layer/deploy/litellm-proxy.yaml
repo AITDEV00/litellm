@@ -58,10 +58,9 @@ data:
       # priority_reservation_settings:
       #   saturation_threshold: 0.75
       #   default_priority: 0.50
-    # THIS IS NOT REQURIED AS THE DEFAULT RETRY TWICE WITH ZERO TIMEOUT IS OK FOR NOW.
-    # router_settings:
-    #   num_retries: 0
-    #   timeout: 5
+    router_settings:
+      optional_pre_call_checks:
+        - enforce_model_rate_limits
     general_settings:
       use_redis_transaction_buffer: true
 ---

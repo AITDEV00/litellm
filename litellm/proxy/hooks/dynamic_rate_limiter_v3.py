@@ -2,7 +2,6 @@
 Dynamic rate limiter v3 - Saturation-aware priority-based rate limiting
 """
 
-import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Union
 
@@ -24,11 +23,11 @@ from litellm.proxy.hooks.rate_limiter_utils import (
     convert_priority_to_percent,
     resolve_llm_provider_for_rate_limit,
 )
-from litellm.proxy.utils import InternalUsageCache
 from litellm.types.router import ModelGroupInfo
 from litellm.types.utils import CallTypesLiteral
 
 if TYPE_CHECKING:
+    from litellm.proxy.utils import InternalUsageCache
     from litellm.types.utils import PriorityReservationSettings
 
 
@@ -53,27 +52,29 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
     Saturation-aware priority-based rate limiter using v3 infrastructure.
 
     Key features:
-    1. Model capacity ALWAYS enforced at 100% (prevents over-allocation)
-    2. Priority usage tracked from first request (accurate accounting)
-    3. Priority limits only enforced when saturated >= threshold
-    4. Three-phase checking prevents partial counter increments
-    5. Reuses v3 limiter's Redis-based tracking (multi-instance safe)
+    1. Priority usage tracked from first request (accurate accounting)
+    2. Priority limits only enforced when saturated >= threshold
+    3. Model-wide RPM is NOT enforced here; the router's
+       ``enforce_model_rate_limits`` pre-call check handles that and
+       triggers fallbacks when a deployment is at capacity
+    4. Reuses v3 limiter's Redis-based tracking (multi-instance safe)
 
     How it works:
-    - Phase 1: Read-only check of ALL limits (no increments)
-    - Phase 2: Decide enforcement based on saturation
-    - Phase 3: Increment counters only if request allowed
-    - When under-saturated: priorities can borrow unused capacity (generous)
+    - When under-saturated: all priorities can borrow full model capacity
     - When saturated: strict priority-based limits enforced (fair)
     - Uses v3 limiter's atomic Lua scripts for race-free increments
     """
 
     def __init__(
         self,
-        internal_usage_cache: DualCache,
+        internal_usage_cache: Union["InternalUsageCache", DualCache],
         time_provider: Optional[Callable[[], datetime]] = None,
     ):
-        self.internal_usage_cache = InternalUsageCache(dual_cache=internal_usage_cache)
+        if isinstance(internal_usage_cache, DualCache):
+            from litellm.proxy.utils import InternalUsageCache
+
+            internal_usage_cache = InternalUsageCache(dual_cache=internal_usage_cache)
+        self.internal_usage_cache = internal_usage_cache
         self.v3_limiter = _PROXY_MaxParallelRequestsHandler_v3(
             self.internal_usage_cache, time_provider=time_provider
         )
@@ -123,9 +124,11 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
                 "Priority Reservation not set for the given priority."
             )
         elif priority is not None and litellm.priority_reservation is not None:
-            if os.getenv("LITELLM_LICENSE", None) is None:
+            from litellm.proxy.auth.litellm_license import LicenseCheck
+
+            if not LicenseCheck().is_premium():
                 verbose_proxy_logger.error(
-                    "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature. Please add a 'LITELLM_LICENSE' to your .env to enable this.\nGet a license: https://docs.litellm.ai/docs/proxy/enterprise."
+                    "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature."
                 )
             else:
                 value = litellm.priority_reservation[priority]
@@ -306,6 +309,43 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             # Fail open: assume not saturated on error
             return 0.0
 
+    def _compute_saturation_from_response(
+        self,
+        model_group_info: ModelGroupInfo,
+        atomic_response: dict,
+    ) -> float:
+        """
+        Compute saturation from the post-increment atomic response.
+
+        The model-wide tracking descriptor uses a high limit multiplier (so
+        the counter never blocks), but saturation is computed against the
+        real model RPM/TPM. We recover the actual counter value as
+        ``current_limit - limit_remaining`` and divide by the real limit.
+        """
+        try:
+            max_saturation = 0.0
+            for status in atomic_response.get("statuses", []):
+                descriptor_key = status.get("descriptor_key", "")
+                if descriptor_key != "model_saturation_check":
+                    continue
+
+                rate_limit_type = status.get("rate_limit_type", "")
+                current_limit = status.get("current_limit", 0)
+                limit_remaining = status.get("limit_remaining", 0)
+                counter = current_limit - limit_remaining
+
+                if rate_limit_type == "requests" and model_group_info.rpm:
+                    saturation = counter / model_group_info.rpm
+                    max_saturation = max(max_saturation, saturation)
+                elif rate_limit_type == "tokens" and model_group_info.tpm:
+                    saturation = counter / model_group_info.tpm
+                    max_saturation = max(max_saturation, saturation)
+
+            return max_saturation
+
+        except Exception:
+            return 0.0
+
     def _create_priority_based_descriptors(
         self,
         model: str,
@@ -400,7 +440,7 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             },
         )
 
-    async def _check_rate_limits(
+    async def _check_priority_limits(
         self,
         model: str,
         model_group_info: ModelGroupInfo,
@@ -410,194 +450,145 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         data: dict,
     ) -> None:
         """
-        Check rate limits using THREE-PHASE approach to prevent partial increments.
+        Priority-aware rate limiting that defers model-wide RPM enforcement to
+        the router so fallbacks can take over when the primary model is full.
 
-        Phase 1: Read-only check of ALL limits (no increments)
-        Phase 2: Decide which limits to enforce based on saturation
-        Phase 3: Increment ALL counters atomically (model + priority)
+        Model-wide RPM is never enforced here. The router's
+        ``enforce_model_rate_limits`` pre-call check (configured via
+        ``optional_pre_call_checks``) handles that and correctly triggers
+        fallbacks when a deployment is at capacity.
 
-        This prevents the bug where:
-        - Model counter increments in stage 1
-        - Priority check fails in stage 2
-        - Request blocked but model counter already incremented
+        This hook only enforces priority-based limits, and only when the model
+        is saturated (saturation >= saturation_threshold). Below the threshold,
+        all priorities can borrow the model's full capacity.
 
-        Key behaviors:
-        - All checks performed first (read-only)
-        - Only increment counters if request will be allowed
-        - Model capacity: Always enforced at 100%
-        - Priority limits: Only enforced when saturated >= threshold
-        - Both counters tracked from first request (accurate accounting)
+        Tracking counters (model-wide + priority) are always incremented so
+        saturation stays accurate.
 
         Args:
             model: Model name
             model_group_info: Model configuration
             user_api_key_dict: User authentication info
             priority: User's priority level
-            saturation: Current saturation level
+            saturation: Current saturation level (post model-counter increment)
             data: Request data dictionary
 
         Raises:
-            HTTPException: If any limit is exceeded
+            HTTPException: If priority-based limit is exceeded
         """
         import json
 
         saturation_threshold = _get_priority_settings().saturation_threshold
         should_enforce_priority = saturation >= saturation_threshold
 
-        # Build ALL descriptors upfront
-        descriptors_to_check: List[RateLimitDescriptor] = []
-
-        # Model-wide descriptor (always enforce)
-        model_wide_descriptor = self._create_model_tracking_descriptor(
-            model=model,
-            model_group_info=model_group_info,
-            high_limit_multiplier=1,
-        )
-        descriptors_to_check.append(model_wide_descriptor)
-
-        # Priority descriptors (always track, conditionally enforce)
         priority_descriptors = self._create_priority_based_descriptors(
             model=model,
             user_api_key_dict=user_api_key_dict,
             priority=priority,
         )
-        if priority_descriptors:
-            descriptors_to_check.extend(priority_descriptors)
-
-        # Atomic check-and-increment for the ENFORCED descriptor set:
-        # - model_saturation_check is always enforced
-        # - priority_model is enforced only when saturation crosses threshold
-        #
-        # Backed by a Redis Lua script (multi-process atomic) with an
-        # asyncio.Lock + in-memory fallback for single-process deployments.
-        # All-or-nothing: if any enforced descriptor would exceed its limit,
-        # no counter is modified and the response carries "OVER_LIMIT".
-        enforced_descriptors: List[RateLimitDescriptor] = [model_wide_descriptor]
-        if priority_descriptors and should_enforce_priority:
-            enforced_descriptors.extend(priority_descriptors)
 
         per_request_increment: Dict[Literal["requests", "tokens"], int] = {
             "requests": 1,
             "tokens": 0,
         }
-        atomic_response = await self.v3_limiter.atomic_check_and_increment_by_n(
-            descriptors=enforced_descriptors,
-            increments=[per_request_increment for _ in enforced_descriptors],
-            parent_otel_span=user_api_key_dict.parent_otel_span,
-        )
 
-        verbose_proxy_logger.debug(
-            f"Atomic check+increment response: {json.dumps(atomic_response, indent=2)}"
-        )
-
-        if atomic_response["overall_code"] == "OVER_LIMIT":
-            resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
-            for status in atomic_response["statuses"]:
-                if status["code"] != "OVER_LIMIT":
-                    continue
-                descriptor_key = status["descriptor_key"]
-                if descriptor_key == "model_saturation_check":
-                    raise ProxyHTTPRateLimitError(
-                        status_code=429,
-                        detail={
-                            "error": f"Model capacity reached for {model}. "
-                            f"Priority: {priority}, "
-                            f"Rate limit type: {status['rate_limit_type']}, "
-                            f"Model TPM: {model_group_info.tpm if model_group_info.tpm is not None else 'not configured'}, "
-                            f"Model RPM: {model_group_info.rpm if model_group_info.rpm is not None else 'not configured'}, "
-                            f"Remaining: {status['limit_remaining']}"
-                        },
-                        headers={
-                            "retry-after": str(self.v3_limiter.window_size),
-                            "rate_limit_type": str(status["rate_limit_type"]),
-                            "x-litellm-priority": priority or "default",
-                        },
-                        model=resolved_model,
-                        llm_provider=llm_provider,
-                    )
-                if descriptor_key == "priority_model":
-                    verbose_proxy_logger.debug(
-                        f"Enforcing priority limits for {model}, saturation: {saturation:.1%}, "
-                        f"priority: {priority}"
-                    )
-                    raise ProxyHTTPRateLimitError(
-                        status_code=429,
-                        detail={
-                            "error": f"Priority-based rate limit exceeded. "
-                            f"Model: {model}, "
-                            f"Priority: {priority}, "
-                            f"Rate limit type: {status['rate_limit_type']}, "
-                            f"Model TPM: {model_group_info.tpm if model_group_info.tpm is not None else 'not configured'}, "
-                            f"Model RPM: {model_group_info.rpm if model_group_info.rpm is not None else 'not configured'}, "
-                            f"Remaining: {status['limit_remaining']}, "
-                            f"Model saturation: {saturation:.1%}"
-                        },
-                        headers={
-                            "retry-after": str(self.v3_limiter.window_size),
-                            "rate_limit_type": str(status["rate_limit_type"]),
-                            "x-litellm-priority": priority or "default",
-                            "x-litellm-saturation": f"{saturation:.2%}",
-                        },
-                        model=resolved_model,
-                        llm_provider=llm_provider,
-                    )
-
-            # Fail-closed guard: overall_code says OVER_LIMIT but no status
-            # matched a descriptor key we know how to translate into a 429.
-            # Refuse the request rather than silently fall through and let an
-            # over-limit request proceed to the model. Without this, a future
-            # caller wiring an unfamiliar descriptor into enforced_descriptors
-            # would silently bypass the rate limit.
-            offending = next(
-                (s for s in atomic_response["statuses"] if s["code"] == "OVER_LIMIT"),
-                None,
+        if should_enforce_priority and priority_descriptors:
+            enforced_descriptors: List[RateLimitDescriptor] = list(
+                priority_descriptors
             )
-            verbose_proxy_logger.error(
-                f"Dynamic rate limiter: OVER_LIMIT response with unknown "
-                f"descriptor_key(s) — refusing request. response={atomic_response}"
-            )
-            raise ProxyHTTPRateLimitError(
-                status_code=429,
-                detail={
-                    "error": "Rate limit exceeded",
-                    "descriptor_key": (
-                        offending["descriptor_key"] if offending else "unknown"
-                    ),
-                    "rate_limit_type": (
-                        str(offending["rate_limit_type"]) if offending else "unknown"
-                    ),
-                },
-                headers={
-                    "retry-after": str(self.v3_limiter.window_size),
-                    "x-litellm-priority": priority or "default",
-                },
-                model=resolved_model,
-                llm_provider=llm_provider,
-            )
-
-        # If priority is NOT enforced (saturation below threshold) but
-        # priority_descriptors exist, increment them for tracking only — no
-        # check, no rollback. This matches the prior tracking semantics.
-        #
-        # Using the non-atomic should_rate_limit (instead of
-        # atomic_check_and_increment_by_n) is intentional here: we don't want
-        # to enforce the limit, we only want to bump the counter so the
-        # priority allocation has accurate usage when it later becomes
-        # enforced. The increment-then-check semantics of should_rate_limit
-        # are fine because we ignore the OVER_LIMIT response.
-        if priority_descriptors and not should_enforce_priority:
-            priority_tracking_response = await self.v3_limiter.should_rate_limit(
-                descriptors=priority_descriptors,
+            atomic_response = await self.v3_limiter.atomic_check_and_increment_by_n(
+                descriptors=enforced_descriptors,
+                increments=[
+                    per_request_increment for _ in enforced_descriptors
+                ],
                 parent_otel_span=user_api_key_dict.parent_otel_span,
-                read_only=False,
             )
-            data["litellm_proxy_rate_limit_response"] = {
-                "overall_code": atomic_response["overall_code"],
-                "statuses": atomic_response["statuses"]
-                + priority_tracking_response["statuses"],
-            }
-        else:
+
+            verbose_proxy_logger.debug(
+                f"Priority atomic check+increment response: {json.dumps(atomic_response, indent=2)}"
+            )
+
+            if atomic_response["overall_code"] == "OVER_LIMIT":
+                resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(
+                    model
+                )
+                for status in atomic_response["statuses"]:
+                    if status["code"] != "OVER_LIMIT":
+                        continue
+                    if status["descriptor_key"] == "priority_model":
+                        verbose_proxy_logger.debug(
+                            f"Enforcing priority limits for {model}, saturation: {saturation:.1%}, "
+                            f"priority: {priority}"
+                        )
+                        raise ProxyHTTPRateLimitError(
+                            status_code=429,
+                            detail={
+                                "error": f"Priority-based rate limit exceeded. "
+                                f"Model: {model}, "
+                                f"Priority: {priority}, "
+                                f"Rate limit type: {status['rate_limit_type']}, "
+                                f"Model TPM: {model_group_info.tpm if model_group_info.tpm is not None else 'not configured'}, "
+                                f"Model RPM: {model_group_info.rpm if model_group_info.rpm is not None else 'not configured'}, "
+                                f"Remaining: {status['limit_remaining']}, "
+                                f"Model saturation: {saturation:.1%}"
+                            },
+                            headers={
+                                "retry-after": str(self.v3_limiter.window_size),
+                                "rate_limit_type": str(status["rate_limit_type"]),
+                                "x-litellm-priority": priority or "default",
+                                "x-litellm-saturation": f"{saturation:.2%}",
+                            },
+                            model=resolved_model,
+                            llm_provider=llm_provider,
+                        )
+
+                offending = next(
+                    (
+                        s
+                        for s in atomic_response["statuses"]
+                        if s["code"] == "OVER_LIMIT"
+                    ),
+                    None,
+                )
+                verbose_proxy_logger.error(
+                    f"Dynamic rate limiter: OVER_LIMIT response with unknown "
+                    f"descriptor_key(s) — refusing request. response={atomic_response}"
+                )
+                raise ProxyHTTPRateLimitError(
+                    status_code=429,
+                    detail={
+                        "error": "Rate limit exceeded",
+                        "descriptor_key": (
+                            offending["descriptor_key"] if offending else "unknown"
+                        ),
+                        "rate_limit_type": (
+                            str(offending["rate_limit_type"])
+                            if offending
+                            else "unknown"
+                        ),
+                    },
+                    headers={
+                        "retry-after": str(self.v3_limiter.window_size),
+                        "x-litellm-priority": priority or "default",
+                    },
+                    model=resolved_model,
+                    llm_provider=llm_provider,
+                )
+
             data["litellm_proxy_rate_limit_response"] = atomic_response
+        else:
+            if priority_descriptors:
+                tracking_response = await self.v3_limiter.should_rate_limit(
+                    descriptors=priority_descriptors,
+                    parent_otel_span=user_api_key_dict.parent_otel_span,
+                    read_only=False,
+                )
+
+                verbose_proxy_logger.debug(
+                    f"Tracking-only response (priority not enforced): {json.dumps(tracking_response, indent=2)}"
+                )
+
+                data["litellm_proxy_rate_limit_response"] = tracking_response
 
     async def async_pre_call_hook(
         self,
@@ -610,26 +601,19 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         Saturation-aware pre-call hook for priority-based rate limiting.
 
         Flow:
-        1. Check current saturation level
-        2. THREE-PHASE rate limit check:
-           - PHASE 1: Read-only check of ALL limits (no increments)
-           - PHASE 2: Decide which limits to enforce based on saturation
-           - PHASE 3: Increment ALL counters atomically if request allowed
+        1. Atomically increment the model-wide tracking counter (high limit,
+           never blocks) and compute saturation from the post-increment value
+        2. If saturation >= threshold, atomically check+increment the priority
+           counter and raise 429 if over the priority-specific limit
+        3. If below threshold, increment the priority counter for tracking only
 
-        This three-phase approach ensures:
-        - Model capacity is NEVER exceeded (always enforced at 100%)
-        - Priority usage tracked from first request (accurate metrics)
-        - Counters only increment when request will be allowed (prevents phantom usage)
-        - When under-saturated: priorities can borrow unused capacity (generous)
-        - When saturated: fair allocation based on normalized priority weights (strict)
+        Model-wide RPM is NOT enforced here. The router's
+        ``enforce_model_rate_limits`` pre-call check handles that and
+        triggers fallbacks when a deployment is at capacity.
 
-        Example with 100 RPM model, 60% priority allocation, 80% threshold:
-        - Saturation < 80%: Priority can use up to 100 RPM (model limit enforced only)
-        - Saturation >= 80%: Priority limited to 60 RPM (both limits enforced)
-
-        Prevents bugs where:
-        - Model counter increments but priority check fails → model over-capacity
-        - Priority counter increments but not enforced → inaccurate metrics
+        Example with 100 RPM model, 20% priority allocation (prior3), 80% threshold:
+        - Saturation < 80%: prior3 can use up to 100 RPM (model limit only)
+        - Saturation >= 80%: prior3 capped at 20 RPM (priority limit enforced)
 
         Args:
             user_api_key_dict: User authentication and metadata
@@ -659,8 +643,36 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             return None
 
         try:
-            # STEP 1: Check current saturation level
-            saturation = await self._check_model_saturation(model, model_group_info)
+            # Atomically increment the model-wide tracking counter FIRST, then
+            # use the returned (post-increment) value to compute saturation.
+            # Using a high limit multiplier ensures the counter never returns
+            # OVER_LIMIT (which would skip the increment), so every request
+            # is tracked and concurrent requests see an accurate, monotonically
+            # increasing saturation level.
+            model_wide_descriptor = self._create_model_tracking_descriptor(
+                model=model,
+                model_group_info=model_group_info,
+                high_limit_multiplier=10000,
+            )
+
+            model_increment: Dict[Literal["requests", "tokens"], int] = {
+                "requests": 1,
+                "tokens": 0,
+            }
+
+            model_atomic_response = (
+                await self.v3_limiter.atomic_check_and_increment_by_n(
+                    descriptors=[model_wide_descriptor],
+                    increments=[model_increment],
+                    parent_otel_span=user_api_key_dict.parent_otel_span,
+                )
+            )
+
+            # Compute saturation from the post-increment counter value
+            saturation = self._compute_saturation_from_response(
+                model_group_info=model_group_info,
+                atomic_response=model_atomic_response,
+            )
 
             saturation_threshold = _get_priority_settings().saturation_threshold
 
@@ -669,12 +681,8 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
                 f"Threshold={saturation_threshold:.1%}, Priority={priority}"
             )
 
-            # STEP 2: Check rate limits in THREE phases
-            # Phase 1: Read-only check of ALL limits (no increments)
-            # Phase 2: Decide which limits to enforce (based on saturation)
-            # Phase 3: Increment ALL counters only if request will be allowed
-            # This prevents partial increments and ensures accurate tracking
-            await self._check_rate_limits(
+            # Enforce priority limits if saturated, track priority usage
+            await self._check_priority_limits(
                 model=model,
                 model_group_info=model_group_info,
                 user_api_key_dict=user_api_key_dict,

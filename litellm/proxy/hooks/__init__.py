@@ -3,6 +3,7 @@ from typing import Literal, Union
 
 from . import *
 from .cache_control_check import _PROXY_CacheControlCheck
+from .dynamic_rate_limiter_v3 import _PROXY_DynamicRateLimitHandlerV3
 from .litellm_skills import SkillsInjectionHook
 from .max_budget_limiter import _PROXY_MaxBudgetLimiter
 from .max_budget_per_session_limiter import _PROXY_MaxBudgetPerSessionHandler
@@ -25,6 +26,7 @@ PROXY_HOOKS = {
     "max_iterations_limiter": _PROXY_MaxIterationsHandler,
     "max_budget_per_session_limiter": _PROXY_MaxBudgetPerSessionHandler,
     "sensitive_data_routing": _PROXY_SensitiveDataRoutingHandler,
+    "dynamic_rate_limiter_v3": _PROXY_DynamicRateLimitHandlerV3,
 }
 
 ## FEATURE FLAG HOOKS ##

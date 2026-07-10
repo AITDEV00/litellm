@@ -531,6 +531,8 @@ class ProxyLogging:
             if "prisma_client" in expected_args:
                 passed_in_args["prisma_client"] = prisma_client
             proxy_hook_obj = cast(CustomLogger, proxy_hook(**passed_in_args))
+            if hasattr(proxy_hook_obj, "update_variables") and llm_router is not None:
+                proxy_hook_obj.update_variables(llm_router=llm_router)
             litellm.logging_callback_manager.add_litellm_callback(proxy_hook_obj)
 
             self.proxy_hook_mapping[hook] = proxy_hook_obj
