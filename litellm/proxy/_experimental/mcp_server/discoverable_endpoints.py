@@ -2,17 +2,22 @@ import asyncio
 import html as _html
 import json
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel, ValidationError
 
 from litellm._logging import verbose_logger
 from litellm.llms.custom_httpx.http_handler import (
     get_async_httpx_client,
     httpxSpecialProvider,
+)
+from litellm.proxy._experimental.mcp_server.auth.token_endpoint_auth import (
+    TokenEndpointAuthConfigError,
+    build_token_endpoint_client_auth,
 )
 from litellm.proxy._experimental.mcp_server.oauth_utils import (
     TOKEN_NO_CACHE_HEADERS,
@@ -26,8 +31,11 @@ from litellm.proxy.common_utils.encrypt_decrypt_utils import (
 )
 from litellm.proxy.common_utils.http_parsing_utils import _read_request_body
 from litellm.proxy.utils import get_server_root_path
-from litellm.types.mcp import MCPAuth
+from litellm.types.mcp import MCPAuth, MCPCredentials
 from litellm.types.mcp_server.mcp_server_manager import MCPServer
+
+if TYPE_CHECKING:
+    from litellm.proxy._types import LiteLLM_MCPServerTable
 
 # TTL cache for upstream OAuth metadata fetched from pass-through MCP servers.
 # Keeps us from hammering the upstream IdP on each discovery request.
@@ -50,9 +58,7 @@ router = APIRouter(
 def _prune_oauth_metadata_cache(now: Optional[float] = None) -> None:
     now = now if now is not None else time.time()
     expired_cache_keys = [
-        cache_key
-        for cache_key, (expires_at, _payload) in _OAUTH_METADATA_CACHE.items()
-        if expires_at <= now
+        cache_key for cache_key, (expires_at, _payload) in _OAUTH_METADATA_CACHE.items() if expires_at <= now
     ]
     for cache_key in expired_cache_keys:
         _OAUTH_METADATA_CACHE.pop(cache_key, None)
@@ -130,9 +136,7 @@ def decode_state_hash(encrypted_state: str) -> dict:
     return state_data
 
 
-def _get_validated_client_redirect_uri(
-    request: Request, state_data: Dict[str, Any]
-) -> str:
+def _get_validated_client_redirect_uri(request: Request, state_data: Dict[str, Any]) -> str:
     """Return a trusted (same-origin, loopback, or ops-allowlisted)
     client redirect URI from OAuth state.
     """
@@ -217,24 +221,17 @@ def _validate_token_response(
                     "error": "token_validation_failed",
                     "server_id": server_id,
                     "field": key,
-                    "message": (
-                        f"OAuth token rejected: required field '{key}' is absent"
-                    ),
+                    "message": (f"OAuth token rejected: required field '{key}' is absent"),
                 },
             )
-        if _normalize_for_token_comparison(actual) != _normalize_for_token_comparison(
-            expected
-        ):
+        if _normalize_for_token_comparison(actual) != _normalize_for_token_comparison(expected):
             raise HTTPException(
                 status_code=403,
                 detail={
                     "error": "token_validation_failed",
                     "server_id": server_id,
                     "field": key,
-                    "message": (
-                        f"OAuth token rejected: '{key}' = '{actual}', "
-                        f"expected '{expected}'"
-                    ),
+                    "message": (f"OAuth token rejected: '{key}' = '{actual}', expected '{expected}'"),
                 },
             )
 
@@ -247,9 +244,7 @@ async def _extract_user_id_from_request(request: Request) -> Optional[str]:
     auth pipeline (which has side effects such as rate-limit increments and
     spend logging).  Returns ``None`` if no cached credential is found.
     """
-    auth_header = request.headers.get("Authorization") or request.headers.get(
-        "authorization"
-    )
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
     if not auth_header:
         return None
     lower = auth_header.lower()
@@ -289,22 +284,16 @@ async def _store_per_user_token_server_side(
 
     raw_expires = token_response.get("expires_in")
     try:
-        expires_in: Optional[int] = (
-            int(raw_expires) if raw_expires is not None else None
-        )
+        expires_in: Optional[int] = int(raw_expires) if raw_expires is not None else None
     except (TypeError, ValueError):
         expires_in = None
 
     refresh_token: Optional[str] = token_response.get("refresh_token") or None
     raw_scope = token_response.get("scope")
-    scopes: Optional[list] = (
-        raw_scope.split() if isinstance(raw_scope, str) and raw_scope else None
-    )
+    scopes: Optional[list] = raw_scope.split() if isinstance(raw_scope, str) and raw_scope else None
 
     try:
-        prisma_client = get_prisma_client_or_throw(
-            "Database not connected. Cannot store per-user OAuth token."
-        )
+        prisma_client = get_prisma_client_or_throw("Database not connected. Cannot store per-user OAuth token.")
         from litellm.proxy._experimental.mcp_server.db import (  # noqa: PLC0415
             store_user_oauth_credential,
         )
@@ -356,9 +345,7 @@ async def authorize_with_server(
     if mcp_server.auth_type != "oauth2":
         raise HTTPException(status_code=400, detail="MCP server is not OAuth2")
     if mcp_server.authorization_url is None:
-        raise HTTPException(
-            status_code=400, detail="MCP server authorization url is not set"
-        )
+        raise HTTPException(status_code=400, detail="MCP server authorization url is not set")
 
     # Trusted redirect_uri: same-origin, loopback, or ops-allowlisted.
     # The URI is encrypted into the OAuth state and decoded on
@@ -418,9 +405,15 @@ async def exchange_token_with_server(
         raise HTTPException(status_code=400, detail="MCP server token url is not set")
 
     resolved_client_id = mcp_server.client_id if mcp_server.client_id else client_id
-    resolved_client_secret = (
-        mcp_server.client_secret if mcp_server.client_secret else client_secret
-    )
+    resolved_client_secret = mcp_server.client_secret if mcp_server.client_secret else client_secret
+    try:
+        client_auth = build_token_endpoint_client_auth(
+            auth_method=mcp_server.token_endpoint_auth_method,
+            client_id=resolved_client_id,
+            client_secret=resolved_client_secret,
+        )
+    except TokenEndpointAuthConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if grant_type == "refresh_token":
         if not refresh_token:
@@ -431,10 +424,8 @@ async def exchange_token_with_server(
         token_data: dict = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-            "client_id": resolved_client_id,
+            **client_auth.body,
         }
-        if resolved_client_secret is not None:
-            token_data["client_secret"] = resolved_client_secret
         if scope:
             token_data["scope"] = scope
     else:
@@ -446,19 +437,17 @@ async def exchange_token_with_server(
         proxy_base_url = get_request_base_url(request)
         token_data = {
             "grant_type": "authorization_code",
-            "client_id": resolved_client_id,
             "code": code,
             "redirect_uri": f"{proxy_base_url}/callback",
+            **client_auth.body,
         }
-        if resolved_client_secret is not None:
-            token_data["client_secret"] = resolved_client_secret
         if code_verifier:
             token_data["code_verifier"] = code_verifier
 
     async_client = get_async_httpx_client(llm_provider=httpxSpecialProvider.Oauth2Check)
     response = await async_client.post(
         mcp_server.token_url,
-        headers={"Accept": "application/json"},
+        headers={"Accept": "application/json", **client_auth.headers},
         data=token_data,
     )
     if response is None:
@@ -494,8 +483,7 @@ async def exchange_token_with_server(
                 )
             except Exception as exc:
                 verbose_logger.warning(
-                    "exchange_token_with_server: server-side storage failed "
-                    "for user=%s server=%s: %s",
+                    "exchange_token_with_server: server-side storage failed for user=%s server=%s: %s",
                     user_id,
                     mcp_server.server_id,
                     exc,
@@ -525,6 +513,178 @@ async def exchange_token_with_server(
     return JSONResponse(result, headers=TOKEN_NO_CACHE_HEADERS)
 
 
+class _DcrClientRegistration(BaseModel):
+    """RFC 7591 dynamic client registration response, narrowed to the fields the gateway
+    must persist to authenticate later token-endpoint calls. Extra members are ignored."""
+
+    client_id: str
+    client_secret: Optional[str] = None
+    token_endpoint_auth_method: Optional[str] = None
+
+
+class _PersistedDcrCredentials(BaseModel):
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    token_endpoint_auth_method: Optional[str] = None
+
+
+def _get_persisted_dcr_credentials(credentials: object) -> Optional[_PersistedDcrCredentials]:
+    if not credentials:
+        return None
+    try:
+        return (
+            _PersistedDcrCredentials.model_validate_json(credentials)
+            if isinstance(credentials, str)
+            else _PersistedDcrCredentials.model_validate(credentials)
+        )
+    except ValidationError:
+        return None
+
+
+def _decrypt_persisted_dcr_credential(value: Optional[str], key: str) -> Optional[str]:
+    if value is None:
+        return None
+    return decrypt_value_helper(
+        value=value,
+        key=key,
+        exception_type="debug",
+        return_original_value=True,
+    )
+
+
+def _apply_persisted_dcr_credentials(mcp_server: MCPServer, credentials: _PersistedDcrCredentials) -> bool:
+    client_id = _decrypt_persisted_dcr_credential(credentials.client_id, "client_id")
+    if not client_id:
+        return False
+    mcp_server.client_id = client_id
+    mcp_server.client_secret = _decrypt_persisted_dcr_credential(credentials.client_secret, "client_secret")
+    mcp_server.token_endpoint_auth_method = credentials.token_endpoint_auth_method
+    return True
+
+
+async def _get_persisted_mcp_server_with_dcr_client_id(
+    mcp_server: MCPServer,
+) -> Optional[tuple["LiteLLM_MCPServerTable", _PersistedDcrCredentials]]:
+    from litellm.proxy._experimental.mcp_server.db import get_mcp_server  # noqa: PLC0415
+    from litellm.proxy.utils import get_prisma_client_or_throw  # noqa: PLC0415
+
+    try:
+        prisma_client = get_prisma_client_or_throw("Database not connected. Cannot read MCP OAuth client registration.")
+        persisted_mcp_server = await get_mcp_server(
+            prisma_client=prisma_client,
+            server_id=mcp_server.server_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        verbose_logger.debug(
+            "register_client_with_server: failed to read persisted DCR client registration for server_id=%s: %s",
+            mcp_server.server_id,
+            exc,
+        )
+        return None
+
+    if persisted_mcp_server is None:
+        return None
+
+    credentials = _get_persisted_dcr_credentials(persisted_mcp_server.credentials)
+    if credentials is None or not credentials.client_id:
+        return None
+
+    return persisted_mcp_server, credentials
+
+
+async def _reuse_persisted_dcr_client_if_available(mcp_server: MCPServer) -> bool:
+    persisted = await _get_persisted_mcp_server_with_dcr_client_id(mcp_server)
+    if persisted is None:
+        return False
+    persisted_mcp_server, credentials = persisted
+    if not _apply_persisted_dcr_credentials(mcp_server, credentials):
+        return False
+
+    from litellm.proxy._experimental.mcp_server.mcp_server_manager import (  # noqa: PLC0415
+        global_mcp_server_manager,
+    )
+
+    try:
+        await global_mcp_server_manager.update_server(persisted_mcp_server)
+    except Exception as exc:  # noqa: BLE001
+        verbose_logger.warning(
+            "register_client_with_server: failed to refresh persisted DCR client registration for server_id=%s: %s",
+            mcp_server.server_id,
+            exc,
+        )
+    return bool(mcp_server.client_id)
+
+
+DcrRegistrationPersistenceResult = Literal["persisted", "reused", "failed"]
+
+
+async def _persist_dcr_client_registration(
+    mcp_server: MCPServer, registration_response: object
+) -> DcrRegistrationPersistenceResult:
+    """Persist the dynamically registered OAuth client (RFC 7591) onto the MCP server row.
+
+    The interactive authorization_code flow mints a ``client_id`` via Dynamic Client
+    Registration that discovery cannot re-derive; without persisting it the autonomous
+    ``refresh_token`` grant has no client identity, so an expired access token forces a
+    full re-authorization instead of a silent refresh. Mirrors the ``encrypt_credentials``
+    write that ``client_credentials`` and token exchange already use. Failures are logged,
+    never raised: registration still returns to the caller even when persistence fails.
+    """
+    try:
+        registration = _DcrClientRegistration.model_validate(registration_response)
+    except ValidationError as exc:
+        verbose_logger.warning(
+            "register_client_with_server: DCR response has no usable client_id for server_id=%s; "
+            "client registration not persisted (%s)",
+            mcp_server.server_id,
+            exc,
+        )
+        return "failed"
+
+    if await _reuse_persisted_dcr_client_if_available(mcp_server):
+        return "reused"
+
+    credentials: MCPCredentials = {
+        "client_id": registration.client_id,
+        **({"client_secret": registration.client_secret} if registration.client_secret is not None else {}),
+        **(
+            {"token_endpoint_auth_method": "client_secret_basic"}
+            if registration.token_endpoint_auth_method == "client_secret_basic"
+            else {}
+        ),
+    }
+
+    from litellm.proxy._experimental.mcp_server.db import update_mcp_server  # noqa: PLC0415
+    from litellm.proxy._experimental.mcp_server.mcp_server_manager import (  # noqa: PLC0415
+        global_mcp_server_manager,
+    )
+    from litellm.proxy._types import UpdateMCPServerRequest  # noqa: PLC0415
+    from litellm.proxy.utils import get_prisma_client_or_throw  # noqa: PLC0415
+
+    try:
+        prisma_client = get_prisma_client_or_throw(
+            "Database not connected. Cannot persist MCP OAuth client registration."
+        )
+        updated_row = await update_mcp_server(
+            prisma_client=prisma_client,
+            data=UpdateMCPServerRequest(
+                server_id=mcp_server.server_id,
+                credentials=credentials,
+                **({"token_url": mcp_server.token_url} if mcp_server.token_url else {}),
+            ),
+            touched_by="mcp_oauth_dcr",
+        )
+        await global_mcp_server_manager.update_server(updated_row)
+        return "persisted"
+    except Exception as exc:  # noqa: BLE001
+        verbose_logger.warning(
+            "register_client_with_server: failed to persist DCR client registration for server_id=%s: %s",
+            mcp_server.server_id,
+            exc,
+        )
+        return "failed"
+
+
 async def register_client_with_server(
     request: Request,
     mcp_server: MCPServer,
@@ -533,6 +693,7 @@ async def register_client_with_server(
     response_types: Optional[list],
     token_endpoint_auth_method: Optional[str],
     fallback_client_id: Optional[str] = None,
+    persist_credentials: bool = False,
 ):
     request_base_url = get_request_base_url(request)
     dummy_return = {
@@ -541,13 +702,14 @@ async def register_client_with_server(
         "redirect_uris": [f"{request_base_url}/callback"],
     }
 
-    if mcp_server.client_id and mcp_server.client_secret:
+    if mcp_server.client_id:
+        return dummy_return
+
+    if await _reuse_persisted_dcr_client_if_available(mcp_server):
         return dummy_return
 
     if mcp_server.authorization_url is None:
-        raise HTTPException(
-            status_code=400, detail="MCP server authorization url is not set"
-        )
+        raise HTTPException(status_code=400, detail="MCP server authorization url is not set")
 
     if mcp_server.registration_url is None:
         return dummy_return
@@ -564,9 +726,7 @@ async def register_client_with_server(
         "Accept": "application/json",
     }
 
-    async_client = get_async_httpx_client(
-        llm_provider=httpxSpecialProvider.Oauth2Register
-    )
+    async_client = get_async_httpx_client(llm_provider=httpxSpecialProvider.Oauth2Register)
     response = await async_client.post(
         mcp_server.registration_url,
         headers=headers,
@@ -580,6 +740,11 @@ async def register_client_with_server(
     response.raise_for_status()
 
     token_response = response.json()
+
+    if persist_credentials:
+        persistence_result = await _persist_dcr_client_registration(mcp_server, token_response)
+        if persistence_result == "reused":
+            return dummy_return
 
     return JSONResponse(token_response)
 
@@ -605,11 +770,7 @@ async def authorize(
     lookup_name: Optional[str] = mcp_server_name or client_id
     client_ip = IPAddressUtils.get_mcp_client_ip(request)
     mcp_server = (
-        global_mcp_server_manager.get_mcp_server_by_name(
-            lookup_name, client_ip=client_ip
-        )
-        if lookup_name
-        else None
+        global_mcp_server_manager.get_mcp_server_by_name(lookup_name, client_ip=client_ip) if lookup_name else None
     )
     if mcp_server is None and mcp_server_name is None:
         mcp_server = _resolve_oauth2_server_for_root_endpoints(client_ip=client_ip)
@@ -670,9 +831,7 @@ async def token_endpoint(
 
     lookup_name = mcp_server_name or client_id
     client_ip = IPAddressUtils.get_mcp_client_ip(request)
-    mcp_server = global_mcp_server_manager.get_mcp_server_by_name(
-        lookup_name, client_ip=client_ip
-    )
+    mcp_server = global_mcp_server_manager.get_mcp_server_by_name(lookup_name, client_ip=client_ip)
     if mcp_server is None and mcp_server_name is None:
         mcp_server = _resolve_oauth2_server_for_root_endpoints(client_ip=client_ip)
     if mcp_server is None:
@@ -781,9 +940,7 @@ async def callback(
     # 2. Neither success nor error parameters present — most likely a stray
     #    GET / dropped SSO redirect chain. Surface a 400 instead of 422.
     if not code or not state:
-        missing = [
-            name for name, value in (("code", code), ("state", state)) if not value
-        ]
+        missing = [name for name, value in (("code", code), ("state", state)) if not value]
         return _render_oauth_error_html(
             "invalid_request",
             f"Missing authorization {' and '.join(repr(m) for m in missing)} parameter(s).",
@@ -811,9 +968,7 @@ async def callback(
         # a generic "authentication incomplete" redirect.
         raise
     except Exception:
-        return HTMLResponse(
-            "<html><body>Authentication incomplete. You can close this window.</body></html>"
-        )
+        return HTMLResponse("<html><body>Authentication incomplete. You can close this window.</body></html>")
 
 
 # ------------------------------
@@ -880,14 +1035,9 @@ async def fetch_upstream_oauth_protected_resource(
         candidates = [f"{host_base}/.well-known/oauth-protected-resource"]
         # RFC 9728 §3.1 path fallback
         if upstream.path and upstream.path not in ("", "/"):
-            candidates.append(
-                f"{host_base}/.well-known/oauth-protected-resource"
-                f"{upstream.path.rstrip('/')}"
-            )
+            candidates.append(f"{host_base}/.well-known/oauth-protected-resource{upstream.path.rstrip('/')}")
 
-        async_client = get_async_httpx_client(
-            llm_provider=httpxSpecialProvider.Oauth2Check
-        )
+        async_client = get_async_httpx_client(llm_provider=httpxSpecialProvider.Oauth2Check)
 
         network_errors: list[Exception] = []
         for candidate in candidates:
@@ -988,9 +1138,7 @@ async def _build_oauth_protected_resource_response(
 
     mcp_server: Optional[MCPServer] = None
     if mcp_server_name:
-        mcp_server = global_mcp_server_manager.get_mcp_server_by_name(
-            mcp_server_name, client_ip=client_ip
-        )
+        mcp_server = global_mcp_server_manager.get_mcp_server_by_name(mcp_server_name, client_ip=client_ip)
 
     # Build resource URL based on the pattern
     if mcp_server_name:
@@ -1007,9 +1155,7 @@ async def _build_oauth_protected_resource_response(
     # directs the client at the real IdP (Okta, Keycloak, …) instead of us.
     if mcp_server is not None and mcp_server.is_oauth_passthrough:
         try:
-            upstream_metadata = await fetch_upstream_oauth_protected_resource(
-                mcp_server
-            )
+            upstream_metadata = await fetch_upstream_oauth_protected_resource(mcp_server)
         except Exception as exc:
             verbose_logger.warning(
                 "Failed to fetch upstream oauth-protected-resource metadata "
@@ -1018,8 +1164,7 @@ async def _build_oauth_protected_resource_response(
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "Failed to fetch upstream oauth-protected-resource "
-                    f"metadata for MCP server {mcp_server.name!r}"
+                    f"Failed to fetch upstream oauth-protected-resource metadata for MCP server {mcp_server.name!r}"
                 ),
             )
 
@@ -1032,29 +1177,19 @@ async def _build_oauth_protected_resource_response(
         # so we must not fall through to the default gateway metadata —
         # that would point clients at the wrong IdP.
         verbose_logger.warning(
-            "Upstream oauth-protected-resource metadata unavailable for "
-            f"pass-through MCP server {mcp_server.name!r}"
+            f"Upstream oauth-protected-resource metadata unavailable for pass-through MCP server {mcp_server.name!r}"
         )
         raise HTTPException(
             status_code=502,
-            detail=(
-                "Upstream oauth-protected-resource metadata unavailable "
-                f"for MCP server {mcp_server.name!r}"
-            ),
+            detail=(f"Upstream oauth-protected-resource metadata unavailable for MCP server {mcp_server.name!r}"),
         )
 
     return {
         "authorization_servers": [
-            (
-                f"{request_base_url}/{mcp_server_name}"
-                if mcp_server_name
-                else f"{request_base_url}"
-            )
+            (f"{request_base_url}/{mcp_server_name}" if mcp_server_name else f"{request_base_url}")
         ],
         "resource": resource_url,
-        "scopes_supported": (
-            mcp_server.scopes if mcp_server and mcp_server.scopes else []
-        ),
+        "scopes_supported": (mcp_server.scopes if mcp_server and mcp_server.scopes else []),
     }
 
 
@@ -1086,9 +1221,7 @@ async def oauth_protected_resource_mcp_standard(request: Request, mcp_server_nam
     f"/.well-known/oauth-protected-resource{'' if get_server_root_path() == '/' else get_server_root_path()}/{{mcp_server_name}}/mcp"
 )
 @router.get("/.well-known/oauth-protected-resource")
-async def oauth_protected_resource_mcp(
-    request: Request, mcp_server_name: Optional[str] = None
-):
+async def oauth_protected_resource_mcp(request: Request, mcp_server_name: Optional[str] = None):
     """
     OAuth protected resource discovery endpoint using LiteLLM legacy URL pattern.
 
@@ -1129,38 +1262,26 @@ def _build_oauth_authorization_server_response(
             mcp_server_name = resolved.server_name or resolved.name
 
     authorization_endpoint = (
-        f"{request_base_url}/{mcp_server_name}/authorize"
-        if mcp_server_name
-        else f"{request_base_url}/authorize"
+        f"{request_base_url}/{mcp_server_name}/authorize" if mcp_server_name else f"{request_base_url}/authorize"
     )
-    token_endpoint = (
-        f"{request_base_url}/{mcp_server_name}/token"
-        if mcp_server_name
-        else f"{request_base_url}/token"
-    )
+    token_endpoint = f"{request_base_url}/{mcp_server_name}/token" if mcp_server_name else f"{request_base_url}/token"
 
     mcp_server: Optional[MCPServer] = None
     if mcp_server_name:
-        mcp_server = global_mcp_server_manager.get_mcp_server_by_name(
-            mcp_server_name, client_ip=client_ip
-        )
+        mcp_server = global_mcp_server_manager.get_mcp_server_by_name(mcp_server_name, client_ip=client_ip)
 
     return {
         "issuer": request_base_url,  # point to your proxy
         "authorization_endpoint": authorization_endpoint,
         "token_endpoint": token_endpoint,
         "response_types_supported": ["code"],
-        "scopes_supported": (
-            mcp_server.scopes if mcp_server and mcp_server.scopes else []
-        ),
+        "scopes_supported": (mcp_server.scopes if mcp_server and mcp_server.scopes else []),
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
         # Claude expects a registration endpoint, even if we just fake it
         "registration_endpoint": (
-            f"{request_base_url}/{mcp_server_name}/register"
-            if mcp_server_name
-            else f"{request_base_url}/register"
+            f"{request_base_url}/{mcp_server_name}/register" if mcp_server_name else f"{request_base_url}/register"
         ),
     }
 
@@ -1169,9 +1290,7 @@ def _build_oauth_authorization_server_response(
 @router.get(
     f"/.well-known/oauth-authorization-server{'' if get_server_root_path() == '/' else get_server_root_path()}/mcp/{{mcp_server_name}}"
 )
-async def oauth_authorization_server_mcp_standard(
-    request: Request, mcp_server_name: str
-):
+async def oauth_authorization_server_mcp_standard(request: Request, mcp_server_name: str):
     """
     OAuth authorization server discovery endpoint using standard MCP URL pattern.
 
@@ -1189,9 +1308,7 @@ async def oauth_authorization_server_mcp_standard(
     f"/.well-known/oauth-authorization-server{'' if get_server_root_path() == '/' else get_server_root_path()}/{{mcp_server_name}}"
 )
 @router.get("/.well-known/oauth-authorization-server")
-async def oauth_authorization_server_mcp(
-    request: Request, mcp_server_name: Optional[str] = None
-):
+async def oauth_authorization_server_mcp(request: Request, mcp_server_name: Optional[str] = None):
     """
     OAuth authorization server discovery endpoint.
 
@@ -1307,9 +1424,7 @@ async def register_client(request: Request, mcp_server_name: Optional[str] = Non
             )
         return dummy_return
 
-    mcp_server = global_mcp_server_manager.get_mcp_server_by_name(
-        mcp_server_name, client_ip=client_ip
-    )
+    mcp_server = global_mcp_server_manager.get_mcp_server_by_name(mcp_server_name, client_ip=client_ip)
     if mcp_server is None:
         return dummy_return
     return await register_client_with_server(

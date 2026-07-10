@@ -15,9 +15,10 @@ from litellm.integrations.otel.model.payloads import (
     LLMCallSpanData,
     MCPToolCallSpanData,
     ServiceSpanData,
+    SpanError,
 )
 from litellm.integrations.otel.plumbing.providers import to_otel_span_kind
-from litellm.integrations.otel.model.semconv import Error, ExceptionEvent
+from litellm.integrations.otel.model.semconv import Error, ExceptionEvent, LiteLLMError
 from litellm.integrations.otel.model.spans import (
     SPAN_REGISTRY,
     SpanRole,
@@ -46,6 +47,27 @@ _NAME_BUILDERS: dict[SpanRole, Callable[..., str]] = {
 _DEDUP_CACHE_MAX = 10_000
 
 
+def _stamp_otel_error_attributes(span: Span, error_type: str, resolved_message: str) -> None:
+    """Stamp the OTel-semconv error attributes (``error.type`` + ``error.message``).
+    ``error_type`` and ``resolved_message`` are ``finish_span``'s already-computed
+    fallback chains, so the pair on the status, event, and attributes stays in
+    lockstep."""
+    span.set_attribute(Error.TYPE, error_type)
+    span.set_attribute(Error.MESSAGE, resolved_message)
+
+
+def _stamp_litellm_error_attributes(span: Span, error: SpanError) -> None:
+    """Stamp litellm-specific error detail attributes. Emitted only when the
+    corresponding field is populated so guardrail-shape errors carrying only a
+    message aren't polluted with empty detail keys."""
+    if error.code:
+        span.set_attribute(LiteLLMError.CODE, error.code)
+    if error.stack_trace:
+        span.set_attribute(LiteLLMError.STACK_TRACE, error.stack_trace)
+    if error.llm_provider:
+        span.set_attribute(LiteLLMError.LLM_PROVIDER, error.llm_provider)
+
+
 class SpanEmitter:
     def __init__(
         self,
@@ -58,9 +80,7 @@ class SpanEmitter:
         # The mapper chain is the sole source of span attributes. When not
         # passed in, resolve it from the config so there's one source of truth.
         self._mappers: list[AttributeMapper] = (
-            list(mappers)
-            if mappers is not None
-            else resolve_mappers(config.mapper_names)
+            list(mappers) if mappers is not None else resolve_mappers(config.mapper_names)
         )
         # Bounded LRU (ordered by insertion / most-recent touch). Storing keys
         # only — the value is unused — so it behaves like a capped set.
@@ -127,11 +147,7 @@ class SpanEmitter:
         # LLM-call and MCP tool-call spans carry a dedup key (their request's
         # call id), so a sync+async double-firing coalesces. ``isinstance`` narrows
         # the type for mypy and keeps the engine free of duck-typed attribute reads.
-        dedup_key = (
-            data.identity.call_id
-            if isinstance(data, (LLMCallSpanData, MCPToolCallSpanData))
-            else None
-        )
+        dedup_key = data.identity.call_id if isinstance(data, (LLMCallSpanData, MCPToolCallSpanData)) else None
         if self._seen(dedup_key, role):
             return None
         span = self.start_span(
@@ -181,12 +197,13 @@ class SpanEmitter:
         if error and (error.error_type or error.message):
             error_type = error.error_type or "error"
             message = error.message or error.error_type or "error"
-            span.set_attribute(Error.TYPE, error_type)
+            _stamp_otel_error_attributes(span, error_type, message)
+            _stamp_litellm_error_attributes(span, error)
             span.set_status(Status(StatusCode.ERROR, message))
-            # Carry the full message on the standard ``exception`` event so backends
-            # map it as full text under ``exception.message``. Setting it as a bare
-            # string attribute instead lets backends like Elasticsearch dynamic-map
-            # it to a ``keyword`` capped at 1024 chars, truncating the message.
+            # Also emit the semconv ``exception`` event so backends that
+            # dynamic-map unknown string span attrs to ``keyword`` (e.g.
+            # Elasticsearch with a 1024-char ``ignore_above``) still see the
+            # full untruncated message on the recognized event field.
             span.add_event(
                 ExceptionEvent.NAME,
                 {ExceptionEvent.TYPE: error_type, ExceptionEvent.MESSAGE: message},

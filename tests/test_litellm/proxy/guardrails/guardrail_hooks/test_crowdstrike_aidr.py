@@ -41,7 +41,8 @@ def test_crowdstrike_aidr_guardrail_config() -> None:
     )
 
 
-def test_crowdstrike_aidr_guardrail_config_no_api_key() -> None:
+def test_crowdstrike_aidr_guardrail_config_no_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("CS_AIDR_TOKEN", raising=False)
     with pytest.raises(CrowdStrikeAIDRGuardrailMissingSecrets):
         init_guardrails_v2(
             all_guardrails=[
@@ -59,7 +60,8 @@ def test_crowdstrike_aidr_guardrail_config_no_api_key() -> None:
         )
 
 
-def test_crowdstrike_aidr_guardrail_config_no_api_base() -> None:
+def test_crowdstrike_aidr_guardrail_config_no_api_base(monkeypatch) -> None:
+    monkeypatch.delenv("CS_AIDR_BASE_URL", raising=False)
     with pytest.raises(CrowdStrikeAIDRGuardrailMissingSecrets):
         init_guardrails_v2(
             all_guardrails=[

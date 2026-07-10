@@ -143,7 +143,42 @@ class Client:
 
 
 class Error:
+    """OTel-defined error attribute keys, from the semconv ``error.*`` registry.
+    ``MESSAGE`` is marked *Deprecated* upstream in favor of domain-specific
+    error message keys plus ``exception.message`` on the exception event, but
+    is still defined and stamped by litellm's v1 integration; keeping it here
+    for byte-for-byte parity."""
+
     TYPE: Final = "error.type"
+    MESSAGE: Final = "error.message"
+
+
+class LiteLLMError:
+    """LiteLLM-specific error attribute keys. Emitted under the ``error.*``
+    namespace (not ``litellm.*``) for byte-for-byte compat with the v1
+    integration in ``opentelemetry.py``; consumers reading these keys on v1
+    spans read the same keys on v2 spans. OTel semconv does not define any of
+    these three, and per its extension rules a namespace may carry additional
+    vendor keys as long as they don't collide with defined names."""
+
+    CODE: Final = "error.code"
+    STACK_TRACE: Final = "error.stack_trace"
+    LLM_PROVIDER: Final = "error.llm_provider"
+
+
+class ExceptionEvent:
+    """OTel exception-event name and attribute keys (semconv ``exception.*``).
+
+    The full error message rides ``exception.message`` on a span event rather than
+    a custom string attribute. Backends recognise these semantic-convention names
+    and map them as full text; an unrecognised key (e.g. ``error_message``) falls
+    into the default dynamic template, which truncates strings to a 1024-char
+    ``keyword``.
+    """
+
+    NAME: Final = "exception"
+    TYPE: Final = "exception.type"
+    MESSAGE: Final = "exception.message"
 
 
 class ExceptionEvent:
@@ -230,6 +265,10 @@ class Metric:
 
     TOKEN_USAGE: Final = "gen_ai.client.token.usage"
     OPERATION_DURATION: Final = "gen_ai.client.operation.duration"
+    TOKEN_COST: Final = "gen_ai.client.token.cost"
+    TIME_TO_FIRST_TOKEN: Final = "gen_ai.client.response.time_to_first_token"
+    TIME_PER_OUTPUT_TOKEN: Final = "gen_ai.client.response.time_per_output_token"
+    RESPONSE_DURATION: Final = "gen_ai.client.response.duration"
 
 
 # litellm ``custom_llm_provider`` -> ``gen_ai.provider.name`` value.
