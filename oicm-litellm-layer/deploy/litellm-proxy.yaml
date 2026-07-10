@@ -61,9 +61,6 @@ data:
     router_settings:
       optional_pre_call_checks:
         - enforce_model_rate_limits
-      fallbacks:
-        - zai-org/GLM-5.2-FP8: ["zai-org/GLM-5.1-FP8", "MiniMaxAI/MiniMax-M3-MXFP8"]
-        - zai-org/GLM-5.1-FP8: ["MiniMaxAI/MiniMax-M3-MXFP8"]
     general_settings:
       use_redis_transaction_buffer: true
 ---
