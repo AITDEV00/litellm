@@ -188,10 +188,14 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 -- capacity when it exceeds its guaranteed rate.
 --
 -- Semantics:
---   1. If priority bucket has room (current < guaranteed): allow, increment both
---   2. If priority bucket is full but model-wide has room (current < model_limit):
---      allow (borrowing), increment both
---   3. If model-wide is full: deny, increment nothing
+--   1. If priority is within guaranteed rate (priority_current < priority_limit):
+--      ALLOW regardless of model-wide usage. Guaranteed rates are hard
+--      reservations that cannot be starved by borrowing.
+--   2. If priority has exhausted its guaranteed rate (priority_current >=
+--      priority_limit) but the model-wide bucket has room (model_current <
+--      model_limit): ALLOW (borrowing from unused capacity).
+--   3. If priority has exhausted its guaranteed rate AND the model-wide
+--      bucket is at capacity: DENY.
 --
 -- All keys share the priority bucket's {key:value} hash tag so the call
 -- lands on a single Redis Cluster slot. The model-wide counter key is
@@ -263,13 +267,14 @@ end
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
--- Check: is the MODEL at capacity?
-if model_current >= model_limit then
-    -- Model is full. Deny regardless of priority.
+-- Check: should we DENY?
+-- Deny only when: priority has exhausted its guaranteed rate AND model is full.
+-- If priority is within its guaranteed rate, ALWAYS allow (hard reservation).
+if priority_current >= priority_limit and model_current >= model_limit then
     return { 1, priority_current, priority_limit, 0 }
 end
 
--- Model has room. Check if this is borrowing.
+-- Request is allowed. Check if this is borrowing.
 local borrowed = 0
 if priority_current >= priority_limit then
     -- Priority guaranteed rate exhausted, but model has room → borrow
@@ -1170,7 +1175,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        if model_current >= model_limit:
+        if priority_current >= priority_limit and model_current >= model_limit:
             return RateLimitResponse(
                 overall_code="OVER_LIMIT",
                 statuses=[

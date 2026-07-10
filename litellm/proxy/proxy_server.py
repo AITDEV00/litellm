@@ -4079,7 +4079,6 @@ class ProxyConfig:
 
                     litellm.priority_reservation_settings = PriorityReservationSettings(**value)
                 elif key == "priority_reservation":
-                    verbose_proxy_logger.warning(f"LOADING priority_reservation from config: {value}")
                     litellm.priority_reservation = value
                 elif key == "callbacks":
                     initialize_callbacks_on_proxy(
