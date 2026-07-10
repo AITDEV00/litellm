@@ -434,6 +434,33 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             },
         )
 
+    def _get_sibling_priorities(
+        self,
+        model: str,
+        model_group_info: ModelGroupInfo,
+        current_priority: Optional[str],
+    ) -> List[tuple[str, int]]:
+        """
+        Build a list of (priority_key, guaranteed_rpm) for all priority levels
+        except the current one. Used by the HTB Lua script to compute the
+        borrow ceiling: model_limit - sum_of_sibling_guaranteed_rates.
+        """
+        if litellm.priority_reservation is None or model_group_info.rpm is None:
+            return []
+
+        normalized_weights = self._normalize_priority_weights(model_group_info)
+        siblings: List[tuple[str, int]] = []
+
+        for prio_key in litellm.priority_reservation:
+            if prio_key == current_priority:
+                continue
+            weight = normalized_weights.get(prio_key, 0.0)
+            guaranteed_rpm = int(model_group_info.rpm * weight)
+            sibling_priority_key = f"{model}:{prio_key}"
+            siblings.append((sibling_priority_key, guaranteed_rpm))
+
+        return siblings
+
     async def _check_priority_limits(
         self,
         model: str,
@@ -484,10 +511,17 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             high_limit_multiplier=1,
         )
 
+        sibling_priorities = self._get_sibling_priorities(
+            model=model,
+            model_group_info=model_group_info,
+            current_priority=priority,
+        )
+
         htb_response = await self.v3_limiter.htb_check_and_increment(
             priority_descriptor=priority_descriptors[0],
             model_descriptor=model_descriptor,
             parent_otel_span=user_api_key_dict.parent_otel_span,
+            sibling_priorities=sibling_priorities,
         )
 
         verbose_proxy_logger.debug(

@@ -185,40 +185,38 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --
 -- Two buckets: a priority bucket (guaranteed rate) and a model-wide bucket
 -- (total capacity). The priority bucket can BORROW from unused model-wide
--- capacity when it exceeds its guaranteed rate.
+-- capacity, but borrowing is capped so that other priorities' guaranteed
+-- rates are always reservable.
 --
 -- Semantics:
 --   1. If priority is within guaranteed rate (priority_current < priority_limit):
---      ALLOW regardless of model-wide usage. Guaranteed rates are hard
---      reservations that cannot be starved by borrowing.
+--      ALLOW. Guaranteed rates are hard reservations that cannot be starved.
 --   2. If priority has exhausted its guaranteed rate (priority_current >=
---      priority_limit) but the model-wide bucket has room (model_current <
---      model_limit): ALLOW (borrowing from unused capacity).
---   3. If priority has exhausted its guaranteed rate AND the model-wide
---      bucket is at capacity: DENY.
+--      priority_limit): ALLOW only if model_current < borrow_ceiling, where
+--      borrow_ceiling = model_limit - sum_of_other_priorities_guaranteed_rates.
+--      This reserves capacity for other priorities even when they are inactive.
+--   3. Otherwise: DENY.
 --
--- All keys share the priority bucket's {key:value} hash tag so the call
--- lands on a single Redis Cluster slot. The model-wide counter key is
--- passed as a raw key; the caller must ensure it uses the SAME hash tag
--- (or accept a CROSSSLOT on non-cluster Redis, which tolerates it).
---
--- KEYS layout (4 keys):
---   KEYS[1] = priority window key    ({priority_model:<model>:<priority>}:window)
---   KEYS[2] = priority counter key   ({priority_model:<model>:<priority>}:requests)
---   KEYS[3] = model window key       ({model_saturation_check:<model>}:window)
---   KEYS[4] = model counter key      ({model_saturation_check:<model>}:requests)
+-- KEYS layout (2 + 2*num_siblings keys):
+--   KEYS[1] = priority window key
+--   KEYS[2] = priority counter key
+--   KEYS[3] = model window key
+--   KEYS[4] = model counter key
+--   KEYS[5..] = sibling priority counter keys (for computing borrow ceiling)
 --
 -- ARGV layout:
---   ARGV[1] = priority_limit   (guaranteed rate for this priority)
---   ARGV[2] = model_limit      (total model RPM)
---   ARGV[3] = ttl_seconds      (counter TTL when window resets)
---   ARGV[4] = window_size      (sliding-window length in seconds)
+--   ARGV[1] = priority_limit        (guaranteed rate for this priority)
+--   ARGV[2] = model_limit           (total model RPM)
+--   ARGV[3] = ttl_seconds           (counter TTL when window resets)
+--   ARGV[4] = window_size           (sliding-window length in seconds)
+--   ARGV[5] = num_siblings          (number of sibling priority entries)
+--   ARGV[6..] = pairs of (sibling_counter_key_index, sibling_guaranteed_rate)
+--              where sibling_counter_key_index is the KEYS index (1-based)
+--              of the sibling's counter key
 --
 -- Return:
 --   { 0, priority_counter, model_counter, borrowed_flag }
---     borrowed_flag = 0 (within guaranteed), 1 (borrowing)
---   { 1, current_priority_counter, priority_limit, 1 }
---     (priority OVER_LIMIT — model is full, priority guaranteed exhausted)
+--   { 1, current_priority_counter, priority_limit, 0 }
 local time_reply = redis.call('TIME')
 local now = tonumber(time_reply[1])
 
@@ -231,6 +229,7 @@ local priority_limit = tonumber(ARGV[1])
 local model_limit = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
 local window_size = tonumber(ARGV[4])
+local num_siblings = tonumber(ARGV[5])
 
 -- Helper: read counter with window expiry
 local function read_counter(window_key, counter_key)
@@ -267,17 +266,37 @@ end
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
+-- Compute borrow ceiling: model_limit - sum_of_other_priorities_guaranteed_rates
+-- This ensures that even if this priority borrows everything available, other
+-- priorities can still get their guaranteed rate without exceeding model_limit.
+local borrow_ceiling = model_limit
+local arg_idx = 6
+for i = 1, num_siblings do
+    local sibling_key_idx = tonumber(ARGV[arg_idx])
+    local sibling_guaranteed = tonumber(ARGV[arg_idx + 1])
+    local sibling_window_key = KEYS[sibling_key_idx - 1]
+    local sibling_counter_key = KEYS[sibling_key_idx]
+    local sibling_current, _ = read_counter(sibling_window_key, sibling_counter_key)
+    -- Only reserve capacity for siblings that are actually using their guaranteed rate.
+    -- If a sibling is inactive (0 usage), its guaranteed capacity is available for borrowing.
+    -- If a sibling is active, reserve min(sibling_current, sibling_guaranteed) for it.
+    local reserved = math.min(sibling_current, sibling_guaranteed)
+    borrow_ceiling = borrow_ceiling - reserved
+    arg_idx = arg_idx + 2
+end
+
 -- Check: should we DENY?
--- Deny only when: priority has exhausted its guaranteed rate AND model is full.
--- If priority is within its guaranteed rate, ALWAYS allow (hard reservation).
-if priority_current >= priority_limit and model_current >= model_limit then
-    return { 1, priority_current, priority_limit, 0 }
+-- Within guaranteed rate: always allow (hard reservation).
+-- Over guaranteed rate (borrowing): allow only if model has room under borrow ceiling.
+if priority_current >= priority_limit then
+    if model_current >= borrow_ceiling then
+        return { 1, priority_current, priority_limit, 0 }
+    end
 end
 
 -- Request is allowed. Check if this is borrowing.
 local borrowed = 0
 if priority_current >= priority_limit then
-    -- Priority guaranteed rate exhausted, but model has room → borrow
     borrowed = 1
 end
 
@@ -1001,6 +1020,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_descriptor: RateLimitDescriptor,
         model_descriptor: RateLimitDescriptor,
         parent_otel_span: Optional[Span] = None,
+        sibling_priorities: Optional[List[Tuple[str, int]]] = None,
     ) -> RateLimitResponse:
         """
         HTB (Hierarchical Token Bucket) atomic check-and-increment.
@@ -1009,8 +1029,8 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         (total capacity) atomically. If the priority bucket is within its
         guaranteed rate, the request is allowed. If the priority bucket
         exceeds its guaranteed rate but the model-wide bucket has spare
-        capacity, the request is allowed (borrowing). If the model-wide
-        bucket is at capacity, the request is denied.
+        capacity (accounting for other priorities' reservations), the
+        request is allowed (borrowing). Otherwise, the request is denied.
 
         Uses a single Lua script for Redis (atomic across both buckets).
         Falls back to in-memory with an asyncio lock when Redis is unavailable.
@@ -1018,6 +1038,8 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         Args:
             priority_descriptor: Descriptor with the priority's guaranteed limit
             model_descriptor: Descriptor with the model's total RPM/TPM limit
+            sibling_priorities: List of (priority_key, guaranteed_rate) for all
+                other priority levels. Used to compute the borrow ceiling.
 
         Returns:
             RateLimitResponse. On OVER_LIMIT, the descriptor_key is
@@ -1037,10 +1059,8 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         window_size = int(p_rate_limit.get("window_size") or self.window_size)
         ttl = window_size
 
-        # All 4 keys share the {htb:<model>} hash tag so they co-locate on
-        # a single Redis Cluster slot (avoids CROSSSLOT). The priority level
-        # is in the key suffix (outside the hash tag) so each priority gets
-        # its own counter, while the model-wide counter is shared.
+        # All keys share the {htb:<model>} hash tag so they co-locate on
+        # a single Redis Cluster slot (avoids CROSSSLOT).
         htb_hash = f"htb:{model_descriptor['value']}"
         priority_suffix = priority_descriptor["value"]
         priority_window_key = f"{{{htb_hash}}}:{priority_suffix}:window"
@@ -1048,8 +1068,23 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         model_window_key = f"{{{htb_hash}}}:window"
         model_counter_key = f"{{{htb_hash}}}:requests"
 
-        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key]
-        args = [int(priority_limit), int(model_limit), ttl, window_size]
+        # Build sibling priority keys and args for borrow ceiling computation
+        sibling_keys: List[str] = []
+        sibling_args: List[int] = []
+        if sibling_priorities:
+            for sibling_key, sibling_limit in sibling_priorities:
+                sibling_window_key = f"{{{htb_hash}}}:{sibling_key}:window"
+                sibling_counter_key = f"{{{htb_hash}}}:{sibling_key}:requests"
+                sibling_keys.append(sibling_window_key)
+                sibling_keys.append(sibling_counter_key)
+                # KEYS index (1-based): 4 base keys + len(sibling_keys) so far
+                # The sibling counter key is the last appended key
+                sibling_key_idx = 4 + len(sibling_keys)
+                sibling_args.append(sibling_key_idx)
+                sibling_args.append(int(sibling_limit))
+
+        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key] + sibling_keys
+        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or [])] + sibling_args
 
         if self.htb_check_and_increment_script is not None:
             try:
@@ -1072,6 +1107,8 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 ttl=ttl,
                 window_size=window_size,
                 parent_otel_span=parent_otel_span,
+                sibling_priorities=sibling_priorities,
+                htb_hash=htb_hash,
             )
 
     def _build_htb_response(
@@ -1132,6 +1169,8 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         ttl: int,
         window_size: int,
         parent_otel_span: Optional[Span] = None,
+        sibling_priorities: Optional[List[Tuple[str, int]]] = None,
+        htb_hash: str = "",
     ) -> RateLimitResponse:
         """In-memory HTB fallback. Caller holds the lock."""
         now_int = int(self._get_current_time().timestamp())
@@ -1175,7 +1214,16 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        if priority_current >= priority_limit and model_current >= model_limit:
+        borrow_ceiling = model_limit
+        if sibling_priorities:
+            for sibling_key, sibling_limit in sibling_priorities:
+                sib_window = f"{{{htb_hash}}}:{sibling_key}:window"
+                sib_counter = f"{{{htb_hash}}}:{sibling_key}:requests"
+                sib_current, _ = await _read(sib_window, sib_counter)
+                reserved = min(sib_current, sibling_limit)
+                borrow_ceiling -= reserved
+
+        if priority_current >= priority_limit and model_current >= borrow_ceiling:
             return RateLimitResponse(
                 overall_code="OVER_LIMIT",
                 statuses=[
