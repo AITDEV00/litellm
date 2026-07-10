@@ -447,18 +447,18 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         ``optional_pre_call_checks``) handles that and correctly triggers
         fallbacks when a deployment is at capacity.
 
-        This hook only enforces priority-based limits, and only when the model
-        is saturated (saturation >= saturation_threshold). Below the threshold,
-        all priorities can borrow the model's full capacity.
+        This hook only enforces priority-based limits.
 
-        When the priority limit is exceeded and the model has fallbacks
-        configured, the hook does NOT raise. Instead it lets the request
-        proceed to the router, which will block the primary deployment via
-        ``enforce_model_rate_limits`` and trigger the fallback chain. This
-        ensures users get 200 responses from fallback models instead of 429s.
-
-        Tracking counters (model-wide + priority) are always incremented so
-        saturation stays accurate.
+        Enforcement rules:
+        - Model WITH fallbacks: enforce priority only when saturation >=
+          threshold. Below the threshold, all priorities can borrow the
+          model's full capacity. When priority limit is exceeded and
+          fallbacks are configured, the hook defers to the router, which
+          blocks the primary deployment and triggers the fallback chain.
+        - Model WITHOUT fallbacks: always enforce priority caps, regardless
+          of saturation. Each priority gets its reserved share from the
+          start (e.g. prior3 capped at 20 RPM, prior1 gets 50 RPM), so
+          low-priority traffic cannot starve high-priority traffic.
 
         Args:
             model: Model name
@@ -475,7 +475,8 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         import json
 
         saturation_threshold = _get_priority_settings().saturation_threshold
-        should_enforce_priority = saturation >= saturation_threshold
+        has_fallbacks = self._model_has_fallbacks(model)
+        should_enforce_priority = saturation >= saturation_threshold or not has_fallbacks
 
         priority_descriptors = self._create_priority_based_descriptors(
             model=model,
@@ -502,7 +503,6 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
 
             if atomic_response["overall_code"] == "OVER_LIMIT":
                 resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
-                has_fallbacks = self._model_has_fallbacks(model)
                 for status in atomic_response["statuses"]:
                     if status["code"] != "OVER_LIMIT":
                         continue
@@ -592,17 +592,20 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         Flow:
         1. Atomically increment the model-wide tracking counter (high limit,
            never blocks) and compute saturation from the post-increment value
-        2. If saturation >= threshold, atomically check+increment the priority
-           counter and raise 429 if over the priority-specific limit
-        3. If below threshold, increment the priority counter for tracking only
+        2. If saturation >= threshold (model with fallbacks) OR always (model
+           without fallbacks): atomically check+increment the priority counter
+           and raise 429 if over the priority-specific limit
+        3. If below threshold and model has fallbacks: increment the priority
+           counter for tracking only
 
         Model-wide RPM is NOT enforced here. The router's
         ``enforce_model_rate_limits`` pre-call check handles that and
         triggers fallbacks when a deployment is at capacity.
 
         Example with 100 RPM model, 20% priority allocation (prior3), 80% threshold:
-        - Saturation < 80%: prior3 can use up to 100 RPM (model limit only)
-        - Saturation >= 80%: prior3 capped at 20 RPM (priority limit enforced)
+        - Model WITH fallbacks, saturation < 80%: prior3 can use up to 100 RPM
+        - Model WITH fallbacks, saturation >= 80%: prior3 capped at 20 RPM
+        - Model WITHOUT fallbacks: prior3 always capped at 20 RPM
 
         Args:
             user_api_key_dict: User authentication and metadata
