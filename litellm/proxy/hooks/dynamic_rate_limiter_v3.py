@@ -85,6 +85,27 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
     def update_variables(self, llm_router: Router):
         self.llm_router = llm_router
 
+    def _model_has_fallbacks(self, model: str) -> bool:
+        """Check whether the model group has fallbacks configured.
+
+        When fallbacks are configured, priority enforcement defers to the
+        router instead of raising at the proxy level. This lets the router's
+        ``enforce_model_rate_limits`` pre-call check block the primary
+        deployment and trigger the fallback chain.
+        """
+        if self.llm_router is None:
+            return False
+        if self.llm_router.fallbacks:
+            return True
+        if self.llm_router.default_fallbacks:
+            return True
+        deployments = self.llm_router.get_model_list(model_name=model) or []
+        for d in deployments:
+            lp = d.get("litellm_params") or {}
+            if lp.get("fallbacks"):
+                return True
+        return False
+
     def _get_saturation_check_cache_ttl(self) -> int:
         """Get the configurable TTL for local cache when reading saturation values."""
         return _get_priority_settings().saturation_check_cache_ttl
@@ -430,6 +451,12 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         is saturated (saturation >= saturation_threshold). Below the threshold,
         all priorities can borrow the model's full capacity.
 
+        When the priority limit is exceeded and the model has fallbacks
+        configured, the hook does NOT raise. Instead it lets the request
+        proceed to the router, which will block the primary deployment via
+        ``enforce_model_rate_limits`` and trigger the fallback chain. This
+        ensures users get 200 responses from fallback models instead of 429s.
+
         Tracking counters (model-wide + priority) are always incremented so
         saturation stays accurate.
 
@@ -442,7 +469,8 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             data: Request data dictionary
 
         Raises:
-            HTTPException: If priority-based limit is exceeded
+            HTTPException: If priority-based limit is exceeded and no fallbacks
+                are configured for the model
         """
         import json
 
@@ -474,10 +502,19 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
 
             if atomic_response["overall_code"] == "OVER_LIMIT":
                 resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
+                has_fallbacks = self._model_has_fallbacks(model)
                 for status in atomic_response["statuses"]:
                     if status["code"] != "OVER_LIMIT":
                         continue
                     if status["descriptor_key"] == "priority_model":
+                        if has_fallbacks:
+                            verbose_proxy_logger.info(
+                                f"Priority limit exceeded for {model} (priority={priority}, "
+                                f"saturation={saturation:.1%}) but fallbacks configured; "
+                                f"deferring to router for fallback handling"
+                            )
+                            data["litellm_proxy_rate_limit_response"] = atomic_response
+                            return
                         verbose_proxy_logger.debug(
                             f"Enforcing priority limits for {model}, saturation: {saturation:.1%}, "
                             f"priority: {priority}"
