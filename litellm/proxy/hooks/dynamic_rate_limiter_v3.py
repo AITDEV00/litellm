@@ -522,6 +522,7 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             model_descriptor=model_descriptor,
             parent_otel_span=user_api_key_dict.parent_otel_span,
             sibling_priorities=sibling_priorities,
+            saturation_threshold=_get_priority_settings().saturation_threshold,
         )
 
         verbose_proxy_logger.debug(

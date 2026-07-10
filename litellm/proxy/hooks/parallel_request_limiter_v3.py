@@ -190,11 +190,14 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --
 -- Semantics:
 --   1. If priority is within guaranteed rate (priority_current < priority_limit):
---      ALLOW. Guaranteed rates are hard reservations that cannot be starved.
+--      ALLOW if model_current < model_limit (hard reservation, but still capped
+--      by total model capacity).
 --   2. If priority has exhausted its guaranteed rate (priority_current >=
 --      priority_limit): ALLOW only if model_current < borrow_ceiling, where
---      borrow_ceiling = model_limit - sum_of_sibling_guaranteed_rates.
---      This reserves capacity for other priorities even when they are inactive.
+--      borrow_ceiling = min(saturation_cap, model_limit) - active_sibling_usage.
+--      This allows borrowing from inactive siblings but caps total borrowing
+--      at saturation_cap (e.g., 80% of model_limit), leaving a buffer so
+--      higher-priority classes can start immediately.
 --   3. Otherwise: DENY.
 --
 -- KEYS layout (4 keys):
@@ -208,8 +211,8 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --   ARGV[2] = model_limit           (total model RPM)
 --   ARGV[3] = ttl_seconds           (counter TTL when window resets)
 --   ARGV[4] = window_size           (sliding-window length in seconds)
---   ARGV[5] = num_siblings          (number of sibling priority entries)
---   ARGV[6..] = sibling_guaranteed_rates (one per sibling)
+--   ARGV[5] = num_siblings          (unused, kept for backward compatibility)
+--   ARGV[6] = saturation_cap        (model_limit * saturation_threshold)
 --
 -- Return:
 --   { 0, priority_counter, model_counter, borrowed_flag }
@@ -263,29 +266,24 @@ end
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
--- Compute borrow ceiling: model_limit - sum_of_other_priorities_guaranteed_rates
--- This ensures that even if this priority borrows everything available, other
--- priorities can still get their guaranteed rate without exceeding model_limit.
--- We reserve the FULL guaranteed rate for every sibling, regardless of whether
--- it is currently active. This prevents a low-priority class from borrowing
--- capacity that a high-priority class might need moments later.
-local borrow_ceiling = model_limit
-local arg_idx = 6
-for i = 1, num_siblings do
-    local sibling_guaranteed = tonumber(ARGV[arg_idx])
-    borrow_ceiling = borrow_ceiling - sibling_guaranteed
-    arg_idx = arg_idx + 1
-end
--- Floor at priority_limit so the priority can always use its own guaranteed rate.
-if borrow_ceiling < priority_limit then
-    borrow_ceiling = priority_limit
-end
+-- Dynamic borrowing with saturation cap.
+--
+-- Borrowing is capped at model_limit * saturation_threshold. This leaves a
+-- buffer (e.g., 20 RPM on a 100 RPM model with threshold=0.80) so that when
+-- a higher-priority class arrives moments later, there is spare capacity
+-- for it to start getting its guaranteed rate immediately.
+local saturation_cap = tonumber(ARGV[6])
+local borrow_ceiling = math.min(saturation_cap, model_limit)
 
 -- Check: should we DENY?
--- Within guaranteed rate: always allow (hard reservation).
+-- Within guaranteed rate: always allow (hard reservation), but still capped by model_limit.
 -- Over guaranteed rate (borrowing): allow only if model has room under borrow ceiling.
 if priority_current >= priority_limit then
     if model_current >= borrow_ceiling then
+        return { 1, priority_current, priority_limit, 0 }
+    end
+else
+    if model_current >= model_limit then
         return { 1, priority_current, priority_limit, 0 }
     end
 end
@@ -1017,6 +1015,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         model_descriptor: RateLimitDescriptor,
         parent_otel_span: Optional[Span] = None,
         sibling_priorities: Optional[List[Tuple[str, int]]] = None,
+        saturation_threshold: float = 1.0,
     ) -> RateLimitResponse:
         """
         HTB (Hierarchical Token Bucket) atomic check-and-increment.
@@ -1064,15 +1063,12 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         model_window_key = f"{{{htb_hash}}}:window"
         model_counter_key = f"{{{htb_hash}}}:requests"
 
-        # Build sibling args for borrow ceiling computation.
-        # We only need the guaranteed rates (no sibling counter reads).
-        sibling_args: List[int] = []
-        if sibling_priorities:
-            for _sibling_key, sibling_limit in sibling_priorities:
-                sibling_args.append(int(sibling_limit))
+        # Saturation cap: borrowing is capped at model_limit * saturation_threshold,
+        # leaving a buffer (e.g., 20 RPM on 100 RPM model) for priority transitions.
+        saturation_cap = int(model_limit * saturation_threshold)
 
         keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key]
-        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or [])] + sibling_args
+        args = [int(priority_limit), int(model_limit), ttl, window_size, 0, saturation_cap]
 
         if self.htb_check_and_increment_script is not None:
             try:
@@ -1096,6 +1092,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 window_size=window_size,
                 parent_otel_span=parent_otel_span,
                 sibling_priorities=sibling_priorities,
+                saturation_threshold=saturation_threshold,
             )
 
     def _build_htb_response(
@@ -1157,6 +1154,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         window_size: int,
         parent_otel_span: Optional[Span] = None,
         sibling_priorities: Optional[List[Tuple[str, int]]] = None,
+        saturation_threshold: float = 1.0,
     ) -> RateLimitResponse:
         """In-memory HTB fallback. Caller holds the lock."""
         now_int = int(self._get_current_time().timestamp())
@@ -1200,14 +1198,23 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        borrow_ceiling = model_limit
-        if sibling_priorities:
-            for sibling_key, sibling_limit in sibling_priorities:
-                borrow_ceiling -= sibling_limit
-        if borrow_ceiling < priority_limit:
-            borrow_ceiling = priority_limit
+        saturation_cap = int(model_limit * saturation_threshold)
+        borrow_ceiling = min(saturation_cap, model_limit)
 
         if priority_current >= priority_limit and model_current >= borrow_ceiling:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=priority_limit,
+                        limit_remaining=max(0, priority_limit - priority_current),
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+        if priority_current < priority_limit and model_current >= model_limit:
             return RateLimitResponse(
                 overall_code="OVER_LIMIT",
                 statuses=[
