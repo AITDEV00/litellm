@@ -181,19 +181,26 @@ return results
 """
 
 HTB_CHECK_AND_INCREMENT_SCRIPT = """
--- HTB (Hierarchical Token Bucket) check-and-increment with hybrid borrowing.
+-- HTB (Hierarchical Token Bucket) check-and-increment with EWMA-based borrowing.
 --
--- Combines proportional counter-based reservation (smooth within window)
--- with cross-window activity signal (prevents re-borrowing at reset).
+-- Uses an Exponentially Weighted Moving Average (EWMA) to track each priority's
+-- recent request rate. The EWMA decays continuously over time, so sibling
+-- reservations are proportional to ACTUAL recent usage, not a binary flag.
 --
--- For each sibling:
---   - If sibling has an activity flag (was active recently, TTL > window):
---     reservation = max(sibling_current, sibling_guaranteed)
---     Ensures the guaranteed rate is always reserved for active siblings,
---     even right after a window reset when counters are 0.
---   - If sibling has NO activity flag (genuinely inactive):
---     reservation = min(sibling_current, sibling_guaranteed)
---     Allows smooth proportional ramp-up as sibling starts sending.
+-- EWMA update formula:  new_ewma = old_ewma * exp(-elapsed / window_size) + 1
+--
+-- At steady state with rate R requests per window, EWMA converges to R.
+-- When a priority stops sending, its EWMA decays smoothly:
+--   After 1 window:  ewma * exp(-1) ≈ 37% of peak
+--   After 2 windows: ewma * exp(-2) ≈ 14% of peak
+--   After 3 windows: ewma * exp(-3) ≈ 5% of peak
+--
+-- For each sibling, reservation = min(sibling_decayed_ewma, sibling_guaranteed).
+-- This means:
+--   - Sibling sending 50 RPM (guaranteed=50): reservation = 50, prior3 borrows 30
+--   - Sibling sending 1 RPM  (guaranteed=50): reservation = 1,  prior3 borrows 79
+--   - Sibling stopped (EWMA decaying):        reservation decays smoothly
+--   - Sibling never sent (no EWMA key):       reservation = 0, fully borrowable
 --
 -- Semantics:
 --   1. Within guaranteed rate (priority_current < priority_limit):
@@ -203,13 +210,14 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --      borrow_ceiling = min(saturation_cap, model_limit) - sum_of_sibling_reservations
 --   3. Otherwise: DENY.
 --
--- KEYS layout (5 + 3*num_siblings keys):
+-- KEYS layout (6 + 2*num_siblings keys):
 --   KEYS[1] = priority window key
 --   KEYS[2] = priority counter key
 --   KEYS[3] = model window key
 --   KEYS[4] = model counter key
---   KEYS[5] = my activity flag key (SET with EX on every request)
---   KEYS[6..] = per sibling: (activity_key, window_key, counter_key)
+--   KEYS[5] = my EWMA value key (float)
+--   KEYS[6] = my EWMA timestamp key (unix seconds)
+--   KEYS[7..] = per sibling: (ewma_value_key, ewma_ts_key)
 --
 -- ARGV layout:
 --   ARGV[1] = priority_limit        (guaranteed rate for this priority)
@@ -218,7 +226,7 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --   ARGV[4] = window_size           (sliding-window length in seconds)
 --   ARGV[5] = num_siblings          (number of sibling priority entries)
 --   ARGV[6] = saturation_cap        (model_limit * saturation_threshold)
---   ARGV[7] = activity_ttl          (TTL for activity flags, > window_size)
+--   ARGV[7] = ewma_ttl              (TTL for EWMA keys, e.g. 3 * window_size)
 --   ARGV[8..] = sibling_guaranteed_rates (one per sibling)
 --
 -- Return:
@@ -231,7 +239,8 @@ local priority_window = KEYS[1]
 local priority_counter_key = KEYS[2]
 local model_window = KEYS[3]
 local model_counter_key = KEYS[4]
-local my_activity_key = KEYS[5]
+local my_ewma_key = KEYS[5]
+local my_ewma_ts_key = KEYS[6]
 
 local priority_limit = tonumber(ARGV[1])
 local model_limit = tonumber(ARGV[2])
@@ -239,7 +248,7 @@ local ttl = tonumber(ARGV[3])
 local window_size = tonumber(ARGV[4])
 local num_siblings = tonumber(ARGV[5])
 local saturation_cap = tonumber(ARGV[6])
-local activity_ttl = tonumber(ARGV[7])
+local ewma_ttl = tonumber(ARGV[7])
 
 -- Helper: read counter with window expiry
 local function read_counter(window_key, counter_key)
@@ -273,36 +282,65 @@ local function increment_counter(window_key, counter_key, window_expired, ttl, w
     end
 end
 
--- Set activity flag for current priority (persists across window resets).
--- This tells siblings that this priority is actively sending traffic.
-redis.call('SET', my_activity_key, '1', 'EX', activity_ttl)
+-- Helper: compute current decayed EWMA value from stored value + timestamp.
+-- If no stored value, returns 0 (never sent).
+local function read_decayed_ewma(ewma_key, ewma_ts_key)
+    local ewma_raw = redis.call('GET', ewma_key)
+    local ts_raw = redis.call('GET', ewma_ts_key)
+    if not ewma_raw or not ts_raw then
+        return 0
+    end
+    local old_ewma = tonumber(ewma_raw)
+    local old_ts = tonumber(ts_raw)
+    local elapsed = now - old_ts
+    if elapsed <= 0 then
+        return old_ewma
+    end
+    local decay = math.exp(-elapsed / window_size)
+    return old_ewma * decay
+end
+
+-- Update MY EWMA: decay old value, add 1 for this request, store with timestamp.
+local my_old_ewma = 0
+local my_old_ts_raw = redis.call('GET', my_ewma_ts_key)
+if my_old_ts_raw then
+    local my_old_ewma_raw = redis.call('GET', my_ewma_key)
+    if my_old_ewma_raw then
+        my_old_ewma = tonumber(my_old_ewma_raw)
+    end
+    local my_old_ts = tonumber(my_old_ts_raw)
+    local my_elapsed = now - my_old_ts
+    if my_elapsed > 0 then
+        local my_decay = math.exp(-my_elapsed / window_size)
+        my_old_ewma = my_old_ewma * my_decay
+    end
+end
+local my_new_ewma = my_old_ewma + 1
+redis.call('SET', my_ewma_key, tostring(my_new_ewma), 'EX', ewma_ttl)
+redis.call('SET', my_ewma_ts_key, tostring(now), 'EX', ewma_ttl)
 
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
--- Hybrid borrow ceiling.
--- For each sibling, check activity flag to decide reservation formula:
---   Active sibling:   reservation = max(sibling_current, sibling_guaranteed)
---   Inactive sibling: reservation = min(sibling_current, sibling_guaranteed)
+-- EWMA-based borrow ceiling.
+-- For each sibling, compute their current decayed EWMA and reserve
+-- min(decayed_ewma, sibling_guaranteed).
+-- This gives smooth proportional transitions:
+--   - Sibling sending lots: reservation approaches guaranteed
+--   - Sibling sending little: reservation is small, lots of room to borrow
+--   - Sibling stopped: EWMA decays, reservation shrinks over time
 local borrow_ceiling = math.min(saturation_cap, model_limit)
 local arg_idx = 8
-local key_idx = 6
+local key_idx = 7
 for i = 1, num_siblings do
-    local sibling_activity_key = KEYS[key_idx]
-    local sibling_window_key = KEYS[key_idx + 1]
-    local sibling_counter_key = KEYS[key_idx + 2]
+    local sibling_ewma_key = KEYS[key_idx]
+    local sibling_ts_key = KEYS[key_idx + 1]
     local sibling_guaranteed = tonumber(ARGV[arg_idx])
-    local sibling_current, _ = read_counter(sibling_window_key, sibling_counter_key)
-    local sibling_active = redis.call('EXISTS', sibling_activity_key) == 1
-    local reservation
-    if sibling_active then
-        reservation = math.max(sibling_current, sibling_guaranteed)
-    else
-        reservation = math.min(sibling_current, sibling_guaranteed)
-    end
+    local sibling_decayed = read_decayed_ewma(sibling_ewma_key, sibling_ts_key)
+    local reservation = math.min(sibling_decayed, sibling_guaranteed)
     borrow_ceiling = borrow_ceiling - reservation
     arg_idx = arg_idx + 1
-    key_idx = key_idx + 3
+    key_idx = key_idx + 2
 end
 if borrow_ceiling < priority_limit then
     borrow_ceiling = priority_limit
@@ -1091,33 +1129,31 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         model_window_key = f"{{{htb_hash}}}:window"
         model_counter_key = f"{{{htb_hash}}}:requests"
 
-        # Activity flag persists across window resets (TTL > window_size).
-        # This tells siblings that this priority is actively sending traffic.
-        activity_ttl = window_size * 2
-        my_activity_key = f"{{{htb_hash}}}:{priority_suffix}:active"
+        # EWMA keys track each priority's decaying request rate.
+        # ewma_ttl must be > window_size so the decay is visible across resets.
+        ewma_ttl = window_size * 3
+        my_ewma_key = f"{{{htb_hash}}}:{priority_suffix}:ewma"
+        my_ewma_ts_key = f"{{{htb_hash}}}:{priority_suffix}:ewma:ts"
 
         # Saturation cap: borrowing is capped at model_limit * saturation_threshold,
         # leaving a buffer (e.g., 20 RPM on 100 RPM model) for priority transitions.
         saturation_cap = int(model_limit * saturation_threshold)
 
-        # Build sibling keys (activity + window + counter triples) and guaranteed rates.
-        # The Lua script checks each sibling's activity flag to decide reservation:
-        #   Active sibling:   reservation = max(sibling_current, sibling_guaranteed)
-        #   Inactive sibling: reservation = min(sibling_current, sibling_guaranteed)
+        # Build sibling keys (ewma value + timestamp pairs) and guaranteed rates.
+        # The Lua script computes each sibling's decayed EWMA and uses
+        # min(decayed_ewma, sibling_guaranteed) as the reservation.
         sibling_keys: List[str] = []
         sibling_args: List[int] = []
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sibling_activity_key = f"{{{htb_hash}}}:{sibling_key}:active"
-                sibling_window_key = f"{{{htb_hash}}}:{sibling_key}:window"
-                sibling_counter_key = f"{{{htb_hash}}}:{sibling_key}:requests"
-                sibling_keys.append(sibling_activity_key)
-                sibling_keys.append(sibling_window_key)
-                sibling_keys.append(sibling_counter_key)
+                sibling_ewma_key = f"{{{htb_hash}}}:{sibling_key}:ewma"
+                sibling_ts_key = f"{{{htb_hash}}}:{sibling_key}:ewma:ts"
+                sibling_keys.append(sibling_ewma_key)
+                sibling_keys.append(sibling_ts_key)
                 sibling_args.append(int(sibling_limit))
 
-        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key, my_activity_key] + sibling_keys
-        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or []), saturation_cap, activity_ttl] + sibling_args
+        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key, my_ewma_key, my_ewma_ts_key] + sibling_keys
+        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or []), saturation_cap, ewma_ttl] + sibling_args
 
         if self.htb_check_and_increment_script is not None:
             try:
@@ -1251,36 +1287,55 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        # Set activity flag for current priority (persists across window resets).
-        activity_ttl = window_size * 2
-        my_activity_key = f"{{{htb_hash}}}:{priority_suffix}:active"
+        # Update MY EWMA: decay old value, add 1 for this request.
+        ewma_ttl = window_size * 3
+        my_ewma_key = f"{{{htb_hash}}}:{priority_suffix}:ewma"
+        my_ewma_ts_key = f"{{{htb_hash}}}:{priority_suffix}:ewma:ts"
+        import math as _math
+        my_old_ewma_val = await self.internal_usage_cache.async_get_cache(
+            key=my_ewma_key, litellm_parent_otel_span=parent_otel_span, local_only=True,
+        )
+        my_old_ts_val = await self.internal_usage_cache.async_get_cache(
+            key=my_ewma_ts_key, litellm_parent_otel_span=parent_otel_span, local_only=True,
+        )
+        my_old_ewma = 0.0
+        if my_old_ewma_val is not None and my_old_ts_val is not None:
+            my_old_ewma = float(my_old_ewma_val)
+            my_elapsed = now_int - int(my_old_ts_val)
+            if my_elapsed > 0:
+                my_old_ewma = my_old_ewma * _math.exp(-my_elapsed / window_size)
+        my_new_ewma = my_old_ewma + 1
         await self.internal_usage_cache.async_set_cache(
-            key=my_activity_key, value=1, ttl=activity_ttl,
+            key=my_ewma_key, value=my_new_ewma, ttl=ewma_ttl,
+            litellm_parent_otel_span=parent_otel_span, local_only=True,
+        )
+        await self.internal_usage_cache.async_set_cache(
+            key=my_ewma_ts_key, value=now_int, ttl=ewma_ttl,
             litellm_parent_otel_span=parent_otel_span, local_only=True,
         )
 
-        # Hybrid borrow ceiling.
-        # For each sibling, check activity flag to decide reservation formula:
-        #   Active sibling:   reservation = max(sibling_current, sibling_guaranteed)
-        #   Inactive sibling: reservation = min(sibling_current, sibling_guaranteed)
+        # EWMA-based borrow ceiling.
+        # For each sibling, compute their current decayed EWMA and reserve
+        # min(decayed_ewma, sibling_guaranteed).
         saturation_cap = int(model_limit * saturation_threshold)
         borrow_ceiling = min(saturation_cap, model_limit)
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sib_activity = f"{{{htb_hash}}}:{sibling_key}:active"
-                sib_window = f"{{{htb_hash}}}:{sibling_key}:window"
-                sib_counter = f"{{{htb_hash}}}:{sibling_key}:requests"
-                sib_current, _ = await _read(sib_window, sib_counter)
-                sib_active_val = await self.internal_usage_cache.async_get_cache(
-                    key=sib_activity,
-                    litellm_parent_otel_span=parent_otel_span,
-                    local_only=True,
+                sib_ewma_k = f"{{{htb_hash}}}:{sibling_key}:ewma"
+                sib_ts_k = f"{{{htb_hash}}}:{sibling_key}:ewma:ts"
+                sib_ewma_val = await self.internal_usage_cache.async_get_cache(
+                    key=sib_ewma_k, litellm_parent_otel_span=parent_otel_span, local_only=True,
                 )
-                sib_active = sib_active_val is not None
-                if sib_active:
-                    reservation = max(sib_current, sibling_limit)
-                else:
-                    reservation = min(sib_current, sibling_limit)
+                sib_ts_val = await self.internal_usage_cache.async_get_cache(
+                    key=sib_ts_k, litellm_parent_otel_span=parent_otel_span, local_only=True,
+                )
+                sib_decayed = 0.0
+                if sib_ewma_val is not None and sib_ts_val is not None:
+                    sib_decayed = float(sib_ewma_val)
+                    sib_elapsed = now_int - int(sib_ts_val)
+                    if sib_elapsed > 0:
+                        sib_decayed = sib_decayed * _math.exp(-sib_elapsed / window_size)
+                reservation = min(sib_decayed, sibling_limit)
                 borrow_ceiling -= reservation
         if borrow_ceiling < priority_limit:
             borrow_ceiling = priority_limit
