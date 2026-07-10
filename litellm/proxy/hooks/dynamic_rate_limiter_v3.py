@@ -86,7 +86,7 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         self.llm_router = llm_router
 
     def _model_has_fallbacks(self, model: str) -> bool:
-        """Check whether the model group has fallbacks configured.
+        """Check whether the specific model group has fallbacks configured.
 
         When fallbacks are configured, priority enforcement defers to the
         router instead of raising at the proxy level. This lets the router's
@@ -95,10 +95,12 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         """
         if self.llm_router is None:
             return False
-        if self.llm_router.fallbacks:
-            return True
         if self.llm_router.default_fallbacks:
             return True
+        if self.llm_router.fallbacks:
+            for fb_entry in self.llm_router.fallbacks:
+                if isinstance(fb_entry, dict) and model in fb_entry:
+                    return True
         deployments = self.llm_router.get_model_list(model_name=model) or []
         for d in deployments:
             lp = d.get("litellm_params") or {}
