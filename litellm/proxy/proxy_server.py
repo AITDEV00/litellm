@@ -4078,6 +4078,8 @@ class ProxyConfig:
                     from litellm.types.utils import PriorityReservationSettings
 
                     litellm.priority_reservation_settings = PriorityReservationSettings(**value)
+                elif key == "priority_reservation":
+                    litellm.priority_reservation = value
                 elif key == "callbacks":
                     initialize_callbacks_on_proxy(
                         value=value,
