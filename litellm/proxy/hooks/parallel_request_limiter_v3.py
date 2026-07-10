@@ -295,7 +295,7 @@ end
 
 -- DENY checks:
 -- 1. Borrowing and priority has exceeded its borrow ceiling
--- 2. Model is at total capacity (safety net, always checked)
+-- 2. Model is at total capacity (hard limit, cannot be exceeded)
 if priority_current >= priority_limit and priority_current >= borrow_ceiling then
     return { 1, priority_current, priority_limit, 0 }
 end
