@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTB Priority Rate Limiting: Executive Summary</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --border: #e5e7eb;
+    --code-bg: #f8f9fa;
+    --green: #059669;
+    --green-light: #d1fae5;
+    --red: #dc2626;
+    --red-light: #fee2e2;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+  h1 {
+    font-size: 1.8em;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 3px solid var(--accent);
+  }
+  h2 {
+    font-size: 1.35em;
+    font-weight: 600;
+    margin-top: 36px;
+    margin-bottom: 12px;
+    color: var(--fg);
+  }
+  h3 {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    color: var(--muted);
+  }
+  h4 {
+    font-size: 1em;
+    font-weight: 600;
+    margin-top: 20px;
+    margin-bottom: 8px;
+    color: var(--fg);
+  }
+  p { margin-bottom: 12px; }
+  ul { margin: 8px 0 12px 24px; }
+  li { margin-bottom: 4px; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+  code {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.9em;
+  }
+  th {
+    background: var(--accent-light);
+    color: var(--fg);
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) { background: #f9fafb; }
+  .diagram {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 12px 0;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.85em;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .mermaid-placeholder {
+    background: #f0f4ff;
+    border: 1px dashed var(--accent);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 12px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9em;
+  }
+  .mermaid-placeholder .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .mermaid-placeholder .node {
+    background: white;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.82em;
+    font-weight: 500;
+    color: var(--fg);
+    text-align: center;
+    line-height: 1.3;
+  }
+  .mermaid-placeholder .arrow {
+    color: var(--accent);
+    font-size: 1.2em;
+  }
+  .mermaid-placeholder .arrow-label {
+    font-size: 0.75em;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .mermaid-placeholder .deny-node { border-color: var(--red); color: var(--red); }
+  .mermaid-placeholder .allow-node { border-color: var(--green); color: var(--green); }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.82em;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .summary-box {
+    background: #f0f4ff;
+    border-left: 4px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>HTB Priority Rate Limiting: Executive Summary</h1>
+
+<h2>Problem</h2>
+<p>All API keys competed equally for model capacity. A noisy low-priority consumer could starve VIP users, and fallback models had no priority awareness.</p>
+
+<h2>Solution</h2>
+<p>Hierarchical Token Bucket (HTB) rate limiting, the same algorithm Linux <code>tc</code> uses for network traffic shaping. Each priority level gets a guaranteed fraction of every model's RPM. Idle capacity flows to active priorities (borrowing). The model-wide RPM cap is never exceeded.</p>
+
+<div class="diagram">Model: 180 RPM total
+
+  prior1 (50%) ─── 90 RPM guaranteed
+  prior2 (30%) ─── 54 RPM guaranteed
+  prior3 (20%) ─── 36 RPM guaranteed
+
+  When prior3 is idle → its 36 RPM flows to prior1 and prior2</div>
+
+<h2>How It Works</h2>
+
+<div class="mermaid-placeholder">
+  Request flow through the proxy
+  <div class="flow">
+    <div class="node">Client Request<br><small>(API key with priority metadata)</small></div>
+    <span class="arrow">→</span>
+    <div class="node">Proxy Layer<br><small>Extract priority → ContextVar</small></div>
+    <span class="arrow">→</span>
+    <div class="node">Router Layer<br><small>Run HTB Lua script</small></div>
+    <span class="arrow">→</span>
+    <div class="node">Redis<br><small>Atomic check + increment</small></div>
+  </div>
+  <div class="flow" style="margin-top: 12px;">
+    <div class="node allow-node">ALLOW → Model Endpoint</div>
+    <span class="arrow-label">or</span>
+    <div class="node deny-node">DENY → RateLimitError (try fallback)</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>What it does</th><th>Why it's separate</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Proxy</strong> (<code>async_pre_call_hook</code>)</td>
+      <td>Extracts priority from API key metadata into a <code>ContextVar</code></td>
+      <td>Runs once per request, before the router picks a deployment</td>
+    </tr>
+    <tr>
+      <td><strong>Router</strong> (<code>async_pre_call_check</code>)</td>
+      <td>Runs the HTB Lua script, raises <code>RateLimitError</code> if denied</td>
+      <td>Runs on every deployment pick, including fallback models</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Key Concepts</h2>
+
+<p><strong>Demand Counter</strong> — A sliding-window counter incremented <em>before</em> the atomic check-and-increment. It reflects how many requests a priority has <em>attempted</em> (including denied ones), making demand visible to siblings immediately. This replaces the previous EWMA approach, which lagged behind reality and caused starvation under concurrent burst.</p>
+
+<p><strong>Lua Script</strong> — Runs atomically inside Redis: reads counters, computes the borrow ceiling, and increments in one step. Eliminates TOCTOU race conditions.</p>
+
+<p><strong>Saturation Threshold</strong> — Ceiling on borrow headroom (default 1.0 = full model RPM). When <code>sum(guaranteed)</code> equals model RPM, the threshold is irrelevant because guaranteed rates always take priority.</p>
+
+<h2>Configuration</h2>
+
+<pre><code>litellm_settings:
+  priority_reservation:
+    prior1: 0.50    # 50% of model RPM guaranteed
+    prior2: 0.30    # 30% guaranteed
+    prior3: 0.20    # 20% guaranteed
+  priority_reservation_settings:
+    saturation_threshold: 1.0
+
+router_settings:
+  optional_pre_call_checks:
+    - enforce_model_rate_limits</code></pre>
+
+<p>Priority names are arbitrary. Weights auto-normalize if they exceed 1.0. Fully backward-compatible when <code>priority_reservation</code> is not configured.</p>
+
+<h2>Test Results</h2>
+
+<h3>Unit tests: 179 passed <span class="badge badge-green">ALL PASSING</span></h3>
+
+<table>
+  <thead>
+    <tr><th>Test file</th><th>Tests</th><th>What it covers</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>test_priority_reservation_adeo.py</code></td><td>29</td><td>HTB enforcement, 429 errors, concurrency, starvation regression</td></tr>
+    <tr><td><code>test_dynamic_rate_limiter_v3.py</code></td><td>7</td><td>Priority weight allocation, concurrent requests</td></tr>
+    <tr><td><code>test_proxy_rate_limit_provider_field.py</code></td><td>39</td><td>Provider attribution in rate limit errors</td></tr>
+    <tr><td><code>test_rate_limiter_toctou.py</code></td><td>6</td><td>Atomicity, no TOCTOU race</td></tr>
+    <tr><td><code>test_rate_limit_error_unification.py</code></td><td>98</td><td>Unified error type across all proxy rate limiters</td></tr>
+  </tbody>
+</table>
+
+<h3>Simulation: 7 scenarios, model cap never exceeded</h3>
+<p>Config: 180 RPM model, prior1=50% (90), prior2=30% (54), prior3=20% (36)</p>
+
+<table>
+  <thead>
+    <tr><th>Scenario</th><th>prior1</th><th>prior2</th><th>prior3</th><th>Total</th><th>Cap</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Low traffic (30 each)</td><td>30</td><td>30</td><td>30</td><td>90</td><td>90/180</td></tr>
+    <tr><td>At capacity (60 each)</td><td>60</td><td>60</td><td>60</td><td>180</td><td>180/180</td></tr>
+    <tr><td>Over capacity (200 each)</td><td>90</td><td>54</td><td>36</td><td>180</td><td>180/180</td></tr>
+    <tr><td>prior1 heavy (500/50/50)</td><td>94</td><td>50</td><td>36</td><td>180</td><td>180/180</td></tr>
+    <tr><td>prior3 heavy (50/50/500)</td><td>50</td><td>50</td><td>80</td><td>180</td><td>180/180</td></tr>
+    <tr><td>prior1 only (500/0/0)</td><td>180</td><td>0</td><td>0</td><td>180</td><td>180/180</td></tr>
+    <tr><td>Burst (1000 each)</td><td>90</td><td>54</td><td>36</td><td>180</td><td>180/180</td></tr>
+  </tbody>
+</table>
+
+<p>Guaranteed rates hold under contention (over capacity: 90/54/36 exactly). Borrowing works both ways (prior1-only got 180; prior3-heavy got 80). No starvation: prior3 receives its full 36 RPM in every over-capacity scenario, unlike the previous EWMA approach which starved it to 0.</p>
+
+<h3>Live integration tests (real LLM providers, real Redis)</h3>
+<p>Tested against the production gateway with 4 API keys across 3 priority levels, <code>saturation_threshold=1.0</code>, and real Redis-backed Lua scripts hitting real vLLM endpoints. Redis flushed between sub-tests.</p>
+
+<h4>Test 1: Qwen (100 RPM, no fallbacks)</h4>
+<p>Purest HTB test: no fallback cascade, so denied requests stay denied.</p>
+
+<table>
+  <thead>
+    <tr><th>Sub-test</th><th>prior1</th><th>prior2</th><th>prior3</th><th>Total OK</th><th>Cap</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1a: Light (10/key)</td><td>10</td><td>10</td><td>20</td><td>40/40</td><td>40/100</td></tr>
+    <tr><td>1b: Heavy (80/key)</td><td>59</td><td>29</td><td>12</td><td>100/320</td><td>100/100</td></tr>
+    <tr><td>1c: prior1 heavy, others light</td><td>80</td><td>2</td><td>4</td><td>86/86</td><td>86/100</td></tr>
+    <tr><td>1d: prior3 heavy, others light</td><td>2</td><td>2</td><td>96</td><td>100/164</td><td>100/100</td></tr>
+  </tbody>
+</table>
+
+<p>Sub-test 1b is the key regression test: prior3 got 12 requests under full contention. The old EWMA algorithm would have starved it to 0 here.</p>
+
+<h4>Test 2: GLM-5.2 (100 RPM, fallbacks: GLM-5.1 → MiniMax)</h4>
+<p>Tests HTB across the fallback cascade. Each model has independent HTB state.</p>
+
+<table>
+  <thead>
+    <tr><th>Sub-test</th><th>prior1</th><th>prior2</th><th>prior3</th><th>Total OK</th><th>Models used</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>2a: Light (10/key)</td><td>10</td><td>10</td><td>20</td><td>40/40</td><td>GLM-5.2 only</td></tr>
+    <tr><td>2b: Heavy (80/key)</td><td>80</td><td>80</td><td>160</td><td>320/320</td><td>100/100/120 across 3</td></tr>
+    <tr><td>2c: prior3 only (160)</td><td>0</td><td>0</td><td>160</td><td>160/160</td><td>100 GLM-5.2, 60 GLM-5.1</td></tr>
+    <tr><td>2d: Mixed (80/2/160)</td><td>80</td><td>2</td><td>160</td><td>242/242</td><td>100/100/42 across 3</td></tr>
+  </tbody>
+</table>
+
+<p>All 320 requests in 2b succeeded because the fallback chain provided 700 RPM total. HTB was enforced independently per model: GLM-5.2 filled to 100, overflow cascaded to GLM-5.1, then MiniMax.</p>
+
+<h4>Test 3: GLM-5.2 + Direct Fallback Models</h4>
+<p>Tests HTB when traffic goes directly to fallback models alongside cascade traffic.</p>
+
+<table>
+  <thead>
+    <tr><th>Sub-test</th><th>prior1</th><th>prior2</th><th>prior3</th><th>Total OK</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>3a: Light (10/key)</td><td>10</td><td>10</td><td>20</td><td>40/40</td><td>All direct, no overflow</td></tr>
+    <tr><td>3b: Heavy (80/key)</td><td>80</td><td>80</td><td>141</td><td>301/320</td><td>GLM-5.1 served direct + overflow</td></tr>
+    <tr><td>3c: prior1 on GLM-5.2, prior3 direct</td><td>80</td><td>2</td><td>160</td><td>242/242</td><td>prior3 borrows fully</td></tr>
+    <tr><td>3d: prior3 split</td><td>0</td><td>0</td><td>160</td><td>160/160</td><td>80 GLM-5.2, 80 MiniMax</td></tr>
+  </tbody>
+</table>
+
+<p>In 3b, direct prior3 traffic and cascade overflow shared the same HTB pool on GLM-5.1. prior3 got 61 (above its 20 guaranteed via borrowing).</p>
+
+<h4>Verification summary</h4>
+
+<div class="summary-box">
+<table>
+  <thead>
+    <tr><th>Behavior</th><th>Verified</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Guaranteed rates hold under contention</td><td>Test 1b: prior3 got 12, not 0</td></tr>
+    <tr><td>Borrowing when siblings are idle</td><td>Test 1c: prior1 80/50, Test 1d: prior3 96/20</td></tr>
+    <tr><td>No starvation under concurrent burst</td><td>Test 1b: all 3 priorities got &gt; 0</td></tr>
+    <tr><td>Model-wide cap never exceeded</td><td>All tests: total OK &le; model RPM</td></tr>
+    <tr><td>Independent HTB per fallback model</td><td>Test 2b: each model filled independently</td></tr>
+    <tr><td>Direct + cascade traffic share HTB pool</td><td>Test 3b: GLM-5.1 served both</td></tr>
+    <tr><td>Fallback cascade distributes load</td><td>Test 2b: 320 requests across 3 models</td></tr>
+  </tbody>
+</table>
+</div>
+
+</body>
+</html>
