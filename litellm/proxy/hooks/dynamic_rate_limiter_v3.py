@@ -4,6 +4,7 @@ Dynamic rate limiter v3 - Saturation-aware priority-based rate limiting
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Union
+from contextvars import ContextVar
 
 from fastapi import HTTPException
 
@@ -28,6 +29,8 @@ from litellm.proxy.hooks.rate_limiter_utils import (
 )
 from litellm.types.router import ModelGroupInfo
 from litellm.types.utils import CallTypesLiteral
+
+htb_approved: ContextVar[bool] = ContextVar("htb_approved", default=False)
 
 if TYPE_CHECKING:
     from litellm.proxy.utils import InternalUsageCache
@@ -590,6 +593,9 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             verbose_proxy_logger.error(f"Error in dynamic rate limiter: {str(e)}, allowing request")
             return None
 
+        htb_response = data.get("litellm_proxy_rate_limit_response")
+        if htb_response is None or htb_response.get("overall_code") != "OVER_LIMIT":
+            htb_approved.set(True)
         return None
 
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict: UserAPIKeyAuth, response):
