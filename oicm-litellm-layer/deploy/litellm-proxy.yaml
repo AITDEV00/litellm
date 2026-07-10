@@ -207,7 +207,7 @@ spec:
               app: litellm-proxy
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.89.3
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.91.1
           ports:
             - containerPort: 4000
               name: http
