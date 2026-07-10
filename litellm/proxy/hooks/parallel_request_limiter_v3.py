@@ -181,26 +181,20 @@ return results
 """
 
 HTB_CHECK_AND_INCREMENT_SCRIPT = """
--- HTB (Hierarchical Token Bucket) check-and-increment with EWMA-based borrowing.
+-- HTB (Hierarchical Token Bucket) check-and-increment with demand-based borrowing.
 --
--- Uses an Exponentially Weighted Moving Average (EWMA) to track each priority's
--- recent request rate. The EWMA decays continuously over time, so sibling
--- reservations are proportional to ACTUAL recent usage, not a binary flag.
+-- A demand counter (sliding-window, same as the request counter) is incremented
+-- BEFORE this script runs. The demand counter reflects how many requests a
+-- priority has ATTEMPTED in the current window, including requests that were
+-- denied. This makes a priority's demand visible to siblings immediately,
+-- even before its first request is processed by this script.
 --
--- EWMA update formula:  new_ewma = old_ewma * exp(-elapsed / window_size) + 1
---
--- At steady state with rate R requests per window, EWMA converges to R.
--- When a priority stops sending, its EWMA decays smoothly:
---   After 1 window:  ewma * exp(-1) ≈ 37% of peak
---   After 2 windows: ewma * exp(-2) ≈ 14% of peak
---   After 3 windows: ewma * exp(-3) ≈ 5% of peak
---
--- For each sibling, reservation = min(sibling_decayed_ewma, sibling_guaranteed).
+-- For each sibling, reservation = min(sibling_demand, sibling_guaranteed).
 -- This means:
---   - Sibling sending 50 RPM (guaranteed=50): reservation = 50, prior3 borrows 30
---   - Sibling sending 1 RPM  (guaranteed=50): reservation = 1,  prior3 borrows 79
---   - Sibling stopped (EWMA decaying):        reservation decays smoothly
---   - Sibling never sent (no EWMA key):       reservation = 0, fully borrowable
+--   - Sibling with 200 demand (guaranteed=54): reservation = 54, fully protected
+--   - Sibling with 10 demand  (guaranteed=54): reservation = 10, 44 borrowable
+--   - Sibling with 0 demand   (guaranteed=54): reservation = 0,  fully borrowable
+--   - Sibling idle (demand expired):           reservation = 0,  fully borrowable
 --
 -- Semantics:
 --   1. Within guaranteed rate (priority_current < priority_limit):
@@ -212,12 +206,12 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --
 -- KEYS layout (6 + 2*num_siblings keys):
 --   KEYS[1] = priority window key
---   KEYS[2] = priority counter key
+--   KEYS[2] = priority counter key (accepted requests)
 --   KEYS[3] = model window key
---   KEYS[4] = model counter key
---   KEYS[5] = my EWMA value key (float)
---   KEYS[6] = my EWMA timestamp key (unix seconds)
---   KEYS[7..] = per sibling: (ewma_value_key, ewma_ts_key)
+--   KEYS[4] = model counter key (accepted requests)
+--   KEYS[5] = (unused, reserved for backward compat)
+--   KEYS[6] = (unused, reserved for backward compat)
+--   KEYS[7..] = per sibling: (demand_window_key, demand_counter_key)
 --
 -- ARGV layout:
 --   ARGV[1] = priority_limit        (guaranteed rate for this priority)
@@ -226,7 +220,7 @@ HTB_CHECK_AND_INCREMENT_SCRIPT = """
 --   ARGV[4] = window_size           (sliding-window length in seconds)
 --   ARGV[5] = num_siblings          (number of sibling priority entries)
 --   ARGV[6] = saturation_cap        (model_limit * saturation_threshold)
---   ARGV[7] = ewma_ttl              (TTL for EWMA keys, e.g. 3 * window_size)
+--   ARGV[7] = (unused, reserved for backward compat)
 --   ARGV[8..] = sibling_guaranteed_rates (one per sibling)
 --
 -- Return:
@@ -239,8 +233,6 @@ local priority_window = KEYS[1]
 local priority_counter_key = KEYS[2]
 local model_window = KEYS[3]
 local model_counter_key = KEYS[4]
-local my_ewma_key = KEYS[5]
-local my_ewma_ts_key = KEYS[6]
 
 local priority_limit = tonumber(ARGV[1])
 local model_limit = tonumber(ARGV[2])
@@ -248,7 +240,6 @@ local ttl = tonumber(ARGV[3])
 local window_size = tonumber(ARGV[4])
 local num_siblings = tonumber(ARGV[5])
 local saturation_cap = tonumber(ARGV[6])
-local ewma_ttl = tonumber(ARGV[7])
 
 -- Helper: read counter with window expiry
 local function read_counter(window_key, counter_key)
@@ -282,62 +273,21 @@ local function increment_counter(window_key, counter_key, window_expired, ttl, w
     end
 end
 
--- Helper: compute current decayed EWMA value from stored value + timestamp.
--- If no stored value, returns 0 (never sent).
-local function read_decayed_ewma(ewma_key, ewma_ts_key)
-    local ewma_raw = redis.call('GET', ewma_key)
-    local ts_raw = redis.call('GET', ewma_ts_key)
-    if not ewma_raw or not ts_raw then
-        return 0
-    end
-    local old_ewma = tonumber(ewma_raw)
-    local old_ts = tonumber(ts_raw)
-    local elapsed = now - old_ts
-    if elapsed <= 0 then
-        return old_ewma
-    end
-    local decay = math.exp(-elapsed / window_size)
-    return old_ewma * decay
-end
-
--- Update MY EWMA: decay old value, add 1 for this request, store with timestamp.
-local my_old_ewma = 0
-local my_old_ts_raw = redis.call('GET', my_ewma_ts_key)
-if my_old_ts_raw then
-    local my_old_ewma_raw = redis.call('GET', my_ewma_key)
-    if my_old_ewma_raw then
-        my_old_ewma = tonumber(my_old_ewma_raw)
-    end
-    local my_old_ts = tonumber(my_old_ts_raw)
-    local my_elapsed = now - my_old_ts
-    if my_elapsed > 0 then
-        local my_decay = math.exp(-my_elapsed / window_size)
-        my_old_ewma = my_old_ewma * my_decay
-    end
-end
-local my_new_ewma = my_old_ewma + 1
-redis.call('SET', my_ewma_key, tostring(my_new_ewma), 'EX', ewma_ttl)
-redis.call('SET', my_ewma_ts_key, tostring(now), 'EX', ewma_ttl)
-
 local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
 local model_current, model_window_expired = read_counter(model_window, model_counter_key)
 
--- EWMA-based borrow ceiling.
--- For each sibling, compute their current decayed EWMA and reserve
--- min(decayed_ewma, sibling_guaranteed).
--- This gives smooth proportional transitions:
---   - Sibling sending lots: reservation approaches guaranteed
---   - Sibling sending little: reservation is small, lots of room to borrow
---   - Sibling stopped: EWMA decays, reservation shrinks over time
+-- Demand-based borrow ceiling.
+-- For each sibling, read their demand counter and reserve
+-- min(demand, sibling_guaranteed).
 local borrow_ceiling = math.min(saturation_cap, model_limit)
 local arg_idx = 8
 local key_idx = 7
 for i = 1, num_siblings do
-    local sibling_ewma_key = KEYS[key_idx]
-    local sibling_ts_key = KEYS[key_idx + 1]
+    local sib_demand_window_key = KEYS[key_idx]
+    local sib_demand_counter_key = KEYS[key_idx + 1]
     local sibling_guaranteed = tonumber(ARGV[arg_idx])
-    local sibling_decayed = read_decayed_ewma(sibling_ewma_key, sibling_ts_key)
-    local reservation = math.min(sibling_decayed, sibling_guaranteed)
+    local sib_demand = read_counter(sib_demand_window_key, sib_demand_counter_key)
+    local reservation = math.min(sib_demand, sibling_guaranteed)
     borrow_ceiling = borrow_ceiling - reservation
     arg_idx = arg_idx + 1
     key_idx = key_idx + 2
@@ -1120,8 +1070,6 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         window_size = int(p_rate_limit.get("window_size") or self.window_size)
         ttl = window_size
 
-        # All keys share the {htb:<model>} hash tag so they co-locate on
-        # a single Redis Cluster slot (avoids CROSSSLOT).
         htb_hash = f"htb:{model_descriptor['value']}"
         priority_suffix = priority_descriptor["value"]
         priority_window_key = f"{{{htb_hash}}}:{priority_suffix}:window"
@@ -1129,31 +1077,57 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         model_window_key = f"{{{htb_hash}}}:window"
         model_counter_key = f"{{{htb_hash}}}:requests"
 
-        # EWMA keys track each priority's decaying request rate.
-        # ewma_ttl must be > window_size so the decay is visible across resets.
-        ewma_ttl = window_size * 3
-        my_ewma_key = f"{{{htb_hash}}}:{priority_suffix}:ewma"
-        my_ewma_ts_key = f"{{{htb_hash}}}:{priority_suffix}:ewma:ts"
+        # Demand counter: incremented BEFORE the Lua script so siblings
+        # can see this priority's demand even if its request hasn't been
+        # processed yet. Uses the same sliding-window mechanism as the
+        # request counter.
+        my_demand_window_key = f"{{{htb_hash}}}:{priority_suffix}:demand:window"
+        my_demand_counter_key = f"{{{htb_hash}}}:{priority_suffix}:demand:requests"
 
-        # Saturation cap: borrowing is capped at model_limit * saturation_threshold,
-        # leaving a buffer (e.g., 20 RPM on 100 RPM model) for priority transitions.
         saturation_cap = int(model_limit * saturation_threshold)
 
-        # Build sibling keys (ewma value + timestamp pairs) and guaranteed rates.
-        # The Lua script computes each sibling's decayed EWMA and uses
-        # min(decayed_ewma, sibling_guaranteed) as the reservation.
+        # Build sibling demand keys (window + counter pairs) and guaranteed rates.
         sibling_keys: List[str] = []
         sibling_args: List[int] = []
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sibling_ewma_key = f"{{{htb_hash}}}:{sibling_key}:ewma"
-                sibling_ts_key = f"{{{htb_hash}}}:{sibling_key}:ewma:ts"
-                sibling_keys.append(sibling_ewma_key)
-                sibling_keys.append(sibling_ts_key)
+                sib_demand_window_key = f"{{{htb_hash}}}:{sibling_key}:demand:window"
+                sib_demand_counter_key = f"{{{htb_hash}}}:{sibling_key}:demand:requests"
+                sibling_keys.append(sib_demand_window_key)
+                sibling_keys.append(sib_demand_counter_key)
                 sibling_args.append(int(sibling_limit))
 
-        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key, my_ewma_key, my_ewma_ts_key] + sibling_keys
-        args = [int(priority_limit), int(model_limit), ttl, window_size, len(sibling_priorities or []), saturation_cap, ewma_ttl] + sibling_args
+        # KEYS[5] and KEYS[6] are unused (reserved for backward compat with
+        # the old EWMA layout so the KEYS index numbering stays stable).
+        keys = [
+            priority_window_key,
+            priority_counter_key,
+            model_window_key,
+            model_counter_key,
+            my_demand_window_key,
+            my_demand_counter_key,
+        ] + sibling_keys
+        args = [
+            int(priority_limit),
+            int(model_limit),
+            ttl,
+            window_size,
+            len(sibling_priorities or []),
+            saturation_cap,
+            0,
+        ] + sibling_args
+
+        # Increment demand counter BEFORE the lock/Lua script so siblings
+        # can see this priority's demand even if its request hasn't been
+        # processed yet. This is best-effort and non-atomic; a race only
+        # means a sibling sees a slightly stale demand count.
+        await self._increment_demand_counter(
+            my_demand_window_key,
+            my_demand_counter_key,
+            window_size,
+            ttl,
+            parent_otel_span,
+        )
 
         if self.htb_check_and_increment_script is not None:
             try:
@@ -1161,8 +1135,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 return self._build_htb_response(raw, priority_limit, model_limit)
             except Exception as e:
                 verbose_proxy_logger.error(
-                    f"htb_check_and_increment: Redis Lua failed ({type(e).__name__}: {e}). "
-                    f"Falling back to in-memory."
+                    f"htb_check_and_increment: Redis Lua failed ({type(e).__name__}: {e}). Falling back to in-memory."
                 )
 
         async with self._check_and_increment_lock:
@@ -1181,6 +1154,64 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 htb_hash=htb_hash,
                 priority_suffix=priority_suffix,
             )
+
+    async def _increment_demand_counter(
+        self,
+        demand_window_key: str,
+        demand_counter_key: str,
+        window_size: int,
+        ttl: int,
+        parent_otel_span: Optional[Span] = None,
+    ) -> None:
+        """Increment the demand counter before the Lua script runs.
+
+        This is a non-atomic best-effort increment. A race here only means
+        a sibling might see a slightly stale demand count, which is
+        acceptable because the Lua script's deny logic is conservative.
+
+        The yield at the end ensures other priorities' demand increments
+        are visible before this request acquires the lock. With Redis,
+        the network I/O provides natural interleaving; with in-memory
+        cache (synchronous), the explicit yield is needed.
+        """
+        import asyncio
+
+        now = int(self._get_current_time().timestamp())
+        window_start = await self.internal_usage_cache.async_get_cache(
+            key=demand_window_key,
+            litellm_parent_otel_span=parent_otel_span,
+            local_only=True,
+        )
+        if window_start is None or (now - int(window_start)) >= window_size:
+            await self.internal_usage_cache.async_set_cache(
+                key=demand_window_key,
+                value=str(now),
+                ttl=window_size,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            await self.internal_usage_cache.async_set_cache(
+                key=demand_counter_key,
+                value=1,
+                ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+        else:
+            current = await self.internal_usage_cache.async_get_cache(
+                key=demand_counter_key,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            new_val = (int(current) if current is not None else 0) + 1
+            await self.internal_usage_cache.async_set_cache(
+                key=demand_counter_key,
+                value=new_val,
+                ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+        await asyncio.sleep(0)
 
     def _build_htb_response(
         self,
@@ -1245,7 +1276,10 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         htb_hash: str = "",
         priority_suffix: str = "",
     ) -> RateLimitResponse:
-        """In-memory HTB fallback. Caller holds the lock."""
+        """In-memory HTB fallback. Caller holds the lock.
+
+        Demand counter was already incremented before the lock was acquired.
+        """
         now_int = int(self._get_current_time().timestamp())
 
         async def _read(window_key: str, counter_key: str) -> Tuple[int, bool]:
@@ -1267,8 +1301,11 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         async def _increment(window_key: str, counter_key: str, window_expired: bool) -> int:
             if window_expired:
                 await self.internal_usage_cache.async_set_cache(
-                    key=window_key, value=str(now_int), ttl=window_size,
-                    litellm_parent_otel_span=parent_otel_span, local_only=True,
+                    key=window_key,
+                    value=str(now_int),
+                    ttl=window_size,
+                    litellm_parent_otel_span=parent_otel_span,
+                    local_only=True,
                 )
                 new_val = 1
             else:
@@ -1279,63 +1316,28 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 )
                 new_val = (int(current) if current is not None else 0) + 1
             await self.internal_usage_cache.async_set_cache(
-                key=counter_key, value=new_val, ttl=ttl,
-                litellm_parent_otel_span=parent_otel_span, local_only=True,
+                key=counter_key,
+                value=new_val,
+                ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
             )
             return new_val
 
         priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
         model_current, model_expired = await _read(model_window_key, model_counter_key)
 
-        # Update MY EWMA: decay old value, add 1 for this request.
-        ewma_ttl = window_size * 3
-        my_ewma_key = f"{{{htb_hash}}}:{priority_suffix}:ewma"
-        my_ewma_ts_key = f"{{{htb_hash}}}:{priority_suffix}:ewma:ts"
-        import math as _math
-        my_old_ewma_val = await self.internal_usage_cache.async_get_cache(
-            key=my_ewma_key, litellm_parent_otel_span=parent_otel_span, local_only=True,
-        )
-        my_old_ts_val = await self.internal_usage_cache.async_get_cache(
-            key=my_ewma_ts_key, litellm_parent_otel_span=parent_otel_span, local_only=True,
-        )
-        my_old_ewma = 0.0
-        if my_old_ewma_val is not None and my_old_ts_val is not None:
-            my_old_ewma = float(my_old_ewma_val)
-            my_elapsed = now_int - int(my_old_ts_val)
-            if my_elapsed > 0:
-                my_old_ewma = my_old_ewma * _math.exp(-my_elapsed / window_size)
-        my_new_ewma = my_old_ewma + 1
-        await self.internal_usage_cache.async_set_cache(
-            key=my_ewma_key, value=my_new_ewma, ttl=ewma_ttl,
-            litellm_parent_otel_span=parent_otel_span, local_only=True,
-        )
-        await self.internal_usage_cache.async_set_cache(
-            key=my_ewma_ts_key, value=now_int, ttl=ewma_ttl,
-            litellm_parent_otel_span=parent_otel_span, local_only=True,
-        )
-
-        # EWMA-based borrow ceiling.
-        # For each sibling, compute their current decayed EWMA and reserve
-        # min(decayed_ewma, sibling_guaranteed).
+        # Demand-based borrow ceiling.
+        # For each sibling, read their demand counter and reserve
+        # min(demand, sibling_guaranteed).
         saturation_cap = int(model_limit * saturation_threshold)
         borrow_ceiling = min(saturation_cap, model_limit)
         if sibling_priorities:
             for sibling_key, sibling_limit in sibling_priorities:
-                sib_ewma_k = f"{{{htb_hash}}}:{sibling_key}:ewma"
-                sib_ts_k = f"{{{htb_hash}}}:{sibling_key}:ewma:ts"
-                sib_ewma_val = await self.internal_usage_cache.async_get_cache(
-                    key=sib_ewma_k, litellm_parent_otel_span=parent_otel_span, local_only=True,
-                )
-                sib_ts_val = await self.internal_usage_cache.async_get_cache(
-                    key=sib_ts_k, litellm_parent_otel_span=parent_otel_span, local_only=True,
-                )
-                sib_decayed = 0.0
-                if sib_ewma_val is not None and sib_ts_val is not None:
-                    sib_decayed = float(sib_ewma_val)
-                    sib_elapsed = now_int - int(sib_ts_val)
-                    if sib_elapsed > 0:
-                        sib_decayed = sib_decayed * _math.exp(-sib_elapsed / window_size)
-                reservation = min(sib_decayed, sibling_limit)
+                sib_demand_window_k = f"{{{htb_hash}}}:{sibling_key}:demand:window"
+                sib_demand_counter_k = f"{{{htb_hash}}}:{sibling_key}:demand:requests"
+                sib_demand, _ = await _read(sib_demand_window_k, sib_demand_counter_k)
+                reservation = min(sib_demand, sibling_limit)
                 borrow_ceiling -= reservation
         if borrow_ceiling < priority_limit:
             borrow_ceiling = priority_limit

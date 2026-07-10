@@ -7,16 +7,17 @@ Production config (litellm-proxy.yaml):
       prior2: 0.30
       prior3: 0.20
     priority_reservation_settings:
-      saturation_threshold: 0.80
+      saturation_threshold: 1.0
 
 Model: Qwen/Qwen3.5-0.8B with rpm=180
 
 These tests verify that the priority rules are respected:
 - Descriptor allocation matches 50/30/20 split
-- Under-saturation (< 80%): generous mode, all priorities can borrow
-- Over-saturation (>= 80%): strict mode, each priority capped at its reservation
-- Model capacity is never exceeded (100% hard cap)
-- Priority ordering: prior1 > prior2 > prior3 when saturated
+- Within guaranteed rate: always allowed (if model has capacity)
+- Borrowing: allowed if siblings have spare demand (demand < guaranteed)
+- Over-capacity: each priority gets exactly its guaranteed rate (no starvation)
+- Idle siblings: their full guaranteed rate is borrowable
+- Model capacity is never exceeded (hard cap)
 - Default-priority keys share a single pool
 - 429 error messages include model name and configured limits
 """
@@ -39,10 +40,10 @@ from litellm.types.utils import PriorityReservationSettings
 
 MODEL = "Qwen/Qwen3.5-0.8B"
 MODEL_RPM = 180
-PRIOR1_RPM = 90   # 0.50 * 180
-PRIOR2_RPM = 54   # 0.30 * 180
-PRIOR3_RPM = 36   # 0.20 * 180
-SATURATION_THRESHOLD = 0.80
+PRIOR1_RPM = 90  # 0.50 * 180
+PRIOR2_RPM = 54  # 0.30 * 180
+PRIOR3_RPM = 36  # 0.20 * 180
+SATURATION_THRESHOLD = 1.0
 
 
 @pytest.fixture
@@ -95,9 +96,7 @@ class TestDescriptorAllocation:
 
     def test_prior1_gets_50_percent(self, handler):
         user = _make_user("prior1", "u1")
-        descs = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user, priority="prior1"
-        )
+        descs = handler._create_priority_based_descriptors(model=MODEL, priority="prior1")
         assert len(descs) == 1
         d = descs[0]
         assert d["value"] == f"{MODEL}:prior1"
@@ -106,9 +105,7 @@ class TestDescriptorAllocation:
 
     def test_prior2_gets_30_percent(self, handler):
         user = _make_user("prior2", "u2")
-        descs = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user, priority="prior2"
-        )
+        descs = handler._create_priority_based_descriptors(model=MODEL, priority="prior2")
         assert len(descs) == 1
         d = descs[0]
         assert d["value"] == f"{MODEL}:prior2"
@@ -116,9 +113,7 @@ class TestDescriptorAllocation:
 
     def test_prior3_gets_20_percent(self, handler):
         user = _make_user("prior3", "u3")
-        descs = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user, priority="prior3"
-        )
+        descs = handler._create_priority_based_descriptors(model=MODEL, priority="prior3")
         assert len(descs) == 1
         d = descs[0]
         assert d["value"] == f"{MODEL}:prior3"
@@ -129,9 +124,7 @@ class TestDescriptorAllocation:
         descs = {}
         for p in ("prior1", "prior2", "prior3"):
             user = _make_user(p, f"u_{p}")
-            d = handler._create_priority_based_descriptors(
-                model=MODEL, user_api_key_dict=user, priority=p
-            )[0]
+            d = handler._create_priority_based_descriptors(model=MODEL, priority=p)[0]
             descs[p] = d["rate_limit"]["requests_per_unit"]
 
         assert descs["prior1"] == 90
@@ -146,9 +139,7 @@ class TestDescriptorAllocation:
     def test_no_priority_uses_default_pool(self, handler):
         """A key without priority metadata should use the shared default_pool."""
         user = _make_user(None, "default_user")
-        descs = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user, priority=None
-        )
+        descs = handler._create_priority_based_descriptors(model=MODEL, priority=None)
         assert len(descs) == 1
         d = descs[0]
         assert d["value"] == f"{MODEL}:default_pool"
@@ -159,9 +150,7 @@ class TestDescriptorAllocation:
         users = [_make_user(None, f"u{i}") for i in range(5)]
         pool_keys = set()
         for u in users:
-            d = handler._create_priority_based_descriptors(
-                model=MODEL, user_api_key_dict=u, priority=None
-            )[0]
+            d = handler._create_priority_based_descriptors(model=MODEL, priority=None)[0]
             pool_keys.add(d["value"])
         assert len(pool_keys) == 1, f"Expected 1 shared pool, got {pool_keys}"
         assert pool_keys.pop() == f"{MODEL}:default_pool"
@@ -203,178 +192,47 @@ class TestPriorityWeightNormalization:
         assert abs(weights["prior2"] - 0.50) < 0.001
 
 
-class TestSaturationEnforcement:
-    """Verify that priority enforcement only kicks in above saturation_threshold."""
+def _make_deployment(model_name: str = MODEL) -> dict:
+    return {
+        "model_name": model_name,
+        "litellm_params": {"model": f"openai/{model_name}"},
+    }
+
+
+def _set_priority(handler, priority: str | None):
+    """Set htb_priority ContextVar as async_pre_call_hook would."""
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+
+    htb_priority.set(priority)
+
+
+class TestHTBPreCallCheck:
+    """Verify that async_pre_call_check runs the HTB Lua script and allows/denies correctly."""
 
     @pytest.mark.asyncio
-    async def test_under_saturation_does_not_enforce_priority(self, handler):
-        """
-        When saturation < 0.80, priority descriptors are tracked but NOT enforced.
-        Only the model-wide (100% capacity) descriptor is enforced.
-        """
-        user = _make_user("prior1", "u1")
+    async def test_ok_response_allows_request(self, handler):
+        """When htb_check_and_increment returns OK, the deployment is returned unchanged."""
+        _set_priority(handler, "prior1")
 
-        captured = {}
-
-        async def fake_atomic(descriptors, increments, parent_otel_span=None):
-            captured["enforced_descriptors"] = descriptors
-            return {"overall_code": "OK", "statuses": []}
-
-        async def fake_should_rate_limit(descriptors, parent_otel_span=None, read_only=False):
-            captured["tracked_descriptors"] = descriptors
-            return {"overall_code": "OK", "statuses": []}
-
-        with patch.object(
-            handler.v3_limiter, "atomic_check_and_increment_by_n", side_effect=fake_atomic
-        ), patch.object(
-            handler.v3_limiter, "should_rate_limit", side_effect=fake_should_rate_limit
-        ), patch.object(
-            handler, "_check_model_saturation", return_value=0.50
-        ):
-            await handler.async_pre_call_hook(
-                user_api_key_dict=user,
-                cache=DualCache(),
-                data={"model": MODEL},
-                call_type="completion",
-            )
-
-        enforced_keys = [d["key"] for d in captured["enforced_descriptors"]]
-        assert "model_saturation_check" in enforced_keys
-        assert "priority_model" not in enforced_keys
-
-        tracked_keys = [d["key"] for d in captured.get("tracked_descriptors", [])]
-        assert "priority_model" in tracked_keys
-
-    @pytest.mark.asyncio
-    async def test_over_saturation_enforces_priority(self, handler):
-        """
-        When saturation >= 0.80, both model-wide AND priority descriptors are enforced.
-        """
-        user = _make_user("prior2", "u2")
-
-        captured = {}
-
-        async def fake_atomic(descriptors, increments, parent_otel_span=None):
-            captured["enforced_descriptors"] = descriptors
-            return {"overall_code": "OK", "statuses": []}
-
-        with patch.object(
-            handler.v3_limiter, "atomic_check_and_increment_by_n", side_effect=fake_atomic
-        ), patch.object(
-            handler, "_check_model_saturation", return_value=0.85
-        ):
-            await handler.async_pre_call_hook(
-                user_api_key_dict=user,
-                cache=DualCache(),
-                data={"model": MODEL},
-                call_type="completion",
-            )
-
-        enforced_keys = [d["key"] for d in captured["enforced_descriptors"]]
-        assert "model_saturation_check" in enforced_keys
-        assert "priority_model" in enforced_keys
-
-    @pytest.mark.asyncio
-    async def test_at_threshold_enforces_priority(self, handler):
-        """Saturation exactly at threshold (0.80) should enforce priority (>= comparison)."""
-        user = _make_user("prior1", "u1")
-
-        captured = {}
-
-        async def fake_atomic(descriptors, increments, parent_otel_span=None):
-            captured["enforced_descriptors"] = descriptors
-            return {"overall_code": "OK", "statuses": []}
-
-        with patch.object(
-            handler.v3_limiter, "atomic_check_and_increment_by_n", side_effect=fake_atomic
-        ), patch.object(
-            handler, "_check_model_saturation", return_value=0.80
-        ):
-            await handler.async_pre_call_hook(
-                user_api_key_dict=user,
-                cache=DualCache(),
-                data={"model": MODEL},
-                call_type="completion",
-            )
-
-        enforced_keys = [d["key"] for d in captured["enforced_descriptors"]]
-        assert "priority_model" in enforced_keys
-
-
-class TestModelCapacityEnforced:
-    """Verify that the model-wide 100% capacity limit is always enforced."""
-
-    @pytest.mark.asyncio
-    async def test_model_capacity_always_enforced(self, handler):
-        """Even under saturation, the model_saturation_check descriptor is always in the enforced set."""
-        user = _make_user("prior3", "u3")
-
-        captured = {}
-
-        async def fake_atomic(descriptors, increments, parent_otel_span=None):
-            captured["enforced_descriptors"] = descriptors
-            return {"overall_code": "OK", "statuses": []}
-
-        with patch.object(
-            handler.v3_limiter, "atomic_check_and_increment_by_n", side_effect=fake_atomic
-        ), patch.object(
-            handler, "_check_model_saturation", return_value=0.95
-        ):
-            await handler.async_pre_call_hook(
-                user_api_key_dict=user,
-                cache=DualCache(),
-                data={"model": MODEL},
-                call_type="completion",
-            )
-
-        enforced = captured["enforced_descriptors"]
-        model_desc = [d for d in enforced if d["key"] == "model_saturation_check"]
-        assert len(model_desc) == 1
-        assert model_desc[0]["rate_limit"]["requests_per_unit"] == MODEL_RPM
-
-    @pytest.mark.asyncio
-    async def test_model_capacity_429_blocks_request(self, handler):
-        """When model capacity is exceeded, a 429 is raised regardless of priority."""
-        user = _make_user("prior1", "u1")
-
-        over_limit = {
-            "overall_code": "OVER_LIMIT",
-            "statuses": [
-                {
-                    "code": "OVER_LIMIT",
-                    "descriptor_key": "model_saturation_check",
-                    "rate_limit_type": "requests",
-                    "limit_remaining": 0,
-                }
-            ],
-        }
+        ok_response = {"overall_code": "OK", "statuses": []}
 
         with patch.object(
             handler.v3_limiter,
-            "atomic_check_and_increment_by_n",
-            new=AsyncMock(return_value=over_limit),
-        ), patch.object(
-            handler, "_check_model_saturation", return_value=0.95
+            "htb_check_and_increment",
+            new=AsyncMock(return_value=ok_response),
         ):
-            with pytest.raises(Exception) as exc_info:
-                await handler.async_pre_call_hook(
-                    user_api_key_dict=user,
-                    cache=DualCache(),
-                    data={"model": MODEL},
-                    call_type="completion",
-                )
+            result = await handler.async_pre_call_check(
+                deployment=_make_deployment(),
+                parent_otel_span=None,
+            )
 
-        assert exc_info.value.status_code == 429
-        assert "Model capacity reached" in str(exc_info.value.detail)
-
-
-class TestPriorityBased429:
-    """Verify 429 error messages include model name, priority, and configured limits."""
+        assert result is not None
+        assert result["model_name"] == MODEL
 
     @pytest.mark.asyncio
-    async def test_priority_429_includes_model_and_limits(self, handler):
-        user = _make_user("prior2", "u2")
-        model_info = handler.llm_router.get_model_group_info(model_group=MODEL)
+    async def test_over_limit_raises_rate_limit_error(self, handler):
+        """When htb_check_and_increment returns OVER_LIMIT, a RateLimitError is raised."""
+        _set_priority(handler, "prior2")
 
         over_limit = {
             "overall_code": "OVER_LIMIT",
@@ -390,32 +248,70 @@ class TestPriorityBased429:
 
         with patch.object(
             handler.v3_limiter,
-            "atomic_check_and_increment_by_n",
+            "htb_check_and_increment",
             new=AsyncMock(return_value=over_limit),
         ):
-            with pytest.raises(Exception) as exc_info:
-                await handler._check_rate_limits(
-                    model=MODEL,
-                    model_group_info=model_info,
-                    user_api_key_dict=user,
-                    priority="prior2",
-                    saturation=0.90,
-                    data={"model": MODEL},
+            with pytest.raises(litellm.RateLimitError) as exc_info:
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
                 )
 
         assert exc_info.value.status_code == 429
-        detail = exc_info.value.detail
-        error_msg = detail["error"]
-        assert f"Model: {MODEL}" in error_msg
-        assert "Priority: prior2" in error_msg
-        assert f"Model RPM: {MODEL_RPM}" in error_msg
-        assert "Priority-based rate limit exceeded" in error_msg
-        assert "Model saturation:" in error_msg
 
     @pytest.mark.asyncio
-    async def test_priority_429_has_saturation_header(self, handler):
-        user = _make_user("prior3", "u3")
-        model_info = handler.llm_router.get_model_group_info(model_group=MODEL)
+    async def test_no_priority_reservation_skips_check(self, handler):
+        """When priority_reservation is None, async_pre_call_check returns the deployment immediately."""
+        original = litellm.priority_reservation
+        litellm.priority_reservation = None
+        try:
+            result = await handler.async_pre_call_check(
+                deployment=_make_deployment(),
+                parent_otel_span=None,
+            )
+            assert result is not None
+        finally:
+            litellm.priority_reservation = original
+
+    @pytest.mark.asyncio
+    async def test_htb_check_error_fails_open(self, handler):
+        """When htb_check_and_increment raises an exception, the request is allowed (fail-open)."""
+        _set_priority(handler, "prior3")
+
+        with patch.object(
+            handler.v3_limiter,
+            "htb_check_and_increment",
+            new=AsyncMock(side_effect=RuntimeError("Redis down")),
+        ):
+            result = await handler.async_pre_call_check(
+                deployment=_make_deployment(),
+                parent_otel_span=None,
+            )
+
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_pre_call_hook_sets_priority_contextvar(self, handler):
+        """async_pre_call_hook should extract priority and set the htb_priority ContextVar."""
+        from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+
+        user = _make_user("prior1", "u1")
+        await handler.async_pre_call_hook(
+            user_api_key_dict=user,
+            cache=DualCache(),
+            data={"model": MODEL},
+            call_type="completion",
+        )
+
+        assert htb_priority.get() == "prior1"
+
+
+class TestHTB429Errors:
+    """Verify 429 error messages from _raise_rate_limit_error include model, priority, and limits."""
+
+    @pytest.mark.asyncio
+    async def test_429_includes_model_priority_and_rpm(self, handler):
+        _set_priority(handler, "prior2")
 
         over_limit = {
             "overall_code": "OVER_LIMIT",
@@ -431,22 +327,53 @@ class TestPriorityBased429:
 
         with patch.object(
             handler.v3_limiter,
-            "atomic_check_and_increment_by_n",
+            "htb_check_and_increment",
             new=AsyncMock(return_value=over_limit),
         ):
-            with pytest.raises(Exception) as exc_info:
-                await handler._check_rate_limits(
-                    model=MODEL,
-                    model_group_info=model_info,
-                    user_api_key_dict=user,
-                    priority="prior3",
-                    saturation=0.92,
-                    data={"model": MODEL},
+            with pytest.raises(litellm.RateLimitError) as exc_info:
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
                 )
 
-        headers = exc_info.value.headers
-        assert headers["x-litellm-priority"] == "prior3"
-        assert "x-litellm-saturation" in headers
+        msg = str(exc_info.value)
+        assert f"Model: {MODEL}" in msg
+        assert "Priority: prior2" in msg
+        assert f"Model RPM: {MODEL_RPM}" in msg
+        assert "Priority-based rate limit exceeded" in msg
+        assert "Rate limit type: requests" in msg
+
+    @pytest.mark.asyncio
+    async def test_429_has_retry_after_header(self, handler):
+        _set_priority(handler, "prior3")
+
+        over_limit = {
+            "overall_code": "OVER_LIMIT",
+            "statuses": [
+                {
+                    "code": "OVER_LIMIT",
+                    "descriptor_key": "priority_model",
+                    "rate_limit_type": "requests",
+                    "limit_remaining": 5,
+                }
+            ],
+        }
+
+        with patch.object(
+            handler.v3_limiter,
+            "htb_check_and_increment",
+            new=AsyncMock(return_value=over_limit),
+        ):
+            with pytest.raises(litellm.RateLimitError) as exc_info:
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
+                )
+
+        assert exc_info.value.status_code == 429
+        response = exc_info.value.response
+        assert response is not None
+        assert "retry-after" in response.headers
 
 
 class TestPriorityAllocationPoolKeys:
@@ -456,9 +383,7 @@ class TestPriorityAllocationPoolKeys:
         pool_keys = set()
         for p in ("prior1", "prior2", "prior3"):
             user = _make_user(p, f"u_{p}")
-            d = handler._create_priority_based_descriptors(
-                model=MODEL, user_api_key_dict=user, priority=p
-            )[0]
+            d = handler._create_priority_based_descriptors(model=MODEL, priority=p)[0]
             pool_keys.add(d["value"])
         assert len(pool_keys) == 3
         assert f"{MODEL}:prior1" in pool_keys
@@ -467,83 +392,25 @@ class TestPriorityAllocationPoolKeys:
 
     def test_default_pool_distinct_from_explicit(self, handler):
         user_default = _make_user(None, "u_d")
-        d_default = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user_default, priority=None
-        )[0]
+        d_default = handler._create_priority_based_descriptors(model=MODEL, priority=None)[0]
 
         user_p1 = _make_user("prior1", "u_p1")
-        d_p1 = handler._create_priority_based_descriptors(
-            model=MODEL, user_api_key_dict=user_p1, priority="prior1"
-        )[0]
+        d_p1 = handler._create_priority_based_descriptors(model=MODEL, priority="prior1")[0]
 
         assert d_default["value"] != d_p1["value"]
         assert d_default["value"] == f"{MODEL}:default_pool"
         assert d_p1["value"] == f"{MODEL}:prior1"
 
 
-class TestConcurrentPriorityRequests:
-    """Integration-style tests with actual DualCache counters (no mocking of rate limiter)."""
-
-    @pytest.mark.asyncio
-    async def test_priorities_get_proportional_throughput_when_saturated(self, handler):
-        """
-        Send 200 requests from each priority (600 total, far over 180 RPM capacity).
-        With saturation forced high, strict mode is always on.
-
-        prior1 should get roughly 90 (50%), prior2 ~54 (30%), prior3 ~36 (20%).
-        The ordering prior1 > prior2 > prior3 must hold, and prior1's
-        share of successful requests should be close to 50%.
-        """
-        dual_cache = DualCache()
-        handler.internal_usage_cache.dual_cache = dual_cache
-
-        users = {
-            "prior1": _make_user("prior1", "u_p1"),
-            "prior2": _make_user("prior2", "u_p2"),
-            "prior3": _make_user("prior3", "u_p3"),
-        }
-
-        success = {"prior1": 0, "prior2": 0, "prior3": 0}
-
-        async def make_request(priority_name):
-            try:
-                await handler.async_pre_call_hook(
-                    user_api_key_dict=users[priority_name],
-                    cache=dual_cache,
-                    data={"model": MODEL},
-                    call_type="completion",
-                )
-                success[priority_name] += 1
-            except Exception:
-                pass
-
-        tasks = []
-        for p in ("prior1", "prior2", "prior3"):
-            tasks.extend([make_request(p) for _ in range(200)])
-
-        with patch.object(handler, "_check_model_saturation", return_value=0.95):
-            await __import__("asyncio").gather(*tasks)
-
-        total = sum(success.values())
-
-        assert success["prior1"] > success["prior2"], (
-            f"prior1 ({success['prior1']}) should exceed prior2 ({success['prior2']})"
-        )
-        assert success["prior2"] > success["prior3"], (
-            f"prior2 ({success['prior2']}) should exceed prior3 ({success['prior3']})"
-        )
-
-        if total > 0:
-            p1_share = success["prior1"] / total
-            assert 0.35 < p1_share < 0.65, (
-                f"prior1 share should be near 50%, got {p1_share:.1%}"
-            )
+class TestHTBInMemoryConcurrency:
+    """Integration tests using the in-memory HTB fallback (no Redis, no mocking of rate limiter)."""
 
     @pytest.mark.asyncio
     async def test_model_capacity_never_exceeded(self, handler):
         """
-        Send 500 requests total. The sum of all successful requests should
-        never exceed the model's RPM capacity (180).
+        Send 600 requests total (200 per priority). The in-memory HTB fallback
+        should enforce the model-wide RPM cap. Total successes must not exceed
+        MODEL_RPM by more than a small race margin.
         """
         dual_cache = DualCache()
         handler.internal_usage_cache.dual_cache = dual_cache
@@ -558,23 +425,21 @@ class TestConcurrentPriorityRequests:
 
         async def make_request(priority_name):
             nonlocal success_count
+            _set_priority(handler, priority_name)
             try:
-                await handler.async_pre_call_hook(
-                    user_api_key_dict=users[priority_name],
-                    cache=dual_cache,
-                    data={"model": MODEL},
-                    call_type="completion",
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
                 )
                 success_count += 1
-            except Exception:
+            except litellm.RateLimitError:
                 pass
 
         tasks = []
         for p in ("prior1", "prior2", "prior3"):
             tasks.extend([make_request(p) for _ in range(200)])
 
-        with patch.object(handler, "_check_model_saturation", return_value=0.95):
-            await __import__("asyncio").gather(*tasks)
+        await __import__("asyncio").gather(*tasks)
 
         assert success_count <= MODEL_RPM + 10, (
             f"Total successful ({success_count}) should not exceed model RPM ({MODEL_RPM}) "
@@ -582,10 +447,10 @@ class TestConcurrentPriorityRequests:
         )
 
     @pytest.mark.asyncio
-    async def test_low_traffic_all_succeed_under_saturation(self, handler):
+    async def test_low_traffic_all_succeed(self, handler):
         """
-        When traffic is well below capacity, all requests should succeed
-        regardless of priority (generous mode).
+        When traffic is well below capacity (10 per priority = 30 total, model RPM = 180),
+        all requests should succeed regardless of priority.
         """
         dual_cache = DualCache()
         handler.internal_usage_cache.dual_cache = dual_cache
@@ -599,15 +464,14 @@ class TestConcurrentPriorityRequests:
         success = {"prior1": 0, "prior2": 0, "prior3": 0}
 
         async def make_request(priority_name):
+            _set_priority(handler, priority_name)
             try:
-                await handler.async_pre_call_hook(
-                    user_api_key_dict=users[priority_name],
-                    cache=dual_cache,
-                    data={"model": MODEL},
-                    call_type="completion",
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
                 )
                 success[priority_name] += 1
-            except Exception:
+            except litellm.RateLimitError:
                 pass
 
         tasks = []
@@ -619,6 +483,51 @@ class TestConcurrentPriorityRequests:
         assert success["prior1"] == 10
         assert success["prior2"] == 10
         assert success["prior3"] == 10
+
+    @pytest.mark.asyncio
+    async def test_over_capacity_each_priority_gets_guaranteed_rate(self, handler):
+        """
+        Regression test for starvation bug: under over-capacity conditions
+        (200 requests per priority on a 180 RPM model), each priority must
+        receive at least its guaranteed rate. Before the fix, prior3 was
+        starved to 0 because the EWMA-based borrow ceiling did not protect
+        siblings that had not yet sent in the current window.
+        """
+        dual_cache = DualCache()
+        handler.internal_usage_cache.dual_cache = dual_cache
+
+        success = {"prior1": 0, "prior2": 0, "prior3": 0}
+
+        async def make_request(priority_name):
+            _set_priority(handler, priority_name)
+            try:
+                await handler.async_pre_call_check(
+                    deployment=_make_deployment(),
+                    parent_otel_span=None,
+                )
+                success[priority_name] += 1
+            except litellm.RateLimitError:
+                pass
+
+        tasks = []
+        for p in ("prior1", "prior2", "prior3"):
+            tasks.extend([make_request(p) for _ in range(200)])
+
+        await __import__("asyncio").gather(*tasks)
+
+        assert success["prior1"] >= PRIOR1_RPM, (
+            f"prior1 must get at least its guaranteed {PRIOR1_RPM} RPM, got {success['prior1']}"
+        )
+        assert success["prior2"] >= PRIOR2_RPM, (
+            f"prior2 must get at least its guaranteed {PRIOR2_RPM} RPM, got {success['prior2']}"
+        )
+        assert success["prior3"] >= PRIOR3_RPM, (
+            f"prior3 must get at least its guaranteed {PRIOR3_RPM} RPM, got {success['prior3']}"
+        )
+        total = sum(success.values())
+        assert total <= MODEL_RPM + 10, (
+            f"Total ({total}) must not exceed model RPM ({MODEL_RPM}) by more than a small margin"
+        )
 
 
 class TestPostCallTokenTracking:
@@ -725,9 +634,14 @@ class TestPostCallTokenTracking:
 class TestPriorityReservationSettings:
     """Verify the PriorityReservationSettings configuration is correctly applied."""
 
-    def test_saturation_threshold_is_0_80(self, adeo_priority_config):
+    def test_saturation_threshold_is_1_0(self, adeo_priority_config):
         settings = litellm.priority_reservation_settings
         assert settings.saturation_threshold == SATURATION_THRESHOLD
+
+    def test_default_saturation_threshold_is_1_0(self):
+        """The default saturation_threshold should be 1.0 (full model RPM available for borrowing)."""
+        settings = PriorityReservationSettings()
+        assert settings.saturation_threshold == 1.0
 
     def test_default_priority_is_0_25(self, adeo_priority_config):
         settings = litellm.priority_reservation_settings

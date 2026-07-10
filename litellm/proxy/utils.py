@@ -1100,8 +1100,6 @@ class ProxyLogging:
 
             callback.mark_pre_call_hook_ran(data)
 
-            callback.mark_pre_call_hook_ran(data)
-
         except SensitiveDataRouteException:
             status = "intervened"
             raise

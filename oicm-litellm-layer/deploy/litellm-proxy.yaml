@@ -49,7 +49,7 @@ data:
         prior2: 0.30
         prior3: 0.20
       priority_reservation_settings:
-        saturation_threshold: 0.80
+        saturation_threshold: 1.0
       # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
       # prior2 and prior3 fall into a shared default_pool at default_priority.
       # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
