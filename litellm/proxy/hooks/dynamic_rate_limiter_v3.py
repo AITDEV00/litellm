@@ -3,7 +3,7 @@ Dynamic rate limiter v3 - Saturation-aware priority-based rate limiting
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Union
 
 from fastapi import HTTPException
 
@@ -52,20 +52,22 @@ def _get_priority_settings() -> "PriorityReservationSettings":
 
 class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
     """
-    Saturation-aware priority-based rate limiter using v3 infrastructure.
+    HTB (Hierarchical Token Bucket) priority-based rate limiter using v3 infrastructure.
 
     Key features:
     1. Priority usage tracked from first request (accurate accounting)
-    2. Priority limits only enforced when saturated >= threshold
-    3. Model-wide RPM is NOT enforced here; the router's
-       ``enforce_model_rate_limits`` pre-call check handles that and
-       triggers fallbacks when a deployment is at capacity
+    2. HTB borrowing: priorities can exceed their guaranteed rate when the
+       model has spare capacity
+    3. Model-wide RPM is enforced atomically with priority limits (no TOCTOU)
     4. Reuses v3 limiter's Redis-based tracking (multi-instance safe)
 
     How it works:
-    - When under-saturated: all priorities can borrow full model capacity
-    - When saturated: strict priority-based limits enforced (fair)
-    - Uses v3 limiter's atomic Lua scripts for race-free increments
+    - Each priority gets a guaranteed rate (model_rpm * priority_weight)
+    - A shared model-wide bucket caps total traffic at model_rpm
+    - If priority is within guaranteed rate: allow
+    - If priority exceeds guaranteed but model has room: allow (borrowing)
+    - If model is at capacity: deny (defer to router for fallback, or raise)
+    - Uses a custom Lua script for atomic check-and-increment of both buckets
     """
 
     def __init__(
@@ -435,149 +437,103 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         model_group_info: ModelGroupInfo,
         user_api_key_dict: UserAPIKeyAuth,
         priority: Optional[str],
-        saturation: float,
         data: dict,
     ) -> None:
         """
-        Priority-aware rate limiting that defers model-wide RPM enforcement to
-        the router so fallbacks can take over when the primary model is full.
+        HTB (Hierarchical Token Bucket) priority-aware rate limiting.
 
-        Model-wide RPM is never enforced here. The router's
-        ``enforce_model_rate_limits`` pre-call check (configured via
-        ``optional_pre_call_checks``) handles that and correctly triggers
-        fallbacks when a deployment is at capacity.
+        Uses a single atomic Lua script that checks two buckets together:
+        1. Priority bucket: guaranteed rate (model_rpm * priority_weight)
+        2. Model-wide bucket: total capacity (model_rpm)
 
-        This hook only enforces priority-based limits.
+        If the priority bucket is within its guaranteed rate, the request is
+        allowed. If the priority bucket exceeds its guaranteed rate but the
+        model-wide bucket has spare capacity, the request is allowed
+        (borrowing). If the model-wide bucket is at capacity, the request is
+        denied.
 
-        Enforcement rules:
-        - Model WITH fallbacks: enforce priority only when saturation >=
-          threshold. Below the threshold, all priorities can borrow the
-          model's full capacity. When priority limit is exceeded and
-          fallbacks are configured, the hook defers to the router, which
-          blocks the primary deployment and triggers the fallback chain.
-        - Model WITHOUT fallbacks: always enforce priority caps, regardless
-          of saturation. Each priority gets its reserved share from the
-          start (e.g. prior3 capped at 20 RPM, prior1 gets 50 RPM), so
-          low-priority traffic cannot starve high-priority traffic.
+        When denied and the model has fallbacks configured, the hook defers
+        to the router so it can block the primary deployment and trigger the
+        fallback chain. When denied and no fallbacks, raises
+        ProxyRateLimitError.
 
         Args:
             model: Model name
             model_group_info: Model configuration
             user_api_key_dict: User authentication info
             priority: User's priority level
-            saturation: Current saturation level (post model-counter increment)
             data: Request data dictionary
 
         Raises:
-            HTTPException: If priority-based limit is exceeded and no fallbacks
-                are configured for the model
+            ProxyRateLimitError: If model is at capacity and no fallbacks
         """
-        import json
-
-        saturation_threshold = _get_priority_settings().saturation_threshold
-        has_fallbacks = self._model_has_fallbacks(model)
-        should_enforce_priority = saturation >= saturation_threshold or not has_fallbacks
-
         priority_descriptors = self._create_priority_based_descriptors(
             model=model,
             user_api_key_dict=user_api_key_dict,
             priority=priority,
         )
+        if not priority_descriptors:
+            return
 
-        per_request_increment: Dict[Literal["requests", "tokens"], int] = {
-            "requests": 1,
-            "tokens": 0,
-        }
+        model_descriptor = self._create_model_tracking_descriptor(
+            model=model,
+            model_group_info=model_group_info,
+            high_limit_multiplier=1,
+        )
 
-        if should_enforce_priority and priority_descriptors:
-            enforced_descriptors: List[RateLimitDescriptor] = list(priority_descriptors)
-            atomic_response = await self.v3_limiter.atomic_check_and_increment_by_n(
-                descriptors=enforced_descriptors,
-                increments=[per_request_increment for _ in enforced_descriptors],
-                parent_otel_span=user_api_key_dict.parent_otel_span,
+        htb_response = await self.v3_limiter.htb_check_and_increment(
+            priority_descriptor=priority_descriptors[0],
+            model_descriptor=model_descriptor,
+            parent_otel_span=user_api_key_dict.parent_otel_span,
+        )
+
+        verbose_proxy_logger.debug(
+            f"[HTB] Model={model}, Priority={priority}, "
+            f"Response={htb_response['overall_code']}"
+        )
+
+        data["litellm_proxy_rate_limit_response"] = htb_response
+
+        if htb_response["overall_code"] != "OVER_LIMIT":
+            return
+
+        has_fallbacks = self._model_has_fallbacks(model)
+        resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
+
+        status = next(
+            (s for s in htb_response["statuses"] if s["code"] == "OVER_LIMIT"),
+            None,
+        )
+        descriptor_key = status["descriptor_key"] if status else "unknown"
+        rate_limit_type = str(status["rate_limit_type"]) if status else "unknown"
+        limit_remaining = status["limit_remaining"] if status else 0
+
+        if has_fallbacks:
+            verbose_proxy_logger.info(
+                f"[HTB] Model {model} at capacity (priority={priority}); "
+                f"fallbacks configured, deferring to router"
             )
+            return
 
-            verbose_proxy_logger.debug(
-                f"Priority atomic check+increment response: {json.dumps(atomic_response, indent=2)}"
-            )
-
-            if atomic_response["overall_code"] == "OVER_LIMIT":
-                resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
-                for status in atomic_response["statuses"]:
-                    if status["code"] != "OVER_LIMIT":
-                        continue
-                    if status["descriptor_key"] == "priority_model":
-                        if has_fallbacks:
-                            verbose_proxy_logger.info(
-                                f"Priority limit exceeded for {model} (priority={priority}, "
-                                f"saturation={saturation:.1%}) but fallbacks configured; "
-                                f"deferring to router for fallback handling"
-                            )
-                            data["litellm_proxy_rate_limit_response"] = atomic_response
-                            return
-                        verbose_proxy_logger.debug(
-                            f"Enforcing priority limits for {model}, saturation: {saturation:.1%}, "
-                            f"priority: {priority}"
-                        )
-                        raise ProxyRateLimitError(
-                            detail={
-                                "error": f"Priority-based rate limit exceeded. "
-                                f"Model: {model}, "
-                                f"Priority: {priority}, "
-                                f"Rate limit type: {status['rate_limit_type']}, "
-                                f"Model TPM: {model_group_info.tpm if model_group_info.tpm is not None else 'not configured'}, "
-                                f"Model RPM: {model_group_info.rpm if model_group_info.rpm is not None else 'not configured'}, "
-                                f"Remaining: {status['limit_remaining']}, "
-                                f"Model saturation: {saturation:.1%}"
-                            },
-                            headers={
-                                "retry-after": str(self.v3_limiter.window_size),
-                                "rate_limit_type": str(status["rate_limit_type"]),
-                                "x-litellm-priority": priority or "default",
-                                "x-litellm-saturation": f"{saturation:.2%}",
-                            },
-                            rate_limit_type=map_v3_rate_limit_type(status["rate_limit_type"]),
-                            model=resolved_model,
-                            llm_provider=llm_provider,
-                        )
-
-                offending = next(
-                    (s for s in atomic_response["statuses"] if s["code"] == "OVER_LIMIT"),
-                    None,
-                )
-                verbose_proxy_logger.error(
-                    f"Dynamic rate limiter: OVER_LIMIT response with unknown "
-                    f"descriptor_key(s) — refusing request. response={atomic_response}"
-                )
-                raise ProxyRateLimitError(
-                    detail={
-                        "error": "Rate limit exceeded",
-                        "descriptor_key": (offending["descriptor_key"] if offending else "unknown"),
-                        "rate_limit_type": (str(offending["rate_limit_type"]) if offending else "unknown"),
-                    },
-                    rate_limit_type=map_v3_rate_limit_type(offending["rate_limit_type"] if offending else None),
-                    headers={
-                        "retry-after": str(self.v3_limiter.window_size),
-                        "x-litellm-priority": priority or "default",
-                    },
-                    model=resolved_model,
-                    llm_provider=llm_provider,
-                )
-
-            data["litellm_proxy_rate_limit_response"] = atomic_response
-        else:
-            if priority_descriptors:
-                tracking_response = await self.v3_limiter.should_rate_limit(
-                    descriptors=priority_descriptors,
-                    parent_otel_span=user_api_key_dict.parent_otel_span,
-                    read_only=False,
-                )
-
-                verbose_proxy_logger.debug(
-                    f"Tracking-only response (priority not enforced): {json.dumps(tracking_response, indent=2)}"
-                )
-
-                data["litellm_proxy_rate_limit_response"] = tracking_response
+        raise ProxyRateLimitError(
+            detail={
+                "error": f"Priority-based rate limit exceeded. "
+                f"Model: {model}, "
+                f"Priority: {priority}, "
+                f"Rate limit type: {rate_limit_type}, "
+                f"Model TPM: {model_group_info.tpm if model_group_info.tpm is not None else 'not configured'}, "
+                f"Model RPM: {model_group_info.rpm if model_group_info.rpm is not None else 'not configured'}, "
+                f"Remaining: {limit_remaining}",
+            },
+            headers={
+                "retry-after": str(self.v3_limiter.window_size),
+                "rate_limit_type": rate_limit_type,
+                "x-litellm-priority": priority or "default",
+            },
+            rate_limit_type=map_v3_rate_limit_type(rate_limit_type),
+            model=resolved_model,
+            llm_provider=llm_provider,
+        )
 
     async def async_pre_call_hook(
         self,
@@ -587,25 +543,18 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         call_type: CallTypesLiteral,
     ) -> Optional[Union[Exception, str, dict]]:
         """
-        Saturation-aware pre-call hook for priority-based rate limiting.
+        HTB-based pre-call hook for priority-based rate limiting.
 
-        Flow:
-        1. Atomically increment the model-wide tracking counter (high limit,
-           never blocks) and compute saturation from the post-increment value
-        2. If saturation >= threshold (model with fallbacks) OR always (model
-           without fallbacks): atomically check+increment the priority counter
-           and raise 429 if over the priority-specific limit
-        3. If below threshold and model has fallbacks: increment the priority
-           counter for tracking only
+        Uses a single atomic Lua script (htb_check_and_increment) that checks
+        the priority bucket (guaranteed rate) and the model-wide bucket (total
+        capacity) together. If the priority is within its guaranteed rate,
+        the request is allowed. If the priority exceeds its guaranteed rate
+        but the model has spare capacity, the request is allowed (borrowing).
+        If the model is at capacity, the request is denied.
 
-        Model-wide RPM is NOT enforced here. The router's
-        ``enforce_model_rate_limits`` pre-call check handles that and
-        triggers fallbacks when a deployment is at capacity.
-
-        Example with 100 RPM model, 20% priority allocation (prior3), 80% threshold:
-        - Model WITH fallbacks, saturation < 80%: prior3 can use up to 100 RPM
-        - Model WITH fallbacks, saturation >= 80%: prior3 capped at 20 RPM
-        - Model WITHOUT fallbacks: prior3 always capped at 20 RPM
+        When denied and the model has fallbacks, the hook defers to the
+        router for fallback handling. When denied and no fallbacks, raises
+        ProxyRateLimitError.
 
         Args:
             user_api_key_dict: User authentication and metadata
@@ -622,66 +571,23 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         model = data["model"]
         priority = self._get_priority_from_user_api_key_dict(user_api_key_dict=user_api_key_dict)
 
-        # Get model configuration
         model_group_info: Optional[ModelGroupInfo] = self.llm_router.get_model_group_info(model_group=model)
         if model_group_info is None:
             verbose_proxy_logger.debug(f"No model group info for {model}, allowing request")
             return None
 
         try:
-            # Atomically increment the model-wide tracking counter FIRST, then
-            # use the returned (post-increment) value to compute saturation.
-            # Using a high limit multiplier ensures the counter never returns
-            # OVER_LIMIT (which would skip the increment), so every request
-            # is tracked and concurrent requests see an accurate, monotonically
-            # increasing saturation level.
-            model_wide_descriptor = self._create_model_tracking_descriptor(
-                model=model,
-                model_group_info=model_group_info,
-                high_limit_multiplier=10000,
-            )
-
-            model_increment: Dict[Literal["requests", "tokens"], int] = {
-                "requests": 1,
-                "tokens": 0,
-            }
-
-            model_atomic_response = (
-                await self.v3_limiter.atomic_check_and_increment_by_n(
-                    descriptors=[model_wide_descriptor],
-                    increments=[model_increment],
-                    parent_otel_span=user_api_key_dict.parent_otel_span,
-                )
-            )
-
-            # Compute saturation from the post-increment counter value
-            saturation = self._compute_saturation_from_response(
-                model_group_info=model_group_info,
-                atomic_response=model_atomic_response,
-            )
-
-            saturation_threshold = _get_priority_settings().saturation_threshold
-
-            verbose_proxy_logger.debug(
-                f"[Dynamic Rate Limiter] Model={model}, Saturation={saturation:.1%}, "
-                f"Threshold={saturation_threshold:.1%}, Priority={priority}"
-            )
-
-            # Enforce priority limits if saturated, track priority usage
             await self._check_priority_limits(
                 model=model,
                 model_group_info=model_group_info,
                 user_api_key_dict=user_api_key_dict,
                 priority=priority,
-                saturation=saturation,
                 data=data,
             )
-
         except HTTPException:
             raise
         except Exception as e:
             verbose_proxy_logger.error(f"Error in dynamic rate limiter: {str(e)}, allowing request")
-            # Fail open on unexpected errors
             return None
 
         return None

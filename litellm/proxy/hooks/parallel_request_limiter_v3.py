@@ -180,6 +180,109 @@ end
 return results
 """
 
+HTB_CHECK_AND_INCREMENT_SCRIPT = """
+-- HTB (Hierarchical Token Bucket) check-and-increment.
+--
+-- Two buckets: a priority bucket (guaranteed rate) and a model-wide bucket
+-- (total capacity). The priority bucket can BORROW from unused model-wide
+-- capacity when it exceeds its guaranteed rate.
+--
+-- Semantics:
+--   1. If priority bucket has room (current < guaranteed): allow, increment both
+--   2. If priority bucket is full but model-wide has room (current < model_limit):
+--      allow (borrowing), increment both
+--   3. If model-wide is full: deny, increment nothing
+--
+-- All keys share the priority bucket's {key:value} hash tag so the call
+-- lands on a single Redis Cluster slot. The model-wide counter key is
+-- passed as a raw key; the caller must ensure it uses the SAME hash tag
+-- (or accept a CROSSSLOT on non-cluster Redis, which tolerates it).
+--
+-- KEYS layout (4 keys):
+--   KEYS[1] = priority window key    ({priority_model:<model>:<priority>}:window)
+--   KEYS[2] = priority counter key   ({priority_model:<model>:<priority>}:requests)
+--   KEYS[3] = model window key       ({model_saturation_check:<model>}:window)
+--   KEYS[4] = model counter key      ({model_saturation_check:<model>}:requests)
+--
+-- ARGV layout:
+--   ARGV[1] = priority_limit   (guaranteed rate for this priority)
+--   ARGV[2] = model_limit      (total model RPM)
+--   ARGV[3] = ttl_seconds      (counter TTL when window resets)
+--   ARGV[4] = window_size      (sliding-window length in seconds)
+--
+-- Return:
+--   { 0, priority_counter, model_counter, borrowed_flag }
+--     borrowed_flag = 0 (within guaranteed), 1 (borrowing)
+--   { 1, current_priority_counter, priority_limit, 1 }
+--     (priority OVER_LIMIT — model is full, priority guaranteed exhausted)
+local time_reply = redis.call('TIME')
+local now = tonumber(time_reply[1])
+
+local priority_window = KEYS[1]
+local priority_counter_key = KEYS[2]
+local model_window = KEYS[3]
+local model_counter_key = KEYS[4]
+
+local priority_limit = tonumber(ARGV[1])
+local model_limit = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+local window_size = tonumber(ARGV[4])
+
+-- Helper: read counter with window expiry
+local function read_counter(window_key, counter_key)
+    local window_start = redis.call('GET', window_key)
+    local window_expired = (not window_start) or
+        ((now - tonumber(window_start)) >= window_size)
+    if window_expired then
+        return 0, true
+    else
+        return tonumber(redis.call('GET', counter_key) or 0), false
+    end
+end
+
+-- Helper: increment counter (reset if window expired)
+local function increment_counter(window_key, counter_key, window_expired, ttl, window_size)
+    if window_expired then
+        redis.call('SET', window_key, tostring(now))
+        redis.call('SET', counter_key, 1)
+        redis.call('EXPIRE', window_key, window_size)
+        if ttl > 0 then
+            redis.call('EXPIRE', counter_key, ttl)
+        end
+        return 1
+    else
+        local new_counter = redis.call('INCRBY', counter_key, 1)
+        local current_ttl = redis.call('TTL', counter_key)
+        if current_ttl == -1 and ttl > 0 then
+            redis.call('EXPIRE', counter_key, ttl)
+        end
+        return new_counter
+    end
+end
+
+local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
+local model_current, model_window_expired = read_counter(model_window, model_counter_key)
+
+-- Check: is the MODEL at capacity?
+if model_current >= model_limit then
+    -- Model is full. Deny regardless of priority.
+    return { 1, priority_current, priority_limit, 0 }
+end
+
+-- Model has room. Check if this is borrowing.
+local borrowed = 0
+if priority_current >= priority_limit then
+    -- Priority guaranteed rate exhausted, but model has room → borrow
+    borrowed = 1
+end
+
+-- Both checks pass. Increment both counters.
+local new_priority = increment_counter(priority_window, priority_counter_key, priority_window_expired, ttl, window_size)
+local new_model = increment_counter(model_window, model_counter_key, model_window_expired, ttl, window_size)
+
+return { 0, new_priority, new_model, borrowed }
+"""
+
 TOKEN_INCREMENT_SCRIPT = """
 local results = {}
 
@@ -300,10 +403,14 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
             self.check_and_increment_by_n_script = (
                 self.internal_usage_cache.dual_cache.redis_cache.async_register_script(CHECK_AND_INCREMENT_BY_N_SCRIPT)
             )
+            self.htb_check_and_increment_script = (
+                self.internal_usage_cache.dual_cache.redis_cache.async_register_script(HTB_CHECK_AND_INCREMENT_SCRIPT)
+            )
         else:
             self.batch_rate_limiter_script = None
             self.token_increment_script = None
             self.check_and_increment_by_n_script = None
+            self.htb_check_and_increment_script = None
 
         self.window_size = int(os.getenv("LITELLM_RATE_LIMIT_WINDOW_SIZE", 60))
 
@@ -883,6 +990,222 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 per_counter_meta=flat_meta,
                 parent_otel_span=parent_otel_span,
             )
+
+    async def htb_check_and_increment(
+        self,
+        priority_descriptor: RateLimitDescriptor,
+        model_descriptor: RateLimitDescriptor,
+        parent_otel_span: Optional[Span] = None,
+    ) -> RateLimitResponse:
+        """
+        HTB (Hierarchical Token Bucket) atomic check-and-increment.
+
+        Checks a priority bucket (guaranteed rate) and a model-wide bucket
+        (total capacity) atomically. If the priority bucket is within its
+        guaranteed rate, the request is allowed. If the priority bucket
+        exceeds its guaranteed rate but the model-wide bucket has spare
+        capacity, the request is allowed (borrowing). If the model-wide
+        bucket is at capacity, the request is denied.
+
+        Uses a single Lua script for Redis (atomic across both buckets).
+        Falls back to in-memory with an asyncio lock when Redis is unavailable.
+
+        Args:
+            priority_descriptor: Descriptor with the priority's guaranteed limit
+            model_descriptor: Descriptor with the model's total RPM/TPM limit
+
+        Returns:
+            RateLimitResponse. On OVER_LIMIT, the descriptor_key is
+            "priority_model" (for fallback-deferred handling by the caller).
+        """
+        p_rate_limit: RateLimitDescriptorRateLimitObject = (
+            priority_descriptor.get("rate_limit") or RateLimitDescriptorRateLimitObject()
+        )
+        m_rate_limit: RateLimitDescriptorRateLimitObject = (
+            model_descriptor.get("rate_limit") or RateLimitDescriptorRateLimitObject()
+        )
+        priority_limit = p_rate_limit.get("requests_per_unit")
+        model_limit = m_rate_limit.get("requests_per_unit")
+        if priority_limit is None or model_limit is None:
+            return RateLimitResponse(overall_code="OK", statuses=[])
+
+        window_size = int(p_rate_limit.get("window_size") or self.window_size)
+        ttl = window_size
+
+        # All 4 keys share the {htb:<model>} hash tag so they co-locate on
+        # a single Redis Cluster slot (avoids CROSSSLOT). The priority level
+        # is in the key suffix (outside the hash tag) so each priority gets
+        # its own counter, while the model-wide counter is shared.
+        htb_hash = f"htb:{model_descriptor['value']}"
+        priority_suffix = priority_descriptor["value"]
+        priority_window_key = f"{{{htb_hash}}}:{priority_suffix}:window"
+        priority_counter_key = f"{{{htb_hash}}}:{priority_suffix}:requests"
+        model_window_key = f"{{{htb_hash}}}:window"
+        model_counter_key = f"{{{htb_hash}}}:requests"
+
+        keys = [priority_window_key, priority_counter_key, model_window_key, model_counter_key]
+        args = [int(priority_limit), int(model_limit), ttl, window_size]
+
+        if self.htb_check_and_increment_script is not None:
+            try:
+                raw = await self.htb_check_and_increment_script(keys=keys, args=args)
+                return self._build_htb_response(raw, priority_limit, model_limit)
+            except Exception as e:
+                verbose_proxy_logger.error(
+                    f"htb_check_and_increment: Redis Lua failed ({type(e).__name__}: {e}). "
+                    f"Falling back to in-memory."
+                )
+
+        async with self._check_and_increment_lock:
+            return await self._htb_in_memory(
+                priority_window_key=priority_window_key,
+                priority_counter_key=priority_counter_key,
+                model_window_key=model_window_key,
+                model_counter_key=model_counter_key,
+                priority_limit=int(priority_limit),
+                model_limit=int(model_limit),
+                ttl=ttl,
+                window_size=window_size,
+                parent_otel_span=parent_otel_span,
+            )
+
+    def _build_htb_response(
+        self,
+        raw: List[Any],
+        priority_limit: int,
+        model_limit: int,
+    ) -> RateLimitResponse:
+        """Convert HTB Lua script return to RateLimitResponse."""
+        if not raw:
+            return RateLimitResponse(overall_code="OK", statuses=[])
+
+        status_code = int(raw[0])
+        if status_code == 1:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=int(priority_limit),
+                        limit_remaining=0,
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+
+        priority_counter = int(raw[1])
+        model_counter = int(raw[2])
+        return RateLimitResponse(
+            overall_code="OK",
+            statuses=[
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=int(priority_limit),
+                    limit_remaining=max(0, int(priority_limit) - priority_counter),
+                    rate_limit_type="requests",
+                    descriptor_key="priority_model",
+                ),
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=int(model_limit),
+                    limit_remaining=max(0, int(model_limit) - model_counter),
+                    rate_limit_type="requests",
+                    descriptor_key="model_saturation_check",
+                ),
+            ],
+        )
+
+    async def _htb_in_memory(
+        self,
+        priority_window_key: str,
+        priority_counter_key: str,
+        model_window_key: str,
+        model_counter_key: str,
+        priority_limit: int,
+        model_limit: int,
+        ttl: int,
+        window_size: int,
+        parent_otel_span: Optional[Span] = None,
+    ) -> RateLimitResponse:
+        """In-memory HTB fallback. Caller holds the lock."""
+        now_int = int(self._get_current_time().timestamp())
+
+        async def _read(window_key: str, counter_key: str) -> Tuple[int, bool]:
+            window_start = await self.internal_usage_cache.async_get_cache(
+                key=window_key,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            window_expired = window_start is None or (now_int - int(window_start)) >= window_size
+            if window_expired:
+                return 0, True
+            val = await self.internal_usage_cache.async_get_cache(
+                key=counter_key,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            return (int(val) if val is not None else 0), False
+
+        async def _increment(window_key: str, counter_key: str, window_expired: bool) -> int:
+            if window_expired:
+                await self.internal_usage_cache.async_set_cache(
+                    key=window_key, value=str(now_int), ttl=window_size,
+                    litellm_parent_otel_span=parent_otel_span, local_only=True,
+                )
+                new_val = 1
+            else:
+                current = await self.internal_usage_cache.async_get_cache(
+                    key=counter_key,
+                    litellm_parent_otel_span=parent_otel_span,
+                    local_only=True,
+                )
+                new_val = (int(current) if current is not None else 0) + 1
+            await self.internal_usage_cache.async_set_cache(
+                key=counter_key, value=new_val, ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span, local_only=True,
+            )
+            return new_val
+
+        priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
+        model_current, model_expired = await _read(model_window_key, model_counter_key)
+
+        if model_current >= model_limit:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=priority_limit,
+                        limit_remaining=max(0, priority_limit - priority_current),
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+
+        new_priority = await _increment(priority_window_key, priority_counter_key, priority_expired)
+        new_model = await _increment(model_window_key, model_counter_key, model_expired)
+
+        return RateLimitResponse(
+            overall_code="OK",
+            statuses=[
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=priority_limit,
+                    limit_remaining=max(0, priority_limit - new_priority),
+                    rate_limit_type="requests",
+                    descriptor_key="priority_model",
+                ),
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=model_limit,
+                    limit_remaining=max(0, model_limit - new_model),
+                    rate_limit_type="requests",
+                    descriptor_key="model_saturation_check",
+                ),
+            ],
+        )
 
     def _build_descriptor_atomic_payload(
         self,
