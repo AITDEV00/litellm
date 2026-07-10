@@ -95,11 +95,9 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
         """
         if self.llm_router is None:
             return False
-        if self.llm_router.default_fallbacks:
-            return True
         if self.llm_router.fallbacks:
             for fb_entry in self.llm_router.fallbacks:
-                if isinstance(fb_entry, dict) and model in fb_entry:
+                if isinstance(fb_entry, dict) and (model in fb_entry or "*" in fb_entry):
                     return True
         deployments = self.llm_router.get_model_list(model_name=model) or []
         for d in deployments:
