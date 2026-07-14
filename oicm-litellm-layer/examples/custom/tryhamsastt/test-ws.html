@@ -486,7 +486,7 @@
                 <div class="input-group full">
                     <div class="input-wrapper">
                         <label for="wsUrl">WebSocket URL</label>
-                        <input type="url" id="wsUrl" placeholder="ws://localhost:8000/ws" value="ws://localhost:8000/ws">
+                        <input type="url" id="wsUrl" placeholder="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=tryhamsa-stt" value="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=tryhamsa-stt">
                     </div>
                 </div>
 
@@ -496,8 +496,8 @@
                         <input type="text" id="apiKey" placeholder="gAAAAAB..." value="gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=" required>
                     </div>
                     <div class="input-wrapper">
-                        <label for="bearerToken">Bearer Token (Authorization)</label>
-                        <input type="text" id="bearerToken" placeholder="your-bearer-token-here" value="">
+                        <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
+                        <input type="text" id="bearerToken" placeholder="sk-1234" value="sk-1234">
                     </div>
                 </div>
             </div>
@@ -604,6 +604,21 @@
                         <div class="continuous-text" id="continuousText">Continuous text will appear here...</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- REST API Example -->
+            <div class="config-section" style="margin-top: 30px;">
+                <h2>REST API (curl)</h2>
+                <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
+curl -sk -X POST \
+  "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions" \
+  -H "Authorization: Bearer sk-1234" \
+  -F "model=tryhamsa-stt" \
+  -F "file=@/path/to/audio.wav" \
+  -F "language=auto"</div>
+                <p style="font-size: 12px; color: #999; margin-top: 8px;">
+                    Replace <code>/path/to/audio.wav</code> with your audio file. The endpoint returns JSON with <code>text</code>, <code>gender</code>, <code>duration</code>, and other Hamsa fields.
+                </p>
             </div>
         </div>
     </div>
@@ -795,18 +810,12 @@
                 showStatus('Connecting...', 'info');
                 logInfo('CONNECT', 'Validation passed, attempting WebSocket connection...');
 
-                // Create WebSocket URL with bearer token as header via URL parameter
-                let connectionUrl = wsUrl;
-                if (!wsUrl.includes('?')) {
-                    connectionUrl = wsUrl + '?authorization=' + encodeURIComponent(bearerToken);
-                    logInfo('CONNECT', 'Added bearer token to URL parameters');
-                }
+                logInfo('CONNECT', 'Connection URL:', wsUrl);
 
-                logInfo('CONNECT', 'Connection URL (sanitized):', connectionUrl.replace(bearerToken, '***'));
-
-                // Connect WebSocket
-                logInfo('WEBSOCKET', 'Creating WebSocket connection...');
-                ws = new WebSocket(connectionUrl);
+                // Connect WebSocket using subprotocol for auth (browser cannot set headers)
+                // LiteLLM reads the API key from sec-websocket-protocol: openai-insecure-api-key.<token>
+                logInfo('WEBSOCKET', 'Creating WebSocket connection with subprotocol auth...');
+                ws = new WebSocket(wsUrl, ['openai-insecure-api-key.' + bearerToken]);
                 ws.binaryType = 'arraybuffer';
 
                 logInfo('WEBSOCKET', 'WebSocket object created', { 

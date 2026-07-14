@@ -10,7 +10,7 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
-from litellm.llms.tryhamsa_stt.common_utils import TryhamsaSTTModelInfo
+from litellm.llms.hamsa.common_utils import HamsaModelInfo
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -46,7 +46,7 @@ _INTERNAL_PARAMS: frozenset[str] = frozenset({
 })
 
 
-class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscriptionConfig):
+class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig):
     def get_supported_openai_params(self, model: str) -> List[OpenAIAudioTranscriptionOptionalParams]:
         return ["language", "prompt"]
 
@@ -84,7 +84,7 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
         if api_key is None:
             raise BaseLLMException(
                 status_code=401,
-                message="Missing Hamsa STT API key. Set TRYHAMSASTT_API_KEY or pass api_key in model config.",
+                message="Missing Hamsa API key. Set HAMSA_API_KEY or pass api_key in model config.",
                 headers={},
             )
         headers["x-api-key"] = api_key
@@ -104,7 +104,7 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
         if base is None:
             raise BaseLLMException(
                 status_code=400,
-                message="Missing Hamsa STT API base. Set TRYHAMSASTT_API_BASE or pass api_base in model config.",
+                message="Missing Hamsa API base. Set HAMSA_API_BASE or pass api_base in model config.",
                 headers={},
             )
         return base.rstrip("/") + "/transcribe"
@@ -137,9 +137,10 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
         response = TranscriptionResponse(text=text)
         response["task"] = "transcribe"
 
-        for field in ("gender", "eos", "processing_time", "duration", "speaker_embeddings", "wake_word_match", "similarity_score"):
-            if field in payload:
-                response[field] = payload[field]
+        for key, value in payload.items():
+            if key == "text":
+                continue
+            response[key] = value
 
         response._hidden_params = payload
         return response

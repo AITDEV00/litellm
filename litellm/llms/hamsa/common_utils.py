@@ -5,7 +5,7 @@ from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
 
 
-class TryhamsaSTTModelInfo(BaseLLMModelInfo):
+class HamsaModelInfo(BaseLLMModelInfo):
     def get_provider_info(self, model: str) -> Optional[ProviderSpecificModelInfo]:
         return ProviderSpecificModelInfo(
             endpoint="/v1/audio/transcriptions, /v1/realtime",
@@ -17,11 +17,11 @@ class TryhamsaSTTModelInfo(BaseLLMModelInfo):
 
     @staticmethod
     def get_api_key(api_key: Optional[str] = None) -> Optional[str]:
-        return api_key or os.environ.get("TRYHAMSASTT_API_KEY")
+        return api_key or os.environ.get("HAMSA_API_KEY")
 
     @staticmethod
     def get_api_base(api_base: Optional[str] = None) -> Optional[str]:
-        return api_base or os.environ.get("TRYHAMSASTT_API_BASE")
+        return api_base or os.environ.get("HAMSA_API_BASE")
 
     def validate_environment(
         self,

@@ -504,10 +504,10 @@ async def _arealtime(
             litellm_metadata=_build_litellm_metadata(kwargs),
             query_params=query_params,
         )
-    elif _custom_llm_provider == "tryhamsa_stt":
-        from litellm.llms.tryhamsa_stt.realtime.handler import tryhamsa_stt_realtime
+    elif _custom_llm_provider == "hamsa":
+        from litellm.llms.hamsa.realtime.handler import hamsa_realtime
 
-        await tryhamsa_stt_realtime(
+        await hamsa_realtime(
             model=model,
             websocket=websocket,
             api_base=dynamic_api_base or litellm_params.api_base or api_base,

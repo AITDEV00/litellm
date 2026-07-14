@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from litellm._logging import verbose_logger
 from litellm.llms.base_llm.realtime.transformation import BaseRealtimeConfig
-from litellm.llms.tryhamsa_stt.common_utils import TryhamsaSTTModelInfo
+from litellm.llms.hamsa.common_utils import HamsaModelInfo
 from litellm.types.realtime import (
     RealtimeResponseTransformInput,
     RealtimeResponseTypedDict,
@@ -14,7 +14,7 @@ from litellm.types.realtime import (
 logger = logging.getLogger(__name__)
 
 
-class TryhamsaSTTRealtimeConfig(TryhamsaSTTModelInfo, BaseRealtimeConfig):
+class HamsaRealtimeConfig(HamsaModelInfo, BaseRealtimeConfig):
     def validate_environment(
         self,
         headers: dict,
@@ -26,7 +26,7 @@ class TryhamsaSTTRealtimeConfig(TryhamsaSTTModelInfo, BaseRealtimeConfig):
     def get_complete_url(self, api_base: Optional[str], model: str, api_key: Optional[str] = None) -> str:
         base = self.get_api_base(api_base)
         if base is None:
-            raise ValueError("Missing Hamsa STT API base for realtime. Set TRYHAMSASTT_API_BASE or pass api_base in model config.")
+            raise ValueError("Missing Hamsa API base for realtime. Set HAMSA_API_BASE or pass api_base in model config.")
         base = base.rstrip("/")
         if base.startswith("https://"):
             base = "wss://" + base[len("https://"):]
@@ -68,7 +68,7 @@ class TryhamsaSTTRealtimeConfig(TryhamsaSTTModelInfo, BaseRealtimeConfig):
         }
 
 
-async def tryhamsa_stt_realtime(
+async def hamsa_realtime(
     model: str,
     websocket: Any,
     api_base: Optional[str] = None,
@@ -78,17 +78,17 @@ async def tryhamsa_stt_realtime(
 ) -> None:
     from websockets.asyncio.client import connect
 
-    config = TryhamsaSTTRealtimeConfig()
+    config = HamsaRealtimeConfig()
     url = config.get_complete_url(api_base, model, api_key)
     upstream_api_key = config.get_api_key(api_key)
 
     if upstream_api_key is None:
-        raise ValueError("Missing Hamsa STT API key for realtime. Set TRYHAMSASTT_API_KEY or pass api_key in model config.")
+        raise ValueError("Missing Hamsa API key for realtime. Set HAMSA_API_KEY or pass api_key in model config.")
 
-    verbose_logger.info(f"TryhamsaSTT realtime: connecting to {url}")
+    verbose_logger.info(f"Hamsa realtime: connecting to {url}")
 
     async with connect(url, max_size=50 * 1024 * 1024) as backend_ws:
-        verbose_logger.info("TryhamsaSTT realtime: upstream connection established")
+        verbose_logger.info("Hamsa realtime: upstream connection established")
 
         async def forward_client_to_backend() -> None:
             handshake_done = False
@@ -108,7 +108,7 @@ async def tryhamsa_stt_realtime(
                                 if isinstance(parsed, dict) and parsed.get("type") == "handshake":
                                     parsed["api_key"] = upstream_api_key
                                     text_data = json.dumps(parsed)
-                                    verbose_logger.info("TryhamsaSTT realtime: injected upstream api_key into handshake")
+                                    verbose_logger.info("Hamsa realtime: injected upstream api_key into handshake")
                             except (json.JSONDecodeError, TypeError):
                                 pass
                             handshake_done = True
@@ -118,7 +118,7 @@ async def tryhamsa_stt_realtime(
             except asyncio.CancelledError:
                 raise
             except Exception:
-                verbose_logger.exception("TryhamsaSTT realtime: error forwarding client->backend")
+                verbose_logger.exception("Hamsa realtime: error forwarding client->backend")
                 await backend_ws.close()
 
         async def forward_backend_to_client() -> None:
@@ -132,7 +132,7 @@ async def tryhamsa_stt_realtime(
             except asyncio.CancelledError:
                 raise
             except Exception:
-                verbose_logger.exception("TryhamsaSTT realtime: error forwarding backend->client")
+                verbose_logger.exception("Hamsa realtime: error forwarding backend->client")
                 try:
                     await websocket.close()
                 except Exception:

@@ -8144,12 +8144,12 @@ class ProviderConfigManager:
             )
 
             return SonioxAudioTranscriptionConfig()
-        elif litellm.LlmProviders.TRYHAMSASTT == provider:
-            from litellm.llms.tryhamsa_stt.transcription.transformation import (
-                TryhamsaSTTAudioTranscriptionConfig,
+        elif litellm.LlmProviders.HAMSA == provider:
+            from litellm.llms.hamsa.transcription.transformation import (
+                HamsaAudioTranscriptionConfig,
             )
 
-            return TryhamsaSTTAudioTranscriptionConfig()
+            return HamsaAudioTranscriptionConfig()
         return None
 
     @staticmethod
