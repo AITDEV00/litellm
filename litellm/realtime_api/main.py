@@ -504,6 +504,16 @@ async def _arealtime(
             litellm_metadata=_build_litellm_metadata(kwargs),
             query_params=query_params,
         )
+    elif _custom_llm_provider == "tryhamsa_stt":
+        from litellm.llms.tryhamsa_stt.realtime.handler import tryhamsa_stt_realtime
+
+        await tryhamsa_stt_realtime(
+            model=model,
+            websocket=websocket,
+            api_base=dynamic_api_base or litellm_params.api_base or api_base,
+            api_key=dynamic_api_key or api_key,
+            logging_obj=litellm_logging_obj,
+        )
     else:
         raise ValueError(f"Unsupported model: {model}")
 
