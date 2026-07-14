@@ -1,4 +1,3 @@
----
 apiVersion: v1
 kind: Secret
 metadata:
@@ -15,17 +14,7 @@ metadata:
   namespace: mlops
 type: Opaque
 stringData:
-  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
-# The litellm-logo ConfigMap is created separately with binary files.
-# To create or update the logo, run:
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
-# To update an existing one, delete and recreate, or use:
-#   kubectl delete configmap litellm-logo -n mlops && \
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
+  DATABASE_URL: postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -129,35 +118,556 @@ data:
 
 
     vllm_param_injector = VllmParamInjector()
----
-# LiteLLM Proxy Deployment
-#
-# Both replicas are pinned to adeo-gpu-03 (the Submariner gateway node) because Cilium's BPF
-# kube-proxy replacement drops return traffic from Submariner globalnet IPs (242.0.0.0/24) for
-# pods on non-gateway nodes. The gateway node is the only node where the outbound and return
-# paths use the same datapath (Cilium BPF + nftables SNAT + vx-submariner). See the Al Ain
-# Submariner guide §12.1 for the full root cause analysis.
-#
-# Commands used to apply this configuration:
-#
-#   kubectl patch deploy litellm-proxy -n mlops --type=json -p='[
-#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
-#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
-#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
-#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
-#       {"key":"target","value":"k8s","effect":"NoSchedule"},
-#       {"key":"target","value":"k8s","effect":"NoExecute"},
-#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
-#     ]}
-#   ]'
-#
-# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
-# for all three are required. topologySpreadConstraints with ScheduleAnyway lets both replicas
-# co-locate on gpu-03 (the only gateway node) while still attempting to spread across zones.
-#
-# IMPORTANT: Do not add a second gateway node for HA without also addressing the Cilium BPF
-# limitation. Non-gateway pods will time out reaching globalnet IPs regardless of tunnel health.
+  stt_provider.py: |
+    from __future__ import annotations
 
+    import asyncio
+    import json
+    import logging
+    import os
+    import urllib.request
+    import ssl
+    import re
+    from typing import Any
+
+    from fastapi import WebSocket
+    from starlette.websockets import WebSocketState
+
+    logger = logging.getLogger("oicm-stt")
+
+
+    def _hamsa_api_key() -> str:
+        return os.environ.get(
+            "HAMSA_STT_UPSTREAM_API_KEY",
+            "gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=",
+        )
+
+
+    def _ws_to_http(url: str) -> str:
+        if url.startswith("ws://"):
+            return "http://" + url[5:]
+        if url.startswith("wss://"):
+            return "https://" + url[6:]
+        return url
+
+
+    def _hamsa_rest_url(api_base: str) -> str:
+        m = re.search(r"/models/([0-9a-f-]{36})/", api_base)
+        if m:
+            model_id = m.group(1)
+            return f"http://s-{model_id}.adeo.svc.cluster.local:8080/transcribe"
+        base = _ws_to_http(api_base.rstrip("/"))
+        if base.endswith("/ws/ws"):
+            base = base[: -len("/ws/ws")] + "/proxy"
+        return base + "/transcribe"
+
+
+    def _hamsa_ws_url(api_base: str) -> str:
+        m = re.search(r"/models/([0-9a-f-]{36})/", api_base)
+        if m:
+            model_id = m.group(1)
+            return f"ws://s-{model_id}.adeo.svc.cluster.local:8080/ws"
+        return api_base.rstrip("/")
+
+
+    async def hamsa_transcribe(
+        body: dict[str, Any],
+        api_base: str,
+    ) -> dict[str, Any]:
+        url = _hamsa_rest_url(api_base)
+        body_bytes = json.dumps(body).encode()
+        req = urllib.request.Request(
+            url,
+            data=body_bytes,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": _hamsa_api_key(),
+            },
+            method="POST",
+        )
+
+        loop = asyncio.get_event_loop()
+
+        def _do_request() -> bytes:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+                return resp.read()
+
+        raw = await loop.run_in_executor(None, _do_request)
+        return json.loads(raw)
+
+
+    async def hamsa_handle_websocket(
+        websocket: WebSocket,
+        api_base: str,
+    ) -> None:
+        from websockets.asyncio.client import connect
+
+        ws_target = _hamsa_ws_url(api_base)
+        api_key = _hamsa_api_key()
+
+        logger.info("Hamsa WS: client connected, forwarding to %s", ws_target)
+
+        try:
+            connect_kwargs: dict[str, Any] = {}
+            if ws_target.startswith("wss://"):
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                connect_kwargs["ssl"] = ctx
+            async with connect(ws_target, **connect_kwargs) as upstream_ws:
+                logger.info("Hamsa WS: upstream connection established")
+
+                async def forward_client_to_upstream() -> None:
+                    handshake_done = False
+                    try:
+                        while True:
+                            message = await websocket.receive()
+                            msg_type = message.get("type")
+                            if msg_type == "websocket.disconnect":
+                                await upstream_ws.close()
+                                break
+                            text_data = message.get("text")
+                            bytes_data = message.get("bytes")
+                            if text_data is not None:
+                                if not handshake_done:
+                                    try:
+                                        parsed = json.loads(text_data)
+                                        if parsed.get("type") == "handshake":
+                                            parsed["api_key"] = api_key
+                                            text_data = json.dumps(parsed)
+                                            logger.info(
+                                                "Hamsa WS: injected upstream api_key into handshake"
+                                            )
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+                                    handshake_done = True
+                                await upstream_ws.send(text_data)
+                            elif bytes_data is not None:
+                                await upstream_ws.send(bytes_data)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("Hamsa WS: error forwarding client->upstream")
+                        await upstream_ws.close()
+
+                async def forward_upstream_to_client() -> None:
+                    try:
+                        while True:
+                            message = await upstream_ws.recv()
+                            if websocket.client_state == WebSocketState.DISCONNECTED:
+                                break
+                            if isinstance(message, str):
+                                await websocket.send_text(message)
+                            else:
+                                await websocket.send_bytes(message)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("Hamsa WS: error forwarding upstream->client")
+                        await websocket.close()
+
+                await asyncio.gather(
+                    forward_client_to_upstream(),
+                    forward_upstream_to_client(),
+                )
+        except Exception as e:
+            logger.error("Hamsa WS: upstream connection failed: %s", e)
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close(code=1011, reason=str(e))
+  stt_routes.py: |
+    from __future__ import annotations
+
+    import json
+    import logging
+    import uuid
+    from typing import Any, Dict, Optional
+
+    from fastapi import (
+        Depends,
+        HTTPException,
+        Request,
+        Response,
+        WebSocket,
+        status,
+    )
+    from starlette.websockets import WebSocketState
+
+    logger = logging.getLogger("oicm-stt-routes")
+
+    _REST_PATH = "/custom/audio/transcriptions"
+    _WS_PATH = "/custom/realtime"
+
+
+    async def register_stt_routes() -> None:
+        """Startup hook: register custom STT routes on the LiteLLM proxy app.
+
+        Registers:
+          POST /custom/audio/transcriptions  (REST, model from JSON body)
+          WS   /custom/realtime              (model from ?model= query param)
+
+        Both routes authenticate via LiteLLM's user_api_key_auth and resolve
+        the model deployment through llm_router.get_available_deployment_for_pass_through(),
+        which applies native RPM/TPM/priority/cooldown/load-balancing exactly
+        like any other LiteLLM endpoint. The deployment's litellm_params.api_base
+        is then passed to the Hamsa provider functions.
+        """
+        from litellm.proxy.auth.user_api_key_auth import (
+            user_api_key_auth,
+            user_api_key_auth_websocket,
+        )
+        from litellm.proxy.proxy_server import (
+            app,
+            general_settings,
+            proxy_logging_obj,
+            proxy_config,
+            user_model,
+            version,
+        )
+
+        existing_paths = {r.path for r in app.routes if hasattr(r, "path")}
+
+        if _REST_PATH not in existing_paths:
+            app.post(_REST_PATH)(
+                _create_rest_endpoint(
+                    user_api_key_auth,
+                    proxy_logging_obj,
+                    general_settings,
+                    proxy_config,
+                    user_model,
+                    version,
+                )
+            )
+            logger.info("Registered STT REST route at %s", _REST_PATH)
+        else:
+            logger.info("STT REST route already registered at %s", _REST_PATH)
+
+        if _WS_PATH not in existing_paths:
+            app.websocket(_WS_PATH)(
+                _create_ws_endpoint(
+                    user_api_key_auth_websocket,
+                    proxy_logging_obj,
+                    general_settings,
+                    proxy_config,
+                    user_model,
+                    version,
+                )
+            )
+            logger.info("Registered STT WebSocket route at %s", _WS_PATH)
+        else:
+            logger.info("STT WebSocket route already registered at %s", _WS_PATH)
+
+
+    def _resolve_deployment(model_name: str, llm_router: Any) -> dict:
+        """Call the router's pass-through deployment selector.
+
+        This applies native RPM/TPM/priority/cooldown/load-balancing checks.
+        Returns the deployment dict (with 'litellm_params' containing 'api_base').
+        Raises RouterRateLimitError if rate limits are exceeded.
+        """
+        deployment = llm_router.get_available_deployment_for_pass_through(
+            model=model_name
+        )
+        if not deployment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No deployment found for model '{model_name}' with use_in_pass_through=true",
+            )
+        return deployment
+
+
+    def _create_rest_endpoint(
+        user_api_key_auth_dep: Any,
+        proxy_logging_obj: Any,
+        general_settings: dict,
+        proxy_config: Any,
+        user_model: Optional[str],
+        version: Optional[str],
+    ):
+        async def _stt_transcriptions(
+            request: Request,
+            fastapi_response: Response,
+            user_api_key_dict: Any = Depends(user_api_key_auth_dep),
+        ):
+            """POST /custom/audio/transcriptions
+
+            Accepts a JSON body with 'model', 'audio' (base64), and provider
+            options (lang, eos_enabled, eos_threshold, gender_detection, etc.).
+            Resolves the model deployment through LiteLLM's router (native
+            RPM/TPM/priority enforcement), then forwards to the provider.
+            """
+            from litellm.proxy.common_request_processing import (
+                ProxyBaseLLMRequestProcessing,
+            )
+            from litellm.proxy.litellm_pre_call_utils import (
+                add_litellm_data_to_request,
+            )
+            from litellm.proxy.proxy_server import llm_router
+            from litellm.types.router import RouterRateLimitError
+
+            from litellm_hooks.stt_provider import hamsa_transcribe
+
+            raw_body = await request.json()
+
+            provider_fields = (
+                "audio",
+                "prompt",
+                "lang",
+                "eos_enabled",
+                "eos_threshold",
+                "gender_detection",
+                "speaker_identification",
+                "wake_word",
+                "threshold",
+            )
+            provider_body: Dict[str, Any] = {
+                k: v for k, v in raw_body.items() if k in provider_fields
+            }
+
+            data: Dict[str, Any] = {
+                k: v for k, v in raw_body.items() if k not in provider_fields
+            }
+
+            data = await add_litellm_data_to_request(
+                data=data,
+                request=request,
+                user_api_key_dict=user_api_key_dict,
+                proxy_config=proxy_config,
+                general_settings=general_settings,
+                version=version,
+            )
+
+            if data.get("user", None) is None and user_api_key_dict.user_id is not None:
+                data["user"] = user_api_key_dict.user_id
+
+            data["model"] = user_model or data.get("model", None)
+
+            model_name = data.get("model")
+            if not model_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="model field is required",
+                )
+
+            data["litellm_call_id"] = request.headers.get(
+                "x-litellm-call-id", str(uuid.uuid4())
+            )
+
+            try:
+                data = await proxy_logging_obj.pre_call_hook(
+                    user_api_key_dict=user_api_key_dict,
+                    data=data,
+                    call_type="transcription",
+                )
+
+                deployment = _resolve_deployment(model_name, llm_router)
+                api_base = deployment.get("litellm_params", {}).get("api_base", "")
+
+                result = await hamsa_transcribe(
+                    body=provider_body,
+                    api_base=api_base,
+                )
+
+                await proxy_logging_obj.update_request_status(
+                    litellm_call_id=data.get("litellm_call_id", ""),
+                    status="success",
+                )
+
+                fastapi_response.headers.update(
+                    ProxyBaseLLMRequestProcessing.get_custom_headers(
+                        user_api_key_dict=user_api_key_dict,
+                        model_id="",
+                        cache_key="",
+                        api_base="",
+                        version=version or "",
+                        request_data=data,
+                        hidden_params={},
+                    )
+                )
+
+                return result
+
+            except HTTPException:
+                raise
+            except RouterRateLimitError as e:
+                await proxy_logging_obj.post_call_failure_hook(
+                    user_api_key_dict=user_api_key_dict,
+                    original_exception=e,
+                    request_data=data,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=str(e),
+                    headers={"retry-after": str(int(e.cooldown_time) + 1)},
+                )
+            except Exception as e:
+                await proxy_logging_obj.post_call_failure_hook(
+                    user_api_key_dict=user_api_key_dict,
+                    original_exception=e,
+                    request_data=data,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"STT provider error: {e}",
+                )
+
+        _stt_transcriptions.__name__ = "stt_transcriptions"
+        return _stt_transcriptions
+
+
+    def _create_ws_endpoint(
+        user_api_key_auth_websocket_dep: Any,
+        proxy_logging_obj: Any,
+        general_settings: dict,
+        proxy_config: Any,
+        user_model: Optional[str],
+        version: Optional[str],
+    ):
+        async def _stt_realtime(
+            websocket: WebSocket,
+            user_api_key_dict: Any = Depends(user_api_key_auth_websocket_dep),
+        ):
+            """WS /custom/realtime?model=<model_name>
+
+            Authenticates via user_api_key_auth_websocket, runs pre-call hooks
+            at connection time (same pattern as LiteLLM's /v1/realtime), then
+            resolves the model deployment through the router and delegates to
+            the Hamsa WS handler.
+            """
+            from litellm.proxy.auth.auth_checks import can_key_call_resolved_model
+            from litellm.proxy.common_request_processing import (
+                ProxyBaseLLMRequestProcessing,
+            )
+            from litellm.proxy.common_utils.realtime_utils import (
+                _realtime_request_body,
+            )
+            from litellm.proxy.proxy_server import (
+                REALTIME_REQUEST_SCOPE_TEMPLATE,
+                llm_model_list,
+                llm_router,
+            )
+            from litellm.types.router import RouterRateLimitError
+
+            from litellm_hooks.stt_provider import hamsa_handle_websocket
+
+            model_name = websocket.query_params.get("model")
+            if not model_name:
+                await websocket.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="model query parameter is required",
+                )
+                return
+
+            try:
+                await can_key_call_resolved_model(
+                    model=model_name,
+                    llm_model_list=llm_model_list,
+                    valid_token=user_api_key_dict,
+                    llm_router=llm_router,
+                )
+            except Exception as e:
+                await websocket.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason=str(e)[:120],
+                )
+                return
+
+            requested_protocols = [
+                p.strip()
+                for p in (websocket.headers.get("sec-websocket-protocol") or "").split(",")
+                if p.strip()
+            ]
+            accept_kwargs: dict = {}
+            if requested_protocols:
+                accept_kwargs["subprotocol"] = requested_protocols[0]
+
+            await websocket.accept(**accept_kwargs)
+
+            data: Dict[str, Any] = {
+                "model": model_name,
+                "websocket": websocket,
+                "query_params": {"model": model_name},
+            }
+
+            headers_list = list(websocket.scope.get("headers") or [])
+            scope = REALTIME_REQUEST_SCOPE_TEMPLATE.copy()
+            scope["headers"] = headers_list
+
+            request = Request(scope=scope)
+            request._url = websocket.url
+
+            async def _return_body():
+                return _realtime_request_body(model_name)
+
+            request.body = _return_body  # type: ignore
+
+            base_processor = ProxyBaseLLMRequestProcessing(data=data)
+
+            try:
+                data, _logging_obj = await base_processor.common_processing_pre_call_logic(
+                    request=request,
+                    general_settings=general_settings,
+                    user_api_key_dict=user_api_key_dict,
+                    proxy_logging_obj=proxy_logging_obj,
+                    proxy_config=proxy_config,
+                    version=version,
+                    user_model=user_model,
+                    route_type="_arealtime",
+                )
+            except Exception as e:
+                logger.exception("STT WS pre-call error")
+                try:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": {
+                                    "type": "pre_call_error",
+                                    "message": str(e),
+                                },
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
+                await websocket.close(code=1011, reason="Pre-call error")
+                return
+
+            try:
+                deployment = _resolve_deployment(model_name, llm_router)
+                api_base = deployment.get("litellm_params", {}).get("api_base", "")
+
+                await hamsa_handle_websocket(
+                    websocket=websocket,
+                    api_base=api_base,
+                )
+            except RouterRateLimitError as e:
+                logger.warning("STT WS rate limited: %s", e)
+                try:
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": {
+                                    "type": "rate_limit_error",
+                                    "message": str(e),
+                                },
+                            }
+                        )
+                    )
+                except Exception:
+                    pass
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.close(code=1013, reason="Rate limited")
+            except Exception as e:
+                logger.exception("STT WS provider error")
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.close(code=1011, reason=str(e)[:120])
+
+        _stt_realtime.__name__ = "stt_realtime"
+        return _stt_realtime
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -184,110 +694,112 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: adeo-gpu-03
       tolerations:
-        - key: tenant
-          value: adeo
-          effect: NoSchedule
-        - key: tenant
-          value: adeo
-          effect: NoExecute
-        - key: target
-          value: k8s
-          effect: NoSchedule
-        - key: target
-          value: k8s
-          effect: NoExecute
-        - key: nvidia.com/gpu
-          effect: NoSchedule
+      - key: tenant
+        value: adeo
+        effect: NoSchedule
+      - key: tenant
+        value: adeo
+        effect: NoExecute
+      - key: target
+        value: k8s
+        effect: NoSchedule
+      - key: target
+        value: k8s
+        effect: NoExecute
+      - key: nvidia.com/gpu
+        effect: NoSchedule
       topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: litellm-proxy
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: litellm-proxy
       containers:
-        - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.91.1
-          ports:
-            - containerPort: 4000
-              name: http
-          env:
-            - name: STORE_MODEL_IN_DB
-              value: "True"
-            - name: LITELLM_MASTER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-master-key
-                  key: master-key
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-db-credentials
-                  key: DATABASE_URL
-            - name: REDIS_HOST
-              value: "litellm-redis.redis.svc.cluster.local"
-            - name: REDIS_PORT
-              value: "6379"
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-redis-password
-                  key: password
-            - name: REDIS_CONNECTION_POOL_TIMEOUT
-              value: "10"
-            - name: UI_LOGO_PATH
-              value: /app/assets/adeo-ai-gateway.jpg
-            - name: LITELLM_FAVICON_URL
-              value: /app/assets/favicon.png
-          command:
-            - "litellm"
-            - "--config"
-            - "/app/config.yaml"
-            - "--port"
-            - "4000"
-            - "--run_granian"
-            - "--num_workers"
-            - "4"
-            - "--use_v2_migration_resolver"
-          volumeMounts:
-            - name: config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
-            - name: hooks
-              mountPath: /app/litellm_hooks
-              readOnly: true
-            - name: logo
-              mountPath: /app/assets
-              readOnly: true
-          readinessProbe:
-            httpGet:
-              path: /health/readiness
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health/liveliness
-              port: http
-            initialDelaySeconds: 60
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: "500m"
-              memory: 2Gi
-            limits:
-              cpu: "4"
-              memory: 8Gi
-      volumes:
+      - name: litellm
+        image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.91.1
+        ports:
+        - containerPort: 4000
+          name: http
+        env:
+        - name: STORE_MODEL_IN_DB
+          value: 'True'
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-master-key
+              key: master-key
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: litellm-db-credentials
+              key: DATABASE_URL
+        - name: REDIS_HOST
+          value: litellm-redis.redis.svc.cluster.local
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: litellm-redis-password
+              key: password
+        - name: REDIS_CONNECTION_POOL_TIMEOUT
+          value: '10'
+        - name: UI_LOGO_PATH
+          value: /app/assets/adeo-ai-gateway.jpg
+        - name: LITELLM_FAVICON_URL
+          value: /app/assets/favicon.png
+        - name: LITELLM_WORKER_STARTUP_HOOKS
+          value: litellm_hooks.stt_routes:register_stt_routes
+        command:
+        - litellm
+        - --config
+        - /app/config.yaml
+        - --port
+        - '4000'
+        - --run_granian
+        - --num_workers
+        - '4'
+        - --use_v2_migration_resolver
+        volumeMounts:
         - name: config
-          configMap:
-            name: litellm-config
+          mountPath: /app/config.yaml
+          subPath: config.yaml
         - name: hooks
-          configMap:
-            name: litellm-hooks
+          mountPath: /app/litellm_hooks
+          readOnly: true
         - name: logo
-          configMap:
-            name: litellm-logo
+          mountPath: /app/assets
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /health/readiness
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health/liveliness
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: '4'
+            memory: 8Gi
+      volumes:
+      - name: config
+        configMap:
+          name: litellm-config
+      - name: hooks
+        configMap:
+          name: litellm-hooks
+      - name: logo
+        configMap:
+          name: litellm-logo
 ---
 apiVersion: v1
 kind: Service
@@ -298,9 +810,9 @@ spec:
   selector:
     app: litellm-proxy
   ports:
-    - port: 4000
-      targetPort: http
-      name: http
+  - port: 4000
+    targetPort: http
+    name: http
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

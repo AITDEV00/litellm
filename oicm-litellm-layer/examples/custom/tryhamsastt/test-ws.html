@@ -485,19 +485,15 @@
                 
                 <div class="input-group full">
                     <div class="input-wrapper">
-                        <label for="wsUrl">WebSocket URL</label>
-                        <input type="url" id="wsUrl" placeholder="ws://localhost:8000/ws" value="ws://localhost:8000/ws">
+                        <label for="wsUrl">WebSocket URL (LiteLLM Gateway)</label>
+                        <input type="url" id="wsUrl" placeholder="wss://litellm.adeoaiengine.ecouncil.ae/custom/realtime?model=tryhamsa-stt" value="wss://litellm.adeoaiengine.ecouncil.ae/custom/realtime?model=tryhamsa-stt">
                     </div>
                 </div>
 
                 <div class="input-group">
                     <div class="input-wrapper">
-                        <label for="apiKey">Encrypted API Key</label>
-                        <input type="text" id="apiKey" placeholder="gAAAAAB..." value="gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=" required>
-                    </div>
-                    <div class="input-wrapper">
-                        <label for="bearerToken">Bearer Token (Authorization)</label>
-                        <input type="text" id="bearerToken" placeholder="your-bearer-token-here" value="">
+                        <label for="apiKey">LiteLLM API Key</label>
+                        <input type="text" id="apiKey" placeholder="sk-..." value="sk-1234" required>
                     </div>
                 </div>
             </div>
@@ -771,12 +767,10 @@
             
             const wsUrl = document.getElementById('wsUrl').value;
             const apiKey = document.getElementById('apiKey').value;
-            const bearerToken = document.getElementById('bearerToken').value;
 
             logInfo('CONFIG', 'Connection settings', { 
                 wsUrl: wsUrl,
-                hasApiKey: !!apiKey,
-                hasBearerToken: !!bearerToken
+                hasApiKey: !!apiKey
             });
 
             if (!wsUrl || !apiKey) {
@@ -785,28 +779,26 @@
                 return;
             }
 
-            if (!bearerToken) {
-                logError('VALIDATION', 'Missing Bearer Token');
-                showStatus('Please enter Bearer Token', 'error');
-                return;
-            }
-
             try {
                 showStatus('Connecting...', 'info');
                 logInfo('CONNECT', 'Validation passed, attempting WebSocket connection...');
 
-                // Create WebSocket URL with bearer token as header via URL parameter
+                // LiteLLM gateway authenticates via sec-websocket-protocol subprotocol
+                // (browsers cannot set custom headers on WebSocket connections)
+                // The model is passed as a query param (?model=tryhamsa-stt)
                 let connectionUrl = wsUrl;
-                if (!wsUrl.includes('?')) {
-                    connectionUrl = wsUrl + '?authorization=' + encodeURIComponent(bearerToken);
-                    logInfo('CONNECT', 'Added bearer token to URL parameters');
+                const url = new URL(connectionUrl);
+                if (!url.searchParams.has('model')) {
+                    url.searchParams.set('model', 'tryhamsa-stt');
+                    connectionUrl = url.toString();
+                    logInfo('CONNECT', 'Added model=tryhamsa-stt to URL parameters');
                 }
 
-                logInfo('CONNECT', 'Connection URL (sanitized):', connectionUrl.replace(bearerToken, '***'));
+                logInfo('CONNECT', 'Connection URL (sanitized):', connectionUrl.replace(apiKey, '***'));
 
-                // Connect WebSocket
+                // Connect WebSocket using subprotocol for API key auth
                 logInfo('WEBSOCKET', 'Creating WebSocket connection...');
-                ws = new WebSocket(connectionUrl);
+                ws = new WebSocket(connectionUrl, ['openai-insecure-api-key.' + apiKey]);
                 ws.binaryType = 'arraybuffer';
 
                 logInfo('WEBSOCKET', 'WebSocket object created', { 
@@ -817,14 +809,15 @@
                 ws.onopen = async () => {
                     logSuccess('WEBSOCKET', 'WebSocket connection established!', { 
                         readyState: ws.readyState,
-                        url: ws.url.replace(bearerToken, '***')
+                        url: ws.url.replace(apiKey, '***')
                     });
 
-                    // Send handshake with both encrypted key and bearer token
+                    // Send handshake - LiteLLM gateway forwards this to the internal service
+                    // The api_key field will be overwritten by the gateway with the
+                    // upstream Hamsa API key, so the value here doesn't matter
                     const handshake = {
                         type: 'handshake',
-                        api_key: apiKey,
-                        authorization: 'Bearer ' + bearerToken,
+                        api_key: 'placeholder-overwritten-by-gateway',
                         options: {
                             silence_timeout: parseFloat(document.getElementById('silenceTimeout').value),
                             sample_rate: SAMPLE_RATE,
@@ -841,8 +834,7 @@
 
                     logInfo('HANDSHAKE', 'Sending handshake message...', {
                         type: handshake.type,
-                        hasApiKey: !!handshake.api_key,
-                        hasAuthorization: !!handshake.authorization,
+                        apiKeyNote: 'gateway will overwrite with upstream key',
                         options: {
                             ...handshake.options,
                             noise_cancellation: handshake.options.noise_cancellation
