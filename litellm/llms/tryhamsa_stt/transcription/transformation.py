@@ -1,4 +1,5 @@
 import base64
+import json
 from typing import List, Optional, Union
 
 from httpx import Headers, Response
@@ -106,7 +107,11 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
             if value is not None:
                 body[key] = value
 
-        return AudioTranscriptionRequestData(data=body, files=None, content_type="application/json")
+        # Return JSON-encoded bytes so httpx sends it as raw JSON body,
+        # not form-encoded data. When data is a dict, httpx's `data=` param
+        # form-encodes it, which Hamsa cannot parse.
+        json_bytes = json.dumps(body).encode("utf-8")
+        return AudioTranscriptionRequestData(data=json_bytes, files=None, content_type="application/json")
 
     def transform_audio_transcription_response(
         self,
