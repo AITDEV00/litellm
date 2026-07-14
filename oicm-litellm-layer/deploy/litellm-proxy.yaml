@@ -16,6 +16,16 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
+# The litellm-logo ConfigMap is created separately with binary files.
+# To create or update the logo, run:
+#   kubectl create configmap litellm-logo -n mlops \
+#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
+#     --from-file=favicon.png=./assets/favicon.png
+# To update an existing one, delete and recreate, or use:
+#   kubectl delete configmap litellm-logo -n mlops && \
+#   kubectl create configmap litellm-logo -n mlops \
+#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
+#     --from-file=favicon.png=./assets/favicon.png
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -27,7 +37,42 @@ data:
     model_list: []
     litellm_settings:
       store_model_in_db: true
+      cache: true
+      cache_params:
+        type: redis
+        max_connections: 500
+        socket_timeout: 10.0
+      enable_redis_auth_cache: true
       callbacks: litellm_hooks.vllm_param_injector.vllm_param_injector
+      priority_reservation:
+        prior1: 0.50
+        prior2: 0.30
+        prior3: 0.20
+      priority_reservation_settings:
+        saturation_threshold: 0.80
+      # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
+      # prior2 and prior3 fall into a shared default_pool at default_priority.
+      # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
+      # priority_reservation:
+      #   prior1: 1.0
+      # priority_reservation_settings:
+      #   saturation_threshold: 0.75
+      #   default_priority: 0.50
+    # THIS IS NOT REQURIED AS THE DEFAULT RETRY TWICE WITH ZERO TIMEOUT IS OK FOR NOW.
+    # router_settings:
+    #   num_retries: 0
+    #   timeout: 5
+    general_settings:
+      use_redis_transaction_buffer: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-redis-password
+  namespace: mlops
+type: Opaque
+stringData:
+  password: litellm-redis-7f3a9b2e
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -86,6 +131,35 @@ data:
 
     vllm_param_injector = VllmParamInjector()
 ---
+# LiteLLM Proxy Deployment
+#
+# Both replicas are pinned to adeo-gpu-03 (the Submariner gateway node) because Cilium's BPF
+# kube-proxy replacement drops return traffic from Submariner globalnet IPs (242.0.0.0/24) for
+# pods on non-gateway nodes. The gateway node is the only node where the outbound and return
+# paths use the same datapath (Cilium BPF + nftables SNAT + vx-submariner). See the Al Ain
+# Submariner guide §12.1 for the full root cause analysis.
+#
+# Commands used to apply this configuration:
+#
+#   kubectl patch deploy litellm-proxy -n mlops --type=json -p='[
+#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
+#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
+#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
+#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
+#       {"key":"target","value":"k8s","effect":"NoSchedule"},
+#       {"key":"target","value":"k8s","effect":"NoExecute"},
+#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
+#     ]}
+#   ]'
+#
+# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
+# for all three are required. topologySpreadConstraints with ScheduleAnyway lets both replicas
+# co-locate on gpu-03 (the only gateway node) while still attempting to spread across zones.
+#
+# IMPORTANT: Do not add a second gateway node for HA without also addressing the Cilium BPF
+# limitation. Non-gateway pods will time out reaching globalnet IPs regardless of tunnel health.
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -94,7 +168,12 @@ metadata:
   labels:
     app: litellm-proxy
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: litellm-proxy
@@ -103,6 +182,30 @@ spec:
       labels:
         app: litellm-proxy
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: litellm-proxy
       containers:
         - name: litellm
           image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.89.3
@@ -122,6 +225,17 @@ spec:
                 secretKeyRef:
                   name: litellm-db-credentials
                   key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "litellm-redis.redis.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-redis-password
+                  key: password
+            - name: REDIS_CONNECTION_POOL_TIMEOUT
+              value: "10"
             - name: UI_LOGO_PATH
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
@@ -132,6 +246,9 @@ spec:
             - "/app/config.yaml"
             - "--port"
             - "4000"
+            - "--run_granian"
+            - "--num_workers"
+            - "4"
             - "--use_v2_migration_resolver"
           volumeMounts:
             - name: config
@@ -147,18 +264,18 @@ spec:
             httpGet:
               path: /health/readiness
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 15
           resources:
             requests:
               cpu: "500m"
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "4"
               memory: 8Gi
@@ -185,3 +302,14 @@ spec:
     - port: 4000
       targetPort: http
       name: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: litellm-proxy-pdb
+  namespace: mlops
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy

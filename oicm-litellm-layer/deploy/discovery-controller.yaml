@@ -1,4 +1,49 @@
---- 
+---
+# OICM Discovery Controller Deployment
+#
+# Pinned to adeo-gpu-03 (the Submariner gateway node) for the same reason as litellm-proxy:
+# the controller queries Submariner-imported model endpoints at globalnet IPs (242.0.0.x),
+# which are only reachable from the gateway node due to Cilium's BPF kube-proxy replacement
+# dropping return traffic for non-gateway pods. See the Al Ain Submariner guide §12.1.
+#
+# Commands used to apply this configuration:
+#
+#   # Pin to gpu-03 with tolerations for all three GPU node taints:
+#   kubectl patch deploy oicm-discovery-controller -n mlops --type=json -p='[
+#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
+#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
+#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
+#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
+#       {"key":"target","value":"k8s","effect":"NoSchedule"},
+#       {"key":"target","value":"k8s","effect":"NoExecute"},
+#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
+#     ]}
+#   ]'
+#
+#   # Add ENABLE_SUBMARINER_IMPORTS env var (was missing from the initially deployed version):
+#   kubectl patch deploy oicm-discovery-controller -n mlops --type=json -p='[
+#     {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ENABLE_SUBMARINER_IMPORTS","value":"true"}}
+#   ]'
+#
+#   # Apply the updated RBAC (the deployed Role was missing the endpointslices rule needed
+#   # by the SubmarinerImportSource to list EndpointSlices created by the lighthouse agent):
+#   kubectl apply -f deploy/discovery-controller.yaml
+#
+#   # Build and push the controller image (requires Harbor access, run from oicm-litellm-layer/):
+#   make login && make build && make push-discovery
+#
+#   # Restart to pull the new image:
+#   kubectl -n mlops rollout restart deploy/oicm-discovery-controller
+#
+# The Role in this manifest includes endpointslices permissions (discovery.k8s.io API group)
+# which the SubmarinerImportSource needs to list cross-cluster EndpointSlices created by the
+# lighthouse agent. Without this, the controller gets 403 Forbidden when trying to discover
+# Submariner-imported services.
+#
+# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
+# for all three are required.
+
+---
 # Deployment manifest for the OICM Discovery Controller
 # This runs as a separate Deployment in the mlops namespace,
 # watching the adeo namespace for model deployments.
@@ -26,6 +71,10 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
+  # Read endpointslices (to discover Submariner-imported services)
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -59,6 +108,23 @@ spec:
         app: oicm-discovery-controller
     spec:
       serviceAccountName: oicm-discovery-controller
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
       containers:
         - name: controller
           image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:latest
@@ -78,13 +144,15 @@ spec:
               value: "8080"
             - name: SYNC_INTERVAL
               value: "300"
+            - name: ENABLE_SUBMARINER_IMPORTS
+              value: "true"
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /health

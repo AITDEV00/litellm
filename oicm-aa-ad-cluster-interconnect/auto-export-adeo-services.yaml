@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auto-export-services
+  namespace: submariner-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-export-services
+  namespace: adeo
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["multicluster.x-k8s.io"]
+    resources: ["serviceexports"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-export-services
+  namespace: adeo
+subjects:
+  - kind: ServiceAccount
+    name: auto-export-services
+    namespace: submariner-operator
+roleRef:
+  kind: Role
+  name: auto-export-services
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: auto-export-adeo-services
+  namespace: submariner-operator
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: auto-export-services
+          hostPID: true
+          tolerations: [{ operator: Exists }]
+          containers:
+          - name: sync-exports
+            image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
+            command:
+            - sh
+            - -c
+            - |
+              KUBECTL=/host/usr/bin/kubectl
+              NAMESPACE=adeo
+              echo "=== Syncing ServiceExports for namespace $NAMESPACE ==="
+              for svc in $($KUBECTL -n $NAMESPACE get svc -o jsonpath='{.items[*].metadata.name}'); do
+                case "$svc" in submariner-*) echo "Skipping Submariner internal service: $svc"; continue;; esac
+                if $KUBECTL -n $NAMESPACE get serviceexport "$svc" >/dev/null 2>&1; then
+                  echo "Already exported: $svc"
+                else
+                  $KUBECTL -n $NAMESPACE apply -f - <<SEOF
+              apiVersion: multicluster.x-k8s.io/v1alpha1
+              kind: ServiceExport
+              metadata:
+                name: $svc
+                namespace: $NAMESPACE
+              SEOF
+                  echo "Created export for: $svc"
+                fi
+              done
+              echo "=== Cleaning up orphaned and Submariner-internal ServiceExports ==="
+              for se in $($KUBECTL -n $NAMESPACE get serviceexport -o jsonpath='{.items[*].metadata.name}'); do
+                case "$se" in submariner-*) $KUBECTL -n $NAMESPACE delete serviceexport "$se"; echo "Removed Submariner internal export: $se"; continue;; esac
+                if $KUBECTL -n $NAMESPACE get svc "$se" >/dev/null 2>&1; then
+                  :
+                else
+                  $KUBECTL -n $NAMESPACE delete serviceexport "$se"
+                  echo "Removed orphaned export: $se"
+                fi
+              done
+              echo "=== Sync complete ==="
+            securityContext:
+              privileged: true
+            volumeMounts:
+            - { name: host, mountPath: /host }
+          volumes:
+          - { name: host, hostPath: { path: /, type: Directory } }
+          restartPolicy: OnFailure
