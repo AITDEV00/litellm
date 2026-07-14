@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from fastapi import WebSocket, status
 from starlette.websockets import WebSocketState
@@ -10,11 +11,12 @@ logger = logging.getLogger("oicm-hamsa-ws")
 
 
 async def register_hamsa_stt_websocket_route():
-    from litellm.proxy.proxy_server import app
+    from litellm.proxy.proxy_server import app, llm_router
 
-    target = "ws://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:8080/ws"
+    target = "wss://inference.adeoaiengine.ecouncil.ae/models/9c57bce9-0583-4bf7-9443-08825220a231/ws/ws"
 
     upstream_api_key = "gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc="
+    upstream_bearer = "sk-ZWPlJ59ypArMEWcpq_UmL_-Tw5EEzSPL2_y5zy7QimM"
 
     from litellm.proxy.auth.user_api_key_auth import user_api_key_auth_websocket
 
@@ -77,12 +79,16 @@ async def register_hamsa_stt_websocket_route():
 
         from websockets.asyncio.client import connect
 
+        upstream_headers = {
+            "Authorization": f"Bearer {upstream_bearer}",
+            "X-API-KEY": upstream_api_key,
+        }
+
         try:
-            async with connect(target) as upstream_ws:
+            async with connect(target, additional_headers=upstream_headers) as upstream_ws:
                 logger.info("Hamsa STT WS: upstream connection established")
 
                 async def forward_client_to_upstream():
-                    handshake_done = False
                     try:
                         while True:
                             message = await websocket.receive()
@@ -93,16 +99,6 @@ async def register_hamsa_stt_websocket_route():
                             text_data = message.get("text")
                             bytes_data = message.get("bytes")
                             if text_data is not None:
-                                if not handshake_done:
-                                    try:
-                                        parsed = json.loads(text_data)
-                                        if parsed.get("type") == "handshake":
-                                            parsed["api_key"] = upstream_api_key
-                                            text_data = json.dumps(parsed)
-                                            logger.info("Hamsa STT WS: injected upstream api_key into handshake")
-                                    except (json.JSONDecodeError, TypeError):
-                                        pass
-                                    handshake_done = True
                                 await upstream_ws.send(text_data)
                             elif bytes_data is not None:
                                 await upstream_ws.send(bytes_data)
@@ -115,13 +111,12 @@ async def register_hamsa_stt_websocket_route():
                 async def forward_upstream_to_client():
                     try:
                         while True:
-                            message = await upstream_ws.recv()
+                            raw = await upstream_ws.recv(decode=False)
+                            if isinstance(raw, str):
+                                raw = raw.encode("utf-8")
                             if websocket.client_state == WebSocketState.DISCONNECTED:
                                 break
-                            if isinstance(message, str):
-                                await websocket.send_text(message)
-                            else:
-                                await websocket.send_bytes(message)
+                            await websocket.send_bytes(raw)
                     except asyncio.CancelledError:
                         raise
                     except Exception:
