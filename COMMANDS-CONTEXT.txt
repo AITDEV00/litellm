@@ -1,6 +1,11 @@
 
 ###This is ran to create a tunnel from this machine (machine 1) to access a virtual machine (machine 2) because machine 2 has access to the k8 cluster via a kubemanifest.
 This same kubemanifest is in ~/.kube/oicm-alain.conf path in machine 1 right now
-ssh -fN -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 6443:10.34.104.10:6443 adeo@10.34.104.99
+sshpass -p 'Password123' ssh -fN -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 6443:10.34.104.10:6443 adeo@10.34.104.99
 #password is Password123
+#ServerAliveInterval=30 sends a keepalive packet every 30s so NAT/firewalls don't silently drop the idle connection
+#ServerAliveCountMax=3 means ssh exits after 3 missed keepalives (~90s) so a dead tunnel doesn't linger
+#ExitOnForwardFailure=yes makes ssh exit immediately if the port forward can't bind (e.g. port 6443 already in use) instead of leaving a useless connection
+#-fN runs it in the background (detached) after auth succeeds
 
+ss -tlnp | grep 6443
