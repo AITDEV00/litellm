@@ -656,3 +656,203 @@ Keep both endpoints:
 2. `WS /v1/hamsa/stt/ws` - Native Hamsa WebSocket (existing hook, preserves all features)
 
 This gives OpenAI SDK compatibility for batch transcription while preserving the full feature set for real-time streaming use cases.
+
+## 10. Network Topology and Internal vs External Access
+
+### 10.1 Internal Cluster Service (REST and WS both work)
+
+```text
+Service:  s-9c57bce9-0583-4bf7-9443-08825220a231 (ClusterIP, namespace: adeo)
+REST URL: http://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:8080/transcribe
+WS URL:   ws://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:8080/ws
+```
+
+The internal service accepts:
+- REST: `x-api-key` header with Fernet-encrypted key. Returns 200 with transcription JSON.
+- WS: `api_key` field in handshake JSON. Returns `handshake_ack` with `status: "authenticated"`.
+
+### 10.2 External Inference Proxy (REST broken, WS broken)
+
+```text
+REST URL: https://inference.adeoaiengine.ecouncil.ae/models/9c57bce9-0583-4bf7-9443-08825220a231/proxy/transcribe
+WS URL:   wss://inference.adeoaiengine.ecouncil.ae/models/9c57bce9-0583-4bf7-9443-08825220a231/ws/ws
+```
+
+The external inference proxy at `inference.adeoaiengine.ecouncil.ae` has its own auth layer that is incompatible with the Hamsa Fernet key:
+- REST with `x-api-key` header: returns `{"detail":"Authorization header is missing","status_code":401}`
+- REST with `Authorization: Bearer <key>`: returns `{"detail":"Invalid API key","status_code":401}`
+- REST with `Authorization: Token <key>`: returns `{"detail":"Invalid Authorization header","status_code":401}`
+- REST with `Authorization: <key>` (no prefix): returns `{"detail":"Invalid Authorization header","status_code":401}`
+- WS: closes with `1008 (policy violation) Missing token in auth message`
+
+### 10.3 Internal Service Path Discovery
+
+The internal service has different paths for REST vs WS:
+- `/transcribe` (REST POST) - works, returns transcription JSON
+- `/ws` (WebSocket) - works, returns `handshake_ack`
+- `/ws/ws` (WebSocket) - returns HTTP 403
+- Bare `:8080` or `:8080/` (WebSocket) - returns HTTP 403
+
+### 10.4 Protocol Conversion
+
+When the model is registered with a `wss://` or `ws://` api_base (as is natural for a WS-based service), REST calls need protocol conversion:
+- `ws://` to `http://` for REST
+- `wss://` to `https://` for REST (with SSL verification disabled for internal certs)
+- Keep `ws://` or `wss://` for WS
+
+### 10.5 SSL Considerations
+
+The internal cluster service uses HTTP (no TLS), so no SSL context needed. If using the external `wss://` URL, SSL certificate verification fails because the cluster uses internal/self-signed certs. Disable verification with:
+```python
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+```
+
+## 11. LiteLLM Integration Findings
+
+### 11.1 Model Registration
+
+The model is registered in the LiteLLM DB with:
+```json
+{
+  "model_name": "tryhamsa-stt",
+  "litellm_params": {
+    "api_base": "http://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:8080",
+    "custom_llm_provider": "custom",
+    "use_in_pass_through": true,
+    "model": "custom/tryhamsa-stt"
+  },
+  "model_info": {
+    "mode": "audio_transcription",
+    "description": "Hamsa STT WebSocket-based real-time transcription service"
+  }
+}
+```
+
+Key fields:
+- `use_in_pass_through: true` - enables `get_available_deployment_for_pass_through()` to resolve this model
+- `custom_llm_provider: "custom"` - marks it as a custom provider, not a known LLM provider
+- `mode: "audio_transcription"` - tags the call type for logging
+- `api_base` - the internal cluster IP URL (no path suffix; routes are appended by the provider code)
+
+### 11.2 LiteLLM Router: get_available_deployment_for_pass_through
+
+```python
+from litellm.proxy.proxy_server import llm_router
+
+deployment = llm_router.get_available_deployment_for_pass_through(model="tryhamsa-stt")
+api_base = deployment.get("litellm_params", {}).get("api_base", "")
+```
+
+This applies native RPM/TPM/priority/cooldown/load-balancing and returns the deployment dict. Raises `RouterRateLimitError` (from `litellm.types.router`) if rate limits are exceeded. The error has a `.cooldown_time` attribute (seconds) that should map to HTTP 429 `retry-after` for REST and WS close code 1013 for WebSocket.
+
+### 11.3 LiteLLM Built-in Pass-Through Endpoints
+
+LiteLLM has a built-in generic pass-through system (`pass_through_endpoints` in `general_settings` or DB):
+
+```yaml
+general_settings:
+  pass_through_endpoints:
+    - path: /hamsa
+      target: http://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:8080
+      headers:
+        x-api-key: "gAAAAAB..."
+      include_subpath: true
+      auth: true
+```
+
+With `include_subpath: true`:
+- `POST /hamsa/transcribe` forwards to `http://s-...:8080/transcribe`
+- `POST /hamsa/any-route` forwards to `http://s-...:8080/any-route`
+
+**Limitations of the built-in system for Hamsa:**
+1. The `target` is static. It does NOT resolve from the LiteLLM model registry, so no RPM/TPM/priority/cooldown/load-balancing from the router.
+2. WebSocket pass-through exists (`create_websocket_passthrough_route`) but the config-based registration only registers HTTP routes, not WS.
+3. No support for Hamsa's handshake `api_key` injection (the Fernet key must be injected into the first JSON message, not sent as an HTTP header).
+
+### 11.4 LiteLLM LLM Provider Pass-Through
+
+LiteLLM has provider-specific pass-through endpoints (`/anthropic/{endpoint:path}`, `/cohere/{endpoint:path}`, `/gemini/{endpoint:path}`). These resolve the provider's `api_base` from provider config and forward arbitrary subpaths. But this is hardcoded to known providers via `ProviderConfigManager.get_provider_model_info()`. There is no generic "custom provider" version.
+
+### 11.5 Recommended Architecture: Prefix-Scoped Catch-All
+
+Register a prefix-scoped catch-all route (e.g. `/tryhamsa/{endpoint:path}`) that:
+1. Reads `model` from query param or body
+2. Calls `get_available_deployment_for_pass_through(model)` for RPM/TPM/priority
+3. Forwards the captured subpath to `api_base + subpath`
+
+This avoids route conflicts with existing LiteLLM routes, provides model-registry-based rate limiting, and doesn't hardcode route paths like `/transcribe` or `/ws`.
+
+**REST flow:**
+```
+POST /tryhamsa/transcribe?model=tryhamsa-stt
+  -> user_api_key_auth
+  -> get_available_deployment_for_pass_through("tryhamsa-stt")
+  -> forward to api_base + "/transcribe" with x-api-key header
+```
+
+**WS flow (requires handshake injection):**
+```
+WS /tryhamsa/ws?model=tryhamsa-stt
+  -> user_api_key_auth_websocket (via subprotocol)
+  -> get_available_deployment_for_pass_through("tryhamsa-stt")
+  -> forward to ws_url(api_base) + "/ws"
+  -> inject Fernet key into first handshake JSON message
+```
+
+## 12. Verified Test Results
+
+### 12.1 REST Transcription (internal cluster URL)
+
+```bash
+AUDIO_B64=$(base64 -w0 hello.wav)
+curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/custom/audio/transcriptions \
+  -H "Authorization: Bearer sk-1234" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"tryhamsa-stt\",\"audio\":\"$AUDIO_B64\",\"eos_enabled\":false,\"eos_threshold\":0.3,\"lang\":\"auto\"}"
+```
+
+Response:
+```json
+{
+  "text": " Hello.",
+  "gender": "Female",
+  "eos": null,
+  "processing_time": 0.11553049087524414,
+  "speaker_embeddings": null,
+  "duration": 0.72,
+  "wake_word_match": null,
+  "similarity_score": null
+}
+```
+
+### 12.2 WebSocket Transcription (internal cluster URL)
+
+Tested from inside the LiteLLM pod with real audio (hello.wav, 16kHz, 16-bit, mono, 11520 frames):
+
+```text
+Connecting to ws://localhost:4000/custom/realtime?model=tryhamsa-stt
+Connected!
+Sent handshake
+Handshake response: {"type":"handshake_ack","status":"authenticated","message":"Ready to receive audio"}
+Sent 23040 bytes of audio in 8 chunks (3200 bytes/chunk, 100ms pacing)
+Sent EOS config
+Received [0]: {"type":"transcription","data":{"transcription":" Hello.","gender":"Female","eos":{"prediction":0,"probability":0.1442742496728897},"speaker_info":null,"language":"en"},"duration_ms":198.99021834135056}
+```
+
+### 12.3 Key Behavioral Notes
+
+- Audio must be sent as **raw binary PCM** (16-bit signed, 16kHz, mono), not base64, over WebSocket
+- Chunk size of 3200 bytes (100ms at 16kHz 16-bit mono) with 100ms pacing between chunks is required for VAD to trigger
+- Dumping all chunks at once without pacing produces zero transcriptions
+- The handshake `api_key` field is overwritten by the gateway with the real Fernet key before forwarding to the upstream; clients can send a placeholder value
+- WebSocket auth from browser uses `sec-websocket-protocol: openai-insecure-api-key.<litellm-key>` subprotocol (same as OpenAI Realtime API pattern)
+
+## 13. API Key
+
+```text
+Fernet-encrypted key: gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=
+```
+
+Note the `M05qF` segment in the middle. This is the key used for both REST (`x-api-key` header) and WS (`api_key` field in handshake JSON). Can be overridden via `HAMSA_STT_UPSTREAM_API_KEY` environment variable.
