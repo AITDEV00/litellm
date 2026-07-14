@@ -17,16 +17,33 @@ from litellm.types.llms.openai import (
 )
 from litellm.types.utils import FileTypes, TranscriptionResponse
 
-HAMSA_PASSTHROUGH_PARAMS: List[str] = [
-    "lang",
-    "eos_enabled",
-    "eos_threshold",
-    "gender_detection",
-    "speaker_identification",
-    "wake_word",
-    "threshold",
-    "prompt",
-]
+_INTERNAL_PARAMS: frozenset[str] = frozenset({
+    "model",
+    "language",
+    "response_format",
+    "temperature",
+    "timestamp_granularities",
+    "extra_body",
+    "extra_headers",
+    "user",
+    "api_key",
+    "api_base",
+    "api_version",
+    "max_retries",
+    "timeout",
+    "stream",
+    "litellm_call_id",
+    "litellm_logging_obj",
+    "proxy_server_request",
+    "model_info",
+    "metadata",
+    "preset_cache_key",
+    "cache",
+    "provider_specific_params",
+    "additional_drop_params",
+    "drop_params",
+    "OPENAI_TRANSCRIPTION_PARAMS",
+})
 
 
 class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscriptionConfig):
@@ -44,9 +61,10 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
             optional_params["lang"] = non_default_params["language"]
         if "prompt" in non_default_params and non_default_params["prompt"]:
             optional_params["prompt"] = non_default_params["prompt"]
-        for key in HAMSA_PASSTHROUGH_PARAMS:
-            if key in non_default_params and non_default_params[key] is not None:
-                optional_params[key] = non_default_params[key]
+        for key, value in non_default_params.items():
+            if value is None or key in _INTERNAL_PARAMS or key in ("language", "prompt"):
+                continue
+            optional_params[key] = value
         return optional_params
 
     def get_error_class(self, error_message: str, status_code: int, headers: Union[dict, Headers]) -> BaseLLMException:
@@ -102,14 +120,11 @@ class TryhamsaSTTAudioTranscriptionConfig(TryhamsaSTTModelInfo, BaseAudioTranscr
         audio_b64 = base64.b64encode(processed.file_content).decode("utf-8")
 
         body: dict = {"audio": audio_b64}
-        for key in HAMSA_PASSTHROUGH_PARAMS:
-            value = optional_params.get(key)
-            if value is not None:
-                body[key] = value
+        for key, value in optional_params.items():
+            if value is None or key in _INTERNAL_PARAMS:
+                continue
+            body[key] = value
 
-        # Return JSON-encoded bytes so httpx sends it as raw JSON body,
-        # not form-encoded data. When data is a dict, httpx's `data=` param
-        # form-encodes it, which Hamsa cannot parse.
         json_bytes = json.dumps(body).encode("utf-8")
         return AudioTranscriptionRequestData(data=json_bytes, files=None, content_type="application/json")
 
