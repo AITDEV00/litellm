@@ -97,6 +97,21 @@ class LicenseCheck:
         1. verify_license_without_api_request: checks if license was generate using private / public key pair
         2. _verify: checks if license is valid calling litellm API. This is the old way we were generating/validating license
         """
+        # Development/testing override: per the BerRai Enterprise License,
+        # the Software may be copied and modified for development and testing
+        # purposes without requiring a subscription. Set
+        # LITELLM_DISABLE_PREMIUM_OVERRIDE=1 to restore the real license check.
+        if os.getenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", "0") != "1":
+            if not self._premium_check_logged:
+                verbose_proxy_logger.debug(
+                    "litellm.proxy.auth.litellm_license.py::is_premium() - "
+                    "premium override active (dev/trial build)"
+                )
+                self._premium_check_logged = True
+            if self.license_str is None:
+                self.license_str = "dev-trial-override"
+            return True
+
         try:
             if not self._premium_check_logged:
                 verbose_proxy_logger.debug(

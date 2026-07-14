@@ -272,6 +272,7 @@ class TestBedrockMantleResponsesAuth:
             litellm_params=GenericLiteLLMParams(api_key="fake-key"),
         )
         assert "OpenAI-Project" not in headers
+>>>>>>> v1.91.1
 
     def test_custom_llm_provider(self):
         cfg = BedrockMantleResponsesAPIConfig()
