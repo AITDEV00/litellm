@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 from typing import Any, Optional
 
 from litellm._logging import verbose_logger
@@ -10,8 +9,6 @@ from litellm.types.realtime import (
     RealtimeResponseTransformInput,
     RealtimeResponseTypedDict,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class HamsaRealtimeConfig(HamsaModelInfo, BaseRealtimeConfig):
