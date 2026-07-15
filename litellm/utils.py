@@ -8962,6 +8962,12 @@ class ProviderConfigManager:
             )
 
             return AWSPollyTextToSpeechConfig()
+        elif litellm.LlmProviders.HAMSA == provider:
+            from litellm.llms.hamsa.text_to_speech.transformation import (
+                HamsaTextToSpeechConfig,
+            )
+
+            return HamsaTextToSpeechConfig()
         return None
 
     @staticmethod
@@ -8996,6 +9002,16 @@ class ProviderConfigManager:
             # This is for Vertex `gemini` models
             #########################################################
             return VertexAIGoogleGenAIConfig()
+        return None
+
+    @staticmethod
+    def get_provider_voice_config(
+        provider: Literal["hamsa"],
+    ) -> Optional[Any]:
+        if litellm.LlmProviders.HAMSA == provider:
+            from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
+
+            return HamsaVoiceConfig()
         return None
 
 

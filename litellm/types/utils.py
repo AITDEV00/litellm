@@ -309,6 +309,8 @@ class CallTypes(str, Enum):
     transcription = "transcription"
     aspeech = "aspeech"
     speech = "speech"
+    acreate_voice = "acreate_voice"
+    create_voice = "create_voice"
     rerank = "rerank"
     arerank = "arerank"
     search = "search"
@@ -481,6 +483,8 @@ CallTypesLiteral = Literal[
     "transcription",
     "aspeech",
     "speech",
+    "acreate_voice",
+    "create_voice",
     "rerank",
     "arerank",
     "search",
@@ -576,6 +580,9 @@ API_ROUTE_TO_CALL_TYPES = {
     # Audio Speech
     "/audio/speech": [CallTypes.aspeech, CallTypes.speech],
     "/v1/audio/speech": [CallTypes.aspeech, CallTypes.speech],
+    # Audio Voices
+    "/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
     # Moderations
     "/moderations": [CallTypes.amoderation, CallTypes.moderation],
     "/v1/moderations": [CallTypes.amoderation, CallTypes.moderation],

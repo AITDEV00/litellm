@@ -113,9 +113,7 @@ class _PROXY_DynamicRateLimitHandler(CustomLogger):
                 from litellm.proxy.auth.litellm_license import LicenseCheck
 
                 if not LicenseCheck().is_premium():
-                    verbose_proxy_logger.error(
-                        "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature."
-                    )
+                    verbose_proxy_logger.error("PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature.")
                 else:
                     value = litellm.priority_reservation[priority]
                     weight = convert_priority_to_percent(value, model_group_info)

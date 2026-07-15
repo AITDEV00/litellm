@@ -104,8 +104,7 @@ class LicenseCheck:
         if os.getenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", "0") != "1":
             if not self._premium_check_logged:
                 verbose_proxy_logger.debug(
-                    "litellm.proxy.auth.litellm_license.py::is_premium() - "
-                    "premium override active (dev/trial build)"
+                    "litellm.proxy.auth.litellm_license.py::is_premium() - premium override active (dev/trial build)"
                 )
                 self._premium_check_logged = True
             if self.license_str is None:
