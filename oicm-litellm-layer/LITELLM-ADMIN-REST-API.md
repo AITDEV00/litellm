@@ -1111,6 +1111,38 @@ curl -X POST 'http://localhost:4000/model/new' \
   }'
 ```
 
+### Duplicating a Model Without Controller Interference
+
+The OICM Discovery Controller (`oicm-litellm-layer/controller`) automatically syncs models between Kubernetes deployments and LiteLLM. It groups LiteLLM models by the `oicm_uuid` field in `model_info` and reconciles each group down to a single entry per UUID. Any duplicate entries sharing the same `oicm_uuid` are deleted on the next sync cycle.
+
+This means that duplicating a model via the LiteLLM UI (or any method that copies `model_info` including `oicm_uuid`) will cause the duplicate to be removed. The controller's `_pick_richest_entry` logic ranks duplicates by the number of config keys (`rpm`, `tpm`, `max_parallel_requests`, cost fields) present in `litellm_params`, so a duplicate that only adds extra body fields (e.g. `chat_template_kwargs`) will lose to the original and be deleted.
+
+Models without an `oicm_uuid` in `model_info` are completely invisible to the controller and will never be touched. To create a duplicate that persists, omit the `model_info` block entirely (or ensure it contains no `oicm_*` fields):
+
+```bash
+curl -sk -X POST "$PROXY_BASE_URL/model/new" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_name": "MiniMaxAI/MiniMax-M3-MXFP8-no-think",
+    "litellm_params": {
+      "model": "hosted_vllm/MiniMaxAI/MiniMax-M3-MXFP8",
+      "api_base": "http://s-908d3952-1e69-40a4-95b9-db1abff27fcb.adeo.svc.cluster.local:8080/v1",
+      "api_key": "",
+      "drop_params": true,
+      "rpm": 500,
+      "chat_template_kwargs": {"thinking_mode": "disabled"}
+    }
+  }'
+```
+
+Key points:
+
+- Do not include a `model_info` block. Without it, no `oicm_uuid` is set, so the controller ignores the entry
+- Copy the `model` and `api_base` from the original deployment so traffic still routes to the same vLLM endpoint
+- Add any extra body fields (like `chat_template_kwargs`) directly in `litellm_params`
+- The duplicate will not appear in the controller's sync state, so it will not be patched or deleted by any reconciliation cycle
+
 ### POST `/model/update` ; Full Update (Legacy)
 
 **Request body:** `ModelUpdateRequest`
