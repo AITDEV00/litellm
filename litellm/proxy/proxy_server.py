@@ -9160,6 +9160,7 @@ async def create_voice(
         model = data.pop("model", None) or user_model
         voice_data_keys = (
             "speaker",
+            "speaker_id",
             "voice_id",
             "name",
             "audio_url",
@@ -11059,9 +11060,7 @@ def _byok_row_outside_caller_teams(model_info_dict: Dict[str, Any], allowed_team
     return team_id not in allowed_team_ids
 
 
-def _byok_row_outside_caller_teams(
-    model_info_dict: Dict[str, Any], allowed_team_ids: Optional[Set[str]]
-) -> bool:
+def _byok_row_outside_caller_teams(model_info_dict: Dict[str, Any], allowed_team_ids: Optional[Set[str]]) -> bool:
     """Whether a team BYOK row belongs to a team the caller is not a member of.
 
     `team_id` is only set on team BYOK rows; non-team rows fall through

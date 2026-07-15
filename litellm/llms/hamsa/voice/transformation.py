@@ -42,7 +42,7 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
     ) -> TextToSpeechRequestData:
         action = litellm_params.get("voice_action", "register")
 
-        speaker = voice_data.get("speaker") or voice_data.get("voice_id") or voice_data.get("name")
+        speaker = voice_data.get("speaker") or voice_data.get("speaker_id") or voice_data.get("voice_id") or voice_data.get("name")
 
         if action == "load":
             body: Dict[str, Any] = {
