@@ -25,7 +25,7 @@ class HamsaRealtimeConfig(HamsaModelInfo, BaseRealtimeConfig):
         if base.startswith("https://"):
             base = "wss://" + base[len("https://") :]
         elif base.startswith("http://"):
-            base = "ws://" + base[len("http://")]
+            base = "ws://" + base[len("http://") :]
         return base + "/ws"
 
     def transform_realtime_request(
