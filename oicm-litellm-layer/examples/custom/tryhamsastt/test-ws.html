@@ -497,7 +497,7 @@
                     </div>
                     <div class="input-wrapper">
                         <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
-                        <input type="text" id="bearerToken" placeholder="sk-1234" value="sk-1234">
+                        <input type="text" id="bearerToken" placeholder="sk-..." value="sk-omQbswRlepuTISV-1wgsDg">
                     </div>
                 </div>
             </div>
@@ -612,12 +612,12 @@
                 <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
 curl -sk -X POST \
   "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions" \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -F "model=hamsa-stt" \
   -F "file=@/path/to/audio.wav" \
   -F "language=auto"</div>
                 <p style="font-size: 12px; color: #999; margin-top: 8px;">
-                    Replace <code>/path/to/audio.wav</code> with your audio file. The endpoint returns JSON with <code>text</code>, <code>gender</code>, <code>duration</code>, and other Hamsa fields.
+                    Replace <code>/path/to/audio.wav</code> with your audio file (PCM 16kHz 16-bit WAV). The endpoint returns JSON with <code>text</code>, <code>gender</code>, <code>duration</code>, and other Hamsa fields.
                 </p>
             </div>
         </div>
