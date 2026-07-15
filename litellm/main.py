@@ -8166,16 +8166,10 @@ def speech(
         if api_key is not None:
             litellm_params_dict["api_key"] = api_key
 
-        voice_str: Optional[str] = None
-        if isinstance(voice, str):
-            voice_str = voice
-        elif isinstance(voice, dict):
-            voice_str = voice.get("voice_id") or voice.get("id") or voice.get("name")
-
         response = base_llm_http_handler.text_to_speech_handler(
             model=model,
             input=input,
-            voice=voice_str,
+            voice=voice,
             text_to_speech_provider_config=hamsa_config,
             text_to_speech_optional_params=optional_params,
             custom_llm_provider=custom_llm_provider,

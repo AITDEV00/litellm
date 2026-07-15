@@ -86,14 +86,7 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
         api_base: Optional[str],
         litellm_params: dict,
     ) -> str:
-        base = self.get_api_base(api_base)
-        if base is None:
-            raise BaseLLMException(
-                status_code=400,
-                message="Missing Hamsa API base. Set HAMSA_API_BASE or pass api_base in model config.",
-                headers={},
-            )
-        return base.rstrip("/") + "/tts/stream"
+        return self._resolve_base(api_base) + "/tts/stream"
 
     def transform_text_to_speech_request(
         self,
@@ -129,7 +122,6 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
 
         return TextToSpeechRequestData(
             dict_body=request_body,
-            headers={"Content-Type": "application/json"},
         )
 
     def transform_text_to_speech_response(

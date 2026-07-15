@@ -26,17 +26,11 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
         api_base: Optional[str],
         litellm_params: dict,
     ) -> str:
-        base = self.get_api_base(api_base)
-        if base is None:
-            raise BaseLLMException(
-                status_code=400,
-                message="Missing Hamsa API base. Set HAMSA_API_BASE or pass api_base in model config.",
-                headers={},
-            )
+        base = self._resolve_base(api_base)
         action = litellm_params.get("voice_action", "register")
         if action == "load":
-            return base.rstrip("/") + "/tts/load_voice_cloning"
-        return base.rstrip("/") + "/tts/voice_clone"
+            return base + "/tts/load_voice_cloning"
+        return base + "/tts/voice_clone"
 
     def transform_create_voice_request(
         self,
@@ -71,7 +65,6 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
             body["dialect"] = dialect
             return TextToSpeechRequestData(
                 dict_body=body,
-                headers={"Content-Type": "application/json"},
             )
 
         audio_url = voice_data.get("audio_url") or voice_data.get("audio")
@@ -98,7 +91,6 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
 
         return TextToSpeechRequestData(
             dict_body=body,
-            headers={"Content-Type": "application/json"},
         )
 
     _SPEAKER_ALIASES: frozenset[str] = frozenset({"speaker", "voice_id", "speaker_id"})

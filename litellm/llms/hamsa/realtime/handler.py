@@ -21,17 +21,14 @@ class HamsaRealtimeConfig(HamsaModelInfo, BaseRealtimeConfig):
         model: str,
         api_key: Optional[str] = None,
     ) -> dict:
-        return headers
+        return self._inject_auth_headers(headers, api_key)
 
     def get_complete_url(self, api_base: Optional[str], model: str, api_key: Optional[str] = None) -> str:
-        base = self.get_api_base(api_base)
-        if base is None:
-            raise ValueError("Missing Hamsa API base for realtime. Set HAMSA_API_BASE or pass api_base in model config.")
-        base = base.rstrip("/")
+        base = self._resolve_base(api_base)
         if base.startswith("https://"):
-            base = "wss://" + base[len("https://"):]
+            base = "wss://" + base[len("https://") :]
         elif base.startswith("http://"):
-            base = "ws://" + base[len("http://"):]
+            base = "ws://" + base[len("http://")]
         return base + "/ws"
 
     def transform_realtime_request(
@@ -83,7 +80,13 @@ async def hamsa_realtime(
     upstream_api_key = config.get_api_key(api_key)
 
     if upstream_api_key is None:
-        raise ValueError("Missing Hamsa API key for realtime. Set HAMSA_API_KEY or pass api_key in model config.")
+        from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+        raise BaseLLMException(
+            status_code=401,
+            message="Missing Hamsa API key for realtime. Set HAMSA_API_KEY or pass api_key in model config.",
+            headers={},
+        )
 
     verbose_logger.info(f"Hamsa realtime: connecting to {url}")
 

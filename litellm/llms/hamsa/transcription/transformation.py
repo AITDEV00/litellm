@@ -63,14 +63,7 @@ class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig
         litellm_params: dict,
         stream: Optional[bool] = None,
     ) -> str:
-        base = self.get_api_base(api_base)
-        if base is None:
-            raise BaseLLMException(
-                status_code=400,
-                message="Missing Hamsa API base. Set HAMSA_API_BASE or pass api_base in model config.",
-                headers={},
-            )
-        return base.rstrip("/") + "/transcribe"
+        return self._resolve_base(api_base) + "/transcribe"
 
     def transform_audio_transcription_request(
         self,
