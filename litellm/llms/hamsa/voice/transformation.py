@@ -109,6 +109,19 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
     ) -> Dict[str, Any]:
         response_json = raw_response.json()
 
+        if response_json is None:
+            return {
+                "voice_id": "",
+                "status": "registered",
+            }
+
+        if not isinstance(response_json, dict):
+            return {
+                "voice_id": "",
+                "status": "registered",
+                "raw_response": response_json,
+            }
+
         speaker_name = response_json.get("speaker") or response_json.get("voice_id") or response_json.get("speaker_id")
         audio_path = response_json.get("audio_path") or response_json.get("path") or response_json.get("stored_path")
 
