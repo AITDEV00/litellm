@@ -134,7 +134,11 @@ Binary audio data with `Content-Type: audio/wav`. The audio is 16kHz mono 16-bit
 POST /v1/audio/voices
 ```
 
-Used to register a custom cloned voice or load a pre-extracted voice profile.
+Voice cloning is a two-step process:
+
+**Step 1 - Extract tokens** (`action: "register"`): Pass an audio URL and transcript. The Hamsa backend downloads the audio and runs it through the BiCodecTokenizer to extract `global_token_ids` and `semantic_token_ids`.
+
+**Step 2 - Load tokens** (`action: "load"`): Pass the extracted tokens with a `speaker_id` to register the voice in the model's in-memory speaker dictionary. After loading, the voice is immediately usable in `/v1/audio/speech`.
 
 ### Request Parameters
 
@@ -142,13 +146,87 @@ Used to register a custom cloned voice or load a pre-extracted voice profile.
 |---|---|---|---|
 | `model` | string | Yes | Must be `hamsa-tts` |
 | `action` | string | No | `register` (default) or `load` |
-| `speaker_id` | string | Yes | Name for the new voice |
-| `global_token_ids` | array | Yes (for `load`) | Global token arrays from voice cloning |
-| `semantic_token_ids` | array | Yes (for `load`) | Semantic token arrays from voice cloning |
+| `speaker_id` | string | Yes (for `load`) | Name for the new voice |
+| `audio_url` | string | Yes (for `register`) | URL to the reference audio file |
+| `prompt_text` | string | Yes (for `register`) | Transcript of the reference audio |
+| `global_token_ids` | array | Yes (for `load`) | Global token arrays from step 1 |
+| `semantic_token_ids` | array | Yes (for `load`) | Semantic token arrays from step 1 |
 | `dialect` | string | No | `msa`, `ksa`, or `eng` (default: `msa`) |
-| `prompt_text` | string | No | Reference transcript |
 
-### Example: Load a Cloned Voice
+### Known Limitation: Step 1 (register) is Currently Broken
+
+The Hamsa TTS pod runs with a **read-only root filesystem**. Step 1 (`action: "register"`) calls `download_file()` internally, which tries to create a `ref_audios/` directory in `/app` (the working directory) to save the downloaded audio. This fails with:
+
+```
+OSError: [Errno 30] Read-only file system: 'ref_audios'
+```
+
+Verified by calling the endpoint through the gateway:
+
+```bash
+curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
+  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hamsa-tts",
+    "action": "register",
+    "audio_url": "https://example.com/reference.wav",
+    "prompt_text": "This is the transcript of the reference audio."
+  }'
+# Returns: HTTP 500 Internal Server Error
+```
+
+Pod logs confirm the error:
+
+```
+File "/app/app/hamsaTTS.py", line 1094, in download_file
+    os.makedirs(folder, exist_ok=True)
+OSError: [Errno 30] Read-only file system: 'ref_audios'
+```
+
+The pod does have writable directories (`/app/output`, `/app/download`, `/tmp`), but the Hamsa `download_file` method uses a hardcoded relative path (`ref_audios`) instead of one of these. This is a bug in the Hamsa TTS service, not in the LiteLLM gateway.
+
+**Workaround**: Extract voice tokens manually by exec'ing into the pod, then use `action: "load"` (step 2) through the gateway to register the voice. See the next section for a worked example.
+
+### Example: Extract Tokens Manually (Workaround for Step 1)
+
+Exec into the TTS pod and run token extraction directly, writing to the writable `/app/output` directory:
+
+```bash
+# 1. Download reference audio into the pod's writable directory
+KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl cp reference.wav \
+  adeo/j-cd2850fc-5870-4a57-89da-5e978eee66f4-67766948c-rhwn2:/app/output/reference.wav
+
+# 2. Exec into the pod and extract tokens
+KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl exec -n adeo \
+  j-cd2850fc-5870-4a57-89da-5e978eee66f4-67766948c-rhwn2 -- \
+  python3 -c "
+import torch, json
+from app.hamsaTTS import hamsaTTS
+model = hamsaTTS()
+model._initialize_inference()
+model.load_speakers_from_directory('speakers/')
+global_ids, semantic_ids = model.audio_tokenizer.tokenize('/app/output/reference.wav')
+tokens = {
+    'global_token_ids': global_ids.tolist(),
+    'semantic_token_ids': semantic_ids.tolist(),
+}
+with open('/app/output/tokens.json', 'w') as f:
+    json.dump(tokens, f)
+print('Tokens saved to /app/output/tokens.json')
+print(f'global_token_ids shape: {len(global_ids)}')
+print(f'semantic_token_ids shape: {len(semantic_ids)}')
+"
+
+# 3. Copy the tokens back to your machine
+KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl cp \
+  adeo/j-cd2850fc-5870-4a57-89da-5e978eee66f4-67766948c-rhwn2:/app/output/tokens.json \
+  ./tokens.json
+```
+
+### Example: Load a Cloned Voice (Step 2)
+
+Once you have the extracted tokens, register the voice through the gateway:
 
 ```bash
 curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
@@ -158,8 +236,8 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
     "model": "hamsa-tts",
     "action": "load",
     "speaker_id": "my_custom_voice",
-    "global_token_ids": [[1,2,3],[4,5,6]],
-    "semantic_token_ids": [[10,20],[30,40]],
+    "global_token_ids": [[2835, 1337, 574, 3897, 305, 1557, 1106, 58, 3449, 3190]],
+    "semantic_token_ids": [[4934, 4577, 5060, 5288, 7108, 3210, 4001, 1234, 5678, 9012]],
     "dialect": "ksa",
     "prompt_text": "Reference transcript"
   }'
@@ -171,9 +249,22 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
 {"voice_id": "", "status": "registered"}
 ```
 
-After registering, the new voice is immediately usable in `/v1/audio/speech` by passing `"voice": "my_custom_voice"`.
+After loading, the new voice is immediately usable in `/v1/audio/speech` by passing `"voice": "my_custom_voice"`. Verified:
 
-**Note**: Custom voices exist only in the model's in-memory state. If the TTS pod restarts, custom voices are lost and must be re-registered.
+```bash
+curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech" \
+  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hamsa-tts",
+    "input": "مرحبا، هذا اختبار للصوت المستنسخ",
+    "voice": "my_custom_voice"
+  }' \
+  -o cloned_tts.wav
+# Returns: HTTP 200, 117KB WAV
+```
+
+**Note**: Custom voices exist only in the model's in-memory state. If the TTS pod restarts, custom voices are lost and must be re-loaded.
 
 ---
 
