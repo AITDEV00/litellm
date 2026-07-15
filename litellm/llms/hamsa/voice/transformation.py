@@ -101,6 +101,9 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
             headers={"Content-Type": "application/json"},
         )
 
+    _SPEAKER_ALIASES: frozenset[str] = frozenset({"speaker", "voice_id", "speaker_id"})
+    _AUDIO_PATH_ALIASES: frozenset[str] = frozenset({"audio_path", "path", "stored_path"})
+
     def transform_create_voice_response(
         self,
         model: str,
@@ -109,21 +112,17 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
     ) -> Dict[str, Any]:
         response_json = raw_response.json()
 
-        if response_json is None:
-            return {
-                "voice_id": "",
-                "status": "registered",
-            }
-
         if not isinstance(response_json, dict):
-            return {
-                "voice_id": "",
-                "status": "registered",
-                "raw_response": response_json,
-            }
+            return {"voice_id": "", "status": "registered"}
 
-        speaker_name = response_json.get("speaker") or response_json.get("voice_id") or response_json.get("speaker_id")
-        audio_path = response_json.get("audio_path") or response_json.get("path") or response_json.get("stored_path")
+        speaker_name = next(
+            (response_json[k] for k in self._SPEAKER_ALIASES if response_json.get(k)),
+            None,
+        )
+        audio_path = next(
+            (response_json[k] for k in self._AUDIO_PATH_ALIASES if response_json.get(k)),
+            None,
+        )
 
         result: Dict[str, Any] = {
             "voice_id": speaker_name or "",
@@ -131,16 +130,10 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
         }
         if audio_path is not None:
             result["stored_path"] = audio_path
+
+        consumed_keys = self._SPEAKER_ALIASES | self._AUDIO_PATH_ALIASES | {"status"}
         for key, value in response_json.items():
-            if key not in (
-                "speaker",
-                "voice_id",
-                "speaker_id",
-                "audio_path",
-                "path",
-                "stored_path",
-                "status",
-            ):
+            if key not in consumed_keys:
                 result[key] = value
 
         return result

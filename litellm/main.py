@@ -8151,6 +8151,41 @@ def speech(
             api_key=api_key,
             **kwargs,
         )
+    elif custom_llm_provider == "hamsa":
+        from litellm.llms.hamsa.text_to_speech.transformation import (
+            HamsaTextToSpeechConfig,
+        )
+
+        if text_to_speech_provider_config is None:
+            text_to_speech_provider_config = HamsaTextToSpeechConfig()
+
+        hamsa_config = cast(HamsaTextToSpeechConfig, text_to_speech_provider_config)
+
+        if api_base is not None:
+            litellm_params_dict["api_base"] = api_base
+        if api_key is not None:
+            litellm_params_dict["api_key"] = api_key
+
+        voice_str: Optional[str] = None
+        if isinstance(voice, str):
+            voice_str = voice
+        elif isinstance(voice, dict):
+            voice_str = voice.get("voice_id") or voice.get("id") or voice.get("name")
+
+        response = base_llm_http_handler.text_to_speech_handler(
+            model=model,
+            input=input,
+            voice=voice_str,
+            text_to_speech_provider_config=hamsa_config,
+            text_to_speech_optional_params=optional_params,
+            custom_llm_provider=custom_llm_provider,
+            litellm_params=litellm_params_dict,
+            logging_obj=logging_obj,
+            timeout=timeout,
+            extra_headers=extra_headers,
+            client=client,
+            _is_async=aspeech or False,
+        )
 
     if response is None:
         raise Exception(
@@ -8158,6 +8193,125 @@ def speech(
                 custom_llm_provider, litellm.provider_list
             )
         )
+    return response
+
+
+async def acreate_voice(*args, **kwargs) -> Dict[str, Any]:
+    loop = asyncio.get_event_loop()
+    model = args[0] if len(args) > 0 else kwargs["model"]
+    try:
+        func = partial(create_voice, *args, **kwargs)
+        ctx = contextvars.copy_context()
+        func_with_context = partial(ctx.run, func)
+
+        response = await loop.run_in_executor(None, func_with_context)
+        if asyncio.iscoroutine(response):
+            response = await response
+        return response
+    except Exception as e:
+        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base", None))
+        raise exception_type(
+            model=model,
+            custom_llm_provider=custom_llm_provider,
+            original_exception=e,
+            completion_kwargs=args,
+            extra_kwargs=kwargs,
+        )
+
+
+@client
+def create_voice(
+    model: str,
+    voice_data: Dict[str, Any],
+    api_key: Optional[str] = None,
+    api_base: Optional[str] = None,
+    api_version: Optional[str] = None,
+    timeout: Optional[Union[float, httpx.Timeout]] = None,
+    max_retries: Optional[int] = None,
+    client: Optional[Union[Any, Dict]] = None,
+    custom_llm_provider: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    user = kwargs.get("user", None)
+    litellm_call_id: Optional[str] = kwargs.get("litellm_call_id", None)
+    proxy_server_request = kwargs.get("proxy_server_request", None)
+    extra_headers = kwargs.get("extra_headers", None)
+    model_info = kwargs.get("model_info", None)
+    metadata = kwargs.get("metadata", None)
+
+    if timeout is None:
+        timeout = litellm.request_timeout
+
+    if max_retries is None:
+        max_retries = litellm.num_retries or openai.DEFAULT_MAX_RETRIES
+
+    base_llm_http_handler = BaseLLMHTTPHandler()
+
+    _, custom_llm_provider, dynamic_api_key, dynamic_api_base = get_llm_provider(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+        api_base=api_base or kwargs.pop("base_url", None),
+    )
+
+    litellm_params_dict = get_litellm_params(
+        api_key=api_key or dynamic_api_key,
+        api_base=api_base or dynamic_api_base,
+        api_version=api_version,
+        extra_headers=extra_headers,
+        headers=headers,
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+        timeout=timeout,
+        max_retries=max_retries,
+        **kwargs,
+    )
+
+    litellm_params_dict["voice_action"] = voice_data.get("action", "register")
+
+    voice_provider_config = ProviderConfigManager.get_provider_voice_config(
+        provider=litellm.LlmProviders(custom_llm_provider),
+    )
+
+    if voice_provider_config is None:
+        raise Exception(
+            "Voice management is not supported for provider={}. Only 'hamsa' is currently supported.".format(
+                custom_llm_provider
+            )
+        )
+
+    logging_obj: LiteLLMLoggingObj = cast(LiteLLMLoggingObj, kwargs.get("litellm_logging_obj"))
+    logging_obj.update_environment_variables(
+        model=model,
+        user=user,
+        optional_params={},
+        litellm_params={
+            "litellm_call_id": litellm_call_id,
+            "proxy_server_request": proxy_server_request,
+            "model_info": model_info,
+            "metadata": metadata,
+            "preset_cache_key": None,
+            "stream_response": {},
+            **kwargs,
+        },
+        custom_llm_provider=custom_llm_provider,
+    )
+
+    optional_params: Dict[str, Any] = {}
+
+    response = base_llm_http_handler.voice_handler(
+        model=model,
+        voice_data=voice_data,
+        voice_provider_config=voice_provider_config,
+        optional_params=optional_params,
+        litellm_params=litellm_params_dict,
+        logging_obj=logging_obj,
+        timeout=timeout,
+        extra_headers=extra_headers,
+        client=client,
+        _is_async=False,
+    )
     return response
 
 

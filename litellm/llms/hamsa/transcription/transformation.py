@@ -10,40 +10,12 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
-from litellm.llms.hamsa.common_utils import HamsaModelInfo
+from litellm.llms.hamsa.common_utils import HAMSA_INTERNAL_PARAMS, HamsaModelInfo
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
 )
 from litellm.types.utils import FileTypes, TranscriptionResponse
-
-_INTERNAL_PARAMS: frozenset[str] = frozenset({
-    "model",
-    "language",
-    "response_format",
-    "temperature",
-    "timestamp_granularities",
-    "extra_body",
-    "extra_headers",
-    "user",
-    "api_key",
-    "api_base",
-    "api_version",
-    "max_retries",
-    "timeout",
-    "stream",
-    "litellm_call_id",
-    "litellm_logging_obj",
-    "proxy_server_request",
-    "model_info",
-    "metadata",
-    "preset_cache_key",
-    "cache",
-    "provider_specific_params",
-    "additional_drop_params",
-    "drop_params",
-    "OPENAI_TRANSCRIPTION_PARAMS",
-})
 
 
 class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig):
@@ -62,13 +34,13 @@ class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig
         if "prompt" in non_default_params and non_default_params["prompt"]:
             optional_params["prompt"] = non_default_params["prompt"]
         for key, value in non_default_params.items():
-            if value is None or key in _INTERNAL_PARAMS or key in ("language", "prompt"):
+            if value is None or key in HAMSA_INTERNAL_PARAMS or key in ("language", "prompt"):
                 continue
             optional_params[key] = value
         return optional_params
 
     def get_error_class(self, error_message: str, status_code: int, headers: Union[dict, Headers]) -> BaseLLMException:
-        return BaseLLMException(status_code=status_code, message=error_message, headers=headers)
+        raise BaseLLMException(status_code=status_code, message=error_message, headers=headers)
 
     def validate_environment(
         self,
@@ -80,16 +52,7 @@ class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ) -> dict:
-        api_key = self.get_api_key(api_key)
-        if api_key is None:
-            raise BaseLLMException(
-                status_code=401,
-                message="Missing Hamsa API key. Set HAMSA_API_KEY or pass api_key in model config.",
-                headers={},
-            )
-        headers["x-api-key"] = api_key
-        headers["Content-Type"] = "application/json"
-        return headers
+        return self._inject_auth_headers(headers, api_key)
 
     def get_complete_url(
         self,
@@ -121,7 +84,7 @@ class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig
 
         body: dict = {"audio": audio_b64}
         for key, value in optional_params.items():
-            if value is None or key in _INTERNAL_PARAMS:
+            if value is None or key in HAMSA_INTERNAL_PARAMS:
                 continue
             body[key] = value
 
