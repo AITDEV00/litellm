@@ -9122,6 +9122,116 @@ async def audio_speech(
 
 
 @router.post(
+    "/v1/audio/voices",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.post(
+    "/audio/voices",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def create_voice(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    global proxy_logging_obj
+    data: Dict = {}
+    try:
+        body = await request.body()
+        data = orjson.loads(body)
+
+        data = await add_litellm_data_to_request(
+            data=data,
+            request=request,
+            general_settings=general_settings,
+            user_api_key_dict=user_api_key_dict,
+            version=version,
+            proxy_config=proxy_config,
+        )
+
+        if data.get("user", None) is None and user_api_key_dict.user_id is not None:
+            data["user"] = user_api_key_dict.user_id
+
+        if user_model:
+            data["model"] = user_model
+
+        model = data.pop("model", None) or user_model
+        voice_data_keys = (
+            "speaker",
+            "voice_id",
+            "name",
+            "audio_url",
+            "audio_path",
+            "stored_path",
+            "prompt_text",
+            "transcript",
+            "dialect",
+            "global_token_ids",
+            "semantic_token_ids",
+            "action",
+        )
+        voice_data = {k: data.pop(k) for k in list(data.keys()) if k in voice_data_keys}
+        data = {"model": model, "voice_data": voice_data, **data}
+
+        ### CALL HOOKS ###
+        data = await proxy_logging_obj.pre_call_hook(
+            user_api_key_dict=user_api_key_dict, data=data, call_type="acreate_voice"
+        )
+
+        ## ROUTE TO CORRECT ENDPOINT ##
+        llm_call = await route_request(
+            data=data,
+            route_type="acreate_voice",
+            llm_router=llm_router,
+            user_model=user_model,
+        )
+        response = await llm_call
+
+        ### ALERTING ###
+        asyncio.create_task(
+            proxy_logging_obj.update_request_status(litellm_call_id=data.get("litellm_call_id", ""), status="success")
+        )
+
+        hidden_params = getattr(response, "_hidden_params", {}) or {}
+        model_id = hidden_params.get("model_id", None) or ""
+        cache_key = hidden_params.get("cache_key", None) or ""
+        api_base = hidden_params.get("api_base", None) or ""
+        response_cost = hidden_params.get("response_cost", None) or ""
+        litellm_call_id = hidden_params.get("litellm_call_id", None) or ""
+
+        custom_headers = ProxyBaseLLMRequestProcessing.get_custom_headers(
+            user_api_key_dict=user_api_key_dict,
+            model_id=model_id,
+            cache_key=cache_key,
+            api_base=api_base,
+            version=version,
+            response_cost=response_cost,
+            model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
+            fastest_response_batch_completion=None,
+            call_id=litellm_call_id,
+            request_data=data,
+            hidden_params=hidden_params,
+        )
+
+        return JSONResponse(
+            content=response,
+            headers=custom_headers,
+        )
+
+    except Exception as e:
+        await proxy_logging_obj.post_call_failure_hook(
+            user_api_key_dict=user_api_key_dict,
+            original_exception=e,
+            request_data=data,
+        )
+        verbose_proxy_logger.error("litellm.proxy.proxy_server.create_voice(): Exception occured - {}".format(str(e)))
+        verbose_proxy_logger.debug(traceback.format_exc())
+        raise e
+
+
+@router.post(
     "/v1/audio/transcriptions",
     dependencies=[Depends(user_api_key_auth)],
     tags=["audio"],
