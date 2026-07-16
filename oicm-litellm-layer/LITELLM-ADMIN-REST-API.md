@@ -1113,11 +1113,27 @@ curl -X POST 'http://localhost:4000/model/new' \
 
 ### Duplicating a Model Without Controller Interference
 
-The OICM Discovery Controller (`oicm-litellm-layer/controller`) automatically syncs models between Kubernetes deployments and LiteLLM. It groups LiteLLM models by the `oicm_uuid` field in `model_info` and reconciles each group down to a single entry per UUID. Any duplicate entries sharing the same `oicm_uuid` are deleted on the next sync cycle.
+There are two independent mechanisms that can delete manually-created model duplicates. Both must be accounted for.
 
-This means that duplicating a model via the LiteLLM UI (or any method that copies `model_info` including `oicm_uuid`) will cause the duplicate to be removed. The controller's `_pick_richest_entry` logic ranks duplicates by the number of config keys (`rpm`, `tpm`, `max_parallel_requests`, cost fields) present in `litellm_params`, so a duplicate that only adds extra body fields (e.g. `chat_template_kwargs`) will lose to the original and be deleted.
+#### 1. OICM Discovery Controller (`oicm_uuid` deduplication)
 
-Models without an `oicm_uuid` in `model_info` are completely invisible to the controller and will never be touched. To create a duplicate that persists, omit the `model_info` block entirely (or ensure it contains no `oicm_*` fields):
+The controller (`oicm-litellm-layer/controller`) groups LiteLLM models by the `oicm_uuid` field in `model_info` and reconciles each group down to a single entry per UUID. Any duplicate entries sharing the same `oicm_uuid` are deleted on the next sync cycle.
+
+The controller's `_pick_richest_entry` logic ranks duplicates by the number of config keys (`rpm`, `tpm`, `max_parallel_requests`, cost fields) present in `litellm_params`. A duplicate that only adds extra body fields (e.g. `chat_template_kwargs`) will lose to the original and be deleted.
+
+Models without an `oicm_uuid` in `model_info` are completely invisible to the controller and will never be touched by it.
+
+#### 2. LiteLLM Proxy `add_deployment` background job (in-memory eviction)
+
+Even if a duplicate has no `oicm_uuid` (so the controller ignores it), the LiteLLM proxy itself runs a background `add_deployment` job every 30 seconds. This job fetches all models from the database, builds a combined ID list (DB models + config.yaml models), and evicts any router deployment whose ID is not in that list.
+
+The `/model/new` endpoint returns `db_model: false` in its immediate response, which is a known inconsistency. The model IS written to the database, but the response object has `db_model: false` because it is constructed from the in-memory `LiteLLM_ProxyModelTable` before the 30-second `add_deployment` cycle corrects it to `db_model: true` in the router. As long as the model row exists in the DB, the `add_deployment` job will keep it in the router.
+
+The real risk is a proxy restart. If the proxy restarts before the model has been confirmed in the DB (or if `store_model_in_db` is not `True`), the model will not be loaded on startup. Always verify persistence by checking `db_model: true` via `/model/info` after creation, and by confirming the model survives a PATCH to `/model/{model_id}/update`.
+
+#### Creating a persistent duplicate
+
+To create a duplicate that survives both mechanisms, omit the `model_info` block entirely (so no `oicm_uuid` is set) and include `"db_model": true` explicitly in `model_info` to force DB persistence from creation:
 
 ```bash
 curl -sk -X POST "$PROXY_BASE_URL/model/new" \
@@ -1132,16 +1148,20 @@ curl -sk -X POST "$PROXY_BASE_URL/model/new" \
       "drop_params": true,
       "rpm": 500,
       "chat_template_kwargs": {"thinking_mode": "disabled"}
+    },
+    "model_info": {
+      "db_model": true
     }
   }'
 ```
 
 Key points:
 
-- Do not include a `model_info` block. Without it, no `oicm_uuid` is set, so the controller ignores the entry
+- Include `"model_info": {"db_model": true}` to force DB persistence. The `/model/new` response may still show `db_model: false`, but the model IS in the DB; the 30-second `add_deployment` cycle will correct the router flag to `true`
+- Do NOT include any `oicm_*` fields in `model_info`. Without `oicm_uuid`, the controller ignores the entry entirely
 - Copy the `model` and `api_base` from the original deployment so traffic still routes to the same vLLM endpoint
 - Add any extra body fields (like `chat_template_kwargs`) directly in `litellm_params`
-- The duplicate will not appear in the controller's sync state, so it will not be patched or deleted by any reconciliation cycle
+- After creation, verify persistence by checking `/model/info` shows `db_model: true` and `oicm_uuid: NONE`, and confirm the model survives a PATCH to `/model/{model_id}/update`
 
 ### POST `/model/update` ; Full Update (Legacy)
 
