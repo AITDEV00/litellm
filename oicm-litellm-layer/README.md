@@ -75,3 +75,28 @@ kubectl apply -f deploy/discovery-controller.yaml
 cd /home/adeo/litellm
 git apply ../oicm-litellm-layer/patches/embedding-extra-body.patch
 ```
+
+## Repository Layout
+
+```
+.
+├── Makefile               build / push / deploy targets
+├── pyproject.toml         Python project metadata (oicm-discovery entry point)
+├── README.md              this file
+├── CHANGELOG.md           release history
+├── controller/            discovery controller source (component #1)
+├── hooks/                 LiteLLM proxy plugins (components #3, #4)
+├── patches/               embedding extra-body patch (component #6)
+├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress)
+├── decor/                 UI assets (logos, favicon)
+├── examples/              usage examples
+├── scripts/               helper scripts (htb_test, etc.)
+├── benchmarks/            benchmark scripts (bench_2replicas, bench_after, bench_final, bench_minimax_vision)
+└── docs/
+    ├── admin-api/             LiteLLM proxy admin REST API reference
+    ├── htb-rate-limiting/     HTB priority-based rate limiting design and behaviour
+    ├── performance/           gateway performance reports (before/after optimization)
+    ├── dashboard-plan/        dashboard extension proposal (concurrency, top consumers)
+    ├── CACHE_INVALIDATION_FIX_TESTING.md
+    └── IMPLEMENTATION_PLAN.md
+```
