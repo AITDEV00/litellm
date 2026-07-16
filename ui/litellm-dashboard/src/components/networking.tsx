@@ -7879,3 +7879,98 @@ export const deleteMemory = async (accessToken: string, key: string): Promise<vo
     throw new Error(errorData);
   }
 };
+
+export type ModelStreamingMetricsDataPoint = {
+  date: string;
+  [modelApiBaseKey: string]: number | string;
+};
+
+export type ModelStreamingMetricsResponse = {
+  data: ModelStreamingMetricsDataPoint[];
+  all_api_bases: string[];
+};
+
+export type ModelLatencyDataPoint = {
+  date: string;
+  [modelApiBaseKey: string]: number | string;
+};
+
+export type ModelLatencyMetricsResponse = {
+  data: ModelLatencyDataPoint[];
+  all_api_bases: string[];
+};
+
+export type SlowResponsesRow = {
+  api_base: string;
+  total_count: number;
+  slow_count: number;
+};
+
+export type ExceptionsRow = {
+  model: string;
+  total_exceptions: number;
+  [exceptionType: string]: number | string;
+};
+
+export type ExceptionsResponse = {
+  data: ExceptionsRow[];
+  exception_types: string[];
+};
+
+type MetricsQueryParams = {
+  modelGroup?: string;
+  startTime?: Date | null;
+  endTime?: Date | null;
+  apiKey?: string;
+  customer?: string;
+};
+
+const buildMetricsQuery = (params: MetricsQueryParams): Record<string, string> => {
+  const query: Record<string, string> = {};
+  if (params.modelGroup) query["_selected_model_group"] = params.modelGroup;
+  if (params.startTime) query["startTime"] = params.startTime.toISOString();
+  if (params.endTime) query["endTime"] = params.endTime.toISOString();
+  if (params.apiKey) query["api_key"] = params.apiKey;
+  if (params.customer) query["customer"] = params.customer;
+  return query;
+};
+
+export const modelStreamingMetricsCall = async (
+  accessToken: string,
+  params: MetricsQueryParams = {},
+): Promise<ModelStreamingMetricsResponse> => {
+  return apiClient.get<ModelStreamingMetricsResponse>("/model/streaming_metrics", {
+    accessToken,
+    query: buildMetricsQuery(params),
+  });
+};
+
+export const modelLatencyMetricsCall = async (
+  accessToken: string,
+  params: MetricsQueryParams = {},
+): Promise<ModelLatencyMetricsResponse> => {
+  return apiClient.get<ModelLatencyMetricsResponse>("/model/metrics", {
+    accessToken,
+    query: buildMetricsQuery(params),
+  });
+};
+
+export const modelSlowResponsesCall = async (
+  accessToken: string,
+  params: MetricsQueryParams = {},
+): Promise<SlowResponsesRow[]> => {
+  return apiClient.get<SlowResponsesRow[]>("/model/metrics/slow_responses", {
+    accessToken,
+    query: buildMetricsQuery(params),
+  });
+};
+
+export const modelExceptionsCall = async (
+  accessToken: string,
+  params: MetricsQueryParams = {},
+): Promise<ExceptionsResponse> => {
+  return apiClient.get<ExceptionsResponse>("/model/metrics/exceptions", {
+    accessToken,
+    query: buildMetricsQuery(params),
+  });
+};

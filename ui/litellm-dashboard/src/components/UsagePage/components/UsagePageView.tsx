@@ -46,6 +46,7 @@ import { usePaginatedDailyActivity } from "../hooks/usePaginatedDailyActivity";
 import { DailyData, KeyMetricWithMetadata, MetricWithMetadata } from "../types";
 import { valueFormatterSpend } from "../utils/value_formatters";
 import EndpointUsage from "./EndpointUsage/EndpointUsage";
+import ModelAnalyticsView from "./ModelAnalytics/ModelAnalyticsView";
 import EntityUsage, { EntityList } from "./EntityUsage/EntityUsage";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import TopKeyView from "./EntityUsage/TopKeyView";
@@ -430,6 +431,11 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
     () => [...userSpendData.results].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     [userSpendData.results],
   );
+  const modelGroups = useMemo(
+    () =>
+      Array.from(new Set(userSpendData.results.flatMap((day) => Object.keys(day.breakdown.model_groups || {})))).sort(),
+    [userSpendData.results],
+  );
   const modelMetrics = useMemo(() => processActivityData(userSpendData, "models", teams), [userSpendData, teams]);
   const keyMetrics = useMemo(() => processActivityData(userSpendData, "api_keys", teams), [userSpendData, teams]);
   const mcpServerMetrics = useMemo(
@@ -529,6 +535,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <Tab>Key Activity</Tab>
                     <Tab>MCP Server Activity</Tab>
                     <Tab>Endpoint Activity</Tab>
+                    <Tab>Model Analytics</Tab>
                   </TabList>
                   <div className="flex items-center gap-2">
                     <Button
@@ -837,6 +844,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                   </TabPanel>
                   <TabPanel>
                     <EndpointUsage userSpendData={userSpendData} />
+                  </TabPanel>
+                  <TabPanel>
+                    <ModelAnalyticsView
+                      accessToken={accessToken}
+                      modelGroups={modelGroups}
+                      startTime={startTime}
+                      endTime={endTime}
+                    />
                   </TabPanel>
                 </TabPanels>
               </TabGroup>
