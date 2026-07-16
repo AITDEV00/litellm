@@ -59,6 +59,7 @@ data:
       #   saturation_threshold: 0.75
       #   default_priority: 0.50
     router_settings:
+      routing_strategy: usage-based-routing-v2
       optional_pre_call_checks:
         - enforce_model_rate_limits
     general_settings:
