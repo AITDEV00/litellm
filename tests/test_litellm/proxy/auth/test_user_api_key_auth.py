@@ -4347,3 +4347,116 @@ class TestCheckKeyModelBudgetWithFallback:
 
         assert exc_info.value is original_error
         assert "model" not in request_data
+
+
+@pytest.mark.asyncio
+async def test_fallback_team_obj_not_written_to_cache_on_get_team_object_failure():
+    """
+    Regression test: when get_team_object raises HTTPException, the fallback
+    _team_obj is reconstructed from valid_token.team_models (a frozen snapshot
+    from key-cache time). That stale snapshot must NOT be written back to the
+    team_id: cache, because doing so on every request resets the in-memory TTL
+    and re-poisons Redis, so the stale value never expires as long as requests
+    keep flowing.
+
+    Before the fix: the team_id: cache write happened unconditionally whenever
+    _team_obj was not None, regardless of whether it came from a fresh
+    get_team_object lookup or the stale fallback.
+    """
+    from starlette.datastructures import URL
+    from starlette.requests import Request
+    from fastapi import HTTPException
+
+    from litellm.proxy._types import LiteLLM_TeamTableCachedObj
+    from litellm.proxy.auth.user_api_key_auth import _user_api_key_auth_builder
+
+    api_key = "sk-test-stale-team-cache"
+
+    stale_team_models = ["old-model-only"]
+    valid_token = UserAPIKeyAuth(
+        api_key=api_key,
+        token=api_key,
+        user_role=LitellmUserRoles.INTERNAL_USER,
+        team_id="team-stale-cache-test",
+        team_models=stale_team_models,
+        models=["all-team-models"],
+    )
+
+    mock_cache = AsyncMock()
+    mock_cache.async_get_cache = AsyncMock(return_value=valid_token)
+    mock_cache.async_set_cache = AsyncMock(return_value=None)
+
+    mock_proxy_logging_obj = MagicMock()
+    mock_proxy_logging_obj.internal_usage_cache = MagicMock()
+    mock_proxy_logging_obj.internal_usage_cache.dual_cache = AsyncMock()
+    mock_proxy_logging_obj.internal_usage_cache.dual_cache.async_delete_cache = (
+        AsyncMock()
+    )
+    mock_proxy_logging_obj.post_call_failure_hook = AsyncMock(return_value=None)
+
+    import litellm.proxy.proxy_server as _proxy_server_mod
+
+    _attrs = {
+        "prisma_client": MagicMock(),
+        "user_api_key_cache": mock_cache,
+        "proxy_logging_obj": mock_proxy_logging_obj,
+        "master_key": "sk-master-key",
+        "general_settings": {},
+        "llm_model_list": [],
+        "llm_router": None,
+        "open_telemetry_logger": None,
+        "model_max_budget_limiter": MagicMock(),
+        "user_custom_auth": None,
+        "jwt_handler": None,
+        "litellm_proxy_admin_name": "admin",
+    }
+    _originals = {k: getattr(_proxy_server_mod, k, None) for k in _attrs}
+
+    try:
+        for k, v in _attrs.items():
+            setattr(_proxy_server_mod, k, v)
+
+        request = Request(scope={"type": "http"})
+        request._url = URL(url="/chat/completions")
+
+        with (
+            patch(
+                "litellm.proxy.auth.resolvers.store.IdentityStore._resolve_key",
+                new_callable=AsyncMock,
+                return_value=valid_token,
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth.get_team_object",
+                new_callable=AsyncMock,
+                side_effect=HTTPException(
+                    status_code=404,
+                    detail="Team doesn't exist in db.",
+                ),
+            ),
+        ):
+            await _user_api_key_auth_builder(
+                request=request,
+                api_key=f"Bearer {api_key}",
+                azure_api_key_header="",
+                anthropic_api_key_header=None,
+                google_ai_studio_api_key_header=None,
+                azure_apim_header=None,
+                request_data={},
+            )
+
+        team_cache_writes = [
+            call
+            for call in mock_cache.async_set_cache.call_args_list
+            if call.kwargs.get("key", "").startswith("team_id:")
+        ]
+
+        assert len(team_cache_writes) == 0, (
+            f"team_id: cache was written {len(team_cache_writes)} time(s) when "
+            f"get_team_object failed. The stale fallback _team_obj (built from "
+            f"valid_token.team_models={stale_team_models}) must not be written "
+            f"back to cache — it creates an infinite re-poisoning loop."
+        )
+
+    finally:
+        for k, v in _originals.items():
+            setattr(_proxy_server_mod, k, v)
