@@ -17,8 +17,14 @@ LITELLM_DOCKERFILE := $(LITELLM_SRC_DIR)/Dockerfile
 LITELLM_SRC_TAG    ?= $(shell git -C $(LITELLM_SRC_DIR) rev-parse --abbrev-ref HEAD | tr '/' '_')
 LITELLM_SRC_HARBOR_IMG := $(REGISTRY)/$(REPO_PATH)/litellm-src
 
+LITELLM_VENV_BIN := .venv/bin
+LITELLM_LOCAL_CONFIG := config/local_dev.yaml
+LITELLM_LOCAL_PORT := 4000
+LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
+
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
-	litellm-src-build litellm-src-push litellm-src-build-push
+	litellm-src-build litellm-src-push litellm-src-build-push \
+	litellm-local-run litellm-local-docker litellm-ui-dev litellm-local-stop
 
 all: pull build push
 
@@ -88,3 +94,64 @@ litellm-logo:
 		--from-file=favicon.png=decor/favicon.png \
 		--dry-run=client -o yaml | \
 		KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f -
+
+## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
+## which has no DB/Redis deps so it starts instantly. The proxy serves the
+## packaged UI bundle at http://localhost:4000/ui/. Use this to test backend
+## changes or the built UI. Override the config with:
+##   make litellm-local-run LITELLM_LOCAL_CONFIG=../litellm/proxy/dev_config.yaml
+litellm-local-run:
+	@if [ ! -x "$(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN)/litellm" ]; then \
+		echo "LiteLLM not found in $(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN). Run: cd $(LITELLM_SRC_DIR) && uv sync --extra proxy && uv pip install -e ."; \
+		exit 1; \
+	fi
+	@echo "Starting LiteLLM proxy on port $(LITELLM_LOCAL_PORT) with $(LITELLM_LOCAL_CONFIG)"
+	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
+	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
+	@echo "Master key: sk-1234"
+	cd $(LITELLM_SRC_DIR) && PYTHONPATH=$(CURDIR) LITELLM_MODE=PRODUCTION env -u DATABASE_URL $(LITELLM_VENV_BIN)/litellm \
+		--config $(CURDIR)/$(LITELLM_LOCAL_CONFIG) \
+		--port $(LITELLM_LOCAL_PORT) \
+		--detailed_debug
+
+## Run the built Docker image locally with podman. Mounts the local config and
+## hooks directory so changes are picked up without rebuilding. The UI is the
+## one baked into the image (from the last `make litellm-src-build`). Use this
+## to test the full image including the UI build before pushing.
+## Override the tag with: make litellm-local-docker LITELLM_SRC_TAG=foo
+litellm-local-docker:
+	@echo "Running $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) on port $(LITELLM_LOCAL_PORT)"
+	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
+	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
+	@echo "Master key: sk-1234"
+	@echo "Config: $(CURDIR)/$(LITELLM_LOCAL_CONFIG)"
+	podman run --rm -it \
+		--name litellm-local \
+		-p $(LITELLM_LOCAL_PORT):4000 \
+		-v $(CURDIR)/$(LITELLM_LOCAL_CONFIG):/app/config.yaml:Z \
+		-v $(CURDIR)/hooks:/app/litellm_hooks:Z \
+		-e STORE_MODEL_IN_DB=true \
+		-e LITELLM_MASTER_KEY=sk-1234 \
+		$(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) \
+		--config /app/config.yaml \
+		--port 4000 \
+		--detailed_debug
+
+## Run the UI dev server with hot reload (Next.js dev mode). Points at a local
+## proxy running on port 4000. Start the proxy first with `make litellm-local-run`
+## or `make litellm-local-docker`, then run this in a second terminal.
+## UI: http://localhost:3000/ui/
+litellm-ui-dev:
+	@if [ ! -d "$(LITELLM_UI_DIR)/node_modules" ]; then \
+		echo "node_modules not found. Run: cd $(LITELLM_UI_DIR) && npm ci"; \
+		exit 1; \
+	fi
+	@echo "Starting UI dev server on port 3000 (proxy at localhost:$(LITELLM_LOCAL_PORT))"
+	@echo "UI: http://localhost:3000/ui/"
+	cd $(LITELLM_UI_DIR) && \
+		NEXT_PUBLIC_BASE_URL="http://localhost:$(LITELLM_LOCAL_PORT)" \
+		npm run dev
+
+## Stop a locally-running Docker LiteLLM container (started by litellm-local-docker)
+litellm-local-stop:
+	-podman rm -f litellm-local 2>/dev/null || true

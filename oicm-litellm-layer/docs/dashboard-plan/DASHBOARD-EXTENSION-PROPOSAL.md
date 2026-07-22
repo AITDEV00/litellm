@@ -275,3 +275,95 @@ Reference files for any implementation:
 - `ui/litellm-dashboard/src/components/UsagePage/components/UsagePageView.tsx:524-560` - existing tab list to extend
 - `ui/litellm-dashboard/src/components/UsagePage/components/UsagePageView.tsx:681-774` - BarChart pattern to copy
 - `ui/litellm-dashboard/src/components/UsagePage/hooks/usePaginatedDailyActivity.ts` - pagination hook pattern to copy
+
+---
+
+## 8. Local development and testing
+
+Before building and pushing the Docker image (`make litellm-src-build-push`), test dashboard and proxy changes locally. The Makefile at `oicm-litellm-layer/Makefile` provides four rules for this.
+
+### Makefile location
+
+The Makefile lives at:
+
+```
+oicm-litellm-layer/Makefile
+```
+
+All rules are run from that directory:
+
+```bash
+cd oicm-litellm-layer
+make <rule>
+```
+
+### Deploy folder
+
+The Kubernetes manifests for the deployed proxy live at:
+
+```
+oicm-litellm-layer/deploy/
+  litellm-proxy.yaml          # Deployment, Service, ConfigMap, Secrets, PDB
+  litellm-ingress.yaml        # Ingress for litellm.adeoaiengine.ecouncil.ae
+  litellm-redis.yaml          # Redis StatefulSet
+  discovery-controller.yaml   # OICM discovery controller
+```
+
+The deployed image tag is derived from the git branch name (slashes replaced with underscores). On branch `jya0-v1.92.0` the tag is `litellm-src:jya0-v1.92.0`. The deployment manifest at `deploy/litellm-proxy.yaml` references this tag in the container image field.
+
+### Option A: Run from venv (fastest, no Docker)
+
+Runs the LiteLLM proxy directly from the Python venv at `../.venv/bin/litellm`. Uses `config/local_dev.yaml`, which has no database or Redis dependencies, so it starts instantly. The proxy serves the packaged UI bundle (from `litellm/proxy/_experimental/out/`) at `http://localhost:4000/ui/`.
+
+```bash
+make litellm-local-run
+```
+
+This is the fastest loop for testing backend changes. The packaged UI is whatever was last built into `litellm/proxy/_experimental/out/`, so it does not reflect uncommitted UI changes. For UI hot-reload, use Option C.
+
+To use a different config (e.g. the upstream dev config with real API keys):
+
+```bash
+make litellm-local-run LITELLM_LOCAL_CONFIG=../litellm/proxy/dev_config.yaml
+```
+
+To change the port:
+
+```bash
+make litellm-local-run LITELLM_LOCAL_PORT=4001
+```
+
+### Option B: Run the built Docker image locally
+
+Runs the image built by `make litellm-src-build` via podman. Mounts `config/local_dev.yaml` and the `hooks/` directory so config and hook changes are picked up without rebuilding. The UI is the one baked into the image, so it reflects whatever was committed at build time.
+
+```bash
+make litellm-src-build       # build the image first
+make litellm-local-docker    # run it
+```
+
+This is the best way to validate the full image (Python deps, UI build, hooks, config) before pushing to Harbor and deploying. To stop the container:
+
+```bash
+make litellm-local-stop
+```
+
+### Option C: UI dev server with hot reload
+
+Runs the Next.js dev server (`npm run dev`) with `NEXT_PUBLIC_BASE_URL` pointing at a local proxy on port 4000. This gives hot module replacement for UI changes. Start the proxy first (Option A or B), then in a second terminal:
+
+```bash
+make litellm-ui-dev
+```
+
+The UI is at `http://localhost:3000/ui/`. The proxy API is at `http://localhost:4000`. The dev server proxies API calls to the proxy via `NEXT_PUBLIC_BASE_URL`.
+
+### Typical workflow before build, push, and deploy
+
+1. Make backend changes in `litellm/`
+2. Make UI changes in `ui/litellm-dashboard/`
+3. Test backend: `make litellm-local-run` (Terminal 1)
+4. Test UI hot-reload: `make litellm-ui-dev` (Terminal 2) — open `http://localhost:3000/ui/`
+5. Test the full image: `make litellm-src-build && make litellm-local-docker` — open `http://localhost:4000/ui/`
+6. Build, push, and deploy: `make litellm-src-build-push && make deploy`
+7. Verify the deployed proxy: `curl -sk https://litellm.adeoaiengine.ecouncil.ae/health/liveliness`

@@ -91,3 +91,13 @@ If the spend data has no model groups (empty date range or no traffic), the sele
 - **Tier 2**: Add a `litellm_concurrent_requests` Gauge to the Prometheus integration and expose it on `/metrics`
 - **Tier 3**: Add a `/model/metrics/top_consumers` endpoint that ranks API keys by request volume
 - **Per-pod metrics**: Not in scope; "replica" in LiteLLM means one deployment (one `api_base`), not a Kubernetes pod
+
+## Local testing
+
+The Makefile at `oicm-litellm-layer/Makefile` provides rules for testing dashboard changes locally before building and deploying. See section 8 ("Local development and testing") in `DASHBOARD-EXTENSION-PROPOSAL.md` for the full workflow. The quick version:
+
+1. `make litellm-local-run` — start the proxy from venv (Terminal 1)
+2. `make litellm-ui-dev` — start the UI dev server with hot reload (Terminal 2)
+3. Open `http://localhost:3000/ui/` and test the Model Analytics tab
+4. `make litellm-src-build && make litellm-local-docker` — validate the full image
+5. `make litellm-src-build-push && make deploy` — build, push, and deploy
