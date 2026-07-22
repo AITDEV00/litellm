@@ -1172,8 +1172,8 @@ class PrometheusLogger(CustomLogger):
     async def async_log_pre_api_call(self, model, messages, kwargs):
         try:
             standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
+            _litellm_params = kwargs.get("litellm_params", {}) or {}
             if standard_logging_payload is None:
-                _litellm_params = kwargs.get("litellm_params", {}) or {}
                 _metadata = _litellm_params.get("metadata", {}) if isinstance(_litellm_params, dict) else {}
                 if not isinstance(_metadata, dict):
                     _metadata = {}
@@ -1181,7 +1181,6 @@ class PrometheusLogger(CustomLogger):
                 model_id = model_info.get("id", "") if isinstance(model_info, dict) else ""
                 if not model_id:
                     return
-                api_base = _litellm_params.get("api_base", "") or _metadata.get("api_base", "")
                 litellm_model_name = model
                 api_provider = _litellm_params.get("custom_llm_provider", "") or _metadata.get(
                     "custom_llm_provider", ""
@@ -1190,9 +1189,11 @@ class PrometheusLogger(CustomLogger):
                 model_id = standard_logging_payload.get("model_id", "") or ""
                 if not model_id:
                     return
-                api_base = standard_logging_payload.get("api_base", "") or ""
                 litellm_model_name = standard_logging_payload.get("model", "") or model
-                api_provider = standard_logging_payload.get("custom_llm_provider", "") or ""
+                api_provider = standard_logging_payload.get("custom_llm_provider", "") or _litellm_params.get(
+                    "custom_llm_provider", ""
+                )
+            api_base = _litellm_params.get("api_base", "") or ""
             _labels = prometheus_label_factory(
                 supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
                 enum_values=UserAPIKeyLabelValues(
@@ -2435,7 +2436,7 @@ class PrometheusLogger(CustomLogger):
                     enum_values=UserAPIKeyLabelValues(
                         litellm_model_name=label_litellm_model_name,
                         model_id=label_model_id,
-                        api_base=label_api_base,
+                        api_base=_litellm_params.get("api_base", "") or label_api_base or "",
                         api_provider=label_api_provider,
                     ),
                 )
@@ -2682,7 +2683,7 @@ class PrometheusLogger(CustomLogger):
                     enum_values=UserAPIKeyLabelValues(
                         litellm_model_name=litellm_model_name or "",
                         model_id=model_id,
-                        api_base=api_base or "",
+                        api_base=_litellm_params.get("api_base", "") or api_base or "",
                         api_provider=llm_provider or "",
                     ),
                 )

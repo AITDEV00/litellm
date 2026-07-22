@@ -12,7 +12,7 @@
     "limit": 519
   },
   "reportCallIssue": {
-    "limit": 131
+    "limit": 125
   },
   "reportConstantRedefinition": {
     "limit": 59
@@ -45,7 +45,7 @@
     "limit": 39
   },
   "reportInvalidTypeForm": {
-    "limit": 35
+    "limit": 34
   },
   "reportInvalidTypeVarUse": {
     "limit": 5
@@ -60,7 +60,7 @@
     "limit": 15918
   },
   "reportMissingTypeStubs": {
-    "limit": 41
+    "limit": 79
   },
   "reportOperatorIssue": {
     "limit": 9
@@ -99,19 +99,19 @@
     "limit": 5
   },
   "reportUnknownArgumentType": {
-    "limit": 45905
+    "limit": 45857
   },
   "reportUnknownLambdaType": {
     "limit": 113
   },
   "reportUnknownMemberType": {
-    "limit": 40556
+    "limit": 39964
   },
   "reportUnknownParameterType": {
-    "limit": 20418
+    "limit": 20336
   },
   "reportUnknownVariableType": {
-    "limit": 32168
+    "limit": 31541
   },
   "reportUnnecessaryCast": {
     "limit": 177
@@ -126,7 +126,7 @@
     "limit": 1210
   },
   "reportUntypedBaseClass": {
-    "limit": 165
+    "limit": 154
   },
   "reportUntypedFunctionDecorator": {
     "limit": 33

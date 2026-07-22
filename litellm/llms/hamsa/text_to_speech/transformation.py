@@ -129,7 +129,7 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
         model: str,
         raw_response: httpx.Response,
         logging_obj: Any,
-    ) -> "HttpxBinaryResponseContent":
+    ) -> Any:
         from litellm.types.llms.openai import HttpxBinaryResponseContent
 
         return HttpxBinaryResponseContent(raw_response)

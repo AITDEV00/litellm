@@ -191,6 +191,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8000",
@@ -211,7 +212,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
                 "custom_llm_provider": "hosted_vllm",
                 "model_group": "Qwen3.6-35B",
             },
-            "litellm_params": {"custom_llm_provider": "hosted_vllm"},
+            "litellm_params": {"custom_llm_provider": "hosted_vllm", "api_base": "http://vllm:8000"},
             "exception": Exception("timeout"),
         }
     )
@@ -226,6 +227,7 @@ async def test_failure_metrics_no_dec_when_model_id_missing(logger, isolated_reg
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8000",
@@ -260,6 +262,7 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_params": {"api_base": "http://vllm:8080", "custom_llm_provider": "hosted_vllm"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8080",
@@ -293,6 +296,7 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
             },
             "litellm_params": {
                 "custom_llm_provider": "hosted_vllm",
+                "api_base": "http://vllm:8080",
                 "metadata": {"model_info": {"id": "abc-123"}},
             },
         },
@@ -321,6 +325,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_params": {"api_base": "http://vllm:8000"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8000",
@@ -341,7 +346,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "custom_llm_provider": "hosted_vllm",
                 "model_group": "Qwen3.6-35B",
             },
-            "litellm_params": {},
+            "litellm_params": {"api_base": "http://vllm:8000"},
             "exception": Exception("timeout"),
         }
     )
@@ -357,6 +362,7 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_params": {"api_base": "http://vllm:8080"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8080",
@@ -389,6 +395,7 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "completion_tokens": 10,
             },
             "litellm_params": {
+                "api_base": "http://vllm:8080",
                 "metadata": {"model_info": {"id": "abc-123"}},
             },
         },
