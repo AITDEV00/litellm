@@ -47,6 +47,7 @@ import { DailyData, KeyMetricWithMetadata, MetricWithMetadata } from "../types";
 import { valueFormatterSpend } from "../utils/value_formatters";
 import EndpointUsage from "./EndpointUsage/EndpointUsage";
 import ModelAnalyticsView from "./ModelAnalytics/ModelAnalyticsView";
+import PerModelRealTimeView from "./PerModelRealTime/PerModelRealTimeView";
 import EntityUsage, { EntityList } from "./EntityUsage/EntityUsage";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import TopKeyView from "./EntityUsage/TopKeyView";
@@ -536,6 +537,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <Tab>MCP Server Activity</Tab>
                     <Tab>Endpoint Activity</Tab>
                     <Tab>Model Analytics</Tab>
+                    <Tab>Real-Time Per Model</Tab>
                   </TabList>
                   <div className="flex items-center gap-2">
                     <Button
@@ -852,6 +854,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                       startTime={startTime}
                       endTime={endTime}
                     />
+                  </TabPanel>
+                  <TabPanel>
+                    <PerModelRealTimeView accessToken={accessToken} />
                   </TabPanel>
                 </TabPanels>
               </TabGroup>

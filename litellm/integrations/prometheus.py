@@ -431,6 +431,13 @@ class PrometheusLogger(CustomLogger):
                 labelnames=self.get_labels_for_metric("litellm_deployment_rpm_limit"),
             )
 
+            self.litellm_deployment_in_progress_requests = self._gauge_factory(
+                "litellm_deployment_in_progress_requests",
+                "Number of LLM API calls currently in progress per deployment",
+                labelnames=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                multiprocess_mode="livesum",
+            )
+
             self.litellm_deployment_cooled_down = self._counter_factory(
                 "litellm_deployment_cooled_down",
                 "LLM Deployment Analytics - Number of times a deployment has been cooled down by LiteLLM load balancing logic. exception_status is the status of the exception that caused the deployment to be cooled down",
@@ -1161,6 +1168,38 @@ class PrometheusLogger(CustomLogger):
         )
         counter.labels(**_labels).inc(amount)
         self._track_end_user_metric_series(counter, metric_name, _labels)
+
+    async def async_log_pre_api_call(self, model, messages, kwargs):
+        try:
+            standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
+            if standard_logging_payload is None:
+                metadata = kwargs.get("litellm_params", {}) or kwargs.get("metadata", {})
+                model_info = metadata.get("model_info", {}) if isinstance(metadata, dict) else {}
+                model_id = model_info.get("id", "") if isinstance(model_info, dict) else ""
+                if not model_id:
+                    return
+                api_base = metadata.get("api_base", "") if isinstance(metadata, dict) else ""
+                litellm_model_name = model
+                api_provider = metadata.get("custom_llm_provider", "") or kwargs.get("custom_llm_provider", "")
+            else:
+                model_id = standard_logging_payload.get("model_id", "") or ""
+                if not model_id:
+                    return
+                api_base = standard_logging_payload.get("api_base", "") or ""
+                litellm_model_name = standard_logging_payload.get("model", "") or model
+                api_provider = standard_logging_payload.get("custom_llm_provider", "") or ""
+            _labels = prometheus_label_factory(
+                supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                enum_values=UserAPIKeyLabelValues(
+                    litellm_model_name=litellm_model_name,
+                    model_id=model_id,
+                    api_base=api_base,
+                    api_provider=api_provider,
+                ),
+            )
+            self.litellm_deployment_in_progress_requests.labels(**_labels).inc()
+        except Exception as e:  # noqa: BLE001
+            verbose_logger.debug("Prometheus: async_log_pre_api_call inc error: {}".format(str(e)))
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         # Define prometheus client
@@ -2383,6 +2422,18 @@ class PrometheusLogger(CustomLogger):
                 label_context=_deployment_label_ctx,
             )
 
+            if deployment_selected:
+                _in_progress_labels = prometheus_label_factory(
+                    supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                    enum_values=UserAPIKeyLabelValues(
+                        litellm_model_name=label_litellm_model_name,
+                        model_id=label_model_id,
+                        api_base=label_api_base,
+                        api_provider=label_api_provider,
+                    ),
+                )
+                self.litellm_deployment_in_progress_requests.labels(**_in_progress_labels).dec()
+
             pass
         except Exception as e:
             verbose_logger.debug(
@@ -2617,6 +2668,18 @@ class PrometheusLogger(CustomLogger):
                 enum_values,
                 label_context=label_context,
             )
+
+            if model_id:
+                _in_progress_labels = prometheus_label_factory(
+                    supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                    enum_values=UserAPIKeyLabelValues(
+                        litellm_model_name=litellm_model_name or "",
+                        model_id=model_id,
+                        api_base=api_base or "",
+                        api_provider=llm_provider or "",
+                    ),
+                )
+                self.litellm_deployment_in_progress_requests.labels(**_in_progress_labels).dec()
 
             # Track deployment Latency
             response_ms: timedelta = end_time - start_time

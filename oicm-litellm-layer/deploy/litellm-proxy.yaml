@@ -243,6 +243,8 @@ spec:
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
               value: /app/assets/favicon.png
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
           command:
             - "litellm"
             - "--config"

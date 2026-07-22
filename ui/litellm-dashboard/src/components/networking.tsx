@@ -7974,3 +7974,45 @@ export const modelExceptionsCall = async (
     query: buildMetricsQuery(params),
   });
 };
+
+export type PerModelTimeSeriesPoint = {
+  timestamp: string;
+  value: number;
+};
+
+export type PerModelDeploymentMetrics = {
+  model_id: string;
+  litellm_model_name: string;
+  api_base: string;
+  api_provider: string;
+  rpm_limit: number;
+  concurrent_requests: PerModelTimeSeriesPoint[];
+  request_rate: PerModelTimeSeriesPoint[];
+  output_tokens_per_sec: PerModelTimeSeriesPoint[];
+  latency_per_token_p50: PerModelTimeSeriesPoint[];
+};
+
+export type PerModelMetricsResponse = {
+  prometheus_connected: boolean;
+  window: string;
+  step: string;
+  deployments: PerModelDeploymentMetrics[];
+};
+
+export type PerModelMetricsParams = {
+  window?: string;
+  model_id?: string;
+};
+
+export const perModelMetricsCall = async (
+  accessToken: string,
+  params: PerModelMetricsParams = {},
+): Promise<PerModelMetricsResponse> => {
+  const query: Record<string, string> = {};
+  if (params.window) query["window"] = params.window;
+  if (params.model_id) query["model_id"] = params.model_id;
+  return apiClient.get<PerModelMetricsResponse>("/model/metrics/per_model", {
+    accessToken,
+    query,
+  });
+};
