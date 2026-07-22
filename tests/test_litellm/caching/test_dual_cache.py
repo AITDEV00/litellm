@@ -526,3 +526,68 @@ async def test_skip_in_memory_falls_back_to_in_memory_when_no_redis():
     assert result == {"value": "from-mem"}, (
         "skip_in_memory with no Redis must fall back to in-memory cache"
     )
+
+
+@pytest.mark.asyncio
+async def test_async_get_cache_redis_write_back_uses_dual_cache_ttl():
+    """
+    Regression: when async_get_cache misses in-memory, hits Redis, and writes
+    the Redis result back to in-memory, the write-back MUST use
+    default_in_memory_ttl (e.g. 1s for internal_usage_cache), NOT
+    InMemoryCache.default_ttl (600s).
+
+    Before this fix, the write-back called
+    ``self.in_memory_cache.async_set_cache(key, value, **kwargs)`` directly
+    without passing ``ttl``, so InMemoryCache fell back to its own
+    ``default_ttl=600``. This meant stale team objects in
+    ``internal_usage_cache.dual_cache.in_memory_cache`` persisted for 10 minutes
+    on pods that didn't handle a /team/update, shadowing the fresh Redis entry
+    and causing cross-pod cache staleness for team-level model access checks.
+    """
+    in_memory = InMemoryCache(default_ttl=600)
+    mock_redis = MagicMock(spec=RedisCache)
+    mock_redis.async_get_cache = AsyncMock(return_value={"models": ["fresh"]})
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=1,
+    )
+
+    await dual_cache.async_get_cache("team_id:abc")
+
+    ttl = await dual_cache.in_memory_cache.async_get_ttl("team_id:abc")
+    assert ttl is not None, "write-back must populate in-memory cache"
+    remaining = ttl - time.time()
+    assert remaining <= 1.0, (
+        f"write-back TTL must be ~1s (default_in_memory_ttl), got {remaining:.1f}s. "
+        "If this is ~600s, the write-back is using InMemoryCache.default_ttl "
+        "instead of DualCache.default_in_memory_ttl, causing cross-pod staleness."
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_cache_redis_write_back_uses_dual_cache_ttl():
+    """
+    Same regression as the async variant but for the sync get_cache path.
+    """
+    in_memory = InMemoryCache(default_ttl=600)
+    mock_redis = MagicMock(spec=RedisCache)
+    mock_redis.get_cache = MagicMock(return_value={"models": ["fresh"]})
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=1,
+    )
+
+    dual_cache.get_cache("team_id:abc")
+
+    ttl = await dual_cache.in_memory_cache.async_get_ttl("team_id:abc")
+    assert ttl is not None, "write-back must populate in-memory cache"
+    remaining = ttl - time.time()
+    assert remaining <= 1.0, (
+        f"write-back TTL must be ~1s (default_in_memory_ttl), got {remaining:.1f}s. "
+        "If this is ~600s, the sync write-back is using InMemoryCache.default_ttl "
+        "instead of DualCache.default_in_memory_ttl."
+    )

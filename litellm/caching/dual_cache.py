@@ -163,8 +163,16 @@ class DualCache(BaseCache):
                 redis_result = self.redis_cache.get_cache(key, parent_otel_span=parent_otel_span)
 
                 if redis_result is not None and not effective_skip:
-                    # Update in-memory cache with the value from Redis
-                    self.in_memory_cache.set_cache(key, redis_result, **kwargs)
+                    # Update in-memory cache with the value from Redis.
+                    # Pass default_in_memory_ttl so the in-memory layer respects
+                    # the DualCache's configured TTL (e.g. 1s for
+                    # internal_usage_cache) instead of falling back to
+                    # InMemoryCache.default_ttl (600s), which would cause
+                    # stale data to shadow fresh Redis entries on other pods.
+                    write_back_kwargs = dict(kwargs)
+                    if "ttl" not in write_back_kwargs and self.default_in_memory_ttl is not None:
+                        write_back_kwargs["ttl"] = self.default_in_memory_ttl
+                    self.in_memory_cache.set_cache(key, redis_result, **write_back_kwargs)
 
                 result = redis_result
 
@@ -233,8 +241,16 @@ class DualCache(BaseCache):
                 redis_result = await self.redis_cache.async_get_cache(key, parent_otel_span=parent_otel_span)
 
                 if redis_result is not None and not effective_skip:
-                    # Update in-memory cache with the value from Redis
-                    await self.in_memory_cache.async_set_cache(key, redis_result, **kwargs)
+                    # Update in-memory cache with the value from Redis.
+                    # Pass default_in_memory_ttl so the in-memory layer respects
+                    # the DualCache's configured TTL (e.g. 1s for
+                    # internal_usage_cache) instead of falling back to
+                    # InMemoryCache.default_ttl (600s), which would cause
+                    # stale data to shadow fresh Redis entries on other pods.
+                    write_back_kwargs = dict(kwargs)
+                    if "ttl" not in write_back_kwargs and self.default_in_memory_ttl is not None:
+                        write_back_kwargs["ttl"] = self.default_in_memory_ttl
+                    await self.in_memory_cache.async_set_cache(key, redis_result, **write_back_kwargs)
 
                 result = redis_result
 
