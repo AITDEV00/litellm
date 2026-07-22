@@ -608,7 +608,7 @@ class JWTHandler:
             return url
 
         cache_key = f"litellm_oidc_discovery_{url}"
-        cached_jwks_uri = await self.user_api_key_cache.async_get_cache(cache_key)
+        cached_jwks_uri = await self.user_api_key_cache.async_get_cache(cache_key, skip_in_memory=False)
         if cached_jwks_uri is not None:
             return cached_jwks_uri
 
@@ -645,7 +645,7 @@ class JWTHandler:
         resolved_jwks_url = await self._resolve_jwks_url(jwks_url)
         cache_key = f"litellm_jwt_auth_keys_{resolved_jwks_url}"
 
-        cached_keys = await self.user_api_key_cache.async_get_cache(cache_key)
+        cached_keys = await self.user_api_key_cache.async_get_cache(cache_key, skip_in_memory=False)
 
         if cached_keys is None:
             response = await self.http_handler.get(resolved_jwks_url)
@@ -741,7 +741,7 @@ class JWTHandler:
 
         # Check cache first
         cache_key = f"oidc_userinfo_{hashlib.sha256(token.encode()).hexdigest()}"
-        cached_userinfo = await self.user_api_key_cache.async_get_cache(cache_key)
+        cached_userinfo = await self.user_api_key_cache.async_get_cache(cache_key, skip_in_memory=False)
 
         if cached_userinfo is not None:
             verbose_proxy_logger.debug("Returning cached OIDC UserInfo")

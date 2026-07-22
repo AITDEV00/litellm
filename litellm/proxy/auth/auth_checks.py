@@ -1873,7 +1873,7 @@ async def _get_team_object_from_cache(
     ## INTERNAL USAGE CACHE (plain DualCache) — checked before UserApiKeyCache stores ##
     if proxy_logging_obj is not None and proxy_logging_obj.internal_usage_cache.dual_cache:
         cached_raw = await proxy_logging_obj.internal_usage_cache.dual_cache.async_get_cache(
-            key=key, parent_otel_span=parent_otel_span, skip_in_memory=True
+            key=key, parent_otel_span=parent_otel_span
         )
         if cached_raw is not None:
             from_internal = CacheCodec.deserialize(cached_raw, LiteLLM_TeamTableCachedObj)
