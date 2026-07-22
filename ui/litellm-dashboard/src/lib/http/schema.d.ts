@@ -7525,8 +7525,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Per Model Metrics */
-        get: operations["get_per_model_metrics_model_metrics_per_model_get"];
+        /** Per Model Metrics Handler */
+        get: operations["per_model_metrics_handler_model_metrics_per_model_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -43240,7 +43240,7 @@ export interface operations {
             };
         };
     };
-    get_per_model_metrics_model_metrics_per_model_get: {
+    per_model_metrics_handler_model_metrics_per_model_get: {
         parameters: {
             query?: {
                 /** @description Time window: 1m, 15m, 1h, 24h, 7d */

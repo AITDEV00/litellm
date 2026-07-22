@@ -163,8 +163,8 @@ _WINDOW_CONFIG: dict[str, tuple[str, str]] = {
 
 _DEPLOYMENT_LABELS = (
     "model_id",
-    "api_base",
     "litellm_model_name",
+    "api_base",
     "api_provider",
 )
 
@@ -175,7 +175,12 @@ async def query_prometheus_range(
     end: datetime,
     step: str,
 ) -> list[dict]:
-    """Run a Prometheus ``query_range`` and return ``[{timestamp, value}, ...]``."""
+    """Run a Prometheus ``query_range`` and return raw result entries.
+
+    Returns the list under ``data.result`` (each entry has ``metric`` and
+    ``values`` keys). Use ``_parse_range_result`` to flatten into
+    ``[{timestamp, value}, ...]``.
+    """
     if PROMETHEUS_URL is None:
         raise ValueError("PROMETHEUS_URL not set")
 
@@ -189,6 +194,7 @@ async def query_prometheus_range(
         f"{PROMETHEUS_URL}/api/v1/query_range",
         params=params,
     )
+    response.raise_for_status()
     data = response.json()
     return data.get("data", {}).get("result", [])
 
@@ -202,6 +208,7 @@ async def query_prometheus_instant(query: str) -> list[dict]:
         f"{PROMETHEUS_URL}/api/v1/query",
         params={"query": query},
     )
+    response.raise_for_status()
     data = response.json()
     return data.get("data", {}).get("result", [])
 
@@ -227,6 +234,20 @@ def _extract_deployment_key(metric_labels: dict) -> tuple[str, str, str, str]:
         metric_labels.get("api_base", ""),
         metric_labels.get("api_provider", ""),
     )
+
+
+def _empty_deployment_dict(key: tuple[str, str, str, str]) -> dict:
+    return {
+        "model_id": key[0],
+        "litellm_model_name": key[1],
+        "api_base": key[2],
+        "api_provider": key[3],
+        "rpm_limit": 0,
+        "concurrent_requests": [],
+        "request_rate": [],
+        "output_tokens_per_sec": [],
+        "latency_per_token_p50": [],
+    }
 
 
 async def get_per_model_metrics(
@@ -258,7 +279,7 @@ async def get_per_model_metrics(
     queries = {
         "concurrent_requests": f"max_over_time(litellm_deployment_in_progress_requests{label_filter}[{range_str}])",
         "request_rate": f"sum by ({','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_deployment_total_requests_total{label_filter}[{range_str}]))",
-        "output_tokens_per_sec": f"sum by (model_id, litellm_model_name, api_provider) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))",
+        "output_tokens_per_sec": f"sum by ({','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))",
         "latency_per_token_p50": f"histogram_quantile(0.50, sum by (le, {','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))",
     }
 
@@ -274,17 +295,7 @@ async def get_per_model_metrics(
         for entry in raw:
             key = _extract_deployment_key(entry.get("metric", {}))
             if key not in deployments:
-                deployments[key] = {
-                    "model_id": key[0],
-                    "litellm_model_name": key[1],
-                    "api_base": key[2],
-                    "api_provider": key[3],
-                    "rpm_limit": 0,
-                    "concurrent_requests": [],
-                    "request_rate": [],
-                    "output_tokens_per_sec": [],
-                    "latency_per_token_p50": [],
-                }
+                deployments[key] = _empty_deployment_dict(key)
             deployments[key][series_name] = _parse_range_result([entry])
 
     try:
@@ -307,8 +318,8 @@ async def get_per_model_metrics(
 async def get_in_progress_requests_instant() -> list[dict]:
     """Get the current instant value of in-progress requests per deployment.
 
-    Used as a fallback when Prometheus is not connected; reads the gauge
-    directly from the ``/metrics`` endpoint via an instant query.
+    Used as a fallback when Prometheus is not connected; queries the gauge
+    via the Prometheus ``/api/v1/query`` instant endpoint.
     """
     if PROMETHEUS_URL is None:
         return []
@@ -335,10 +346,12 @@ async def get_in_progress_requests_instant() -> list[dict]:
 
 def _parse_window_to_timedelta(window: str) -> timedelta:
     """Parse a PromQL-style duration string (``1m``, ``24h``, ``7d``) into ``timedelta``."""
-    if window.endswith("m") and not window.endswith("h"):
+    if window.endswith("m"):
         return timedelta(minutes=int(window[:-1]))
     if window.endswith("h"):
         return timedelta(hours=int(window[:-1]))
     if window.endswith("d"):
         return timedelta(days=int(window[:-1]))
-    return timedelta(hours=1)
+    if window.endswith("w"):
+        return timedelta(weeks=int(window[:-1]))
+    raise ValueError(f"Cannot parse duration string: {window!r}")

@@ -24,12 +24,22 @@ const WINDOWS = [
 const formatRate = (value: number) => `${value.toFixed(2)}/s`;
 const formatTokens = (value: number) => `${value.toFixed(1)} tok/s`;
 const formatLatency = (value: number) => {
+  if (value < 0.001) return "0ms";
   if (value < 1) return `${(value * 1000).toFixed(0)}ms`;
   return `${value.toFixed(3)}s`;
 };
 
+const REFRESH_INTERVAL_MS = 15_000;
+
 const latestValue = (points: PerModelTimeSeriesPoint[]): number =>
   points.length > 0 ? points[points.length - 1].value : 0;
+
+const SERIES_CONFIG = [
+  { key: "concurrent_requests", label: "Concurrent Requests" },
+  { key: "request_rate", label: "Request Rate" },
+  { key: "output_tokens_per_sec", label: "Output Tokens/sec" },
+  { key: "latency_per_token_p50", label: "Latency/Token p50" },
+] as const;
 
 const DeploymentCard: React.FC<{
   deployment: PerModelDeploymentMetrics;
@@ -75,38 +85,18 @@ const DeploymentCard: React.FC<{
           Show time-series data points
         </summary>
         <div className="mt-2 space-y-2">
-          {deployment.concurrent_requests.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-400">Concurrent Requests (last 10)</p>
-              <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
-                {JSON.stringify(deployment.concurrent_requests.slice(-10), null, 2)}
-              </pre>
-            </div>
-          )}
-          {deployment.request_rate.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-400">Request Rate (last 10)</p>
-              <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
-                {JSON.stringify(deployment.request_rate.slice(-10), null, 2)}
-              </pre>
-            </div>
-          )}
-          {deployment.output_tokens_per_sec.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-400">Output Tokens/sec (last 10)</p>
-              <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
-                {JSON.stringify(deployment.output_tokens_per_sec.slice(-10), null, 2)}
-              </pre>
-            </div>
-          )}
-          {deployment.latency_per_token_p50.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-400">Latency/Token p50 (last 10)</p>
-              <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
-                {JSON.stringify(deployment.latency_per_token_p50.slice(-10), null, 2)}
-              </pre>
-            </div>
-          )}
+          {SERIES_CONFIG.map(({ key, label }) => {
+            const points = deployment[key];
+            if (points.length === 0) return null;
+            return (
+              <div key={key}>
+                <p className="text-xs font-medium text-gray-400">{label} (last 10)</p>
+                <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
+                  {JSON.stringify(points.slice(-10), null, 2)}
+                </pre>
+              </div>
+            );
+          })}
         </div>
       </details>
     </Card>
@@ -114,18 +104,18 @@ const DeploymentCard: React.FC<{
 };
 
 const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken }) => {
-  const [window, setWindow] = useState("1h");
+  const [timeWindow, setTimeWindow] = useState("1h");
   const [modelId, setModelId] = useState<string | undefined>(undefined);
 
   const query = useQuery<PerModelMetricsResponse>({
-    queryKey: ["perModelMetrics", window, modelId],
-    queryFn: () => perModelMetricsCall(accessToken!, { window, model_id: modelId }),
+    queryKey: ["perModelMetrics", timeWindow, modelId],
+    queryFn: () => perModelMetricsCall(accessToken!, { window: timeWindow, model_id: modelId }),
     enabled: Boolean(accessToken),
-    refetchInterval: 15_000,
+    refetchInterval: REFRESH_INTERVAL_MS,
   });
 
   const deployments = useMemo(() => query.data?.deployments ?? [], [query.data]);
-  const windowLabel = WINDOWS.find((w) => w.value === window)?.label ?? window;
+  const windowLabel = WINDOWS.find((w) => w.value === timeWindow)?.label ?? timeWindow;
 
   const modelIdOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -142,8 +132,8 @@ const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken
         <span className="text-sm font-medium text-gray-700">Time window:</span>
         <Select
           style={{ width: 200 }}
-          value={window}
-          onChange={(value: string) => setWindow(value)}
+          value={timeWindow}
+          onChange={(value: string) => setTimeWindow(value)}
           options={WINDOWS}
         />
         <span className="text-sm font-medium text-gray-700 ml-4">Deployment:</span>

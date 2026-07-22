@@ -1173,14 +1173,19 @@ class PrometheusLogger(CustomLogger):
         try:
             standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
             if standard_logging_payload is None:
-                metadata = kwargs.get("litellm_params", {}) or kwargs.get("metadata", {})
-                model_info = metadata.get("model_info", {}) if isinstance(metadata, dict) else {}
+                _litellm_params = kwargs.get("litellm_params", {}) or {}
+                _metadata = _litellm_params.get("metadata", {}) if isinstance(_litellm_params, dict) else {}
+                if not isinstance(_metadata, dict):
+                    _metadata = {}
+                model_info = _metadata.get("model_info", {})
                 model_id = model_info.get("id", "") if isinstance(model_info, dict) else ""
                 if not model_id:
                     return
-                api_base = metadata.get("api_base", "") if isinstance(metadata, dict) else ""
+                api_base = _litellm_params.get("api_base", "") or _metadata.get("api_base", "")
                 litellm_model_name = model
-                api_provider = metadata.get("custom_llm_provider", "") or kwargs.get("custom_llm_provider", "")
+                api_provider = _litellm_params.get("custom_llm_provider", "") or _metadata.get(
+                    "custom_llm_provider", ""
+                )
             else:
                 model_id = standard_logging_payload.get("model_id", "") or ""
                 if not model_id:
@@ -2332,7 +2337,9 @@ class PrometheusLogger(CustomLogger):
                     _litellm_params.get("metadata") or {}
                 ).get("model_group")
 
-            llm_provider = _litellm_params.get("custom_llm_provider", None)
+            llm_provider = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
 
             if self._should_skip_metrics_for_invalid_key(
                 kwargs=request_kwargs,
@@ -2433,8 +2440,6 @@ class PrometheusLogger(CustomLogger):
                     ),
                 )
                 self.litellm_deployment_in_progress_requests.labels(**_in_progress_labels).dec()
-
-            pass
         except Exception as e:
             verbose_logger.debug(
                 "Prometheus Error: set_llm_deployment_failure_metrics. Exception occured - {}".format(str(e))
@@ -2584,7 +2589,9 @@ class PrometheusLogger(CustomLogger):
             _litellm_params = request_kwargs.get("litellm_params", {}) or {}
             _metadata = get_litellm_metadata_from_kwargs(request_kwargs)
             litellm_model_name = request_kwargs.get("model", None)
-            llm_provider = _litellm_params.get("custom_llm_provider", None)
+            llm_provider = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
             _model_info = _metadata.get("model_info") or {}
             model_id = _model_info.get("id", None)
 

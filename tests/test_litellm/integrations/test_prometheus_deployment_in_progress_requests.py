@@ -302,3 +302,99 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
         output_tokens=10.0,
     )
     assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(logger, isolated_registry):
+    """Regression: dec must use the same label source as inc.
+
+    The inc path reads api_provider from standard_logging_object. If the dec
+    path reads it from litellm_params instead (which may be missing the key),
+    the dec creates a different label series and the gauge leaks.
+
+    This test reproduces the original bug: litellm_params has no
+    custom_llm_provider, but standard_logging_object does.
+    """
+    await logger.async_log_pre_api_call(
+        model="Qwen3.6-35B",
+        messages=[],
+        kwargs={
+            "model": "Qwen3.6-35B",
+            "messages": [],
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    logger.set_llm_deployment_failure_metrics(
+        {
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+            },
+            "litellm_params": {},
+            "exception": Exception("timeout"),
+        }
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(logger, isolated_registry):
+    """Regression: same as failure test but for the success path."""
+    await logger.async_log_pre_api_call(
+        model="Qwen3.6-35B",
+        messages=[],
+        kwargs={
+            "model": "Qwen3.6-35B",
+            "messages": [],
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="Qwen3.6-35B",
+        model_id="abc-123",
+        api_base="http://vllm:8080",
+        api_provider="hosted_vllm",
+    )
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "metadata": {"model_info": {"id": "abc-123"}},
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0

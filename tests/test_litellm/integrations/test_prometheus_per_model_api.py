@@ -6,7 +6,7 @@ results are parsed correctly into the expected response shape.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -37,12 +37,13 @@ def test_parse_window_to_timedelta_days():
     assert _parse_window_to_timedelta("7d") == timedelta(days=7)
 
 
-def test_parse_window_to_timedelta_default():
+def test_parse_window_to_timedelta_invalid():
     from litellm.integrations.prometheus_helpers.prometheus_api import (
         _parse_window_to_timedelta,
     )
 
-    assert _parse_window_to_timedelta("unknown") == timedelta(hours=1)
+    with pytest.raises(ValueError):
+        _parse_window_to_timedelta("unknown")
 
 
 def test_extract_deployment_key():
@@ -194,6 +195,57 @@ async def test_get_per_model_metrics_with_model_id_filter():
 
     assert result["prometheus_connected"] is True
     assert any('model_id="abc-123"' in q for q in captured_queries)
+
+
+@pytest.mark.asyncio
+async def test_get_per_model_metrics_all_queries_group_by_same_labels():
+    """Regression: output_tokens_per_sec must group by api_base too.
+
+    If it omits api_base from the sum-by, _extract_deployment_key returns
+    api_base="" for every output_tokens series, creating a phantom deployment
+    instead of merging into the correct one.
+    """
+    from litellm.integrations.prometheus_helpers import prometheus_api
+
+    captured_queries: list[str] = []
+
+    async def mock_range(query, start, end, step):
+        captured_queries.append(query)
+        return []
+
+    async def mock_instant(query):
+        return []
+
+    with (
+        patch.object(prometheus_api, "PROMETHEUS_URL", "http://prometheus:9090"),
+        patch.object(prometheus_api, "query_prometheus_range", side_effect=mock_range),
+        patch.object(prometheus_api, "query_prometheus_instant", side_effect=mock_instant),
+    ):
+        await prometheus_api.get_per_model_metrics(window="1h")
+
+    range_queries = [q for q in captured_queries if "sum by" in q]
+    assert len(range_queries) == 3
+    for q in range_queries:
+        assert "api_base" in q, f"Query missing api_base in group-by: {q}"
+
+
+@pytest.mark.asyncio
+async def test_query_prometheus_range_raises_on_http_error():
+    """query_prometheus_range must raise_for_status on non-2xx responses."""
+    from litellm.integrations.prometheus_helpers import prometheus_api
+
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.raise_for_status.side_effect = Exception("400 Bad Request")
+
+    with (
+        patch.object(prometheus_api, "PROMETHEUS_URL", "http://prometheus:9090"),
+        patch.object(prometheus_api.async_http_handler, "get", AsyncMock(return_value=mock_response)),
+    ):
+        with pytest.raises(Exception, match="400"):
+            await prometheus_api.query_prometheus_range(
+                "up", datetime(2026, 1, 1), datetime(2026, 1, 2), "30s"
+            )
 
 
 @pytest.mark.asyncio

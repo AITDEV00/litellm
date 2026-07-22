@@ -6,7 +6,6 @@ Tests window validation, Prometheus-connected path, and fallback path.
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

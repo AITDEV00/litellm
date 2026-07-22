@@ -11,9 +11,10 @@ connected.
 from typing import Optional
 
 import fastapi
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from litellm.integrations.prometheus_helpers.prometheus_api import (
+    _empty_deployment_dict,
     get_in_progress_requests_instant,
     is_prometheus_connected,
 )
@@ -34,7 +35,7 @@ _VALID_WINDOWS = ("1m", "15m", "1h", "24h", "7d")
     include_in_schema=False,
     dependencies=[Depends(user_api_key_auth)],
 )
-async def get_per_model_metrics(
+async def per_model_metrics_handler(
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
     window: str = fastapi.Query(
         default="1h",
@@ -46,8 +47,6 @@ async def get_per_model_metrics(
     ),
 ):
     if window not in _VALID_WINDOWS:
-        from fastapi import HTTPException, status
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid window '{window}'. Must be one of: {', '.join(_VALID_WINDOWS)}",
@@ -58,19 +57,11 @@ async def get_per_model_metrics(
 
     instant = await get_in_progress_requests_instant()
     deployments = [
-        {
-            "model_id": d["model_id"],
-            "litellm_model_name": d["litellm_model_name"],
-            "api_base": d["api_base"],
-            "api_provider": d["api_provider"],
-            "rpm_limit": 0,
-            "concurrent_requests": [{"timestamp": "", "value": d["value"]}],
-            "request_rate": [],
-            "output_tokens_per_sec": [],
-            "latency_per_token_p50": [],
-        }
+        _empty_deployment_dict((d["model_id"], d["litellm_model_name"], d["api_base"], d["api_provider"]))
         for d in instant
     ]
+    for dep, inst in zip(deployments, instant):
+        dep["concurrent_requests"] = [{"timestamp": "", "value": inst["value"]}]
     return {
         "prometheus_connected": False,
         "window": window,
