@@ -391,3 +391,138 @@ async def test_dual_cache_late_attach_redis_wires_writes_and_ttl_async():
     assert mock_redis.async_set_cache.call_args[0][:2] == (key_after, val_after)
 
     assert in_memory.get_cache(key_after) == val_after
+
+
+@pytest.mark.asyncio
+async def test_async_get_cache_skip_in_memory_bypasses_stale_in_memory():
+    """
+    Regression: when skip_in_memory=True, async_get_cache must NOT read from
+    in-memory cache (which may be stale on a pod that didn't handle a mutation)
+    and must NOT write the Redis result back to in-memory (which would re-poison
+    it for subsequent skip_in_memory reads on this pod).
+
+    This is the core fix for multi-pod cache staleness: auth-critical lookups
+    bypass per-pod in-memory entirely, reading only from the shared Redis layer.
+    """
+    in_memory = InMemoryCache(default_ttl=60)
+    mock_redis = MagicMock(spec=RedisCache)
+    fresh_value = {"models": ["fresh-model"]}
+    mock_redis.async_get_cache = AsyncMock(return_value=fresh_value)
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=60,
+    )
+
+    # Seed in-memory with a STALE value (simulating another pod's stale cache)
+    stale_value = {"models": ["stale-model"]}
+    dual_cache.in_memory_cache.set_cache("auth_key", stale_value, ttl=60)
+
+    # With skip_in_memory=True, must return the Redis value, NOT the stale in-memory
+    result = await dual_cache.async_get_cache("auth_key", skip_in_memory=True)
+    assert result == fresh_value, (
+        "skip_in_memory=True must bypass stale in-memory and return Redis value"
+    )
+
+    # The stale in-memory value must NOT have been overwritten (no re-poisoning)
+    assert dual_cache.in_memory_cache.get_cache("auth_key") == stale_value, (
+        "skip_in_memory=True must NOT write Redis result back to in-memory cache"
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_get_cache_skip_in_memory_returns_none_when_redis_miss():
+    """
+    When skip_in_memory=True and Redis has no value, must return None even if
+    in-memory has a (stale) value. This ensures a deleted key is respected.
+    """
+    in_memory = InMemoryCache(default_ttl=60)
+    mock_redis = MagicMock(spec=RedisCache)
+    mock_redis.async_get_cache = AsyncMock(return_value=None)
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=60,
+    )
+
+    # In-memory has a stale value
+    dual_cache.in_memory_cache.set_cache("deleted_key", {"stale": True}, ttl=60)
+
+    result = await dual_cache.async_get_cache("deleted_key", skip_in_memory=True)
+    assert result is None, (
+        "skip_in_memory=True must return None on Redis miss, ignoring stale in-memory"
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_get_cache_without_skip_in_memory_still_uses_in_memory():
+    """
+    Sanity check: without skip_in_memory, the existing behavior is preserved.
+    In-memory hit returns immediately without touching Redis.
+    """
+    in_memory = InMemoryCache(default_ttl=60)
+    mock_redis = MagicMock(spec=RedisCache)
+    mock_redis.async_get_cache = AsyncMock(return_value={"redis": "value"})
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=60,
+    )
+
+    dual_cache.in_memory_cache.set_cache("key", {"mem": "value"}, ttl=60)
+
+    result = await dual_cache.async_get_cache("key")
+    assert result == {"mem": "value"}, "Default path must return in-memory hit"
+    mock_redis.async_get_cache.assert_not_called(), "Redis must not be touched on in-memory hit"
+
+
+@pytest.mark.asyncio
+async def test_get_cache_skip_in_memory_sync_variant():
+    """
+    Same regression as the async variant but for the sync get_cache path.
+    """
+    in_memory = InMemoryCache(default_ttl=60)
+    mock_redis = MagicMock(spec=RedisCache)
+    fresh_value = {"models": ["fresh-model"]}
+    mock_redis.get_cache = MagicMock(return_value=fresh_value)
+
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=mock_redis,
+        default_in_memory_ttl=60,
+    )
+
+    stale_value = {"models": ["stale-model"]}
+    dual_cache.in_memory_cache.set_cache("auth_key", stale_value, ttl=60)
+
+    result = dual_cache.get_cache("auth_key", skip_in_memory=True)
+    assert result == fresh_value, "sync skip_in_memory must bypass in-memory"
+    assert dual_cache.in_memory_cache.get_cache("auth_key") == stale_value, (
+        "sync skip_in_memory must NOT write back to in-memory"
+    )
+
+
+@pytest.mark.asyncio
+async def test_skip_in_memory_falls_back_to_in_memory_when_no_redis():
+    """
+    When skip_in_memory=True but no Redis cache is configured, must fall back
+    to in-memory. The multi-pod staleness problem only exists with a shared
+    Redis layer; without Redis, in-memory is the only cache and there is no
+    cross-pod consistency issue to solve.
+    """
+    in_memory = InMemoryCache(default_ttl=60)
+    dual_cache = DualCache(
+        in_memory_cache=in_memory,
+        redis_cache=None,
+        default_in_memory_ttl=60,
+    )
+
+    dual_cache.in_memory_cache.set_cache("key", {"value": "from-mem"}, ttl=60)
+
+    result = await dual_cache.async_get_cache("key", skip_in_memory=True)
+    assert result == {"value": "from-mem"}, (
+        "skip_in_memory with no Redis must fall back to in-memory cache"
+    )

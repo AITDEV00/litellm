@@ -1901,7 +1901,6 @@ async def _user_api_key_auth_builder(
                             )
 
             # Check 6: Additional Common Checks across jwt + key auth
-            _team_obj_from_lookup = False
             if valid_token.team_id is not None:
                 try:
                     with tracer.trace("litellm.proxy.auth.get_team_object"):
@@ -1912,7 +1911,6 @@ async def _user_api_key_auth_builder(
                             parent_otel_span=parent_otel_span,
                             proxy_logging_obj=proxy_logging_obj,
                         )
-                    _team_obj_from_lookup = True
                 except HTTPException:
                     _team_obj = LiteLLM_TeamTableCachedObj(
                         team_id=valid_token.team_id,
@@ -1937,13 +1935,6 @@ async def _user_api_key_auth_builder(
                 valid_token.team_metadata = _team_obj.metadata
             else:
                 valid_token.team_object_permission = None
-
-            if valid_token.team_id is not None and _team_obj is not None and _team_obj_from_lookup:
-                await user_api_key_cache.async_set_cache(
-                    key=f"team_id:{valid_token.team_id}",
-                    value=_team_obj,
-                    model_type=LiteLLM_TeamTableCachedObj,
-                )
 
             # Fetch project object if key belongs to a project
             _project_obj = None

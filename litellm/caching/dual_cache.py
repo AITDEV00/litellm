@@ -143,12 +143,16 @@ class DualCache(BaseCache):
         key,
         parent_otel_span: Optional[Span] = None,
         local_only: bool = False,
+        skip_in_memory: bool = False,
         **kwargs,
     ):
-        # Try to fetch from in-memory cache first
+        # Try to fetch from in-memory cache first (unless bypassed for multi-pod consistency)
+        # When skip_in_memory=True but no Redis is configured, fall back to in-memory
+        # since the cross-pod staleness problem only exists with a shared Redis layer.
+        effective_skip = skip_in_memory and self.redis_cache is not None
         try:
             result = None
-            if self.in_memory_cache is not None:
+            if self.in_memory_cache is not None and not effective_skip:
                 in_memory_result = self.in_memory_cache.get_cache(key, **kwargs)
 
                 if in_memory_result is not None:
@@ -158,7 +162,7 @@ class DualCache(BaseCache):
                 # If not found in in-memory cache, try fetching from Redis
                 redis_result = self.redis_cache.get_cache(key, parent_otel_span=parent_otel_span)
 
-                if redis_result is not None:
+                if redis_result is not None and not effective_skip:
                     # Update in-memory cache with the value from Redis
                     self.in_memory_cache.set_cache(key, redis_result, **kwargs)
 
@@ -207,13 +211,17 @@ class DualCache(BaseCache):
         key,
         parent_otel_span: Optional[Span] = None,
         local_only: bool = False,
+        skip_in_memory: bool = False,
         **kwargs,
     ):
-        # Try to fetch from in-memory cache first
+        # Try to fetch from in-memory cache first (unless bypassed for multi-pod consistency)
+        # When skip_in_memory=True but no Redis is configured, fall back to in-memory
+        # since the cross-pod staleness problem only exists with a shared Redis layer.
+        effective_skip = skip_in_memory and self.redis_cache is not None
         try:
             print_verbose(f"async get cache: cache key: {key}; local_only: {local_only}")
             result = None
-            if self.in_memory_cache is not None:
+            if self.in_memory_cache is not None and not effective_skip:
                 in_memory_result = await self.in_memory_cache.async_get_cache(key, **kwargs)
 
                 print_verbose(f"in_memory_result: {in_memory_result}")
@@ -224,7 +232,7 @@ class DualCache(BaseCache):
                 # If not found in in-memory cache, try fetching from Redis
                 redis_result = await self.redis_cache.async_get_cache(key, parent_otel_span=parent_otel_span)
 
-                if redis_result is not None:
+                if redis_result is not None and not effective_skip:
                     # Update in-memory cache with the value from Redis
                     await self.in_memory_cache.async_set_cache(key, redis_result, **kwargs)
 

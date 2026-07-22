@@ -3993,18 +3993,19 @@ async def test_non_admin_cli_session_token_reaches_production_auth_path(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_auth_path_caches_team_object_under_canonical_team_id_key():
-    """Regression for LIT-4000: the auth builder must cache the team object under
-    the canonical ``team_id:{id}`` key that ``get_team_object`` and
-    ``_update_team_cache`` read, never under the raw ``team_id`` (and never under
-    a ``None`` key, which Redis rejects with a NoneType key error). A raw or None
-    key is silently dropped by Redis / never served back, so every request
-    re-hits Postgres for the team object instead of the L2 cache.
+async def test_auth_path_does_not_re_cache_team_object():
+    """Regression for multi-pod cache re-poisoning: the auth builder must NOT
+    write the team object back to cache after ``get_team_object`` returns.
+    ``get_team_object`` already caches under the canonical ``team_id:{id}`` key
+    (via ``_cache_team_object`` on DB miss, or the value is already in cache on
+    cache hit). The write-back was purely a re-poisoning mechanism: it re-wrote
+    the in-memory cache on every request, defeating ``skip_in_memory`` and
+    re-introducing stale data across pods.
 
     Drives the real builder for a team-scoped key against a real in-memory
-    ``UserApiKeyCache`` and reads the team object back. Mutating the cache key at
-    the write site to the raw ``valid_token.team_id`` (or ``None``) makes the
-    canonical-key read miss and fails this test.
+    ``UserApiKeyCache`` with ``get_team_object`` mocked to return a team object
+    without side effects. After the builder runs, the team object must NOT be in
+    cache under any key, proving the write-back was removed.
     """
     from fastapi import Request
     from starlette.datastructures import URL
@@ -4079,10 +4080,7 @@ async def test_auth_path_caches_team_object_under_canonical_team_id_key():
         for k, v in originals.items():
             setattr(_proxy_server_mod, k, v)
 
-    served = cache.get_cache(
-        key=f"team_id:{team_id}", model_type=LiteLLM_TeamTableCachedObj
-    )
-    assert served is not None and served.team_id == team_id
+    assert cache.get_cache(key=f"team_id:{team_id}", model_type=LiteLLM_TeamTableCachedObj) is None
     assert cache.get_cache(key=team_id) is None
     assert cache.get_cache(key=None) is None
 
