@@ -1,6 +1,6 @@
 # Tier 0 Implementation: Enable Prometheus Metrics
 
-Status: not started.
+Status: complete.
 Date: 2026-07-22.
 
 Tier 0 is the prerequisite for Tier 2. It wires up the Prometheus metrics pipeline so the proxy emits metrics on `/metrics` and Prometheus scrapes them. No code changes; only config and cluster manifests.

@@ -43,7 +43,10 @@ data:
         max_connections: 500
         socket_timeout: 10.0
       enable_redis_auth_cache: true
-      callbacks: litellm_hooks.vllm_param_injector.vllm_param_injector
+      callbacks:
+        - litellm_hooks.vllm_param_injector.vllm_param_injector
+        - prometheus
+      require_auth_for_metrics_endpoint: false
       priority_reservation:
         prior1: 0.50
         prior2: 0.30
@@ -295,6 +298,8 @@ kind: Service
 metadata:
   name: litellm-proxy
   namespace: mlops
+  labels:
+    app: litellm-proxy
 spec:
   selector:
     app: litellm-proxy

@@ -56,10 +56,11 @@ push-litellm:
 	podman tag $(LITELLM_IMG) $(LITELLM_HARBOR_IMG):$(TAG)
 	podman push --tls-verify=false $(LITELLM_HARBOR_IMG):$(TAG)
 
-## Deploy both manifests to the cluster
+## Deploy all manifests to the cluster
 deploy:
 	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/discovery-controller.yaml
 	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
 
 ## Remove built images from local storage
 clean:
