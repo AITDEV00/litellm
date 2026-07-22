@@ -253,13 +253,15 @@ Auth-critical cache reads now bypass per-pod in-memory cache entirely, reading o
 
 2. `litellm/proxy/common_utils/user_api_key_cache.py` — Changed the default of `skip_in_memory` from `False` to `True` in all 6 `get_cache`/`async_get_cache` signatures (2 sync overloads, 2 async overloads, 2 implementations). This is the centralized fix: every `UserApiKeyCache` read automatically bypasses per-pod in-memory cache and reads from shared Redis, without needing to patch every caller. Callers that explicitly want in-memory reads (e.g. for testing) can pass `skip_in_memory=False`.
 
-3. `litellm/proxy/auth/auth_checks.py` — Only one explicit `skip_in_memory=True` remains: the `internal_usage_cache.dual_cache` read in `_get_team_object_from_cache` (this is a plain `DualCache`, not a `UserApiKeyCache`, so it doesn't inherit the default). All other auth cache reads inherit the `UserApiKeyCache` default automatically.
+3. `litellm/proxy/auth/auth_checks.py` — The `internal_usage_cache.dual_cache` read in `_get_team_object_from_cache` uses the DualCache default (`skip_in_memory=False`). This is intentional: `internal_usage_cache` wraps a plain `DualCache` with a 1-second TTL, so the in-memory layer acts as a fast pre-check for repeated reads within the same second before falling through to `user_api_key_cache` (which defaults to `skip_in_memory=True` and reads from Redis). All other auth cache reads inherit the `UserApiKeyCache` default automatically.
 
 4. `litellm/proxy/auth/user_api_key_auth.py`:
    - Removed redundant team cache write-back in `_user_api_key_auth_builder` (was at line ~1942). This write-back was re-poisoning Redis with stale cached values on every request. The DB path (`_get_team_object_from_user_api_key_cache` via `_cache_team_object`) already caches under the canonical `team_id:{id}` key, so the write-back served no purpose except re-poisoning.
    - Removed dead `_team_obj_from_lookup` flag (was only used by the removed write-back).
 
 5. `litellm/proxy/auth/resolvers/store.py` — No changes needed. `_resolve_key` reads via `self._cache` (a `UserApiKeyCache`), which now defaults to `skip_in_memory=True`.
+
+6. `litellm/proxy/auth/handle_jwt.py` — Three JWT/OIDC cache reads explicitly pass `skip_in_memory=False` to opt out of the Redis-first default. These cache external IdP data (OIDC discovery URL, JWKS public keys, OIDC UserInfo) that is never mutated by proxy DB operations, so the multi-pod staleness concern does not apply. Keeping them in-memory-first avoids unnecessary Redis round-trips for JWT-authenticated requests.
 
 ### Tests Added
 
@@ -319,3 +321,223 @@ done
 3. Within 1-2 requests, both pods should return 403 for the now-disallowed model
 
 **Expected after fix**: All three tests show consistent behavior across both pods within 1-2 requests (bounded by Redis TTL, not in-memory TTL). No intermittent 200/403 split between pods.
+
+## Phase 3: Surgical Opt-Outs from skip_in_memory Default
+
+### Problem
+
+The Phase 2 fix changed the `UserApiKeyCache` default to `skip_in_memory=True`, which means every auth-critical cache read bypasses per-pod in-memory cache and goes to Redis. An audit of all `UserApiKeyCache` read sites revealed two cases where this was unnecessary or redundant:
+
+1. **JWT/OIDC reads in `handle_jwt.py`** — These cache external IdP data (OIDC discovery URL, JWKS public keys, OIDC UserInfo) that is never mutated by proxy DB operations. The multi-pod staleness concern does not apply. Forcing them through Redis added unnecessary latency for JWT-authenticated requests.
+
+2. **`internal_usage_cache.dual_cache` read in `auth_checks.py`** — The `internal_usage_cache` wraps a plain `DualCache` with a 1-second TTL. With `skip_in_memory=True` on both `internal_usage_cache.dual_cache` and `user_api_key_cache`, both caches hit the same Redis for the same key, making the `internal_usage_cache` read fully redundant (two Redis round-trips for the same data).
+
+### Fix
+
+1. **`handle_jwt.py`** — Added `skip_in_memory=False` to 3 cache reads:
+   - OIDC discovery URL (line ~611)
+   - JWKS public keys (line ~648)
+   - OIDC UserInfo (line ~744)
+
+   These now stay in-memory-first, avoiding Redis round-trips for static external IdP data.
+
+2. **`auth_checks.py`** — Reverted the `internal_usage_cache.dual_cache` read in `_get_team_object_from_cache` to the DualCache default (no explicit `skip_in_memory` parameter). The 1-second in-memory TTL provides a valid fast path for repeated reads within the same second. On a miss, it falls through to `user_api_key_cache`, which defaults to `skip_in_memory=True` and reads from Redis. This eliminates the redundant dual-Redis round-trip.
+
+### Commits
+
+- `fe96c96dac` — Core skip_in_memory implementation in DualCache + UserApiKeyCache default change + removed redundant team cache write-back + 11 regression tests
+- `40f28b0fa0` — Phase 3 surgical fixes: JWT/OIDC opt-outs + internal_usage_cache revert
+- `617e913588` — Phase 4: Fix DualCache Redis write-back TTL bypass (root cause of team-level staleness)
+
+## Phase 4: DualCache Redis Write-Back TTL Fix
+
+### Problem
+
+After Phases 1-3, key-level cache invalidation worked correctly, but **team-level** cache invalidation still failed with stale data persisting for ~6-10 minutes across pods. Redis had the correct team data, but pods served stale results.
+
+### Root Cause
+
+`DualCache.async_get_cache` (and the sync `get_cache`) has a Redis→in-memory write-back path (line ~228): when a Redis hit is found, the value is written back to in-memory cache for future reads. This write-back called `self.in_memory_cache.async_set_cache(key, redis_result, **kwargs)` **directly on InMemoryCache**, bypassing `DualCache`'s TTL logic.
+
+Since no `ttl` kwarg was passed, `InMemoryCache` fell back to its own `default_ttl` of **600 seconds (10 minutes)** instead of the DualCache's configured `default_in_memory_ttl`.
+
+The `internal_usage_cache.dual_cache` is constructed with `DualCache(default_in_memory_ttl=1)` — intended as a 1-second TTL. But the write-back bypassed this, causing stale team objects to persist in-memory for 10 minutes. Since `_get_team_object_from_cache` checks `internal_usage_cache.dual_cache` FIRST (with `skip_in_memory=False`), the stale in-memory entry shadowed the fresh Redis data on pods that didn't handle the `/team/update`.
+
+**Why key-level updates worked but team-level didn't:**
+- Key updates **delete** the key from cache entirely → next request is a cache miss → DB read
+- Team updates **write fresh** to cache → relies on Redis propagation → shadowed by stale in-memory entry
+
+### Fix
+
+In `litellm/caching/dual_cache.py`, the Redis write-back path in both `async_get_cache` and `get_cache` now passes `self.default_in_memory_ttl` as the `ttl` kwarg:
+
+```python
+write_back_kwargs = dict(kwargs)
+if "ttl" not in write_back_kwargs and self.default_in_memory_ttl is not None:
+    write_back_kwargs["ttl"] = self.default_in_memory_ttl
+await self.in_memory_cache.async_set_cache(key, redis_result, **write_back_kwargs)
+```
+
+This ensures the `internal_usage_cache` in-memory entries expire after 1 second (as intended), not 600 seconds. After 1 second, the in-memory entry expires, and the next read falls through to `user_api_key_cache` (which has `skip_in_memory=True` and reads from Redis).
+
+### Live Test Results (2026-07-22)
+
+| Scenario | Before Fix (Phase 3) | After Fix (Phase 4) |
+| --- | --- | --- |
+| Team model removal → both pods return 403 | POD1 stuck on 200 for 2+ min, POD2 oscillates | **Both pods 403 immediately** ✓ |
+| Team model restore → both pods return 200 | Both pods stuck on 403 for ~6 min | **Both pods 200 immediately** ✓ |
+| Key model update → both pods return correct | Already worked | Still works ✓ |
+
+## Deployment Guide
+
+### Prerequisites
+
+- podman (or docker) installed locally
+- Access to the Harbor registry at `registry.adeoaiengine.ecouncil.ae`
+- kubectl configured with a kubeconfig that can reach the mlops namespace
+- The LiteLLM source repo at `/home/jyao/ADEO/service/litellm` on branch `jya0-v1.92.0`
+- The OICM litellm layer at `/home/jyao/ADEO/service/litellm/oicm-litellm-layer`
+
+### Step 1: Build and Test Locally
+
+Build the Docker image from the repo root Dockerfile. The tag is derived from the current git branch (slashes replaced with underscores):
+
+```bash
+cd /home/jyao/ADEO/service/litellm/oicm-litellm-layer
+make litellm-src-build
+```
+
+This produces `registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.92.0`.
+
+Run the image locally with the no-DB/no-Redis config to verify it boots cleanly:
+
+```bash
+# Free port 4000 if something is using it
+ss -tlnp | grep 4000
+
+# Run in detached mode (local_dev.yaml has no DB/Redis deps, starts instantly)
+podman run --rm -d --name litellm-local \
+  -p 4000:4000 \
+  -v $(pwd)/config/local_dev.yaml:/app/config.yaml:Z \
+  -v $(pwd)/hooks:/app/litellm_hooks:Z \
+  -e STORE_MODEL_IN_DB=true \
+  -e LITELLM_MASTER_KEY=sk-1234 \
+  registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.92.0 \
+  --config /app/config.yaml --port 4000
+
+# Wait for startup, then verify
+curl -s http://localhost:4000/health/liveliness
+curl -s http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234"
+
+# Verify the fix is baked into the image
+podman exec litellm-local grep -c "skip_in_memory" \
+  /app/.venv/lib/python3.13/site-packages/litellm/proxy/common_utils/user_api_key_cache.py
+# Expected: 10
+
+podman exec litellm-local grep -c "skip_in_memory" \
+  /app/.venv/lib/python3.13/site-packages/litellm/proxy/auth/handle_jwt.py
+# Expected: 3
+
+# Clean up
+podman rm -f litellm-local
+```
+
+Alternatively, use the Makefile target for interactive testing (with `--detailed_debug`):
+
+```bash
+make litellm-local-docker
+```
+
+Or run from the local venv (no Docker, faster iteration):
+
+```bash
+make litellm-local-run
+```
+
+### Step 2: Push the Image to Harbor
+
+```bash
+# Login to Harbor (one-time per session)
+make login
+
+# Push the tagged image
+make litellm-src-push
+```
+
+Or build and push in one step:
+
+```bash
+make litellm-src-build-push
+```
+
+### Step 3: Deploy to the Cluster
+
+The deployment manifest (`deploy/litellm-proxy.yaml`) already references the correct image tag. If the tag in the manifest matches what you pushed, you only need a rollout restart to pull the new image:
+
+```bash
+# Verify the manifest image tag matches what you pushed
+kubectl get deploy litellm-proxy -n mlops \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+# Expected: .../litellm-src:jya0-v1.92.0
+
+# Trigger a rolling restart (maxUnavailable: 0, so one pod at a time)
+kubectl rollout restart deploy/litellm-proxy -n mlops
+
+# Wait for the rollout to complete
+kubectl rollout status deploy/litellm-proxy -n mlops --timeout=300s
+
+# Verify both new pods are running
+kubectl get pods -n mlops -l app=litellm-proxy
+
+# Verify the fix is in the deployed pods
+NEW_POD=$(kubectl get pods -n mlops -l app=litellm-proxy \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n mlops $NEW_POD -- grep -c "skip_in_memory" \
+  /app/.venv/lib/python3.13/site-packages/litellm/proxy/common_utils/user_api_key_cache.py
+# Expected: 10
+```
+
+If the manifest image tag needs updating (e.g. new branch), edit `deploy/litellm-proxy.yaml` and apply:
+
+```bash
+kubectl apply -f deploy/litellm-proxy.yaml
+```
+
+### Step 4: Verify the Fix in the Cluster
+
+Port-forward to individual pods for multi-pod testing:
+
+```bash
+# Get the new pod names
+POD1=$(kubectl get pods -n mlops -l app=litellm-proxy \
+  -o jsonpath='{.items[0].metadata.name}')
+POD2=$(kubectl get pods -n mlops -l app=litellm-proxy \
+  -o jsonpath='{.items[1].metadata.name}')
+
+# Port-forward to each pod on separate local ports
+kubectl -n mlops port-forward pod/$POD1 4001:4000 &
+kubectl -n mlops port-forward pod/$POD2 4002:4000 &
+
+# Run the multi-pod test loop (see Phase 2 Multi-Pod Test Plan above)
+```
+
+Alternatively, test against the cluster ingress:
+
+```bash
+curl -sk https://litellm.adeoaiengine.ecouncil.ae/health/liveliness
+curl -sk https://litellm.adeoaiengine.ecouncil.ae/v1/models \
+  -H "Authorization: Bearer sk-1234"
+```
+
+### Quick Reference: All Makefile Targets
+
+| Target | Description |
+| --- | --- |
+| `make litellm-src-build` | Build the LiteLLM source image from the repo root Dockerfile |
+| `make litellm-src-push` | Push the image to Harbor (requires `make login` first) |
+| `make litellm-src-build-push` | Build then push in one step |
+| `make litellm-local-run` | Run from local venv (no Docker, fastest iteration) |
+| `make litellm-local-docker` | Run the built Docker image locally (interactive, with debug) |
+| `make litellm-local-stop` | Stop a locally-running Docker container |
+| `make login` | Login to the Harbor registry |
+| `make deploy` | Apply the k8s manifests to the cluster |
