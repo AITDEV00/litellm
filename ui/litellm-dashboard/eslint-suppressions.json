@@ -979,6 +979,11 @@
       "count": 1
     }
   },
+  "src/components/UsagePage/components/PerModelRealTime/PerModelRealTimeView.tsx": {
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
   "src/components/UsagePage/components/UsageAIChatPanel.tsx": {
     "react-hooks/immutability": {
       "count": 1

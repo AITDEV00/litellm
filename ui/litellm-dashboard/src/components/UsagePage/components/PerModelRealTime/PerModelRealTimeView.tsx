@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { AreaChart } from "@tremor/react";
 import { Alert, Card, Select, Spin } from "antd";
 import React, { useMemo, useState } from "react";
 
 import {
+  modelInfoCall,
   perModelMetricsCall,
   type PerModelDeploymentMetrics,
   type PerModelMetricsResponse,
@@ -11,6 +13,8 @@ import {
 
 interface PerModelRealTimeViewProps {
   accessToken: string | null;
+  userID: string | null;
+  userRole: string | null;
 }
 
 const WINDOWS = [
@@ -28,107 +32,158 @@ const formatLatency = (value: number) => {
   if (value < 1) return `${(value * 1000).toFixed(0)}ms`;
   return `${value.toFixed(3)}s`;
 };
+const formatConcurrent = (value: number) => String(Math.round(value));
 
 const REFRESH_INTERVAL_MS = 15_000;
 
 const latestValue = (points: PerModelTimeSeriesPoint[]): number =>
   points.length > 0 ? points[points.length - 1].value : 0;
 
-const SERIES_CONFIG = [
-  { key: "concurrent_requests", label: "Concurrent Requests" },
-  { key: "request_rate", label: "Request Rate" },
-  { key: "output_tokens_per_sec", label: "Output Tokens/sec" },
-  { key: "latency_per_token_p50", label: "Latency/Token p50" },
-] as const;
+interface SeriesConfigEntry {
+  key: "concurrent_requests" | "request_rate" | "output_tokens_per_sec" | "latency_per_token_p50";
+  label: string;
+  formatter: (v: number) => string;
+  color: string;
+}
+
+const SERIES_CONFIG: SeriesConfigEntry[] = [
+  { key: "concurrent_requests", label: "Concurrent Requests", formatter: formatConcurrent, color: "cyan" },
+  { key: "request_rate", label: "Request Rate", formatter: formatRate, color: "blue" },
+  { key: "output_tokens_per_sec", label: "Output Tokens/sec", formatter: formatTokens, color: "emerald" },
+  { key: "latency_per_token_p50", label: "Latency/Token p50", formatter: formatLatency, color: "amber" },
+];
+
+const toChartData = (points: PerModelTimeSeriesPoint[]) =>
+  points.map((p) => ({
+    timestamp: new Date(p.timestamp).toLocaleTimeString(),
+    value: p.value,
+  }));
 
 const DeploymentCard: React.FC<{
   deployment: PerModelDeploymentMetrics;
   windowLabel: string;
 }> = ({ deployment, windowLabel }) => {
-  const latestConcurrent = latestValue(deployment.concurrent_requests);
-  const latestRate = latestValue(deployment.request_rate);
-  const latestTokens = latestValue(deployment.output_tokens_per_sec);
-  const latestLatency = latestValue(deployment.latency_per_token_p50);
-
   return (
-    <Card title={deployment.litellm_model_name || deployment.model_id} size="small">
-      <p className="text-sm text-gray-500 mb-3">
-        {deployment.api_provider} | {deployment.api_base}
+    <Card>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-lg font-semibold text-gray-900">{deployment.litellm_model_name || deployment.model_id}</h3>
+        {deployment.rpm_limit > 0 && <span className="text-xs text-gray-500">RPM limit: {deployment.rpm_limit}</span>}
+      </div>
+      <p className="text-sm text-gray-500 mb-4">
+        {deployment.api_provider}
+        {deployment.api_base ? ` | ${deployment.api_base}` : ""}
       </p>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs font-medium text-gray-500 mb-1">Concurrent Now</p>
-          <p className="text-lg font-semibold text-cyan-600">{latestConcurrent}</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs font-medium text-gray-500 mb-1">Request Rate ({windowLabel})</p>
-          <p className="text-lg font-semibold">{formatRate(latestRate)}</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs font-medium text-gray-500 mb-1">Output Tokens/sec ({windowLabel})</p>
-          <p className="text-lg font-semibold">{formatTokens(latestTokens)}</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs font-medium text-gray-500 mb-1">Latency/Token p50 ({windowLabel})</p>
-          <p className="text-lg font-semibold">{formatLatency(latestLatency)}</p>
-        </div>
-      </div>
-
-      <div className="bg-gray-50 rounded-lg p-3 mt-3">
-        <p className="text-xs font-medium text-gray-500 mb-1">RPM Limit</p>
-        <p className="text-lg font-semibold">{deployment.rpm_limit || "N/A"}</p>
-      </div>
-
-      <details className="mt-3">
-        <summary className="text-sm text-gray-600 cursor-pointer hover:text-gray-800">
-          Show time-series data points
-        </summary>
-        <div className="mt-2 space-y-2">
-          {SERIES_CONFIG.map(({ key, label }) => {
-            const points = deployment[key];
-            if (points.length === 0) return null;
-            return (
-              <div key={key}>
-                <p className="text-xs font-medium text-gray-400">{label} (last 10)</p>
-                <pre className="text-xs bg-gray-50 rounded p-2 overflow-x-auto">
-                  {JSON.stringify(points.slice(-10), null, 2)}
-                </pre>
+      <div className="space-y-4">
+        {SERIES_CONFIG.map(({ key, label, formatter, color }) => {
+          const points = deployment[key];
+          const latest = latestValue(points);
+          const chartData = toChartData(points);
+          return (
+            <div key={key} data-testid={`series-${key}`}>
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-sm font-medium text-gray-700">{label}</span>
+                <span className="text-sm font-semibold text-gray-900" data-testid={`latest-${key}`}>
+                  {formatter(latest)}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      </details>
+              {chartData.length > 1 ? (
+                <AreaChart
+                  className="h-12"
+                  data={chartData}
+                  index="timestamp"
+                  categories={["value"]}
+                  colors={[color]}
+                  valueFormatter={formatter}
+                  showLegend={false}
+                  showXAxis={true}
+                  showYAxis={true}
+                />
+              ) : (
+                <div
+                  className="h-12 flex items-center justify-center text-xs text-gray-400 bg-gray-50 rounded"
+                  data-testid={`no-data-${key}`}
+                >
+                  No data for {windowLabel.toLowerCase()}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </Card>
   );
 };
 
-const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken }) => {
-  const [timeWindow, setTimeWindow] = useState("1h");
-  const [modelId, setModelId] = useState<string | undefined>(undefined);
+interface RegisteredModel {
+  modelId: string;
+  modelName: string;
+  litellmModel: string;
+}
 
-  const query = useQuery<PerModelMetricsResponse>({
-    queryKey: ["perModelMetrics", timeWindow, modelId],
-    queryFn: () => perModelMetricsCall(accessToken!, { window: timeWindow, model_id: modelId }),
+interface ModelInfoEntry {
+  model_name: string;
+  litellm_params: { model?: string };
+  model_info: { id?: string };
+}
+
+interface ModelInfoResponse {
+  data: ModelInfoEntry[];
+}
+
+const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken, userID, userRole }) => {
+  const [timeWindow, setTimeWindow] = useState("1h");
+  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
+
+  const modelsQuery = useQuery({
+    queryKey: ["perModelRegisteredModels", accessToken],
+    queryFn: async () => {
+      return await modelInfoCall(accessToken!, userID || "default", userRole || "proxy_admin", 1, 100);
+    },
+    enabled: Boolean(accessToken),
+  });
+
+  const registeredModels: RegisteredModel[] = useMemo(() => {
+    const data = (modelsQuery.data as ModelInfoResponse | undefined)?.data ?? [];
+    return data.map((m) => ({
+      modelId: m.model_info?.id ?? "",
+      modelName: m.model_name ?? "",
+      litellmModel: m.litellm_params?.model ?? "",
+    }));
+  }, [modelsQuery.data]);
+
+  const modelIdOptions = useMemo(() => {
+    const options = registeredModels.map((m) => ({
+      label: m.modelName || m.litellmModel || m.modelId,
+      value: m.modelId,
+    }));
+    return [{ label: "All registered models", value: "all" }, ...options];
+  }, [registeredModels]);
+
+  const metricsQuery = useQuery<PerModelMetricsResponse>({
+    queryKey: ["perModelMetrics", timeWindow, selectedModelId],
+    queryFn: () => perModelMetricsCall(accessToken!, { window: timeWindow, model_id: selectedModelId }),
     enabled: Boolean(accessToken),
     refetchInterval: REFRESH_INTERVAL_MS,
   });
 
-  const deployments = useMemo(() => query.data?.deployments ?? [], [query.data]);
+  const deployments = useMemo(() => metricsQuery.data?.deployments ?? [], [metricsQuery.data]);
   const windowLabel = WINDOWS.find((w) => w.value === timeWindow)?.label ?? timeWindow;
 
-  const modelIdOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const d of deployments) {
-      const label = d.litellm_model_name || d.model_id;
-      seen.set(d.model_id, label);
-    }
-    return Array.from(seen.entries()).map(([id, label]) => ({ label, value: id }));
-  }, [deployments]);
+  const deploymentsWithNames = useMemo(() => {
+    const modelMap = new Map(registeredModels.map((m) => [m.modelId, m]));
+    return deployments.map((d) => {
+      const registered = modelMap.get(d.model_id);
+      if (registered && (registered.modelName || registered.litellmModel) && !d.litellm_model_name) {
+        return { ...d, litellm_model_name: registered.litellmModel || registered.modelName };
+      }
+      return d;
+    });
+  }, [deployments, registeredModels]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <span className="text-sm font-medium text-gray-700">Time window:</span>
         <Select
           style={{ width: 200 }}
@@ -136,18 +191,19 @@ const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken
           onChange={(value: string) => setTimeWindow(value)}
           options={WINDOWS}
         />
-        <span className="text-sm font-medium text-gray-700 ml-4">Deployment:</span>
+        <span className="text-sm font-medium text-gray-700 ml-4">Model:</span>
         <Select
-          style={{ width: 300 }}
-          value={modelId ?? "all"}
-          onChange={(value: string) => setModelId(value === "all" ? undefined : value)}
-          placeholder="All deployments"
-          options={[{ label: "All deployments", value: "all" }, ...modelIdOptions]}
+          style={{ width: 350 }}
+          value={selectedModelId ?? "all"}
+          onChange={(value: string) => setSelectedModelId(value === "all" ? undefined : value)}
+          placeholder="All registered models"
+          options={modelIdOptions}
           showSearch
+          loading={modelsQuery.isLoading}
         />
       </div>
 
-      {query.data && !query.data.prometheus_connected && (
+      {metricsQuery.data && !metricsQuery.data.prometheus_connected && (
         <Alert
           message="Prometheus is not connected. Showing only the current in-progress request count (no historical time-series)."
           type="info"
@@ -155,22 +211,22 @@ const PerModelRealTimeView: React.FC<PerModelRealTimeViewProps> = ({ accessToken
         />
       )}
 
-      {query.isLoading && (
+      {metricsQuery.isLoading && (
         <div className="flex justify-center py-12">
           <Spin size="large" />
         </div>
       )}
 
-      {query.isError && <Alert message="Failed to load per-model metrics." type="error" showIcon />}
+      {metricsQuery.isError && <Alert message="Failed to load per-model metrics." type="error" showIcon />}
 
-      {!query.isLoading && !query.isError && deployments.length === 0 && (
+      {!metricsQuery.isLoading && !metricsQuery.isError && deploymentsWithNames.length === 0 && (
         <Card>
           <p className="text-gray-500 text-sm py-8 text-center">No deployment metrics found for the selected window.</p>
         </Card>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {deployments.map((d) => (
+        {deploymentsWithNames.map((d) => (
           <DeploymentCard key={d.model_id} deployment={d} windowLabel={windowLabel} />
         ))}
       </div>

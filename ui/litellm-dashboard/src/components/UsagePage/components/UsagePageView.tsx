@@ -856,7 +856,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     />
                   </TabPanel>
                   <TabPanel>
-                    <PerModelRealTimeView accessToken={accessToken} />
+                    <PerModelRealTimeView accessToken={accessToken} userID={userID} userRole={userRole} />
                   </TabPanel>
                 </TabPanels>
               </TabGroup>
