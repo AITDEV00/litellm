@@ -6,7 +6,7 @@ A missed decrement causes the gauge to climb forever.
 
 We test the inc/dec contract at three levels:
 1. The gauge itself: inc then dec returns to 0; two incs leaves 2
-2. async_log_pre_api_call: incs the gauge when model_id present; noop when absent
+2. async_pre_call_deployment_hook: incs the gauge when model_id present; noop when absent
 3. set_llm_deployment_failure_metrics / set_llm_deployment_success_metrics: decs
    the gauge after the call completes
 """
@@ -141,7 +141,7 @@ async def test_pre_call_incs_gauge_when_model_id_present(logger, isolated_regist
             "custom_llm_provider": "hosted_vllm",
         },
     }
-    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
     assert _gauge_value(isolated_registry) == 1.0
 
 
@@ -157,7 +157,7 @@ async def test_pre_call_noop_when_model_id_missing(logger, isolated_registry):
             "custom_llm_provider": "hosted_vllm",
         },
     }
-    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
     assert _gauge_value(isolated_registry) == 0.0
 
 
@@ -170,33 +170,31 @@ async def test_pre_call_noop_when_standard_logging_missing(logger, isolated_regi
             "metadata": {"model_info": {}},
         },
     }
-    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
     assert _gauge_value(isolated_registry) == 0.0
 
 
-def test_sync_log_pre_api_call_incs_gauge(logger, isolated_registry):
-    """The sync log_pre_api_call is the one actually invoked by the logging
-    system in the async proxy path. It must inc the gauge just like the
-    async version."""
+@pytest.mark.asyncio
+async def test_deployment_hook_incs_gauge_with_only_litellm_params(logger, isolated_registry):
+    """Production scenario: async_pre_call_deployment_hook fires after the
+    router picks a deployment but before standard_logging_object is populated.
+    The hook must still inc the gauge using litellm_params.metadata.model_info."""
     kwargs = {
         "model": "Qwen3.6-35B",
         "messages": [],
-        "standard_logging_object": {
-            "model_id": "abc-123",
-            "api_base": "http://vllm:8000",
-            "model": "Qwen3.6-35B",
+        "litellm_params": {
+            "api_base": "http://vllm:8000/v1/chat/completions",
             "custom_llm_provider": "hosted_vllm",
+            "metadata": {"model_info": {"id": "abc-123"}},
         },
     }
-    logger.log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
     assert _gauge_value(isolated_registry) == 1.0
 
 
 @pytest.mark.asyncio
 async def test_failure_metrics_decs_gauge(logger, isolated_registry):
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -208,6 +206,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -230,9 +229,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
 
 @pytest.mark.asyncio
 async def test_failure_metrics_no_dec_when_model_id_missing(logger, isolated_registry):
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -244,6 +241,7 @@ async def test_failure_metrics_no_dec_when_model_id_missing(logger, isolated_reg
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -265,9 +263,7 @@ async def test_failure_metrics_no_dec_when_model_id_missing(logger, isolated_reg
 
 @pytest.mark.asyncio
 async def test_success_metrics_decs_gauge(logger, isolated_registry):
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -279,6 +275,7 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -328,9 +325,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
     This test reproduces the original bug: litellm_params has no
     custom_llm_provider, but standard_logging_object does.
     """
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -342,6 +337,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -365,9 +361,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
 @pytest.mark.asyncio
 async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(logger, isolated_registry):
     """Regression: same as failure test but for the success path."""
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -379,6 +373,7 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -428,9 +423,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
     This test reproduces the production bug: inc with /chat/completions suffix,
     dec without it.  The gauge must still return to 0.
     """
-    await logger.async_log_pre_api_call(
-        model="zai-org/GLM-5.2-FP8",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "zai-org/GLM-5.2-FP8",
             "messages": [],
@@ -445,6 +438,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 
@@ -485,9 +479,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
 @pytest.mark.asyncio
 async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry):
     """Same regression as above but for the failure dec path."""
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B",
-        messages=[],
+    await logger.async_pre_call_deployment_hook(
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
@@ -502,6 +494,7 @@ async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry
                 "custom_llm_provider": "hosted_vllm",
             },
         },
+        call_type=None,
     )
     assert _gauge_value(isolated_registry) == 1.0
 

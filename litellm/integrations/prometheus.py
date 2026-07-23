@@ -57,6 +57,7 @@ from litellm.types.integrations.prometheus import (
     _sanitize_prometheus_label_value,
 )
 from litellm.types.utils import (
+    CallTypes,
     StandardLoggingGuardrailInformation,
     StandardLoggingPayload,
 )
@@ -1230,11 +1231,14 @@ class PrometheusLogger(CustomLogger):
         except Exception as e:  # noqa: BLE001
             verbose_logger.debug("Prometheus: _inc_deployment_in_progress error: {}".format(str(e)))
 
-    def log_pre_api_call(self, model, messages, kwargs):
+    async def async_pre_call_deployment_hook(
+        self,
+        kwargs: dict[str, Any],
+        call_type: Optional[CallTypes],
+    ) -> Optional[dict]:
+        model = kwargs.get("model", "")
         self._inc_deployment_in_progress(model, kwargs)
-
-    async def async_log_pre_api_call(self, model, messages, kwargs):
-        self._inc_deployment_in_progress(model, kwargs)
+        return None
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         # Define prometheus client
