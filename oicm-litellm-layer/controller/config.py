@@ -22,3 +22,17 @@ ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower
     "1",
     "yes",
 )
+
+PRICING_ENABLED = os.getenv("PRICING_ENABLED", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+PRICING_JSON_PATH = os.getenv(
+    "PRICING_JSON_PATH",
+    "/app/model_prices_and_context_window.json",
+)
+PRICING_REFRESH_INTERVAL_SECONDS = int(
+    os.getenv("PRICING_REFRESH_INTERVAL_SECONDS", "3600")
+)
+PRICING_MATCH_THRESHOLD = float(os.getenv("PRICING_MATCH_THRESHOLD", "0.80"))

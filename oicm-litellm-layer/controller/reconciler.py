@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .litellm_client import LiteLLMClient
 from .models import OicmModel
+from .pricing import PricingResolver, pricing_to_params
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -49,8 +50,9 @@ def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
 
 
 class SyncReconciler:
-    def __init__(self, litellm: LiteLLMClient):
+    def __init__(self, litellm: LiteLLMClient, pricing: PricingResolver):
         self.litellm = litellm
+        self.pricing = pricing
 
     async def compute_plan(
         self,
@@ -80,7 +82,8 @@ class SyncReconciler:
             model = k8s_models[uuid]
             if not model.is_ready or model.mode == "tts_skip":
                 continue
-            plan.registers.append((model, None))
+            pricing = await self.pricing.resolve(model.model_id)
+            plan.registers.append((model, pricing_to_params(pricing)))
 
         for uuid in k8s_uuids & litellm_uuids:
             model = k8s_models[uuid]
@@ -99,7 +102,8 @@ class SyncReconciler:
             if existing_model_name != model.model_name:
                 if existing_id:
                     plan.deletes.append(existing_id)
-                plan.registers.append((model, existing_params))
+                pricing = await self.pricing.resolve(model.model_id)
+                plan.registers.append((model, pricing_to_params(pricing)))
             else:
                 if existing_id:
                     plan.patches.append(

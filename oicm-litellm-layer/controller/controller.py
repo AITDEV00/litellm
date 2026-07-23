@@ -19,6 +19,7 @@ from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
 from .models import OicmModel, detect_mode, sanitize_model_id
+from .pricing import PricingResolver, PricingSource, pricing_to_params
 from .reconciler import SyncReconciler
 from .sources import ModelSource
 from .sources.local_deployments import LocalDeploymentSource
@@ -46,7 +47,13 @@ class DiscoveryController:
         self.local_source = self.sources[0]
 
         self.litellm = litellm or LiteLLMClient()
-        self.reconciler = SyncReconciler(self.litellm)
+        self.pricing_resolver = PricingResolver(
+            PricingSource(
+                base_url=self.litellm.base_url,
+                headers=self.litellm.headers,
+            )
+        )
+        self.reconciler = SyncReconciler(self.litellm, self.pricing_resolver)
         self.fallback_reconciler = FallbackReconciler(
             FallbackClient(
                 base_url=self.litellm.base_url,
@@ -192,7 +199,9 @@ class DiscoveryController:
             logger.info(f"Skipping TTS model {uuid[:8]}")
             return
 
-        litellm_id = await self.litellm.register_model(model)
+        pricing = await self.pricing_resolver.resolve(model.model_id)
+        inherited = pricing_to_params(pricing)
+        litellm_id = await self.litellm.register_model(model, inherited)
         if litellm_id:
             self._litellm_id_map[uuid] = litellm_id
             self._state[uuid] = model

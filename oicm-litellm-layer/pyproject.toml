@@ -9,5 +9,11 @@ dependencies = [
     "aiohttp>=3.9",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
 [project.scripts]
 oicm-discovery = "controller.__main__:run"

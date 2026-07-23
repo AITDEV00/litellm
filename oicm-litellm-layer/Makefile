@@ -39,7 +39,9 @@ pull-litellm:
 
 ## Build the discovery controller image
 build:
+	cp ../model_prices_and_context_window.json model_prices_and_context_window.json
 	podman build -t $(DISCOVERY_IMG):$(TAG) -f controller/Dockerfile .
+	rm -f model_prices_and_context_window.json
 
 ## Login to the internal Harbor registry
 login:
