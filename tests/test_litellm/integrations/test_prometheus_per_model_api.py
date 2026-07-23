@@ -181,8 +181,25 @@ async def test_get_per_model_metrics_with_mock_prometheus():
         if "rpm_limit" in query:
             return [
                 {
-                    "metric": {"model_id": "abc-123"},
+                    "metric": {
+                        "model_id": "abc-123",
+                        "api_base": "http://vllm:8000",
+                        "litellm_model_name": "Qwen3.6-35B",
+                        "api_provider": "hosted_vllm",
+                    },
                     "value": [1700000000, "100"],
+                }
+            ]
+        if "deployment_state" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "abc-123",
+                        "api_base": "http://vllm:8000",
+                        "litellm_model_name": "Qwen3.6-35B",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "value": [1700000000, "1"],
                 }
             ]
         return [
@@ -439,7 +456,29 @@ async def test_label_fragmentation_merges_into_single_deployment():
 
     async def mock_instant(query):
         if "rpm_limit" in query:
-            return []
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "hosted_vllm/zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "value": [1700000000, "60"],
+                }
+            ]
+        if "deployment_state" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "hosted_vllm/zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "value": [1700000000, "1"],
+                }
+            ]
         return [
             {
                 "metric": {

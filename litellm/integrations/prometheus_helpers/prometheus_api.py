@@ -244,36 +244,47 @@ def _empty_deployment_dict(model_id: str) -> dict:
 
 async def _get_deployment_label_metadata(
     label_filter: str,
-) -> dict[str, dict[str, str]]:
-    """Build a ``model_id -> labels`` map from the gauge instant query.
+) -> tuple[dict[str, dict[str, str]], dict[str, int]]:
+    """Build ``model_id -> labels`` and ``model_id -> rpm_limit`` maps.
 
     The 4 time-series queries group by ``model_id`` only, so they lose the
     ``litellm_model_name`` / ``api_base`` / ``api_provider`` labels. This
-    function queries the gauge instant endpoint to recover them. When the
-    same ``model_id`` has multiple series (stale labels from before the
-    Bug 4 fix), the entry with the most non-empty label fields wins.
+    function queries multiple gauge metrics that carry all 4 labels to
+    recover them. When the same ``model_id`` has multiple series (stale
+    labels from before the Bug 4 fix), the entry with the most non-empty
+    label fields wins. The ``litellm_deployment_rpm_limit`` metric also
+    provides the RPM limit value.
     """
-    try:
-        raw = await query_prometheus_instant(f"litellm_deployment_in_progress_requests{label_filter}")
-    except Exception as e:  # noqa: BLE001
-        verbose_logger.debug(f"Prometheus label metadata query failed: {e}")
-        return {}
-
-    result: dict[str, dict[str, str]] = {}
-    for entry in raw:
-        labels = entry.get("metric", {})
-        model_id = labels.get("model_id", "")
-        if not model_id:
+    label_sources = [
+        "litellm_deployment_in_progress_requests",
+        "litellm_deployment_rpm_limit",
+        "litellm_deployment_state",
+    ]
+    labels_by_id: dict[str, dict[str, str]] = {}
+    rpm_by_id: dict[str, int] = {}
+    for metric_name in label_sources:
+        try:
+            raw = await query_prometheus_instant(f"{metric_name}{label_filter}")
+        except Exception as e:  # noqa: BLE001
+            verbose_logger.debug(f"Prometheus label metadata query '{metric_name}' failed: {e}")
             continue
-        candidate = {field: labels.get(field, "") for field in _DEPLOYMENT_LABEL_FIELDS}
-        if model_id not in result:
-            result[model_id] = candidate
-            continue
-        existing_filled = sum(1 for v in result[model_id].values() if v)
-        candidate_filled = sum(1 for v in candidate.values() if v)
-        if candidate_filled > existing_filled:
-            result[model_id] = candidate
-    return result
+        for entry in raw:
+            labels = entry.get("metric", {})
+            model_id = labels.get("model_id", "")
+            if not model_id:
+                continue
+            candidate = {field: labels.get(field, "") for field in _DEPLOYMENT_LABEL_FIELDS}
+            if model_id not in labels_by_id:
+                labels_by_id[model_id] = candidate
+            else:
+                existing_filled = sum(1 for v in labels_by_id[model_id].values() if v)
+                candidate_filled = sum(1 for v in candidate.values() if v)
+                if candidate_filled > existing_filled:
+                    labels_by_id[model_id] = candidate
+            if metric_name == "litellm_deployment_rpm_limit":
+                raw_value = entry.get("value", [0, "0"])[1]
+                rpm_by_id[model_id] = int(float(raw_value))
+    return labels_by_id, rpm_by_id
 
 
 async def get_per_model_metrics(
@@ -326,21 +337,15 @@ async def get_per_model_metrics(
                 deployments[model_id] = _empty_deployment_dict(model_id)
             deployments[model_id][series_name] = _parse_range_result([entry])
 
-    label_metadata = await _get_deployment_label_metadata(label_filter)
+    label_metadata, rpm_by_id = await _get_deployment_label_metadata(label_filter)
     for model_id, labels in label_metadata.items():
         if model_id in deployments:
             for field, value in labels.items():
                 if value:
                     deployments[model_id][field] = value
-
-    try:
-        rpm_raw = await query_prometheus_instant(f"litellm_deployment_rpm_limit{label_filter}")
-        for entry in rpm_raw:
-            model_id = _extract_deployment_key(entry.get("metric", {}))
-            if model_id in deployments:
-                deployments[model_id]["rpm_limit"] = int(float(entry.get("value", [0, "0"])[1]))
-    except Exception as e:  # noqa: BLE001
-        verbose_logger.debug(f"Prometheus rpm_limit query failed: {e}")
+    for model_id, rpm in rpm_by_id.items():
+        if model_id in deployments:
+            deployments[model_id]["rpm_limit"] = rpm
 
     return {
         "prometheus_connected": True,
