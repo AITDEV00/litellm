@@ -59,7 +59,7 @@ def test_extract_deployment_key():
         "extra_label": "ignored",
     }
     key = _extract_deployment_key(labels)
-    assert key == ("abc-123", "Qwen3.6-35B", "http://vllm:8000", "hosted_vllm")
+    assert key == "abc-123"
 
 
 def test_extract_deployment_key_missing_labels():
@@ -68,7 +68,7 @@ def test_extract_deployment_key_missing_labels():
     )
 
     key = _extract_deployment_key({})
-    assert key == ("", "", "", "")
+    assert key == ""
 
 
 def test_parse_range_result():
@@ -176,17 +176,26 @@ async def test_get_per_model_metrics_with_mock_prometheus():
             "values": [[1700000000, "1"], [1700000030, "2"]],
         }
     ]
-    instant_response = [
-        {
-            "metric": {
-                "model_id": "abc-123",
-                "api_base": "http://vllm:8000",
-                "litellm_model_name": "Qwen3.6-35B",
-                "api_provider": "hosted_vllm",
-            },
-            "value": [1700000000, "100"],
-        }
-    ]
+
+    async def mock_instant(query):
+        if "rpm_limit" in query:
+            return [
+                {
+                    "metric": {"model_id": "abc-123"},
+                    "value": [1700000000, "100"],
+                }
+            ]
+        return [
+            {
+                "metric": {
+                    "model_id": "abc-123",
+                    "api_base": "http://vllm:8000",
+                    "litellm_model_name": "Qwen3.6-35B",
+                    "api_provider": "hosted_vllm",
+                },
+                "value": [1700000000, "0"],
+            }
+        ]
 
     with (
         patch.object(prometheus_api, "PROMETHEUS_URL", "http://prometheus:9090"),
@@ -198,7 +207,7 @@ async def test_get_per_model_metrics_with_mock_prometheus():
         patch.object(
             prometheus_api,
             "query_prometheus_instant",
-            AsyncMock(return_value=instant_response),
+            side_effect=mock_instant,
         ),
     ):
         result = await prometheus_api.get_per_model_metrics(window="1h")
@@ -211,6 +220,8 @@ async def test_get_per_model_metrics_with_mock_prometheus():
     dep = result["deployments"][0]
     assert dep["model_id"] == "abc-123"
     assert dep["litellm_model_name"] == "Qwen3.6-35B"
+    assert dep["api_base"] == "http://vllm:8000"
+    assert dep["api_provider"] == "hosted_vllm"
     assert dep["rpm_limit"] == 100
     assert len(dep["concurrent_requests"]) == 2
     assert len(dep["request_rate"]) == 2
@@ -255,12 +266,14 @@ async def test_get_per_model_metrics_with_model_id_filter():
 
 
 @pytest.mark.asyncio
-async def test_get_per_model_metrics_all_queries_group_by_same_labels():
-    """Regression: output_tokens_per_sec must group by api_base too.
+async def test_get_per_model_metrics_all_queries_group_by_model_id_only():
+    """All time-series queries must group by model_id only.
 
-    If it omits api_base from the sum-by, _extract_deployment_key returns
-    api_base="" for every output_tokens series, creating a phantom deployment
-    instead of merging into the correct one.
+    Grouping by litellm_model_name / api_base / api_provider causes label
+    fragmentation because the 4 underlying metrics have inconsistent label
+    values for the same model_id (prefixed vs unprefixed model name, normalized
+    vs endpoint-suffixed api_base, missing labels on output_tokens). Grouping
+    by model_id only ensures all 4 time series merge into one deployment entry.
     """
     from litellm.integrations.prometheus_helpers import prometheus_api
 
@@ -280,10 +293,13 @@ async def test_get_per_model_metrics_all_queries_group_by_same_labels():
     ):
         await prometheus_api.get_per_model_metrics(window="1h")
 
-    range_queries = [q for q in captured_queries if "sum by" in q]
-    assert len(range_queries) == 3
+    range_queries = [q for q in captured_queries if "sum by" in q or "max by" in q]
+    assert len(range_queries) == 4
     for q in range_queries:
-        assert "api_base" in q, f"Query missing api_base in group-by: {q}"
+        assert "model_id" in q, f"Query missing model_id in group-by: {q}"
+        assert "litellm_model_name" not in q, f"Query includes litellm_model_name in group-by: {q}"
+        assert "api_base" not in q, f"Query includes api_base in group-by: {q}"
+        assert "api_provider" not in q, f"Query includes api_provider in group-by: {q}"
 
 
 @pytest.mark.asyncio
@@ -343,3 +359,118 @@ async def test_get_in_progress_requests_instant_with_mock():
     assert len(result) == 1
     assert result[0]["model_id"] == "abc-123"
     assert result[0]["value"] == 3.0
+
+
+@pytest.mark.asyncio
+async def test_label_fragmentation_merges_into_single_deployment():
+    """Regression: fragmented labels across metrics must merge into one entry.
+
+    Before the fix, each of the 4 PromQL queries grouped by
+    (model_id, litellm_model_name, api_base, api_provider), but the underlying
+    metrics had different label values for the same model_id (prefixed vs
+    unprefixed model name, normalized vs endpoint-suffixed api_base, missing
+    labels on output_tokens). This produced 6+ separate deployment entries for
+    a single physical deployment.
+
+    After the fix, all queries group by model_id only, and label metadata is
+    recovered from the gauge instant query. One model_id = one deployment entry.
+    """
+    from litellm.integrations.prometheus_helpers import prometheus_api
+
+    async def mock_range(query, start, end, step):
+        if "litellm_deployment_in_progress_requests" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "hosted_vllm/zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "values": [[1700000000, "5"]],
+                },
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1",
+                        "api_provider": "",
+                    },
+                    "values": [[1700000000, "3"]],
+                },
+            ]
+        if "litellm_deployment_total_requests_total" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1/chat/completions",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "values": [[1700000000, "0.5"]],
+                }
+            ]
+        if "litellm_output_tokens_metric_total" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "model": "zai-org/GLM-5.2-FP8",
+                        "api_provider": "hosted_vllm",
+                    },
+                    "values": [[1700000000, "100"]],
+                }
+            ]
+        if "latency_per_output_token_bucket" in query:
+            return [
+                {
+                    "metric": {
+                        "model_id": "e2acef83",
+                        "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                        "api_base": "http://vllm:8000/v1/chat/completions",
+                        "api_provider": "hosted_vllm",
+                        "le": "0.01",
+                    },
+                    "values": [[1700000000, "10"]],
+                }
+            ]
+        return []
+
+    async def mock_instant(query):
+        if "rpm_limit" in query:
+            return []
+        return [
+            {
+                "metric": {
+                    "model_id": "e2acef83",
+                    "litellm_model_name": "hosted_vllm/zai-org/GLM-5.2-FP8",
+                    "api_base": "http://vllm:8000/v1",
+                    "api_provider": "hosted_vllm",
+                },
+                "value": [1700000000, "0"],
+            }
+        ]
+
+    with (
+        patch.object(prometheus_api, "PROMETHEUS_URL", "http://prometheus:9090"),
+        patch.object(prometheus_api, "query_prometheus_range", side_effect=mock_range),
+        patch.object(prometheus_api, "query_prometheus_instant", side_effect=mock_instant),
+    ):
+        result = await prometheus_api.get_per_model_metrics(window="1h")
+
+    deployments = result["deployments"]
+    assert len(deployments) == 1, (
+        f"Expected 1 deployment, got {len(deployments)}: "
+        f"{[(d['model_id'], d['litellm_model_name'], d['api_base']) for d in deployments]}"
+    )
+
+    dep = deployments[0]
+    assert dep["model_id"] == "e2acef83"
+    assert dep["litellm_model_name"] == "hosted_vllm/zai-org/GLM-5.2-FP8"
+    assert dep["api_base"] == "http://vllm:8000/v1"
+    assert dep["api_provider"] == "hosted_vllm"
+    assert len(dep["concurrent_requests"]) > 0
+    assert len(dep["request_rate"]) > 0
+    assert len(dep["output_tokens_per_sec"]) > 0
+    assert len(dep["latency_per_token_p50"]) > 0

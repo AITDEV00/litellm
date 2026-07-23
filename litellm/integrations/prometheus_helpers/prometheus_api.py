@@ -160,12 +160,7 @@ _WINDOW_CONFIG: dict[str, tuple[str, str]] = {
     "7d": ("7d", "1h"),
 }
 
-_DEPLOYMENT_LABELS = (
-    "model_id",
-    "litellm_model_name",
-    "api_base",
-    "api_provider",
-)
+_DEPLOYMENT_LABEL_FIELDS = ("litellm_model_name", "api_base", "api_provider")
 
 
 async def query_prometheus_range(
@@ -229,27 +224,56 @@ def _parse_range_result(result: list[dict]) -> list[dict]:
     return points
 
 
-def _extract_deployment_key(metric_labels: dict) -> tuple[str, str, str, str]:
-    return (
-        metric_labels.get("model_id", ""),
-        metric_labels.get("litellm_model_name", ""),
-        metric_labels.get("api_base", ""),
-        metric_labels.get("api_provider", ""),
-    )
+def _extract_deployment_key(metric_labels: dict) -> str:
+    return metric_labels.get("model_id", "")
 
 
-def _empty_deployment_dict(key: tuple[str, str, str, str]) -> dict:
+def _empty_deployment_dict(model_id: str) -> dict:
     return {
-        "model_id": key[0],
-        "litellm_model_name": key[1],
-        "api_base": key[2],
-        "api_provider": key[3],
+        "model_id": model_id,
+        "litellm_model_name": "",
+        "api_base": "",
+        "api_provider": "",
         "rpm_limit": 0,
         "concurrent_requests": [],
         "request_rate": [],
         "output_tokens_per_sec": [],
         "latency_per_token_p50": [],
     }
+
+
+async def _get_deployment_label_metadata(
+    label_filter: str,
+) -> dict[str, dict[str, str]]:
+    """Build a ``model_id -> labels`` map from the gauge instant query.
+
+    The 4 time-series queries group by ``model_id`` only, so they lose the
+    ``litellm_model_name`` / ``api_base`` / ``api_provider`` labels. This
+    function queries the gauge instant endpoint to recover them. When the
+    same ``model_id`` has multiple series (stale labels from before the
+    Bug 4 fix), the entry with the most non-empty label fields wins.
+    """
+    try:
+        raw = await query_prometheus_instant(f"litellm_deployment_in_progress_requests{label_filter}")
+    except Exception as e:  # noqa: BLE001
+        verbose_logger.debug(f"Prometheus label metadata query failed: {e}")
+        return {}
+
+    result: dict[str, dict[str, str]] = {}
+    for entry in raw:
+        labels = entry.get("metric", {})
+        model_id = labels.get("model_id", "")
+        if not model_id:
+            continue
+        candidate = {field: labels.get(field, "") for field in _DEPLOYMENT_LABEL_FIELDS}
+        if model_id not in result:
+            result[model_id] = candidate
+            continue
+        existing_filled = sum(1 for v in result[model_id].values() if v)
+        candidate_filled = sum(1 for v in candidate.values() if v)
+        if candidate_filled > existing_filled:
+            result[model_id] = candidate
+    return result
 
 
 async def get_per_model_metrics(
@@ -279,13 +303,13 @@ async def get_per_model_metrics(
         label_filter = f"{{model_id={quoted}}}"
 
     queries = {
-        "concurrent_requests": f"max_over_time(litellm_deployment_in_progress_requests{label_filter}[{range_str}])",
-        "request_rate": f"sum by ({','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_deployment_total_requests_total{label_filter}[{range_str}]))",
-        "output_tokens_per_sec": f"sum by ({','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))",
-        "latency_per_token_p50": f"histogram_quantile(0.50, sum by (le, {','.join(_DEPLOYMENT_LABELS)}) (rate(litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))",
+        "concurrent_requests": f"max by (model_id) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{range_str}]))",
+        "request_rate": f"sum by (model_id) (rate(litellm_deployment_total_requests_total{label_filter}[{range_str}]))",
+        "output_tokens_per_sec": f"sum by (model_id) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))",
+        "latency_per_token_p50": f"histogram_quantile(0.50, sum by (le, model_id) (rate(litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))",
     }
 
-    deployments: dict[tuple[str, str, str, str], dict] = {}
+    deployments: dict[str, dict] = {}
 
     for series_name, promql in queries.items():
         try:
@@ -295,17 +319,26 @@ async def get_per_model_metrics(
             continue
 
         for entry in raw:
-            key = _extract_deployment_key(entry.get("metric", {}))
-            if key not in deployments:
-                deployments[key] = _empty_deployment_dict(key)
-            deployments[key][series_name] = _parse_range_result([entry])
+            model_id = _extract_deployment_key(entry.get("metric", {}))
+            if not model_id:
+                continue
+            if model_id not in deployments:
+                deployments[model_id] = _empty_deployment_dict(model_id)
+            deployments[model_id][series_name] = _parse_range_result([entry])
+
+    label_metadata = await _get_deployment_label_metadata(label_filter)
+    for model_id, labels in label_metadata.items():
+        if model_id in deployments:
+            for field, value in labels.items():
+                if value:
+                    deployments[model_id][field] = value
 
     try:
         rpm_raw = await query_prometheus_instant(f"litellm_deployment_rpm_limit{label_filter}")
         for entry in rpm_raw:
-            key = _extract_deployment_key(entry.get("metric", {}))
-            if key in deployments:
-                deployments[key]["rpm_limit"] = int(float(entry.get("value", [0, "0"])[1]))
+            model_id = _extract_deployment_key(entry.get("metric", {}))
+            if model_id in deployments:
+                deployments[model_id]["rpm_limit"] = int(float(entry.get("value", [0, "0"])[1]))
     except Exception as e:  # noqa: BLE001
         verbose_logger.debug(f"Prometheus rpm_limit query failed: {e}")
 

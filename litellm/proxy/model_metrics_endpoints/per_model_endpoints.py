@@ -58,7 +58,10 @@ async def per_model_metrics_handler(
     instant = await get_in_progress_requests_instant()
     deployments = [
         {
-            **_empty_deployment_dict((d["model_id"], d["litellm_model_name"], d["api_base"], d["api_provider"])),
+            **_empty_deployment_dict(d["model_id"]),
+            "litellm_model_name": d["litellm_model_name"],
+            "api_base": d["api_base"],
+            "api_provider": d["api_provider"],
             "concurrent_requests": [{"timestamp": "", "value": d["value"]}],
         }
         for d in instant
