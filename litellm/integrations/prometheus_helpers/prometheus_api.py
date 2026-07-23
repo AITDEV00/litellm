@@ -259,6 +259,7 @@ async def _get_deployment_label_metadata(
         "litellm_deployment_in_progress_requests",
         "litellm_deployment_rpm_limit",
         "litellm_deployment_state",
+        "litellm_deployment_total_requests_total",
     ]
     labels_by_id: dict[str, dict[str, str]] = {}
     rpm_by_id: dict[str, int] = {}
