@@ -183,6 +183,26 @@ async def test_pre_call_noop_when_standard_logging_missing(logger, isolated_regi
     assert _gauge_value(isolated_registry) == 0.0
 
 
+def test_sync_log_pre_api_call_incs_gauge(logger, isolated_registry):
+    """The sync log_pre_api_call is the one actually invoked by the logging
+    system in the async proxy path. It must inc the gauge just like the
+    async version."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+        },
+    }
+    logger.log_pre_api_call(
+        model="Qwen3.6-35B", messages=[], kwargs=kwargs
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+
 @pytest.mark.asyncio
 async def test_failure_metrics_decs_gauge(logger, isolated_registry):
     await logger.async_log_pre_api_call(

@@ -1169,7 +1169,7 @@ class PrometheusLogger(CustomLogger):
         counter.labels(**_labels).inc(amount)
         self._track_end_user_metric_series(counter, metric_name, _labels)
 
-    async def async_log_pre_api_call(self, model, messages, kwargs):
+    def _inc_deployment_in_progress(self, model, kwargs):
         try:
             standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
             _litellm_params = kwargs.get("litellm_params", {}) or {}
@@ -1205,7 +1205,13 @@ class PrometheusLogger(CustomLogger):
             )
             self.litellm_deployment_in_progress_requests.labels(**_labels).inc()
         except Exception as e:  # noqa: BLE001
-            verbose_logger.debug("Prometheus: async_log_pre_api_call inc error: {}".format(str(e)))
+            verbose_logger.debug("Prometheus: _inc_deployment_in_progress error: {}".format(str(e)))
+
+    def log_pre_api_call(self, model, messages, kwargs):
+        self._inc_deployment_in_progress(model, kwargs)
+
+    async def async_log_pre_api_call(self, model, messages, kwargs):
+        self._inc_deployment_in_progress(model, kwargs)
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         # Define prometheus client
