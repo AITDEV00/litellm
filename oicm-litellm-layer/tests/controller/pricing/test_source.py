@@ -1,7 +1,6 @@
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 from controller.pricing.source import (
     PricingSource,
@@ -9,7 +8,6 @@ from controller.pricing.source import (
     _build_index,
     _load_from_file,
 )
-from controller.pricing.models import PricingEntry
 
 FIXTURE_PATH = Path(__file__).parent / "pricing_fixture.json"
 
@@ -44,6 +42,19 @@ class TestBuildEntry:
                 "mode": "chat",
                 "input_cost_per_token": 0,
                 "output_cost_per_token": 0,
+            },
+        )
+        assert entry is not None
+        assert entry.has_pricing is False
+
+    def test_excludes_zero_cost_embedding_entry(self):
+        entry = _build_entry(
+            "fireworks_ai/accounts/fireworks/models/qwen3-embedding-4b",
+            {
+                "litellm_provider": "fireworks_ai",
+                "mode": "embedding",
+                "input_cost_per_token": 0.0,
+                "output_cost_per_token": 0.0,
             },
         )
         assert entry is not None
@@ -153,7 +164,7 @@ class TestLoadFromFile:
     def test_raises_on_missing_file(self):
         try:
             _load_from_file("/nonexistent/path.json")
-            assert False, "Should have raised FileNotFoundError"
+            raise AssertionError("Should have raised FileNotFoundError")
         except FileNotFoundError:
             pass
 

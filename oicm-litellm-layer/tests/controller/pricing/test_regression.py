@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+from controller.pricing.matchers import substring_match
+from controller.pricing.models import PricingEntry
 from controller.pricing.resolver import PricingResolver
 from controller.pricing.source import PricingSource
 
@@ -54,9 +56,6 @@ class TestRegressionTieredPricing:
 
 class TestRegressionSubstringMinLength:
     def test_short_normalized_key_does_not_substring_match(self):
-        from controller.pricing.matchers import substring_match
-        from controller.pricing.models import PricingEntry
-
         entry = PricingEntry(
             key="dashscope/qwen-turbo",
             litellm_provider="dashscope",
@@ -71,9 +70,6 @@ class TestRegressionSubstringMinLength:
         assert len(result) == 0
 
     def test_two_char_normalized_key_does_not_substring_match(self):
-        from controller.pricing.matchers import substring_match
-        from controller.pricing.models import PricingEntry
-
         entry = PricingEntry(
             key="deepseek.v3-v1:0",
             litellm_provider="bedrock_converse",
@@ -88,9 +84,6 @@ class TestRegressionSubstringMinLength:
         assert len(result) == 0
 
     def test_long_enough_key_still_substring_matches(self):
-        from controller.pricing.matchers import substring_match
-        from controller.pricing.models import PricingEntry
-
         entry = PricingEntry(
             key="deepseek/deepseek-v3",
             litellm_provider="deepseek",

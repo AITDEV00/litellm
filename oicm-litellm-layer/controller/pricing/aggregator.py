@@ -6,7 +6,6 @@ from .models import MatcherCandidate, PricingResult
 
 def aggregate(
     candidates: list[MatcherCandidate],
-    model_id: str,
     threshold: float = PRICING_MATCH_THRESHOLD,
 ) -> Optional[PricingResult]:
     if not candidates:

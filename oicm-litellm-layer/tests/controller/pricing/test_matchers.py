@@ -5,7 +5,6 @@ from controller.pricing.matchers import (
     substring_match,
 )
 from controller.pricing.models import PricingEntry
-from controller.pricing.normalizer import normalize_model_name
 
 
 def _make_entry(key: str, input_cost: float = 1e-07, output_cost: float = 2e-07) -> PricingEntry:

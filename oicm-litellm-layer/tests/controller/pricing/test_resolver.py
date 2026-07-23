@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+import controller.pricing.resolver as resolver_module
 from controller.pricing.resolver import PricingResolver
 from controller.pricing.source import PricingSource
 
@@ -66,8 +67,6 @@ class TestResolverResolve:
 
 class TestResolverDisabled:
     def test_returns_none_when_disabled(self, monkeypatch):
-        import controller.pricing.resolver as resolver_module
-
         monkeypatch.setattr(resolver_module, "PRICING_ENABLED", False)
         resolver = _make_resolver()
         result = asyncio.run(resolver.resolve("deepseek-chat"))

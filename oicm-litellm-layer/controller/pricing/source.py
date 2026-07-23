@@ -37,7 +37,7 @@ def _build_entry(key: str, raw: dict) -> Optional[PricingEntry]:
 
     has_pricing = input_cost is not None or output_cost is not None
 
-    if has_pricing and mode == "chat":
+    if has_pricing:
         ic = float(input_cost) if input_cost is not None else 0.0
         oc = float(output_cost) if output_cost is not None else 0.0
         if ic == 0.0 and oc == 0.0:

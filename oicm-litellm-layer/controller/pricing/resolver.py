@@ -46,7 +46,7 @@ class PricingResolver:
                     e,
                 )
 
-        result = aggregate(candidates, model_id)
+        result = aggregate(candidates)
         if result:
             logger.info(
                 "Pricing resolved for %s: input=%.4e output=%.4e score=%.2f "

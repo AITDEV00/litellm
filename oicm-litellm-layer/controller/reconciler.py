@@ -106,15 +106,15 @@ class SyncReconciler:
                 plan.registers.append((model, pricing_to_params(pricing)))
             else:
                 if existing_id:
-                    plan.patches.append(
-                        (
-                            existing_id,
-                            {
-                                "model": f"hosted_vllm/{model.model_id}",
-                                "api_base": model.api_base,
-                            },
-                        )
-                    )
+                    patch_params: dict = {
+                        "model": f"hosted_vllm/{model.model_id}",
+                        "api_base": model.api_base,
+                    }
+                    pricing = await self.pricing.resolve(model.model_id)
+                    inherited = pricing_to_params(pricing)
+                    if inherited:
+                        patch_params.update(inherited)
+                    plan.patches.append((existing_id, patch_params))
                 plan.new_state[uuid] = model
 
         return plan

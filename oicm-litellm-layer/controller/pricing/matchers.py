@@ -88,7 +88,7 @@ def fuzzy_match(
         return ()
 
     candidates: list[MatcherCandidate] = []
-    for key, entry in index.items():
+    for entry in index.values():
         norm_key = normalize_model_name(entry.key)
         key_tokens = set(tokenize(norm_key))
         if not model_tokens & key_tokens:
