@@ -5,7 +5,7 @@ These tests mock the HTTP calls to Prometheus and verify that the query
 results are parsed correctly into the expected response shape.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -101,6 +101,37 @@ async def test_get_per_model_metrics_no_prometheus_url():
         result = await prometheus_api.get_per_model_metrics(window="1h")
     assert result["prometheus_connected"] is False
     assert result["deployments"] == []
+
+
+@pytest.mark.asyncio
+async def test_query_prometheus_range_sends_unix_timestamps():
+    """query_prometheus_range must send Unix timestamps, not isoformat strings.
+
+    Appending '+00:00' to an already timezone-aware datetime produces an
+    invalid timestamp that Prometheus silently rejects, returning empty
+    results.
+    """
+    from litellm.integrations.prometheus_helpers import prometheus_api
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"data": {"result": []}}
+
+    start_dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    end_dt = datetime(2026, 1, 2, tzinfo=timezone.utc)
+
+    with (
+        patch.object(prometheus_api, "PROMETHEUS_URL", "http://prometheus:9090"),
+        patch.object(prometheus_api.async_http_handler, "get", AsyncMock(return_value=mock_response)) as mock_get,
+    ):
+        await prometheus_api.query_prometheus_range("up", start_dt, end_dt, "30s")
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert isinstance(params["start"], float)
+        assert isinstance(params["end"], float)
+        assert params["start"] == start_dt.timestamp()
+        assert params["end"] == end_dt.timestamp()
 
 
 @pytest.mark.asyncio

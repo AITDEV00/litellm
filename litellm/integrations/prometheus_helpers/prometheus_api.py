@@ -186,8 +186,8 @@ async def query_prometheus_range(
 
     params = {
         "query": query,
-        "start": start.isoformat() + "+00:00",
-        "end": end.isoformat() + "+00:00",
+        "start": start.timestamp(),
+        "end": end.timestamp(),
         "step": step,
     }
     response = await async_http_handler.get(
