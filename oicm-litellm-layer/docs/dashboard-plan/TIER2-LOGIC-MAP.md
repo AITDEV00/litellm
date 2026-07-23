@@ -287,3 +287,37 @@ Before the `_normalize_api_base_for_gauge` fix, the INC used `/v1/chat/completio
 ### Bug 3: NaN values in histogram_quantile
 
 `histogram_quantile(0.50, ...)` returns NaN when there are no bucket samples in the window. The `_parse_range_result` NaN filter handles this by skipping NaN data points, but entire series may appear empty.
+
+### Bug 4: INC/DEC litellm_model_name label mismatch (FIXED)
+
+Found via L3 cross-reference analysis. At `async_pre_call_deployment_hook` time, `kwargs["model"]` still contains the provider prefix (e.g. `hosted_vllm/zai-org/GLM-5.2-FP8`). By the time the success/failure DEC hook runs, `function_setup` has stripped the prefix so `request_kwargs["model"]` is `zai-org/GLM-5.2-FP8`. The DEC path was using `request_kwargs.get("model")` for the gauge label, producing a different label series than the INC. The gauge leaked monotonically (INC series climbed, DEC series went negative).
+
+**Fix**: The DEC success and failure paths now use `standard_logging_payload.get("model")` for the gauge DEC label. `standard_logging_payload["model"]` is set by `reconstruct_model_name()` in `litellm_logging.py`, which re-adds the provider prefix from `metadata["deployment"]` (the router's deployment model name). This matches the INC path's `kwargs["model"]` (also prefixed), so INC and DEC now land on the same label series.
+
+The INC path's `get_llm_provider()` fallback was also fixed to only derive `api_provider` (not strip `litellm_model_name`), keeping the raw model string intact for label consistency.
+
+### Bug 5: INC hook could not find model_id (FIXED)
+
+At `async_pre_call_deployment_hook` time, `kwargs["litellm_params"]` does not exist yet. `function_setup` builds it internally but does not put it back in `kwargs`. The router puts `model_info`, `api_base`, and `custom_llm_provider` in `kwargs["metadata"]` (top-level) via `_update_kwargs_with_deployment`. The `_inc_deployment_in_progress` function was reading `kwargs.get("litellm_params", {}).get("metadata", {}).get("model_info", {}).get("id", "")` which returned `""`, causing an early return without inc'ing.
+
+**Fix**: `_inc_deployment_in_progress` now uses `get_litellm_metadata_from_kwargs(kwargs)` first, then falls back to `get_metadata_variable_name_from_kwargs(kwargs)` to read from top-level `kwargs["metadata"]` or `kwargs["litellm_metadata"]`.
+
+## Code smell audit (2026-07-23)
+
+Applied the 4-layer code smell detection technique (L1: automated tools, L2: per-file checklist, L3: cross-reference analysis, L4: fix-then-recheck loop).
+
+### Fixed
+
+- Dead variable `_tags` in `_increment_token_metrics` (assigned, never read; tags already baked into `enum_values` by the caller)
+- `RET504`: Unnecessary assignment to `results` before `return` in `get_metric_from_prometheus`
+- `SIM103`: `is_prometheus_connected()` simplified to `return PROMETHEUS_URL is not None`
+- `SIM102`: Combined nested `if` statements in `get_fallback_metric_from_prometheus`
+- `PLW2901`: Loop variable `metric` overwritten by assignment in `get_fallback_metric_from_prometheus` (renamed to `metric_labels`)
+- Bug 4 above (litellm_model_name label mismatch between INC and DEC)
+
+### Not fixed (pre-existing, out of scope)
+
+- `F403`/`F405`: Star import `from litellm.types.integrations.prometheus import *` in `prometheus.py` (legacy, affects entire file)
+- `PLC0415`: Imports inside functions in `prometheus.py` (legacy pattern throughout the file)
+- `ARG001`/`B008`: `user_api_key_dict` unused arg and `Depends()` in defaults in `per_model_endpoints.py` (standard FastAPI pattern, false positives)
+- Interface-conformance unused parameters: `call_type`, `response_obj`, `traceback_str` (required by `CustomLogger` base class signature)

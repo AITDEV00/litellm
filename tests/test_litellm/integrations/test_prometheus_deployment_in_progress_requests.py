@@ -526,3 +526,69 @@ def test_normalize_api_base_strips_known_suffixes():
     assert _normalize_api_base_for_gauge("http://vllm:8080/v1") == "http://vllm:8080/v1"
     assert _normalize_api_base_for_gauge("") == ""
     assert _normalize_api_base_for_gauge("http://vllm:8080/custom/path") == "http://vllm:8080/custom/path"
+
+
+@pytest.mark.asyncio
+async def test_inc_dec_model_name_label_match_with_provider_prefix(logger, isolated_registry):
+    """Regression: at async_pre_call_deployment_hook time the model string still
+    contains the provider prefix (e.g. "hosted_vllm/zai-org/GLM-5.2-FP8") and
+    custom_llm_provider is empty.  By the time the success hook runs,
+    function_setup has stripped the prefix so request_kwargs["model"] is
+    "zai-org/GLM-5.2-FP8".  But standard_logging_payload["model"] is
+    reconstructed with the prefix via reconstruct_model_name().
+
+    The INC path uses the raw kwargs["model"] (prefixed).  The DEC path must
+    use standard_logging_payload["model"] (also prefixed) so the labels match.
+    If DEC used request_kwargs["model"] (unprefixed), the labels would differ
+    and the gauge would leak forever.
+
+    This test reproduces the production bug: inc with prefixed model, dec with
+    standard_logging_payload["model"] also prefixed.  The gauge must return to 0.
+    """
+    await logger.async_pre_call_deployment_hook(
+        kwargs={
+            "model": "hosted_vllm/zai-org/GLM-5.2-FP8",
+            "messages": [],
+            "metadata": {
+                "model_info": {"id": "abc-123"},
+                "api_base": "http://vllm:8080/v1",
+                "custom_llm_provider": "",
+            },
+        },
+        call_type=None,
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="zai-org/GLM-5.2-FP8",
+        model_id="abc-123",
+        api_base="http://vllm:8080/v1",
+        api_provider="hosted_vllm",
+    )
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "zai-org/GLM-5.2-FP8",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080/v1",
+                "model": "hosted_vllm/zai-org/GLM-5.2-FP8",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "zai-org/GLM-5.2-FP8",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "api_base": "http://vllm:8080/v1",
+                "custom_llm_provider": "hosted_vllm",
+                "metadata": {"model_info": {"id": "abc-123"}},
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0

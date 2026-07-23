@@ -1212,6 +1212,15 @@ class PrometheusLogger(CustomLogger):
                     or _metadata.get("custom_llm_provider", "")
                     or kwargs.get("custom_llm_provider", "")
                 )
+                if not api_provider and litellm_model_name:
+                    try:
+                        _, _parsed_provider, _, _ = litellm.get_llm_provider(
+                            model=litellm_model_name,
+                            custom_llm_provider=None,
+                        )
+                        api_provider = _parsed_provider
+                    except Exception:  # noqa: BLE001
+                        pass
                 api_base = (
                     _litellm_params.get("api_base", "") or _metadata.get("api_base", "") or kwargs.get("api_base", "")
                 )
@@ -1454,9 +1463,6 @@ class PrometheusLogger(CustomLogger):
     ):
         verbose_logger.debug("prometheus Logging - Enters token metrics function")
         # token metrics
-
-        if standard_logging_payload is not None and isinstance(standard_logging_payload, dict):
-            _tags = standard_logging_payload["request_tags"]
 
         PrometheusLogger._inc_labeled_counter(
             self,
@@ -2474,7 +2480,7 @@ class PrometheusLogger(CustomLogger):
                 _in_progress_labels = prometheus_label_factory(
                     supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
                     enum_values=UserAPIKeyLabelValues(
-                        litellm_model_name=label_litellm_model_name,
+                        litellm_model_name=standard_logging_payload.get("model", "") or label_litellm_model_name or "",
                         model_id=label_model_id,
                         api_base=_normalize_api_base_for_gauge(
                             _litellm_params.get("api_base", "") or label_api_base or ""
@@ -2723,7 +2729,7 @@ class PrometheusLogger(CustomLogger):
                 _in_progress_labels = prometheus_label_factory(
                     supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
                     enum_values=UserAPIKeyLabelValues(
-                        litellm_model_name=litellm_model_name or "",
+                        litellm_model_name=standard_logging_payload.get("model", "") or litellm_model_name or "",
                         model_id=model_id,
                         api_base=_normalize_api_base_for_gauge(_litellm_params.get("api_base", "") or api_base or ""),
                         api_provider=llm_provider or "",

@@ -33,8 +33,7 @@ async def get_metric_from_prometheus(
     )  # End of the day
     _json_response = response.json()
     verbose_logger.debug("json response from prometheus /query api %s", _json_response)
-    results = response.json()["data"]["result"]
-    return results
+    return response.json()["data"]["result"]
 
 
 async def get_fallback_metric_from_prometheus():
@@ -55,17 +54,19 @@ async def get_fallback_metric_from_prometheus():
             verbose_logger.debug("response json %s", response_json)
             for result in response_json:
                 verbose_logger.debug("result= %s", result)
-                metric = result["metric"]
+                metric_labels = result["metric"]
                 metric_values = result["values"]
                 most_recent_value = metric_values[0]
 
-                if PROMETHEUS_SELECTED_INSTANCE is not None:
-                    if metric.get("instance") != PROMETHEUS_SELECTED_INSTANCE:
-                        continue
+                if (
+                    PROMETHEUS_SELECTED_INSTANCE is not None
+                    and metric_labels.get("instance") != PROMETHEUS_SELECTED_INSTANCE
+                ):
+                    continue
 
                 value = int(float(most_recent_value[1]))  # Convert value to integer
-                primary_model = metric.get("primary_model", "Unknown")
-                fallback_model = metric.get("fallback_model", "Unknown")
+                primary_model = metric_labels.get("primary_model", "Unknown")
+                fallback_model = metric_labels.get("fallback_model", "Unknown")
                 response_message += f"`{value} successful fallback requests` with primary model=`{primary_model}` -> fallback model=`{fallback_model}`"
                 response_message += "\n"
         verbose_logger.debug("response message %s", response_message)
@@ -73,9 +74,7 @@ async def get_fallback_metric_from_prometheus():
 
 
 def is_prometheus_connected() -> bool:
-    if PROMETHEUS_URL is not None:
-        return True
-    return False
+    return PROMETHEUS_URL is not None
 
 
 def _quote_promql_string_literal(value: str) -> str:
