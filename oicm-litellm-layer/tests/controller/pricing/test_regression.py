@@ -50,3 +50,56 @@ class TestRegressionTieredPricing:
         assert result is not None
         assert result.input_cost_per_token == 5e-08
         assert result.output_cost_per_token == 4e-07
+
+
+class TestRegressionSubstringMinLength:
+    def test_short_normalized_key_does_not_substring_match(self):
+        from controller.pricing.matchers import substring_match
+        from controller.pricing.models import PricingEntry
+
+        entry = PricingEntry(
+            key="dashscope/qwen-turbo",
+            litellm_provider="dashscope",
+            mode="chat",
+            input_cost_per_token=1e-07,
+            output_cost_per_token=2e-07,
+            has_pricing=True,
+            source_url="",
+        )
+        index = {"qwen": entry}
+        result = substring_match("qwen3.5-0.8b", index)
+        assert len(result) == 0
+
+    def test_two_char_normalized_key_does_not_substring_match(self):
+        from controller.pricing.matchers import substring_match
+        from controller.pricing.models import PricingEntry
+
+        entry = PricingEntry(
+            key="deepseek.v3-v1:0",
+            litellm_provider="bedrock_converse",
+            mode="chat",
+            input_cost_per_token=5e-07,
+            output_cost_per_token=1e-06,
+            has_pricing=True,
+            source_url="",
+        )
+        index = {"v3": entry}
+        result = substring_match("whisper-large-v3", index)
+        assert len(result) == 0
+
+    def test_long_enough_key_still_substring_matches(self):
+        from controller.pricing.matchers import substring_match
+        from controller.pricing.models import PricingEntry
+
+        entry = PricingEntry(
+            key="deepseek/deepseek-v3",
+            litellm_provider="deepseek",
+            mode="chat",
+            input_cost_per_token=2.8e-07,
+            output_cost_per_token=4.2e-07,
+            has_pricing=True,
+            source_url="",
+        )
+        index = {"deepseek-v3": entry}
+        result = substring_match("deepseek-v3.2", index)
+        assert len(result) == 1

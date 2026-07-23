@@ -111,6 +111,9 @@ def fuzzy_match(
     return tuple(candidates)
 
 
+MIN_SUBSTRING_LENGTH = 5
+
+
 def substring_match(
     normalized_model: str,
     index: dict[str, PricingEntry],
@@ -121,6 +124,9 @@ def substring_match(
     candidates: list[MatcherCandidate] = []
     for entry in index.values():
         norm_key = normalize_model_name(entry.key)
+        shorter = norm_key if len(norm_key) < len(normalized_model) else normalized_model
+        if len(shorter) < MIN_SUBSTRING_LENGTH:
+            continue
         if normalized_model in norm_key or norm_key in normalized_model:
             candidates.append(
                 MatcherCandidate(

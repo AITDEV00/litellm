@@ -36,6 +36,19 @@ class TestBuildEntry:
         assert entry is not None
         assert entry.has_pricing is False
 
+    def test_excludes_zero_cost_chat_entry(self):
+        entry = _build_entry(
+            "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+            {
+                "litellm_provider": "lemonade",
+                "mode": "chat",
+                "input_cost_per_token": 0,
+                "output_cost_per_token": 0,
+            },
+        )
+        assert entry is not None
+        assert entry.has_pricing is False
+
     def test_includes_embedding_with_zero_output_cost(self):
         entry = _build_entry(
             "amazon.titan-embed-text-v1",
@@ -107,7 +120,8 @@ class TestBuildIndex:
     def test_excludes_no_pricing_entries(self):
         index = _build_index(self._load_fixture())
         assert "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo" not in index.entries
-        assert index.skipped_no_pricing == 2
+        assert "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF" not in index.entries
+        assert index.skipped_no_pricing == 3
 
     def test_includes_tiered_pricing(self):
         index = _build_index(self._load_fixture())
