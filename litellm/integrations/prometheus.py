@@ -87,6 +87,29 @@ def _get_budget_metrics_per_request_timeout() -> float:
     return parsed
 
 
+_API_BASE_ENDPOINT_SUFFIXES: tuple[str, ...] = (
+    "/chat/completions",
+    "/completions",
+    "/embeddings",
+    "/responses",
+    "/rerank",
+    "/transcriptions",
+    "/translations",
+    "/images/generations",
+    "/audio/speech",
+)
+
+
+def _normalize_api_base_for_gauge(api_base: str) -> str:
+    if not api_base:
+        return ""
+    stripped = api_base.rstrip("/")
+    for suffix in _API_BASE_ENDPOINT_SUFFIXES:
+        if stripped.endswith(suffix):
+            return stripped[: -len(suffix)].rstrip("/")
+    return stripped
+
+
 class PrometheusLogger(CustomLogger):
     # Class variables or attributes
 
@@ -1193,7 +1216,7 @@ class PrometheusLogger(CustomLogger):
                 api_provider = standard_logging_payload.get("custom_llm_provider", "") or _litellm_params.get(
                     "custom_llm_provider", ""
                 )
-            api_base = _litellm_params.get("api_base", "") or ""
+            api_base = _normalize_api_base_for_gauge(_litellm_params.get("api_base", "") or "")
             _labels = prometheus_label_factory(
                 supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
                 enum_values=UserAPIKeyLabelValues(
@@ -2442,7 +2465,9 @@ class PrometheusLogger(CustomLogger):
                     enum_values=UserAPIKeyLabelValues(
                         litellm_model_name=label_litellm_model_name,
                         model_id=label_model_id,
-                        api_base=_litellm_params.get("api_base", "") or label_api_base or "",
+                        api_base=_normalize_api_base_for_gauge(
+                            _litellm_params.get("api_base", "") or label_api_base or ""
+                        ),
                         api_provider=label_api_provider,
                     ),
                 )
@@ -2689,7 +2714,7 @@ class PrometheusLogger(CustomLogger):
                     enum_values=UserAPIKeyLabelValues(
                         litellm_model_name=litellm_model_name or "",
                         model_id=model_id,
-                        api_base=_litellm_params.get("api_base", "") or api_base or "",
+                        api_base=_normalize_api_base_for_gauge(_litellm_params.get("api_base", "") or api_base or ""),
                         api_provider=llm_provider or "",
                     ),
                 )

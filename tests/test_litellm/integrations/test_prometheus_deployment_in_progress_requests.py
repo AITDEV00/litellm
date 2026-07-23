@@ -96,10 +96,7 @@ def logger(isolated_registry):
 def _gauge_value(registry, model_id="abc-123"):
     output = generate_latest(registry).decode()
     for line in output.splitlines():
-        if (
-            "litellm_deployment_in_progress_requests" in line
-            and f'model_id="{model_id}"' in line
-        ):
+        if "litellm_deployment_in_progress_requests" in line and f'model_id="{model_id}"' in line:
             return float(line.split()[-1])
     return 0.0
 
@@ -144,9 +141,7 @@ async def test_pre_call_incs_gauge_when_model_id_present(logger, isolated_regist
             "custom_llm_provider": "hosted_vllm",
         },
     }
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B", messages=[], kwargs=kwargs
-    )
+    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
     assert _gauge_value(isolated_registry) == 1.0
 
 
@@ -162,9 +157,7 @@ async def test_pre_call_noop_when_model_id_missing(logger, isolated_registry):
             "custom_llm_provider": "hosted_vllm",
         },
     }
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B", messages=[], kwargs=kwargs
-    )
+    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
     assert _gauge_value(isolated_registry) == 0.0
 
 
@@ -177,9 +170,7 @@ async def test_pre_call_noop_when_standard_logging_missing(logger, isolated_regi
             "metadata": {"model_info": {}},
         },
     }
-    await logger.async_log_pre_api_call(
-        model="Qwen3.6-35B", messages=[], kwargs=kwargs
-    )
+    await logger.async_log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
     assert _gauge_value(isolated_registry) == 0.0
 
 
@@ -197,9 +188,7 @@ def test_sync_log_pre_api_call_incs_gauge(logger, isolated_registry):
             "custom_llm_provider": "hosted_vllm",
         },
     }
-    logger.log_pre_api_call(
-        model="Qwen3.6-35B", messages=[], kwargs=kwargs
-    )
+    logger.log_pre_api_call(model="Qwen3.6-35B", messages=[], kwargs=kwargs)
     assert _gauge_value(isolated_registry) == 1.0
 
 
@@ -425,3 +414,121 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
         output_tokens=10.0,
     )
     assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isolated_registry):
+    """Regression: litellm_params.api_base is mutated between pre-call and success.
+
+    At pre-call, api_base is the full endpoint URL (e.g. .../v1/chat/completions).
+    By the time the success hook runs, litellm has stripped it to the base URL
+    (.../v1).  Without normalization the inc and dec hit different label series
+    and the gauge leaks forever (goes negative).
+
+    This test reproduces the production bug: inc with /chat/completions suffix,
+    dec without it.  The gauge must still return to 0.
+    """
+    await logger.async_log_pre_api_call(
+        model="zai-org/GLM-5.2-FP8",
+        messages=[],
+        kwargs={
+            "model": "zai-org/GLM-5.2-FP8",
+            "messages": [],
+            "litellm_params": {
+                "api_base": "http://vllm:8080/v1/chat/completions",
+                "custom_llm_provider": "hosted_vllm",
+            },
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080/v1/chat/completions",
+                "model": "zai-org/GLM-5.2-FP8",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="zai-org/GLM-5.2-FP8",
+        model_id="abc-123",
+        api_base="http://vllm:8080/v1",
+        api_provider="hosted_vllm",
+    )
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "zai-org/GLM-5.2-FP8",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080/v1",
+                "model": "zai-org/GLM-5.2-FP8",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "zai-org/GLM-5.2-FP8",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "api_base": "http://vllm:8080/v1",
+                "metadata": {"model_info": {"id": "abc-123"}},
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry):
+    """Same regression as above but for the failure dec path."""
+    await logger.async_log_pre_api_call(
+        model="Qwen3.6-35B",
+        messages=[],
+        kwargs={
+            "model": "Qwen3.6-35B",
+            "messages": [],
+            "litellm_params": {
+                "api_base": "http://vllm:8080/v1/chat/completions",
+                "custom_llm_provider": "hosted_vllm",
+            },
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080/v1/chat/completions",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    logger.set_llm_deployment_failure_metrics(
+        {
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8080/v1",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+            },
+            "litellm_params": {"api_base": "http://vllm:8080/v1", "custom_llm_provider": "hosted_vllm"},
+            "exception": Exception("timeout"),
+        }
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+def test_normalize_api_base_strips_known_suffixes():
+    from litellm.integrations.prometheus import _normalize_api_base_for_gauge
+
+    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/chat/completions") == "http://vllm:8080/v1"
+    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/embeddings") == "http://vllm:8080/v1"
+    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/responses") == "http://vllm:8080/v1"
+    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/") == "http://vllm:8080/v1"
+    assert _normalize_api_base_for_gauge("http://vllm:8080/v1") == "http://vllm:8080/v1"
+    assert _normalize_api_base_for_gauge("") == ""
+    assert _normalize_api_base_for_gauge("http://vllm:8080/custom/path") == "http://vllm:8080/custom/path"
