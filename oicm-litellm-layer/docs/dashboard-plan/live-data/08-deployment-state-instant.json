@@ -1,0 +1,1583 @@
+{
+    "status": "success",
+    "data": {
+        "resultType": "vector",
+        "result": [
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-570e36e7-8c27-4f8d-90ad-588af017196d.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "PhalaCloud/GLM-5.2-W4AFP8",
+                    "model_id": "754eb569-6b0c-444f-b0d9-e2ee2050258c",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-570e36e7-8c27-4f8d-90ad-588af017196d.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "PhalaCloud/GLM-5.2-W4AFP8",
+                    "model_id": "754eb569-6b0c-444f-b0d9-e2ee2050258c",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-570e36e7-8c27-4f8d-90ad-588af017196d.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "PhalaCloud/GLM-5.2-W4AFP8",
+                    "model_id": "754eb569-6b0c-444f-b0d9-e2ee2050258c",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-570e36e7-8c27-4f8d-90ad-588af017196d.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "PhalaCloud/GLM-5.2-W4AFP8",
+                    "model_id": "754eb569-6b0c-444f-b0d9-e2ee2050258c",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-570e36e7-8c27-4f8d-90ad-588af017196d.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "PhalaCloud/GLM-5.2-W4AFP8",
+                    "model_id": "754eb569-6b0c-444f-b0d9-e2ee2050258c",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-9917a251-eee0-4cc1-9905-a8eef989b8eb.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "cff66374-17e4-416f-b923-083d2b38974b",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-1744c7c9-dfa7-480a-a28f-604c2fe24cc1.adeo.svc.cluster.local:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "9268d406-b371-434b-9588-ca69842de791",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://242.0.0.253:8080/v1/chat/completions",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "zai-org/GLM-5.2-FP8",
+                    "model_id": "e2acef83-041b-4c43-a96d-d28f7ad2bef2",
+                    "namespace": "mlops",
+                    "pid": "72",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-d974abd1-a213-409f-ad57-ed4512f21fa0.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "b2e936be-e330-44ce-9215-5541b7254cbb",
+                    "namespace": "mlops",
+                    "pid": "69",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-6b8a7346-c07a-4ac3-ac6f-66ea82472637.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.59:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen3.6-35B-A3B-FP8",
+                    "model_id": "323f6385-5061-4ada-ba17-4fb85c770813",
+                    "namespace": "mlops",
+                    "pid": "75",
+                    "pod": "litellm-proxy-784f659cc5-7kzx6",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            },
+            {
+                "metric": {
+                    "__name__": "litellm_deployment_state",
+                    "api_base": "http://s-dbc727e2-74fe-4b4a-87ed-c540cdbf1767.adeo.svc.cluster.local:8080/v1",
+                    "api_provider": "hosted_vllm",
+                    "container": "litellm",
+                    "endpoint": "http",
+                    "instance": "10.42.6.25:4000",
+                    "job": "litellm-proxy",
+                    "litellm_model_name": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    "model_id": "25633296-98be-4432-8a9b-25261f7b61bd",
+                    "namespace": "mlops",
+                    "pid": "66",
+                    "pod": "litellm-proxy-784f659cc5-m4vvz",
+                    "service": "litellm-proxy"
+                },
+                "value": [
+                    1784793462.366,
+                    "0"
+                ]
+            }
+        ]
+    }
+}
