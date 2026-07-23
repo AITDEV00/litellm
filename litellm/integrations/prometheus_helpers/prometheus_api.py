@@ -218,10 +218,13 @@ def _parse_range_result(result: list[dict]) -> list[dict]:
     points: list[dict] = []
     for series in result:
         for ts, val in series.get("values", []):
+            parsed = float(val)
+            if parsed != parsed:
+                continue
             points.append(
                 {
                     "timestamp": datetime.fromtimestamp(float(ts)).isoformat() + "+00:00",
-                    "value": float(val),
+                    "value": parsed,
                 }
             )
     return points

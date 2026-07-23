@@ -92,6 +92,32 @@ def test_parse_range_result():
     assert "timestamp" in points[0]
 
 
+def test_parse_range_result_filters_nan():
+    """NaN values from Prometheus rate() queries must be filtered out.
+
+    JSON cannot serialize NaN, so including them causes a ValueError at
+    response time.
+    """
+    from litellm.integrations.prometheus_helpers.prometheus_api import (
+        _parse_range_result,
+    )
+
+    result = [
+        {
+            "metric": {"model_id": "abc-123"},
+            "values": [
+                [1700000000, "1.0"],
+                [1700000030, "NaN"],
+                [1700000060, "2.0"],
+            ],
+        }
+    ]
+    points = _parse_range_result(result)
+    assert len(points) == 2
+    assert points[0]["value"] == 1.0
+    assert points[1]["value"] == 2.0
+
+
 @pytest.mark.asyncio
 async def test_get_per_model_metrics_no_prometheus_url():
     """When PROMETHEUS_URL is not set, returns prometheus_connected=False."""
