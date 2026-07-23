@@ -1198,16 +1198,22 @@ class PrometheusLogger(CustomLogger):
             standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
             _litellm_params = kwargs.get("litellm_params", {}) or {}
             if standard_logging_payload is None:
-                _metadata = _litellm_params.get("metadata", {}) if isinstance(_litellm_params, dict) else {}
-                if not isinstance(_metadata, dict):
-                    _metadata = {}
+                _metadata = get_litellm_metadata_from_kwargs(kwargs)
+                if not _metadata:
+                    _meta_key = get_metadata_variable_name_from_kwargs(kwargs)
+                    _metadata = kwargs.get(_meta_key, {}) or {}
                 model_info = _metadata.get("model_info", {})
                 model_id = model_info.get("id", "") if isinstance(model_info, dict) else ""
                 if not model_id:
                     return
                 litellm_model_name = model
-                api_provider = _litellm_params.get("custom_llm_provider", "") or _metadata.get(
-                    "custom_llm_provider", ""
+                api_provider = (
+                    _litellm_params.get("custom_llm_provider", "")
+                    or _metadata.get("custom_llm_provider", "")
+                    or kwargs.get("custom_llm_provider", "")
+                )
+                api_base = (
+                    _litellm_params.get("api_base", "") or _metadata.get("api_base", "") or kwargs.get("api_base", "")
                 )
             else:
                 model_id = standard_logging_payload.get("model_id", "") or ""
@@ -1217,7 +1223,8 @@ class PrometheusLogger(CustomLogger):
                 api_provider = standard_logging_payload.get("custom_llm_provider", "") or _litellm_params.get(
                     "custom_llm_provider", ""
                 )
-            api_base = _normalize_api_base_for_gauge(_litellm_params.get("api_base", "") or "")
+                api_base = _litellm_params.get("api_base", "") or standard_logging_payload.get("api_base", "")
+            api_base = _normalize_api_base_for_gauge(api_base or "")
             _labels = prometheus_label_factory(
                 supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
                 enum_values=UserAPIKeyLabelValues(

@@ -178,14 +178,15 @@ async def test_pre_call_noop_when_standard_logging_missing(logger, isolated_regi
 async def test_deployment_hook_incs_gauge_with_only_litellm_params(logger, isolated_registry):
     """Production scenario: async_pre_call_deployment_hook fires after the
     router picks a deployment but before standard_logging_object is populated.
-    The hook must still inc the gauge using litellm_params.metadata.model_info."""
+    The hook must still inc the gauge using kwargs.metadata.model_info
+    (the router puts model_info in top-level metadata, not litellm_params)."""
     kwargs = {
         "model": "Qwen3.6-35B",
         "messages": [],
-        "litellm_params": {
+        "metadata": {
+            "model_info": {"id": "abc-123"},
             "api_base": "http://vllm:8000/v1/chat/completions",
             "custom_llm_provider": "hosted_vllm",
-            "metadata": {"model_info": {"id": "abc-123"}},
         },
     }
     await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
