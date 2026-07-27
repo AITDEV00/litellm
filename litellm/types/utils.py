@@ -3720,7 +3720,7 @@ class PriorityReservationSettings(BaseModel):
 
     saturation_threshold: float = Field(
         default=1.0,
-        description="Cap on borrow headroom as a fraction of model RPM. With the EWMA-key-existence check protecting guaranteed rates for siblings that have not yet sent, the default of 1.0 means borrowing can use the full model RPM. Lower values (e.g. 0.80) leave headroom for priority transitions but may cause under-utilization when sum(guaranteed) == model_limit.",
+        description="Cap on borrow headroom as a fraction of model RPM. With demand-counter-based sibling reservation protecting guaranteed rates (reservation = min(sibling_demand, sibling_guaranteed)), the default of 1.0 means borrowing can use the full model RPM. Lower values (e.g. 0.80) leave headroom for priority transitions but may cause under-utilization when sum(guaranteed) == model_limit.",
     )
 
     model_config = ConfigDict(protected_namespaces=())

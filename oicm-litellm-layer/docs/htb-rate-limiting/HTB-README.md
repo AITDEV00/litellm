@@ -16,6 +16,7 @@
 - [Test Results](#test-results)
 - [How to Run the Tests](#how-to-run-the-tests)
 - [Troubleshooting](#troubleshooting)
+- [Priority Logic Map (verified file:line trace)](./PRIORITY-LOGIC-MAP.md)
 
 ---
 
@@ -24,6 +25,12 @@
 This is a **priority-based rate limiting system** for the LiteLLM proxy that ensures different groups of API users get guaranteed minimum throughput on shared LLM models, while allowing unused capacity to be borrowed by other groups in real time.
 
 The core algorithm is an **HTB (Hierarchical Token Bucket)**, the same class of algorithm used by Linux `tc` for network traffic shaping. Each priority level gets a guaranteed rate (like a committed information rate in networking), and when that priority is idle, its unused bandwidth flows to other priorities that need it, up to a configurable saturation cap.
+
+> For a verified, file-and-line-referenced trace of the entire priority flow
+> (entry point to exit point, every function and data contract), see
+> [`PRIORITY-LOGIC-MAP.md`](./PRIORITY-LOGIC-MAP.md). That document is the
+> single source of truth for the implementation; this README is the
+> narrative overview.
 
 ### Why it matters
 
@@ -623,6 +630,16 @@ The test suite uses 4 API keys with different priority levels:
 | `sk-JHuarsctaY99aBj85SIU7w` | dqvu@ECOUNCIL.AE | prior3 | 20 (shared) |
 
 All requests use `extra_body: {"chat_template_kwargs": {"enable_thinking": false}}` to disable thinking mode.
+
+> **Note on Redis state snapshots below**: The `EWMA=` fields in the per-test
+> "Redis state" blocks were captured under the previous EWMA-based sibling
+> reservation implementation. The current code uses **demand counters**
+> (see `PRIORITY-LOGIC-MAP.md` and the "Demand-Based Borrowing" section
+> above). The demand counter serves the same role EWMA did (it tracks
+> attempted requests including denied ones, so it is >= the accepted request
+> count), but it is a sliding-window integer rather than an exponentially
+> weighted float. The test result tables (Sent/OK/Denied) remain accurate;
+> only the `EWMA=` field labels and values are historical.
 
 ### Test 1: Qwen/Qwen3.5-0.8B (100 RPM, no fallbacks)
 

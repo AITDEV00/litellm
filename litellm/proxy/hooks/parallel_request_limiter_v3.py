@@ -1165,9 +1165,18 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
     ) -> None:
         """Increment the demand counter before the Lua script runs.
 
-        This is a non-atomic best-effort increment. A race here only means
-        a sibling might see a slightly stale demand count, which is
-        acceptable because the Lua script's deny logic is conservative.
+        Writes to both in-memory and Redis (local_only=False) so siblings on
+        other pods can read the demand via the Lua script's
+        redis.call('GET', ...). When the window is active, uses an atomic
+        Redis INCR (async_increment_cache) to eliminate the read-modify-write
+        race across pods. The window-expiry reset is best-effort (two pods
+        could both reset at the boundary), which is acceptable because the
+        demand counter is conservative.
+
+        When Redis is not configured, DualCache gracefully degrades to
+        in-memory-only writes (the redis_cache is None guard in
+        async_set_cache / async_increment_cache), so single-pod and test
+        environments behave exactly as before.
 
         The yield at the end ensures other priorities' demand increments
         are visible before this request acquires the lock. With Redis,
@@ -1180,7 +1189,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         window_start = await self.internal_usage_cache.async_get_cache(
             key=demand_window_key,
             litellm_parent_otel_span=parent_otel_span,
-            local_only=True,
+            local_only=False,
         )
         if window_start is None or (now - int(window_start)) >= window_size:
             await self.internal_usage_cache.async_set_cache(
@@ -1188,28 +1197,22 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 value=str(now),
                 ttl=window_size,
                 litellm_parent_otel_span=parent_otel_span,
-                local_only=True,
+                local_only=False,
             )
             await self.internal_usage_cache.async_set_cache(
                 key=demand_counter_key,
                 value=1,
                 ttl=ttl,
                 litellm_parent_otel_span=parent_otel_span,
-                local_only=True,
+                local_only=False,
             )
         else:
-            current = await self.internal_usage_cache.async_get_cache(
+            await self.internal_usage_cache.async_increment_cache(
                 key=demand_counter_key,
+                value=1,
                 litellm_parent_otel_span=parent_otel_span,
-                local_only=True,
-            )
-            new_val = (int(current) if current is not None else 0) + 1
-            await self.internal_usage_cache.async_set_cache(
-                key=demand_counter_key,
-                value=new_val,
+                local_only=False,
                 ttl=ttl,
-                litellm_parent_otel_span=parent_otel_span,
-                local_only=True,
             )
         await asyncio.sleep(0)
 

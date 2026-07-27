@@ -653,3 +653,87 @@ class TestPriorityReservationSettings:
         assert litellm.priority_reservation["prior1"] == 0.50
         assert litellm.priority_reservation["prior2"] == 0.30
         assert litellm.priority_reservation["prior3"] == 0.20
+
+
+class TestDemandCounterMultiPodVisibility:
+    """Regression tests for the multi-pod demand-counter write bug.
+
+    The demand counter must be written to Redis (not just in-memory) when
+    Redis is configured, because the HTB Lua script reads sibling demand
+    from Redis via redis.call('GET', ...). A local_only=True write would
+    bypass Redis, making sibling demand invisible across pods and breaking
+    the borrow ceiling computation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_demand_counter_write_reaches_redis(self, handler):
+        """When Redis is configured, _increment_demand_counter must write to Redis.
+
+        This is the regression test for the bug where local_only=True caused
+        the demand counter to stay in per-pod in-memory cache, invisible to
+        the Lua script's sibling demand reads on other pods.
+        """
+        from litellm.proxy.utils import InternalUsageCache
+        from unittest.mock import AsyncMock
+
+        redis_mock = AsyncMock()
+        redis_mock.async_set_cache = AsyncMock()
+        redis_mock.async_increment = AsyncMock(return_value=1)
+
+        dual_cache = DualCache(redis_cache=redis_mock)
+        handler.v3_limiter.internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
+
+        await handler.v3_limiter._increment_demand_counter(
+            demand_window_key="{htb:test-model}:test-model:prior1:demand:window",
+            demand_counter_key="{htb:test-model}:test-model:prior1:demand:requests",
+            window_size=60,
+            ttl=60,
+            parent_otel_span=None,
+        )
+
+        assert redis_mock.async_set_cache.called or redis_mock.async_increment.called, (
+            "Demand counter write must reach Redis when Redis is configured, "
+            "otherwise the Lua script reads sibling demand as 0 on other pods "
+            "and the borrow ceiling degrades with no sibling reservation."
+        )
+
+    @pytest.mark.asyncio
+    async def test_demand_counter_window_reset_uses_atomic_increment(self, handler):
+        """When the window is active, the increment must be atomic (INCR), not read-then-write.
+
+        Uses async_increment_cache which calls Redis INCR atomically,
+        eliminating the cross-pod read-modify-write race where two pods
+        could both read the same value and overwrite each other's increment.
+        """
+        from litellm.proxy.utils import InternalUsageCache
+        from unittest.mock import AsyncMock
+        import time
+
+        recent_ts = str(int(time.time()))
+
+        redis_mock = AsyncMock()
+        redis_mock.async_set_cache = AsyncMock()
+        redis_mock.async_get_cache = AsyncMock(return_value=recent_ts)
+        redis_mock.async_increment = AsyncMock(return_value=2)
+
+        dual_cache = DualCache(redis_cache=redis_mock)
+        handler.v3_limiter.internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
+
+        await handler.v3_limiter._increment_demand_counter(
+            demand_window_key="{htb:test-model}:test-model:prior1:demand:window",
+            demand_counter_key="{htb:test-model}:test-model:prior1:demand:requests",
+            window_size=60,
+            ttl=60,
+            parent_otel_span=None,
+        )
+
+        assert redis_mock.async_increment.called, (
+            "When the window is active, the demand counter must use atomic "
+            "INCR (async_increment_cache), not a read-then-write, to prevent "
+            "lost increments across pods."
+        )
+        incr_args = redis_mock.async_increment.call_args
+        assert incr_args.args[0] == "{htb:test-model}:test-model:prior1:demand:requests", (
+            "async_increment must target the demand counter key."
+        )
+        assert incr_args.args[1] == 1, "async_increment must increment by exactly 1."
