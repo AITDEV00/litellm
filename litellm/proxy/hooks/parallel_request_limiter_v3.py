@@ -1183,8 +1183,6 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         the network I/O provides natural interleaving; with in-memory
         cache (synchronous), the explicit yield is needed.
         """
-        import asyncio
-
         now = int(self._get_current_time().timestamp())
         window_start = await self.internal_usage_cache.async_get_cache(
             key=demand_window_key,

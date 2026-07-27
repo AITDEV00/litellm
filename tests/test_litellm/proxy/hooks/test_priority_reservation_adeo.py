@@ -24,6 +24,7 @@ These tests verify that the priority rules are respected:
 
 import os
 import sys
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,6 +34,7 @@ sys.path.insert(0, os.path.abspath("../../../.."))
 import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.utils import InternalUsageCache
 from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
     _PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
 )
@@ -673,9 +675,6 @@ class TestDemandCounterMultiPodVisibility:
         the demand counter to stay in per-pod in-memory cache, invisible to
         the Lua script's sibling demand reads on other pods.
         """
-        from litellm.proxy.utils import InternalUsageCache
-        from unittest.mock import AsyncMock
-
         redis_mock = AsyncMock()
         redis_mock.async_set_cache = AsyncMock()
         redis_mock.async_increment = AsyncMock(return_value=1)
@@ -705,10 +704,6 @@ class TestDemandCounterMultiPodVisibility:
         eliminating the cross-pod read-modify-write race where two pods
         could both read the same value and overwrite each other's increment.
         """
-        from litellm.proxy.utils import InternalUsageCache
-        from unittest.mock import AsyncMock
-        import time
-
         recent_ts = str(int(time.time()))
 
         redis_mock = AsyncMock()
