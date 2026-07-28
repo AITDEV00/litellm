@@ -162,6 +162,7 @@ kubectl label node adeo-gpu-03 submariner.io/gateway=true
 ## 7. Post-install fixes — Al Ain needs several. Apply in this order.
 
 ### 7a. Gateway CrashLoop: `could not determine public IPv4` (air-gapped flag)
+See `submariner-SHARED-reference.md` §2 for why the `--set` flag can be silently dropped.
 ```bash
 kubectl -n submariner-operator get submariner -o jsonpath='{.items[0].spec.airGappedDeployment}{"\n"}'
 kubectl -n submariner-operator patch submariner submariner --type=merge -p '{"spec":{"airGappedDeployment":true}}'
@@ -180,10 +181,8 @@ kubectl -n submariner-operator rollout restart daemonset/submariner-gateway
 ```
 
 ### 7c. **Missing globalnet RBAC** — `serviceaccount "submariner-globalnet" not found`
-**The Helm chart never creates the globalnet RBAC.** The globalnet daemonset shows `DESIRED=1
-CURRENT=0` and can't schedule → the `submariner` interface never gets its global IP → the
-health-check ping (`242.0.1.254` / remote `242.0.0.254`) fails and the connection stays `error`
-even after the tunnel handshake works. **Do NOT wait for self-heal — create the 5 objects from source:**
+See `submariner-SHARED-reference.md` §3 for why the chart omits this RBAC and the persistence
+warning. Create the 5 objects from source:
 ```bash
 kubectl apply -f submariner-operator/config/rbac/submariner-globalnet/
 #   ServiceAccount, Role, RoleBinding, ClusterRole, ClusterRoleBinding (all named submariner-globalnet)
@@ -191,17 +190,14 @@ kubectl -n submariner-operator get sa submariner-globalnet          # confirm ex
 kubectl -n submariner-operator rollout restart ds submariner-globalnet
 kubectl -n submariner-operator get pods -l app=submariner-globalnet -o wide   # should be Running
 ```
-> If you don't have the source dir, the 5 objects are: SA `submariner-globalnet`; a Role (configmaps
-> get/list/watch, gateways get/list/watch/update, leases CRUD); matching RoleBinding; a ClusterRole
-> (pods get/list/watch; services+endpoints CRUD; submariner.io clusters/endpoints get/list/watch;
-> the globalegressips/globalingressips/clusterglobalegressips CRDs CRUD; serviceexports get/list/watch);
-> matching ClusterRoleBinding. **Persist them — a future `helm upgrade` won't recreate them.**
+> The full 5-object YAML manifest (SA, Role, RoleBinding, ClusterRole, ClusterRoleBinding) is in
+> `submariner-SHARED-reference.md` §3 if you don't have the source dir. **Persist them — a future
+> `helm upgrade` won't recreate them.**
 
 ### 7d. **UFW blocking intra-cluster VXLAN (UDP 4800)** — the tunnel connects but pinger fails
-Route-agent's VXLAN overlay (`vx-submariner`) uses **UDP 4800** (not 8472). If the gateway node
-`adeo-gpu-03` runs UFW with `policy DROP`, VXLAN packets from other Al Ain nodes are dropped before
-reaching the gateway → `vx-submariner` RX=0 → pinger fails "more than 5 packets lost". No SSH? Use a
-privileged hostPath pod + chroot to run the host's own `ufw` (writes PERSISTENT host rules):
+See `submariner-SHARED-reference.md` §5 for why UDP 4800 matters and the generic hostPath pod +
+chroot technique. The manifest below is the Al Ain-specific instantiation (node `adeo-gpu-03`,
+namespace `oik8s-cilium-system`, Al Ain Harbor registry):
 
 ```bash
 # 1) create a privileged debug pod that mounts the host root at /host, pinned to the gateway node:
@@ -288,10 +284,8 @@ kubectl -n submariner-operator get pods -l 'app in (submariner-lighthouse-agent,
 
 ### 7f. **TLS certificate mismatch** — `brokerK8sInsecure=true`
 
-If the broker API server's TLS certificate doesn't match the IP the lighthouse agent connects to
-(common when using an IP instead of a hostname), the agent gets `x509: certificate signed by
-unknown authority` or `x509: hostname mismatch` errors. The fix is to set `brokerK8sInsecure` on
-the Submariner CR:
+See `submariner-SHARED-reference.md` §4 for why this TLS mismatch happens. Set `brokerK8sInsecure`
+on the Submariner CR:
 
 ```bash
 kubectl -n submariner-operator patch submariner submariner --type=merge \
@@ -305,9 +299,8 @@ kubectl -n submariner-operator rollout restart deploy/submariner-lighthouse-agen
 
 ### 7g. **ServiceExport lost** — re-create it if the globalnet IP disappears
 
-If the ServiceExport is deleted (or never created), the globalnet daemon won't allocate a global
-ingress IP, and cross-cluster DNS resolution fails. On the **Abu Dhabi** cluster (where the service
-lives):
+See `submariner-SHARED-reference.md` §6 for why a missing ServiceExport prevents globalnet IP
+allocation. On the **Abu Dhabi** cluster (where the service lives):
 
 ```bash
 # check if the ServiceExport exists:
@@ -753,6 +746,7 @@ kubectl -n submariner-operator get submariner submariner -o jsonpath='{.spec.ceI
 GW=$(kubectl -n submariner-operator get pod -l app=submariner-gateway -o name | head -1); GW=${GW#pod/}
 kubectl -n submariner-operator get pod $GW -o jsonpath='{range .spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep -i psk
 ```
+See `submariner-SHARED-reference.md` §1 for why both clusters must share the identical PSK.
 Fix — set BOTH clusters to the identical PSK. On **Abu Dhabi**:
 ```bash
 kubectl -n submariner-operator patch submariner submariner --type=merge \
@@ -848,47 +842,12 @@ kubectl -n submariner-operator describe ds submariner-globalnet | tail -30
 kubectl -n submariner-operator get sa | grep globalnet                                                  # missing!
 kubectl get clusterrole,clusterrolebinding -o name | grep submariner                                    # no globalnet
 ```
-Fix — create all 5 RBAC objects (verbatim, works without the source dir):
+Fix — create all 5 RBAC objects. The verbatim 5-object YAML manifest (SA, Role, RoleBinding,
+ClusterRole, ClusterRoleBinding, all named `submariner-globalnet`) is in
+`submariner-SHARED-reference.md` §3; apply it, then restart:
 ```bash
-cat <<'ENDOFYAML' | kubectl apply -f -
----
-apiVersion: v1
-kind: ServiceAccount
-metadata: { name: submariner-globalnet, namespace: submariner-operator }
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata: { name: submariner-globalnet, namespace: submariner-operator }
-rules:
-  - { apiGroups: [""],                 resources: [configmaps], verbs: [get, list, watch] }
-  - { apiGroups: [submariner.io],      resources: [gateways],   verbs: [get, list, watch, update] }
-  - { apiGroups: [coordination.k8s.io], resources: [leases],    verbs: [get, list, watch, create, update, delete] }
----
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata: { name: submariner-globalnet, namespace: submariner-operator }
-subjects: [{ kind: ServiceAccount, name: submariner-globalnet, namespace: submariner-operator }]
-roleRef: { kind: Role, name: submariner-globalnet, apiGroup: rbac.authorization.k8s.io }
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata: { name: submariner-globalnet }
-rules:
-  - { apiGroups: [""],            resources: [pods],                verbs: [get, list, watch] }
-  - { apiGroups: [""],            resources: [services, endpoints], verbs: [create, get, list, watch, update, delete] }
-  - { apiGroups: [submariner.io], resources: [clusters, endpoints], verbs: [get, list, watch] }
-  - apiGroups: [submariner.io]
-    resources: [clusterglobalegressips, clusterglobalegressips/status, globalegressips, globalegressips/status, globalingressips, globalingressips/status]
-    verbs: [create, get, list, watch, update, delete, deletecollection]
-  - { apiGroups: [multicluster.x-k8s.io], resources: [serviceexports],      verbs: [get, list, watch] }
-  - { apiGroups: [network.openshift.io],  resources: [service/externalips], verbs: [create, get, list, delete] }
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata: { name: submariner-globalnet }
-subjects: [{ kind: ServiceAccount, name: submariner-globalnet, namespace: submariner-operator }]
-roleRef: { kind: ClusterRole, name: submariner-globalnet, apiGroup: rbac.authorization.k8s.io }
-ENDOFYAML
+kubectl apply -f submariner-operator/config/rbac/submariner-globalnet/   # if you have the source
+# OR: kubectl apply -f <the YAML from submariner-SHARED-reference.md §3>
 
 kubectl -n submariner-operator rollout restart ds submariner-globalnet
 ```
@@ -960,143 +919,8 @@ kubectl -n oik8s-cilium-system exec nat-debug -- curl -s -o /dev/null -w '%{http
 ## A.11 Running kubectl against Abu Dhabi from adeo-gpu-03
 
 Only `adeo-gpu-03` (`10.34.104.19`) has the firewall rule allowing TCP 6443 to the Abu Dhabi API
-server (`10.10.128.71`). You can't reach Abu Dhabi's kubectl from `aitdev00` or any other Al Ain
-node. To run kubectl against Abu Dhabi, create a privileged debug pod on `adeo-gpu-03` with the
-kubeconfig mounted, then use the host's `kubectl` binary via chroot.
-
-**Step 1 — Export the Abu Dhabi kubeconfig from `aitdev00`:**
-
-The kubeconfig must point at `10.10.128.71:6443` (the broker API server, which is the only Abu
-Dhabi API server reachable through the firewall). If it points at a different server IP (e.g.
-`10.10.128.75`), fix it:
-```bash
-# on aitdev00:
-sed 's|10.10.128.75:6443|10.10.128.71:6443|g' /tmp/abudhabi-kubeconfig > /tmp/abudhabi-kubeconfig-fixed
-grep server /tmp/abudhabi-kubeconfig-fixed   # must show 10.10.128.71:6443
-```
-
-**Step 2 — Ship the kubeconfig into a pod on `adeo-gpu-03` via ConfigMap:**
-
-The nettest image lacks `tar` so `kubectl cp` doesn't work. Use a ConfigMap instead:
-```bash
-kubectl -n oik8s-cilium-system create configmap abudhabi-kubeconfig \
-  --from-file=abudhabi-kubeconfig-fixed=/tmp/abudhabi-kubeconfig-fixed
-
-cat <<'EOF' | kubectl apply -f -
-apiVersion: v1
-kind: Pod
-metadata: { name: ad-debug, namespace: oik8s-cilium-system }
-spec:
-  hostNetwork: true
-  hostPID: true
-  nodeSelector: { kubernetes.io/hostname: adeo-gpu-03 }
-  tolerations: [{ operator: Exists }]
-  containers:
-  - name: debug
-    image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
-    command: ["sleep","600"]
-    securityContext: { privileged: true }
-    volumeMounts:
-    - { name: host, mountPath: /host }
-    - { name: kubeconfig, mountPath: /kubeconfig }
-  volumes:
-  - { name: host, hostPath: { path: /, type: Directory } }
-  - { name: kubeconfig, configMap: { name: abudhabi-kubeconfig } }
-  restartPolicy: Never
-EOF
-
-kubectl -n oik8s-cilium-system wait --for=condition=Ready pod/ad-debug --timeout=30s
-```
-
-**Step 3 — Run kubectl against Abu Dhabi via the host's binary:**
-
-The host has `kubectl` at `/usr/bin/kubectl`. Copy the kubeconfig to the host filesystem so chroot
-can read it, then run any kubectl command:
-```bash
-# copy kubeconfig into the host filesystem:
-kubectl -n oik8s-cilium-system exec ad-debug -- \
-  sh -c 'cp /kubeconfig/abudhabi-kubeconfig-fixed /host/tmp/abudhabi-kubeconfig'
-
-# now run kubectl against Abu Dhabi (chroot uses the host's kubectl binary):
-kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
-  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl -n submariner-operator get pods -o wide'
-
-# examples:
-kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
-  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get nodes -o wide'
-
-kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
-  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl -n submariner-operator get servicediscovery -o yaml'
-
-kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
-  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get globalingressip -A'
-```
-
-**Step 4 — Clean up when done:**
-```bash
-kubectl -n oik8s-cilium-system delete pod ad-debug --ignore-not-found --force --grace-period=0
-kubectl -n oik8s-cilium-system delete configmap abudhabi-kubeconfig --ignore-not-found
-rm -f /tmp/abudhabi-kubeconfig-fixed
-# /tmp/abudhabi-kubeconfig remains on the adeo-gpu-03 host (contains broker token; delete it if concerned):
-#   kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c 'rm -f /tmp/abudhabi-kubeconfig'
-```
-
-> **Why not `kubectl cp`?** The nettest image doesn't include `tar`, which `kubectl cp` requires.
-> The ConfigMap approach avoids this entirely. If you have an image with `kubectl` built in
-> (e.g. `bitnami/kubectl`), you can skip the chroot and run directly in the container.
->
-> **Why `10.10.128.71` and not `10.10.128.75`?** The firewall rule only allows
-> `10.34.104.19 -> 10.10.128.71:6443`. Other Abu Dhabi API server IPs (`.72`-`.76`) are not
-> reachable from Al Ain. The kubeconfig may list a different server; always fix it to `.71`.
-
-**Reference — the full Abu Dhabi kubeconfig (server already fixed to `10.10.128.71`):**
-
-Save this as `/tmp/abudhabi-kubeconfig` on `aitdev00` and skip Step 1 entirely:
-```yaml
-apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJlVENDQVIrZ0F3SUJBZ0lCQURBS0J
-nZ3Foa2pPUFFRREFqQWtNU0l3SUFZRFZRUUREQmx5YTJVeUxYTmwKY25abGNpMWpZVUF4TnpVNU1UVXpPREkwTUI0WERUSTFNRGt5T1
-RFek5UQXlORm9YRFRNMU1Ea3lOekV6TlRBeQpORm93SkRFaU1DQUdBMVVFQXd3WmNtdGxNaTF6WlhKMlpYSXRZMkZBTVRjMU9URTFNe
-md5TkRCWk1CTUdCeXFHClNNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJPWXJUMUhUSFpOT2xndHRVRDV2L2EwYWNQOUVWWFdjcWFxQlc2
-MnEKT3JzcDg4NzJ5UGRxbEk0amlkd3dNTUNmWEFjTFVSYzBQMjAvZWdZZEF5YzRpb1dqUWpCQU1BNEdBMVVkRHdFQgovd1FFQXdJQ3B
-EQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGNxRVhCZGwxOW5tdktraWhPCnluRERMZHNrelRBS0JnZ3Foa2pPUF
-FRREFnTklBREJGQWlCaFVvdFhvdTJpQk9pL0lkNkdWTWNBU2FjcC9LazIKYkFyOThPL2RtOHdIT0FJaEFKSDZRTE5yb3BGNERkUENRN
-GFodDBSVGN5aTZwc3MxUHdjWDd4YWtXYk9yCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
-    server: https://10.10.128.71:6443
-  name: default
-contexts:
-- context:
-    cluster: default
-    user: default
-  name: default
-current-context: default
-kind: Config
-preferences: {}
-users:
-- name: default
-  user:
-    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJrekNDQVRpZ0F3SUJBZ0lJSnZZNHc0L0
-txLzR3Q2dZSUtvWkl6ajBFQXdJd0pERWlNQ0FHQTFVRUF3d1oKY210bE1pMWpiR2xsYm5RdFkyRkFNVGMxT1RFMU16Z3lOREFlRncwe
-U5UQTVNamt4TXpVd01qUmFGdzB5TmpBNQpNamt4TXpVd01qUmFNREF4RnpBVkJnTlZCQW9URG5ONWMzUmxiVHB0WVhOMFpYSnpNUlV3
-RXdZRFZRUURFd3h6CmVYTjBaVzA2WVdSdGFXNHdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVEMyaXhyeklVMEhKMHg
-KVCtWSVhOWTJyOUJXN3hJRTdSUnlxeGoySHNrKzdvdGM0MkpKYk92djdmREpEYVJlNkRvR1k3WksvaVl3a2ZBZQpnQTFnTU5mOW8wZ3
-dSakFPQmdOVkhROEJBZjhFQkFNQ0JhQXdFd1lEVlIwbEJBd3dDZ1lJS3dZQkJRVUhBd0l3Ckh3WURWUjBqQkJnd0ZvQVVhSDY5Q0tOT
-XIzcXVYU1A2UDRHR2FVQVNVZ0F3Q2dZSUtvWkl6ajBFQXdJRFNRQXcKUmdJaEFPNXpDVk9PcFFxcnhYSXhTTFZrU1REVndzTEtEcm42
-NDkyazl0aFdwc2FWQWlFQTEvR0IxZVhHV0w3awprMmwxU1hEc3hTenl2cXN6MmhMM3ByMm9pTHBPTTU4PQotLS0tLUVORCBDRVJUSUZ
-JQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlCZURDQ0FSK2dBd0lCQWdJQkFEQUtCZ2dxaGtqT1BRUURBak
-FrTVNJd0lBWURWUVFEREJseWEyVXlMV05zCmFXVnVkQzFqWVVBeE56VTVNVFV6T0RJME1CNFhEVEkxTURreU9URXpOVEF5TkZvWERU
-TTFNRGt5TnpFek5UQXkKTkZvd0pERWlNQ0FHQTFVRUF3d1pjbXRsTWkxamJHbGxiblF0WTJGQU1UYzFPVEUxTXpneU5EQlpNQk1HQnlx
-RwpTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSXo2WHhwdWhuY0gyYUd6V29Dc3JvM0puK21XQXFhalh0VmNoY1I2CjljTUVZSmhKOUN
-1cW9VVUlXV1VYUlVhK2NQdE1RcXVoemlEa2N3RzZqTEhvZFhLalFqQkFNQTRHQTFVZER3RUIKL3dRRUF3SUNwREFQQmdOVkhSTUJBZj
-hFQlRBREFRSC9NQjBHQTFVZERnUVdCQlJvZnIwSW8weXZlcTVkSS9vLwpnWVpwUUJKU0FEQUtCZ2dxaGtqT1BRUURBZ05IQURCRUFpQ
-VZjQ3htMFNKZEpUMXYrMHNzbzNEWDZXeVlBdXplCktOcmtvWXpDNXc0bjNBSWdVOGhCR0o3VlBLa2NKZ2hZVWV1N09NNDJLYWUxd1d2
-VjhpZUY1YzNwV1MwPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-    client-key-data: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUx5MEtXa2V2YTBXOTZZNlZEZGMyN3
-NVeG1kbnJtZW1MOWpWQ3dpazhWTzlvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFd3Rvc2E4eUZOQnlkTVUvbFNGeldOcS9RVnU4U0JP
-MFVjcXNZOWg3SlB1NkxYT05pU1d6cgo3KzN3eVEya1h1ZzZCbU8yU3Y0bU1KSHdIb0FOWUREWC9RPT0KLS0tLS1FTkQgRUMgUFJJVk
-FURSBLRVktLS0tLQo=
-```
-> This kubeconfig uses client certificate/key auth (not a bearer token). The certificate is tied to
-> the Abu Dhabi cluster's CA. If the cert expires, re-export from an Abu Dhabi master node.
+server (`10.10.128.71:6443`). You can't reach Abu Dhabi's kubectl from `aitdev00` or any other Al
+Ain node. The full procedure (export kubeconfig, ship via ConfigMap, chroot kubectl, cleanup) and
+the kubeconfig template are documented in the Abu Dhabi guide, §A.8 "Connecting to the Abu Dhabi
+cluster from a remote node". The Al Ain-specific values to substitute are: node `adeo-gpu-03`,
+namespace `oik8s-cilium-system`, Harbor image `registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0`
