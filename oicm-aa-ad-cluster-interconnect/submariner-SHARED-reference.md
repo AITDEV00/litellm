@@ -282,11 +282,15 @@ Six independent bugs, stacked. Each hid the next, so fixing one alone still show
 5. **ServiceExport lost** — no globalnet IP allocated, cross-cluster DNS failed. Fix: re-create the
    ServiceExport on the exporting cluster (see [§6](#6-serviceexport-re-creation)).
 
-6. **Datapath-specific cross-cluster drop** — on Abu Dhabi (Canal/Calico), Calico dropped
-   cross-cluster FORWARD traffic; fix: Calico GlobalNetworkPolicy `allow-submariner-cross-cluster`.
-   On Al Ain (Cilium BPF kube-proxy-replacement), non-gateway pods cannot reach globalnet IPs at
-   all; fix: run cross-cluster services on the gateway node. See each cluster guide for the
-   cluster-specific fix.
+6. **Cluster-specific sixth issue** — on Abu Dhabi (Canal/Calico), Calico dropped cross-cluster
+   FORWARD traffic; fix: Calico GlobalNetworkPolicy `allow-submariner-cross-cluster` (see Abu Dhabi
+   guide §7f/§A.5). On Al Ain, the lighthouse pods landed on master nodes whose firewall does not
+   route to the broker API (only `adeo-gpu-03` has TCP 6443 to Abu Dhabi), so the lighthouse agent
+   could not sync the clusterset; fix: pin lighthouse pods to the gateway node via the Submariner CR
+   `nodeSelector`/tolerations, which propagates to the ServiceDiscovery CR (see Al Ain guide §7e).
+   After the tunnel is up, Al Ain's Cilium BPF kube-proxy-replacement still prevents non-gateway pods
+   from reaching globalnet IPs; that is a post-discovery limitation (Al Ain guide §12.1), not one of
+   the six outage root causes. See each cluster guide for the cluster-specific fix.
 
 Empirical lessons that cracked it: tcpdump proved packets *were* arriving (ruled out "firewall
 return-path"); `wg show` (via chroot) proved the handshake state; reading the operator RBAC from
