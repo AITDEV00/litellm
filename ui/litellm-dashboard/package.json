@@ -21,7 +21,8 @@
     "e2e:migration:root": "playwright test --config e2e_tests/migration.serverRootPath.config.ts",
     "knip": "knip",
     "knip:fix": "knip --fix",
-    "gen:api": "node scripts/gen-api-types.mjs"
+    "gen:api": "node scripts/gen-api-types.mjs",
+    "extract-gating": "node scripts/extract-gating.mjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "1.24.0",
