@@ -279,7 +279,7 @@ await self._increment_demand_counter(
 )
 ```
 
-`_increment_demand_counter` (`parallel_request_limiter_v3.py:1158`) is a sliding-window increment that **always uses `local_only=True`** for cache reads/writes. See "Known issues" below for the multi-instance consequence.
+`_increment_demand_counter` (`parallel_request_limiter_v3.py:1158`) is a sliding-window increment that writes with **`local_only=False`** so the demand counter reaches Redis, where the Lua script's sibling demand reads (`redis.call('GET', ...)`) can see it across pods. The window-active path uses `async_increment_cache` (atomic Redis `INCR`) instead of a read-then-write, eliminating the cross-pod lost-increment race. When Redis is absent, `DualCache` degrades to in-memory-only writes, preserving single-instance behavior. See "Known issues" below for the residual window-boundary race.
 
 **Dispatch** (lines 1146-1180): if `self.htb_check_and_increment_script is not None` (Redis present), call the Lua script; otherwise fall back to `_htb_in_memory` under `self._check_and_increment_lock`.
 
@@ -449,9 +449,9 @@ Priority names are arbitrary (`prior1`, `gold`, etc.); the code iterates `litell
 
 **Where it works:** single-instance deployments (in-memory fallback path reads demand via `local_only=True` cache, which is the same process, so sibling awareness works).
 
-### 2. Stale docstring referencing EWMA
+### 2. Stale docstring referencing EWMA — FIXED
 
-`PriorityReservationSettings.saturation_threshold` docstring at `litellm/types/utils.py:3722` still says "With the EWMA-key-existence check protecting guaranteed rates for siblings that have not yet sent...". The EWMA approach was removed and replaced by demand counters. The docstring should reference demand counters instead.
+`PriorityReservationSettings.saturation_threshold` docstring at `litellm/types/utils.py:3722` was updated by commit `428c128335` to reference demand-counter-based sibling reservation (`reservation = min(sibling_demand, sibling_guaranteed)`) instead of the removed EWMA approach. No action needed.
 
 ### 3. No counter refund on failure
 
