@@ -144,11 +144,13 @@ data:
     vllm_param_injector = VllmParamInjector()
   priority_bridge.py: |
     import logging
-    from typing import Any, Optional, Union
+    from typing import Optional, Union
 
+    import litellm
     from litellm.integrations.custom_logger import CustomLogger
     from litellm.caching import DualCache
     from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
     from litellm.types.utils import CallTypesLiteral
 
     logger = logging.getLogger("oicm-priority-bridge")
@@ -165,9 +167,6 @@ data:
             data: dict,
             call_type: CallTypesLiteral,
         ) -> Optional[Union[Exception, str, dict]]:
-            import litellm
-            from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
-
             body_fields_map = litellm.priority_body_fields
             if not body_fields_map:
                 return None
