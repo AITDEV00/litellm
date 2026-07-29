@@ -536,8 +536,6 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <Tab>Key Activity</Tab>
                     <Tab>MCP Server Activity</Tab>
                     <Tab>Endpoint Activity</Tab>
-                    <Tab>Model Analytics</Tab>
-                    <Tab>Real-Time Per Model</Tab>
                   </TabList>
                   <div className="flex items-center gap-2">
                     <Button
@@ -847,17 +845,6 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                   <TabPanel>
                     <EndpointUsage userSpendData={userSpendData} />
                   </TabPanel>
-                  <TabPanel>
-                    <ModelAnalyticsView
-                      accessToken={accessToken}
-                      modelGroups={modelGroups}
-                      startTime={startTime}
-                      endTime={endTime}
-                    />
-                  </TabPanel>
-                  <TabPanel>
-                    <PerModelRealTimeView accessToken={accessToken} userID={userID} userRole={userRole} />
-                  </TabPanel>
                 </TabPanels>
               </TabGroup>
             </>
@@ -976,6 +963,26 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
           {usageView === "user-agent-activity" && (
             <UserAgentActivity accessToken={accessToken} userRole={userRole} dateValue={dateValue} />
           )}
+
+          <TabGroup className="mt-6">
+            <TabList variant="solid" className="mt-1">
+              <Tab>Model Analytics</Tab>
+              <Tab>Real-Time Per Model</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel>
+                <ModelAnalyticsView
+                  accessToken={accessToken}
+                  modelGroups={modelGroups}
+                  startTime={startTime}
+                  endTime={endTime}
+                />
+              </TabPanel>
+              <TabPanel>
+                <PerModelRealTimeView accessToken={accessToken} userID={userID} userRole={userRole} />
+              </TabPanel>
+            </TabPanels>
+          </TabGroup>
         </div>
       </div>
 
