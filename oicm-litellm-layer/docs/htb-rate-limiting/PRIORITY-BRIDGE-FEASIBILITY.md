@@ -643,6 +643,11 @@ data: dict = {
 
 ## Implementation: Config-Driven Priority Bridge
 
+> **Phase 3 (Build) — IMPLEMENTED.** The code below is the actual
+> implementation, not a sketch. Unit tests pass (13/13). See "Phase 3
+> Build: Actual Implementation" below for file references and the
+> verification record.
+
 ### Design Principles
 
 1. **Map is config-driven, not hardcoded.** The mapping lives in
@@ -676,30 +681,50 @@ litellm_settings:
   priority_body_fields:          # new — server body injection
     prior1:
       priority: 0
-      urgency: high
     prior2:
       priority: 100
-      urgency: medium
     prior3:
       priority: 200
-      urgency: low
+  callbacks:
+    - litellm_hooks.vllm_param_injector.vllm_param_injector
+    - litellm_hooks.priority_bridge.priority_bridge
+    - prometheus
 ```
 
-### Hook Logic (sketch — not final code)
+### Hook Logic (final implementation)
 
-The hook reads `priority_body_fields` from litellm settings at startup. On
- each request, it reads `htb_priority.get()`, looks up the field-value dict,
- and merges it into `data["extra_body"]`.
+The hook reads `litellm.priority_body_fields` (a module-level global set
+during proxy startup, same pattern as `litellm.priority_reservation`). On
+each chat request, it reads `htb_priority.get()` from the ContextVar set
+by the HTB rate limiter, looks up the field-value dict, and merges it into
+`data["extra_body"]`.
 
 ```python
 class PriorityBridge(CustomLogger):
 
-    async def async_pre_call_hook(self, user_api_key_dict, cache, data, call_type):
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: UserAPIKeyAuth,
+        cache: DualCache,
+        data: dict,
+        call_type: CallTypesLiteral,
+    ) -> Optional[Union[Exception, str, dict]]:
+        import litellm
         from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
 
+        body_fields_map = litellm.priority_body_fields
+        if not body_fields_map:
+            return None
+
+        if call_type not in _CHAT_CALL_TYPES:
+            return None
+
         htb_prio = htb_priority.get()
-        body_fields = self._priority_body_fields.get(htb_prio)
-        if body_fields is None:
+        if htb_prio is None:
+            return None
+
+        body_fields = body_fields_map.get(htb_prio)
+        if not body_fields:
             return None
 
         extra_body = data.get("extra_body") or {}
@@ -709,25 +734,24 @@ class PriorityBridge(CustomLogger):
 ```
 
 The entire bridge is one `dict.get()` + one `dict.update()`. The
-`_priority_body_fields` dict is populated from `litellm_settings` at
-startup (same pattern as `priority_reservation` is already read by the
-HTB hook).
+`priority_body_fields` dict is populated from `litellm_settings` at
+startup via a new branch in the config-loading loop in `proxy_server.py`
+(same pattern as `priority_reservation`).
 
 ### Deployment Variants
 
-The hook exists in two contexts:
+The hook exists in two contexts, both now implemented:
 
-1. **Workspace version** (`oicm-litellm-layer/hooks/`): Full Python module,
-   testable, reads config from `litellm_settings`.
+1. **Workspace version** (`oicm-litellm-layer/hooks/priority_bridge.py`):
+   Full Python module, unit-tested, reads config from
+   `litellm.priority_body_fields` global.
 
 2. **In-cluster ConfigMap version** (`litellm-proxy.yaml`): Inline Python in
-   a ConfigMap, deployed to Kubernetes. Must also read
-   `priority_body_fields` from litellm settings. The existing in-cluster
-   `vllm_param_injector` already reads `model_info` from the router; the
-   priority bridge would read from `litellm_settings` instead, which is
-   available at module load time.
+   a ConfigMap `priority_bridge.py` entry, deployed to Kubernetes at
+   `/app/litellm_hooks/priority_bridge.py`. Reads
+   `litellm.priority_body_fields` at runtime, same as the workspace version.
 
-Both variants use the same logic; the ConfigMap version is just packaged
+Both variants use identical logic; the ConfigMap version is just packaged
 differently for the Kubernetes deployment.
 
 ### Why Not Extend `vllm_param_injector`
@@ -759,36 +783,29 @@ The bridge hook MUST run after the HTB hook sets `htb_priority`. In LiteLLM,
 `async_pre_call_hook` callbacks execute in registration order
 (`proxy/utils.py:1425`: `for _callback in caps.resolved_callbacks`).
 
-Current registration in `litellm-proxy.yaml:37-39`:
+The HTB hook (`_PROXY_DynamicRateLimitHandlerV3`) sets `htb_priority` in its
+`async_pre_call_hook` (`dynamic_rate_limiter_v3.py:392`). It is registered
+as a callback via the string `"dynamic_rate_limiter_v3"` in the `callbacks`
+list (resolved by `custom_logger_registry.py:100`). It is NOT auto-registered
+when `priority_reservation` is set; it must be explicitly listed.
+
+Final registration in `litellm-proxy.yaml`:
 ```yaml
 callbacks:
   - litellm_hooks.vllm_param_injector.vllm_param_injector
+  - dynamic_rate_limiter_v3                              # sets htb_priority
+  - litellm_hooks.priority_bridge.priority_bridge        # reads htb_priority
   - prometheus
 ```
 
-After adding the bridge:
-```yaml
-callbacks:
-  - litellm_hooks.vllm_param_injector.vllm_param_injector
-  - litellm_hooks.priority_bridge.priority_bridge    # NEW
-  - prometheus
-```
+The `dynamic_rate_limiter_v3` callback MUST appear before
+`priority_bridge` in the list. Callbacks execute in list order, so the
+HTB hook's `async_pre_call_hook` runs first (setting `htb_priority`), then
+the bridge's `async_pre_call_hook` runs (reading `htb_priority`).
 
-The HTB hook (`DynamicRateLimitHandlerV3`) is registered implicitly via
-`priority_reservation` config, not in the `callbacks` list. It runs as part
-of the pre-call check flow. The `async_pre_call_hook` for HTB is called in
-the same callback loop as explicit callbacks, but its position depends on
-whether it's in `litellm.callbacks` or `litellm._priority_reservation_callbacks`.
-
-The `PriorityBridge` hook must appear in the `callbacks` list after
-`vllm_param_injector` (so both can contribute to `extra_body` without
-conflict) and must run after the HTB hook sets `htb_priority`.
-
-**Verification needed (Phase 2):** Confirm that `htb_priority` is set before
-the bridge hook reads it. If the HTB hook runs after the bridge hook in the
-loop, the ContextVar will be `None` and no priority will be injected. This
-can be tested by logging `htb_priority.get()` inside the bridge hook on a
-live request.
+**Verification needed (Phase 4):** Confirm that `htb_priority` is set
+before the bridge hook reads it on a live request. If the order is wrong,
+the ContextVar will be `None` and no priority will be injected.
 
 ---
 
@@ -863,19 +880,97 @@ count > 0).
 
 ---
 
+## Phase 3 Build: Actual Implementation
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `oicm-litellm-layer/hooks/priority_bridge.py` | NEW. `PriorityBridge(CustomLogger)` hook. Reads `htb_priority` ContextVar, looks up `litellm.priority_body_fields`, merges into `data["extra_body"]`. Exports `priority_bridge` instance. |
+| `litellm/__init__.py` | Added `priority_body_fields: Optional[Dict[str, Dict[str, Any]]] = None` module-level global (same pattern as `priority_reservation`). |
+| `litellm/proxy/proxy_server.py` | Added `elif key == "priority_body_fields"` branch in the `litellm_settings` config-loading loop (~line 4151). Sets `litellm.priority_body_fields = value`. |
+| `oicm-litellm-layer/deploy/litellm-proxy.yaml` | Added `priority_body_fields` to `litellm_settings`, added `priority_bridge` callback, added in-cluster ConfigMap `priority_bridge.py` entry. |
+| `oicm-litellm-layer/tests/hooks/test_priority_bridge.py` | NEW. 13 unit tests covering injection, no-op guards, many-to-many aliases. |
+| `oicm-litellm-layer/tests/hooks/conftest.py` | NEW. Adds `oicm-litellm-layer` to `sys.path` and aliases `litellm_hooks` -> `hooks` for local testing. |
+
+### Config Loading Pattern
+
+The config loading follows the exact pattern of `priority_reservation`.
+In `proxy_server.py`, the `litellm_settings` loop dispatches each key:
+
+```python
+elif key == "priority_reservation":
+    litellm.priority_reservation = value
+elif key == "priority_body_fields":
+    litellm.priority_body_fields = value
+```
+
+Both are plain dicts set as module-level globals on `litellm`. The HTB
+hook reads `litellm.priority_reservation` at runtime; the bridge reads
+`litellm.priority_body_fields` at runtime. No constructor injection, no
+Pydantic model, no callback-specific params. This is the simplest pattern
+that matches the existing codebase.
+
+### Hook Execution Order (resolved)
+
+The `callbacks` list in `litellm-proxy.yaml` registers hooks in order:
+
+```yaml
+callbacks:
+  - litellm_hooks.vllm_param_injector.vllm_param_injector
+  - dynamic_rate_limiter_v3                              # sets htb_priority
+  - litellm_hooks.priority_bridge.priority_bridge        # reads htb_priority
+  - prometheus
+```
+
+The HTB rate limiter (`dynamic_rate_limiter_v3`) is a callback string
+resolved by `custom_logger_registry.py:100` to `_PROXY_DynamicRateLimitHandlerV3`.
+Its `async_pre_call_hook` (`dynamic_rate_limiter_v3.py:392`) sets
+`htb_priority`. It is NOT auto-registered when `priority_reservation` is
+configured; it must be explicitly listed in `callbacks`.
+
+Callbacks execute in list order (`proxy/utils.py:1425`:
+`for _callback in caps.resolved_callbacks`). By placing
+`dynamic_rate_limiter_v3` before `priority_bridge`, the HTB hook's
+`async_pre_call_hook` runs first, setting `htb_priority`, then the bridge's
+`async_pre_call_hook` runs, reading `htb_priority`.
+
+This will be verified in Phase 4 against the live system.
+
+### Unit Test Results
+
+```
+13 passed in 1.38s
+```
+
+Tests cover:
+- Injection for prior1/prior2/prior3 (priority 0/100/200)
+- Preservation of existing `extra_body` keys
+- Multiple fields per priority (e.g. `{"priority": 0, "urgency": "high"}`)
+- Both `completion` and `acompletion` call types
+- No-op when config is None, empty, or priority string not in map
+- No-op when `htb_priority` is None
+- No-op for non-chat call types (e.g. `aembedding`)
+- No mutation of `data` when returning None
+- Many-to-many alias (two strings map to same fields dict)
+- Empty fields dict is a no-op
+
+---
+
 ## Conclusion
 
-The bridge is **feasible with minimal code**. The `extra_body` injection path
-is verified end-to-end across all 8 links from hook return to SGLang HTTP
-body (see "End-to-End Verification Trace" section above):
+The bridge is **feasible and implemented**. Phase 1 (Trace) verified the
+`extra_body` injection path end-to-end across all 8 links from hook return
+to SGLang HTTP body. Phase 3 (Build) implemented the hook, config loading,
+tests, and deployment config. The `extra_body` injection path is verified
+end-to-end (see "End-to-End Verification Trace" section above):
 
 1. `htb_priority` ContextVar is set by the HTB hook at
    `dynamic_rate_limiter_v3.py:392`
 2. A dedicated `PriorityBridge` hook reads it in `async_pre_call_hook` and
-   looks up `priority_body_fields` from `litellm_settings` (config-driven,
-   not hardcoded)
-3. The field-value dict (e.g. `{"priority": 0, "urgency": "high"}`) is
-   merged into `data["extra_body"]` and the hook returns the modified `data`
+   looks up `litellm.priority_body_fields` (config-driven, not hardcoded)
+3. The field-value dict (e.g. `{"priority": 0}`) is merged into
+   `data["extra_body"]` and the hook returns the modified `data`
 4. `process_pre_call_hook_response` returns the hook's dict directly
    (proxy/utils.py:911) — no keys lost
 5. `route_request` unpacks `data` as `**kwargs` into `router.acompletion`
@@ -894,8 +989,7 @@ body (see "End-to-End Verification Trace" section above):
 10. `openai_like/chat/handler.py:258` spreads `extra_body` into the HTTP
     body: `data = {**optional_params, **extra_body}` — `"priority"` becomes
     a top-level field
-11. SGLang receives `"priority": 0` in the body and applies preemption;
-    unknown fields like `"urgency"` are silently ignored
+11. SGLang receives `"priority": 0` in the body and applies preemption
 
 **Answer to the verification question: Yes.** The `priority` field will
 reach the SGLang served endpoint. Every link in the chain is verified with
@@ -906,8 +1000,8 @@ top-level named params, not nested `extra_body` keys. The
 `additional_drop_params` deny-list is the only filter that could strip
 `extra_body` keys, and `priority` is not in any configured deny-list.
 
-The recommended implementation is a **dedicated `PriorityBridge` hook** with
-a **config-driven `priority_body_fields` map** in `litellm_settings`. This
+The implementation is a **dedicated `PriorityBridge` hook** with a
+**config-driven `priority_body_fields` map** in `litellm_settings`. This
 approach:
 
 - Requires no code changes to add/alias priority strings or support new
@@ -917,7 +1011,9 @@ approach:
 - Keeps priority bridging decoupled from vLLM param injection
 - Is independently testable and toggleable
 
-The only residual risk is **hook execution ordering**: the HTB hook must set
-`htb_priority` before the bridge hook reads it. This is a runtime concern
-(callback registration order), not a code-path concern. Phase 2 (Test)
-should verify this on a live system before Phase 3 (Build).
+The `dynamic_rate_limiter_v3` callback must be listed before
+`priority_bridge` in the `callbacks` list so `htb_priority` is set before
+the bridge reads it. This is verified by callback registration order
+(explicit in the YAML), not by code-path analysis. Phase 4 (Verify) should
+confirm on a live system that the ContextVar is populated when the bridge
+runs and that `"priority": 0` appears in the SGLang request body.

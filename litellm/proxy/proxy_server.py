@@ -4148,6 +4148,8 @@ class ProxyConfig:
                     litellm.priority_reservation_settings = PriorityReservationSettings(**value)
                 elif key == "priority_reservation":
                     litellm.priority_reservation = value
+                elif key == "priority_body_fields":
+                    litellm.priority_body_fields = value
                 elif key == "callbacks":
                     initialize_callbacks_on_proxy(
                         value=value,
