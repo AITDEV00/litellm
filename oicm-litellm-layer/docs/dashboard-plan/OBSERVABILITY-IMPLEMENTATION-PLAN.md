@@ -23,22 +23,23 @@ identify reuse opportunities. Here is what the codebase already provides.
 ### 1.1 Backend: data that is already captured
 
 Every LLM request goes through the `Logging` object
-(`litellm/litellm_core_utils/litellm_logging.py`), which tracks these
-timestamps:
+(`litellm/litellm_core_utils/litellm_logging.py`). Two timestamps are real
+attributes on the Logging class; the other two live as keys in the
+`model_call_details` dict:
 
-| Timestamp | Set when | Used for |
-|-----------|----------|----------|
-| `start_time` | Logging init (request begins) | Total time start |
-| `api_call_start_time` | Just before the provider HTTP call | TTFT start |
-| `completion_start_time` | First streamed chunk (streaming only) | TTFT end |
-| `end_time` | Response complete | Total time end |
+| Timestamp | Where it lives | Set when | Used for |
+|-----------|---------------|----------|----------|
+| `start_time` | `self.start_time` (Logging attr, `litellm_logging.py:344`) | Logging init (request begins) | Total time start |
+| `api_call_start_time` | `model_call_details["api_call_start_time"]` (dict key, `litellm_logging.py:988`); NOT a Logging attribute | In `pre_call`, just before the provider HTTP call; overwritten on every retry (only `first_api_call_start_time` is set-once) | TTFT start (in-memory callbacks only) |
+| `completion_start_time` | `self.completion_start_time` (Logging attr, `litellm_logging.py:376`) | First streamed chunk (streaming only); force-set to `end_time` for non-streaming (`litellm_logging.py:1813-1815`) | TTFT end |
+| `end_time` | `model_call_details["end_time"]` (dict key, `litellm_logging.py:1819`); NOT a Logging attribute | Response complete | Total time end |
 
 From these, three derived metrics are computed:
 
 | Metric | Formula | Where it's stored |
 |--------|---------|-------------------|
-| **Total request time** | `end_time - start_time` | `LiteLLM_SpendLogs.request_duration_ms` (DB column, int ms) |
-| **TTFT** (streaming only) | `completion_start_time - api_call_start_time` | `LiteLLM_SpendLogs.completionStartTime` (DB column, DateTime; TTFT is computed on read) |
+| **Total request time** | `end_time - start_time` | `LiteLLM_SpendLogs.request_duration_ms` (DB column, int ms; computed at `spend_tracking_utils.py:474`) |
+| **TTFT** (streaming only) | **Two conflicting definitions exist.** In-memory callbacks (Prometheus `prometheus.py:1867-1873`, OTEL `opentelemetry.py:1484-1495`) use `completion_start_time - api_call_start_time` (excludes preprocessing). DB read queries (`spend_management_endpoints.py:2009-2014`, `proxy_server.py:11903`, `lowest_latency.py:80`) use `completion_start_time - start_time` (includes preprocessing). `api_call_start_time` is never persisted, so DB TTFT cannot use it. The two definitions disagree by the preprocessing overhead. | `LiteLLM_SpendLogs.completionStartTime` (DB column, DateTime; TTFT is computed on read) |
 | **Tokens per second** | `completion_tokens / (end_time - start_time in seconds)` | Not stored; must be derived |
 
 ### 1.2 Backend: Prometheus metrics already emitted
@@ -53,7 +54,7 @@ The proxy emits these Prometheus metrics on every request
 | `litellm_llm_api_time_to_first_token_metric` | Histogram | TTFT (streaming only) |
 | `litellm_deployment_in_progress_requests` | Gauge | Concurrent in-flight requests per deployment |
 | `litellm_deployment_total_requests` | Counter | Total requests per deployment |
-| `litellm_output_tokens_metric` | Counter | Output tokens per deployment |
+| `litellm_output_tokens_metric` | Counter | Output tokens (label schema differs from deployment metrics: uses v1 `model` + `model_id`, lacks `api_base`) |
 | `litellm_deployment_latency_per_output_token` | Histogram | Latency / completion_tokens per deployment |
 
 ### 1.3 Backend: existing endpoints
@@ -63,8 +64,13 @@ The proxy emits these Prometheus metrics on every request
 | `GET /model/metrics/per_model` | Prometheus | concurrent, request_rate, output_tokens_per_sec, latency_per_token_p50 | 15s/30s/5m/1h steps |
 | `GET /model/metrics` | DB | avg latency_per_token per model per day | Daily |
 | `GET /model/streaming_metrics` | DB | TTFT per model (per-request or daily avg) | Per-request or daily |
-| `GET /model/metrics/slow_responses` | DB | count of slow requests per model_group | Aggregated |
+| `GET /model/metrics/slow_responses` | DB | count of slow requests per `api_base` within a model_group (model_group is a WHERE filter, not a GROUP BY) | Aggregated |
 | `GET /spend/logs/ui` | DB | Per-request logs with `request_duration_ms`, `completionStartTime` | Per-request |
+
+File path correction: the spend management endpoints live at
+`litellm/proxy/spend_tracking/spend_management_endpoints.py` (not
+`litellm/proxy/spend_management_endpoints.py` as referenced in some older
+docs).
 | `GET /global/activity/model` | DB | Daily requests + tokens per model | Daily |
 
 ### 1.4 Frontend: what exists today
@@ -154,7 +160,7 @@ Adding it is a small, low-risk change:
 
 3. **Make the throughput column sortable** by adding a server-side sort option.
    This requires a backend change: add `throughput` to the sort field map in
-   `spend_management_endpoints.py`. The sort would compute
+   `spend_tracking/spend_management_endpoints.py`. The sort would compute
    `completion_tokens / NULLIF(request_duration_ms, 0)` in the SQL ORDER BY.
 
 ### 3.3 Why not a separate per-request page
@@ -276,11 +282,19 @@ async def model_performance(
    think in terms of model groups (`gpt-4`, `claude-sonnet-4`). The endpoint
    should aggregate across deployments within a model group.
 
-2. **For Prometheus queries**, change the PromQL to group by `model_group`
-   label instead of `model_id`. The `litellm_*` metrics already carry a
-   `model_group` label (set in `prometheus.py` via `_get_labels`). The current
-   `get_per_model_metrics` groups by `model_id` only; the new endpoint would
-   use `sum by (model_group) (rate(...))` instead.
+2. **For Prometheus queries**, the 7 metrics listed in Section 1.2 do **not**
+   carry a `model_group` label. Only 4 *other* metrics
+   (`litellm_overhead_latency_metric`,
+   `litellm_overhead_with_guardrails_latency_metric`,
+   `litellm_remaining_requests_metric`, `litellm_remaining_tokens_metric`)
+   have `model_group` (`types/integrations/prometheus.py:386,396,406,416`).
+   To group Prometheus data by `model_group`, the label must first be **added**
+   to the metric definitions in `types/integrations/prometheus.py` and emitted
+   in `prometheus.py` via `_get_labels`. This is a code change, not just a
+   query change. Alternatively, use `model_id` aggregation and join to
+   `model_group` via deployment metadata (the existing
+   `_get_deployment_label_metadata` approach, which is unreliable per Part
+   2.1).
 
 3. **For DB queries**, use sub-daily time bucketing. This is the critical
    missing piece. The SQL would use `date_trunc` with the appropriate
@@ -692,3 +706,274 @@ useMemo → chartData arrays
     ▼
 3 Tremor charts (React.memo'd, ChartLoader during fetch)
 ```
+
+---
+
+## Appendix D: Live Endpoint Test Observations
+
+> Tested 2026-07-30 against a running LiteLLM proxy (port 4000) with PostgreSQL.
+> Provider API keys were intentionally empty, so all LLM calls failed at the
+> upstream auth layer. This still creates spend-log rows, making it possible to
+> observe endpoint response shapes and silent filtering behavior.
+
+### Test setup
+
+- Proxy: `litellm/proxy/proxy_cli.py --config litellm/proxy/dev_config.yaml`
+- DB: PostgreSQL 15 via `DATABASE_URL=postgresql://llmproxy:...@localhost:5432/litellm`
+- Schema: `prisma db push --schema=schema.prisma`
+- Auth: master key `sk-1234` (Bearer token)
+- Test call: `POST /v1/chat/completions` with `model: "anthropic-haiku-4-5"`
+- 3 spend-log rows generated (1 initial + 2 router retries), all `status="failure"`
+
+### D.1 `GET /model/metrics/per_model` (Prometheus-backed)
+
+**Request:**
+```
+GET /model/metrics/per_model?window=1h
+Authorization: Bearer sk-1234
+```
+
+**Response (200):**
+```json
+{
+  "prometheus_connected": false,
+  "window": "1h",
+  "step": "",
+  "deployments": []
+}
+```
+
+**Observation:** With no Prometheus configured (or Prometheus unreachable), the
+endpoint returns `prometheus_connected: false` and an empty `deployments` array.
+It does NOT error. The frontend must handle this graceful degradation.
+
+### D.2 `GET /model/metrics` (DB-backed, daily granularity)
+
+**Request:**
+```
+GET /model/metrics?model_group=anthropic-haiku-4-5&start_date=2026-07-29&end_date=2026-07-31
+Authorization: Bearer sk-1234
+```
+
+**Response (200):**
+```json
+{
+  "data": [],
+  "all_api_bases": []
+}
+```
+
+**Observation:** Returns empty despite 3 spend-log rows existing in the date
+range. Root cause: the SQL contains `HAVING SUM(completion_tokens) > 0`, which
+silently excludes all failed requests (failed calls have 0 completion tokens).
+**This is a silent data-loss trap** — if all requests to a model fail, the model
+appears to have zero traffic in this endpoint, even though spend logs exist.
+
+### D.3 `GET /model/streaming_metrics` (DB-backed, TTFT)
+
+**Request:**
+```
+GET /model/streaming_metrics?model_group=anthropic-haiku-4-5&start_date=2026-07-29&end_date=2026-07-31
+Authorization: Bearer sk-1234
+```
+
+**Response (200):**
+```json
+{
+  "data": [],
+  "all_api_bases": []
+}
+```
+
+**Observation:** Returns empty for the same reason as D.2 but with a different
+filter: the SQL contains `WHERE "completionStartTime" != "endTime"`. For failed
+calls, all three timestamps (`startTime`, `completionStartTime`, `endTime`) are
+identical, so the `!=` filter excludes them. Same silent data-loss trap.
+
+### D.4 `GET /model/metrics/slow_responses` (DB-backed)
+
+**Request:**
+```
+GET /model/metrics/slow_responses?model_group=anthropic-haiku-4-5&threshold=0
+Authorization: Bearer sk-1234
+```
+
+**Response (200):**
+```json
+[]
+```
+
+**Observation:** Returns a flat JSON array (not an object wrapper). The SQL
+groups by `api_base` only — `model_group` is a WHERE filter, not a GROUP BY
+column. For failed calls, `api_base` is an empty string, so the row appears as
+`{api_base: "", total_count: 3, slow_count: 0}` (with `threshold=0`, all calls
+are "slow" by definition, but the failed calls have 0 duration so they don't
+exceed any positive threshold). With `threshold=0` the response was `[]` because
+the SQL likely has `WHERE EXTRACT(epoch FROM ("endTime" - "startTime")) > $2`
+and 0 > 0 is false.
+
+### D.5 `GET /spend/logs/ui` (DB-backed, per-request)
+
+**Request:**
+```
+GET /spend/logs/ui?start_date=2026-07-29%2000:00:00&end_date=2026-07-31%2023:59:59
+Authorization: Bearer sk-1234
+```
+
+**Response (200, abbreviated):**
+```json
+{
+  "data": [
+    {
+      "request_id": "d3a2...",
+      "call_type": "completion",
+      "api_key": "sk-1234",
+      "spend": 0.0,
+      "total_tokens": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "startTime": "2026-07-30T13:45:01.234Z",
+      "endTime": "2026-07-30T13:45:01.234Z",
+      "completionStartTime": "2026-07-30T13:45:01.234Z",
+      "model": "anthropic-haiku-4-5",
+      "model_id": "0a4ae6fe...",
+      "model_group": "anthropic-haiku-4-5",
+      "custom_llm_provider": "anthropic",
+      "api_base": "",
+      "user": "",
+      "metadata": {
+        "status": "failure",
+        "error_information": { "error": "401 - {...}" }
+      },
+      "cache_hit": "None",
+      "cache_key": null,
+      "request_tags": [],
+      "team_id": null,
+      "organization_id": null,
+      "end_user": null,
+      "requester_ip_address": "127.0.0.1",
+      "session_id": null,
+      "status": "failure",
+      "request_duration_ms": 0,
+      "session_total_count": "None"
+    }
+    // ... 2 more entries (retries with empty model_id)
+  ],
+  "user_api_keys": [],
+  // ... other filter metadata arrays
+}
+```
+
+**Key observations:**
+1. **Date format:** Requires `YYYY-MM-DD HH:MM:SS` (with URL-encoded space as
+   `%20`). Passing `YYYY-MM-DD` only returns 400. This differs from D.6.
+2. **Failed-request shape:** All timestamps are identical (`startTime` =
+   `endTime` = `completionStartTime`), `request_duration_ms` is 0, `api_base` is
+   empty string, tokens are all 0.
+3. **`model_id` on retries:** The first attempt has a populated `model_id`, but
+   router-retry attempts have an empty `model_id`. This is a data-quality issue
+   for any analytics that group by `model_id`.
+4. **`api_base` empty for failures:** The upstream URL was never reached (auth
+   failed before the HTTP call completed), so `api_base` is `""`. Any endpoint
+   that groups by `api_base` will bucket all failures under `""`.
+5. **Rich response:** This endpoint returns the most complete per-request data
+   of all endpoints — it is the best source for per-request observability.
+
+### D.6 `GET /global/activity/model` (DB-backed, daily aggregation)
+
+**Request:**
+```
+GET /global/activity/model?start_date=2026-07-29&end_date=2026-07-31
+Authorization: Bearer sk-1234
+```
+
+**Response (200):**
+```json
+[
+  {
+    "model": "anthropic-haiku-4-5",
+    "daily_data": [
+      {
+        "model_group": "anthropic-haiku-4-5",
+        "date": "Jul 30",
+        "api_requests": 3,
+        "total_tokens": 0
+      }
+    ],
+    "sum_api_requests": 3,
+    "sum_total_tokens": 0
+  }
+]
+```
+
+**Key observations:**
+1. **Date format:** Requires `YYYY-MM-DD` (date only, no time). Passing
+   `YYYY-MM-DD HH:MM:SS` causes a 500 Internal Server Error because
+   `datetime.strptime(start_date, "%Y-%m-%d")` throws `ValueError`. This is the
+   opposite of D.5 and is a **footgun** for the frontend.
+2. **No failure filtering:** Unlike D.2/D.3, this endpoint does NOT filter out
+   failed requests — it counts all 3 failed calls as `api_requests: 3` with
+   `total_tokens: 0`.
+3. **Date format in response:** `date` is formatted as `"Jul 30"` (month
+   abbreviation + day), not ISO format. The frontend must parse this.
+4. **Response shape:** Returns a flat array (not wrapped in an object).
+
+### D.7 `GET /metrics/` (Prometheus scrape endpoint)
+
+**Request:**
+```
+GET /metrics/  (trailing slash required — /metrics redirects with 307)
+Authorization: Bearer sk-1234
+```
+
+**Key observations:**
+1. **URL:** The endpoint is `/metrics/` (with trailing slash). A request to
+   `/metrics` (no slash) returns `307 Temporary Redirect` to `/metrics/`. The
+   Prometheus ServiceMonitor must be configured with the trailing slash.
+2. **`model_group` label absence:** Confirmed live — **none** of the 7
+   `litellm_*` metrics carry a `model_group` label. The labels present are:
+   - `litellm_deployment_state`: `{api_base, api_provider, litellm_model_name, model_id}`
+   - `litellm_deployment_in_progress_requests`: same labels
+   - `litellm_deployment_cooled_down_total/created`: same + `{exception_status}`
+
+   The 4 metrics that DO have `model_group` (`litellm_overhead_latency_metric`,
+   `litellm_overhead_with_guardrails_latency_metric`, and 2 others) are defined
+   as histograms but did not emit any data rows in this test (failed call never
+   reached the post-call callback). Their HELP/TYPE lines are present, confirming
+   they are registered, but no bucket samples were emitted.
+
+3. **Stuck `litellm_deployment_in_progress_requests`:** After the failed call,
+   this metric remained at `1.0` instead of returning to `0.0`. This appears to
+   be a bug where the decrement callback doesn't fire on upstream auth failures.
+
+### D.8 Summary of date-format requirements
+
+| Endpoint | Required format | Error if wrong format |
+|---|---|---|
+| `/spend/logs/ui` | `YYYY-MM-DD HH:MM:SS` | 400 Bad Request |
+| `/global/activity/model` | `YYYY-MM-DD` | 500 Internal Server Error |
+| `/model/metrics` | `YYYY-MM-DD` (FastAPI auto-parses) | — |
+| `/model/streaming_metrics` | `YYYY-MM-DD` (FastAPI auto-parses) | — |
+| `/model/metrics/slow_responses` | n/a (no date params) | — |
+| `/model/metrics/per_model` | n/a (uses `window` param) | — |
+
+**Frontend implication:** The `modelPerformanceCall` wrapper must format dates
+differently depending on which underlying endpoint it calls. A single
+`formatDate` utility is insufficient.
+
+### D.9 Summary of silent-failure-filtering behavior
+
+| Endpoint | SQL filter that excludes failures | Effect |
+|---|---|---|
+| `/model/metrics` | `HAVING SUM(completion_tokens) > 0` | Models with only failed calls appear to have 0 traffic |
+| `/model/streaming_metrics` | `WHERE "completionStartTime" != "endTime"` | Models with only failed calls have no TTFT data |
+| `/model/metrics/slow_responses` | `WHERE EXTRACT(epoch FROM ("endTime" - "startTime")) > threshold` | Failed calls (0 duration) never count as "slow" |
+| `/spend/logs/ui` | (none) | Failed calls ARE included — most reliable for observability |
+| `/global/activity/model` | (none) | Failed calls ARE counted as api_requests |
+
+**Implementation implication:** The per-model observability feature must use
+`/spend/logs/ui` as the primary data source for the DB-backed path, not
+`/model/metrics` or `/model/streaming_metrics`, because the latter silently
+exclude failures. The `/model/metrics` and `/model/streaming_metrics` endpoints
+are only suitable for successful-call analytics (latency, throughput on
+successful requests).
