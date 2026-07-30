@@ -46,8 +46,6 @@ import { usePaginatedDailyActivity } from "../hooks/usePaginatedDailyActivity";
 import { DailyData, KeyMetricWithMetadata, MetricWithMetadata } from "../types";
 import { valueFormatterSpend } from "../utils/value_formatters";
 import EndpointUsage from "./EndpointUsage/EndpointUsage";
-import ModelAnalyticsView from "./ModelAnalytics/ModelAnalyticsView";
-import PerModelRealTimeView from "./PerModelRealTime/PerModelRealTimeView";
 import EntityUsage, { EntityList } from "./EntityUsage/EntityUsage";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import TopKeyView from "./EntityUsage/TopKeyView";
@@ -430,11 +428,6 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
 
   const sortedDailyResults = useMemo(
     () => [...userSpendData.results].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-    [userSpendData.results],
-  );
-  const modelGroups = useMemo(
-    () =>
-      Array.from(new Set(userSpendData.results.flatMap((day) => Object.keys(day.breakdown.model_groups || {})))).sort(),
     [userSpendData.results],
   );
   const modelMetrics = useMemo(() => processActivityData(userSpendData, "models", teams), [userSpendData, teams]);
@@ -963,26 +956,6 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
           {usageView === "user-agent-activity" && (
             <UserAgentActivity accessToken={accessToken} userRole={userRole} dateValue={dateValue} />
           )}
-
-          <TabGroup className="mt-6">
-            <TabList variant="solid" className="mt-1">
-              <Tab>Model Analytics</Tab>
-              <Tab>Real-Time Per Model</Tab>
-            </TabList>
-            <TabPanels>
-              <TabPanel>
-                <ModelAnalyticsView
-                  accessToken={accessToken}
-                  modelGroups={modelGroups}
-                  startTime={startTime}
-                  endTime={endTime}
-                />
-              </TabPanel>
-              <TabPanel>
-                <PerModelRealTimeView accessToken={accessToken} userID={userID} userRole={userRole} />
-              </TabPanel>
-            </TabPanels>
-          </TabGroup>
         </div>
       </div>
 
