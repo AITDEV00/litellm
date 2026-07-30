@@ -1322,3 +1322,488 @@ GET /v1/deployment/metrics?model_group=claude-haiku&window=1h
 caches. The gap is purely in **exposure**: no single endpoint aggregates and
 returns per-deployment observability. The `/v1/deployment/metrics` endpoint
 design (E.7) bridges this gap by joining all three data sources.
+
+---
+
+## Appendix F: Live Endpoint Audit — Per-Deployment Data Usability
+
+### F.0 Audit methodology
+
+Every data endpoint in the LiteLLM proxy was inventoried from source code
+across 11 router modules (90 routes total), then called live against
+`http://localhost:4000` with `Authorization: Bearer sk-1234`. The DB was
+queried directly via `docker exec litellm-db psql` to verify column-level
+data quality. Each endpoint was assessed for:
+
+1. **Per-deployment granularity** — does the response key data by `model_id`
+   (deployment), or only by `model_group` (model name)?
+2. **Data populated** — does the endpoint return actual data, or empty
+   arrays/dicts?
+3. **Data quality** — are `model_id`, `api_base`, `custom_llm_provider`
+   fields populated or NULL/empty?
+4. **API consistency** — parameter names, date formats, required vs optional
+   fields.
+
+**Environment:** 39 deployments across 8 providers (anthropic, bedrock,
+bedrock-converse, azure_ai, vertex_ai, openai, openai-compatible,
+cohere). All providers have empty API keys → all deployments unhealthy.
+Prometheus not connected (`PROMETHEUS_URL` unset). 5 spend log entries in DB.
+
+### F.1 DB-level data quality audit
+
+Direct PostgreSQL queries reveal the ground truth for per-deployment data:
+
+#### LiteLLM_SpendLogs (32 columns)
+
+| Column | Data type | Populated? | Per-deployment? |
+|---|---|---|---|
+| `request_id` | text | ✅ always | — |
+| `model` | text | ✅ always | ❌ provider model name, not deployment |
+| `model_id` | text | ⚠️ 3/5 populated, 2/5 empty string | ✅ **the key** |
+| `model_group` | text | ✅ always | ❌ model group, not deployment |
+| `api_base` | text | ❌ all empty string | ✅ but empty |
+| `custom_llm_provider` | text | ❌ all empty string | ✅ but empty |
+| `spend` | double | ✅ always 0.0 (auth failures) | — |
+| `total_tokens` | integer | ✅ always 0 | — |
+| `status` | text | ✅ all "failure" | — |
+| `request_duration_ms` | integer | ✅ all 0 | — |
+| `startTime` / `endTime` | timestamp | ✅ always | — |
+| `session_id` | text | ✅ populated | — |
+| `metadata` | jsonb | ✅ rich metadata | — |
+| `messages` / `response` | jsonb | ✅ populated | — |
+| `proxy_server_request` | jsonb | ✅ populated | — |
+
+**Critical findings:**
+
+- **`model_id` is empty string (not NULL) on 2/5 entries.** These are
+  router-retry attempts where the retry path does not set `model_id`. The
+  first attempt of each request has `model_id` populated; subsequent retries
+  within the same request leave it empty. This means DB aggregation by
+  `model_id` will **undercount** retry-attributed failures.
+- **`api_base` is empty string on ALL entries.** The spend logging path
+  does not populate `api_base` for anthropic deployments. This is a
+  data-quality gap — `api_base` should be populated to distinguish
+  deployments that share a provider but have different endpoints.
+- **`custom_llm_provider` is empty string on ALL entries.** Same gap —
+  the provider is derivable from the `model` prefix (e.g.
+  `anthropic/claude-haiku-4-5`) but is not stored in the column.
+
+#### LiteLLM_ErrorLogs (11 columns)
+
+| Column | Data type | Populated? |
+|---|---|---|
+| `request_id` | text | ✅ |
+| `model_id` | text | ✅ has column |
+| `model_group` | text | ✅ |
+| `api_base` | text | ✅ has column |
+| `litellm_model_name` | text | ✅ |
+| `exception_type` | text | ✅ |
+| `exception_string` | text | ✅ |
+| `status_code` | text | ✅ |
+
+**Finding:** `LiteLLM_ErrorLogs` table exists with `model_id` and `api_base`
+columns, but **has 0 rows** — error logging is not writing to this table in
+the current configuration. Errors are only captured in `LiteLLM_SpendLogs`
+(via `status='failure'` and `metadata`).
+
+#### LiteLLM_HealthCheckTable (13 columns)
+
+| Column | Data type | Populated? |
+|---|---|---|
+| `health_check_id` | uuid | ✅ |
+| `model_name` | text | ✅ (model group) |
+| `model_id` | text | ✅ **populated** |
+| `status` | text | ✅ ("unhealthy") |
+| `healthy_count` | integer | ✅ (0) |
+| `unhealthy_count` | integer | ✅ (1) |
+| `error_message` | text | ✅ (full stack trace) |
+| `response_time_ms` | double | ✅ (287.75ms) |
+| `checked_at` | timestamp | ✅ |
+
+**Finding:** The health check table has **1 row** with `model_id` properly
+populated. This is the only DB table that reliably stores per-deployment
+health data. However, it only stores the latest check per model_id (no
+historical health time-series).
+
+#### Other DB tables (73 total)
+
+- **No `LiteLLM_Deployment` table exists.** Deployments are defined
+  in-memory by the router's `model_list` and are not persisted to a
+  dedicated table.
+- `LiteLLM_ProxyModelTable`: 0 rows (DB-managed models not used)
+- `LiteLLM_ModelTable`: 0 rows, 6 columns (id, aliases, created_at/by,
+  updated_at/by) — no deployment metadata
+- `LiteLLM_VerificationToken`: API keys table, not deployment-related
+
+### F.2 Health endpoints — live test results
+
+| Endpoint | HTTP | Per-deployment? | Data populated? | Notes |
+|---|---|---|---|---|
+| `GET /health` | 200 | ✅ by `model_id` | ✅ 39 deployments | Returns `healthy_count`, `unhealthy_count`, `healthy_deployments`, `unhealthy_deployments` with `model_id`, `model`, `api_base`, `error` per deployment |
+| `GET /health?model_id=X` | 200 | ✅ filters by `model_id` | ✅ 1 deployment | Works correctly — returns only the matching deployment |
+| `GET /health/liveliness` | 200 | ❌ | ✅ text "I'm alive!" | Process liveliness only |
+| `GET /health/readiness` | 200 | ❌ | ✅ `healthy: true`, `db_connected: true` | Readiness probe, not per-deployment |
+| `GET /health/history` | 200 | ✅ has `model_id` | ❌ 0 records | No historical health checks stored in memory |
+| `GET /health/latest` | 200 | ✅ keyed by `model_id` | ✅ 1 entry | Returns latest health per model_id, keyed by model_id hash |
+| `GET /health/shared-status` | 200 | ❌ | ✅ `shared_health_check_enabled: false` | Shared health check not enabled |
+| `GET /health/backlog` | 200 | ❌ | ✅ queue metrics | Request backlog, not per-deployment |
+| `GET /health/drain` | 200 | ❌ | ✅ drain status | Drain mode toggle |
+
+**Assessment:** `/health` is the **best per-deployment endpoint** — it
+returns `model_id` per deployment with health status, error messages, and
+response times. `/health/latest` provides the latest health check keyed by
+`model_id`. `/health/history` exists but returns empty (in-memory history
+not retained across restarts).
+
+**Gap:** No historical health time-series is persisted. The
+`LiteLLM_HealthCheckTable` has 1 row (latest only). A `/health/history`
+endpoint that queries the DB table would provide time-series health data.
+
+### F.3 Metrics endpoints — live test results
+
+| Endpoint | HTTP | Per-deployment? | Data populated? | Notes |
+|---|---|---|---|---|
+| `GET /model/metrics` | 200 | ❌ by `api_base` + `model_group` | ❌ 0 entries | DB-aggregated metrics, groups by `api_base` not `model_id`. Returns `data: []`, `all_api_bases: []` |
+| `GET /model/streaming_metrics` | 200 | ❌ by `api_base` | ❌ 0 entries | Same structure, empty |
+| `GET /model/metrics/slow_responses` | 200 | ❌ by `api_base` | ❌ 0 entries | Returns list, empty |
+| `GET /model/metrics/exceptions` | 200 | ❌ by `api_base` | ❌ 0 entries | Returns `{data: [], exception_types: []}` |
+| `GET /model/metrics/per_model` | 200 | ✅ by `model_id` | ⚠️ empty (Prometheus not connected) | Returns `prometheus_connected: false`, `deployments: []`. When Prometheus IS connected, returns 4 PromQL time-series per `model_id` |
+| `GET /metrics` (Prometheus scrape) | 307→empty | ✅ has `litellm_deployment_*` metrics | ❌ empty (Prometheus not enabled in config) | Returns 0 lines. Prometheus `success_callback` not in `litellm_settings.callbacks` |
+
+**Assessment:**
+
+- **`/model/metrics/per_model`** is the only endpoint that aggregates by
+  `model_id` — but it requires Prometheus to be connected. Without
+  `PROMETHEUS_URL`, it returns empty.
+- **`/model/metrics`** (without `/per_model`) aggregates by `api_base` +
+  `model_group`, NOT by `model_id`. This means multiple deployments under
+  the same model group with the same api_base are indistinguishable.
+- **`/metrics`** (Prometheus scrape) requires `prometheus` in
+  `litellm_settings.callbacks`. The dev config does NOT have this, so the
+  endpoint returns empty. When enabled, it would expose 12
+  `litellm_deployment_*` metrics with `model_id` labels.
+
+**Gaps:**
+
+1. `/model/metrics` groups by `api_base` not `model_id` — cannot distinguish
+   deployments within the same model group
+2. Prometheus not enabled in dev config — all Prometheus-dependent endpoints
+   return empty
+3. No endpoint returns DB-aggregated metrics grouped by `model_id`
+
+### F.4 Model info endpoints — live test results
+
+| Endpoint | HTTP | Per-deployment? | Data populated? | Notes |
+|---|---|---|---|---|
+| `GET /v1/models` | 200 | ❌ by model group | ✅ 39 models | OpenAI-compatible format, `id` = model group name, no `model_id` |
+| `GET /v1/models?healthy_only=true` | 200 | ❌ | ✅ 39 models | **Filter does NOT work** — returns all 39 even though all are unhealthy. Only 4 fields: id, object, created, owned_by |
+| `GET /v2/model/info` | 200 | ✅ by `model_info.id` (= model_id) | ✅ 39 deployments | Returns `model_info.id` (the model_id hash), `model_name` (group), `litellm_params` (model, api_key, api_base), `model_info` (id, mode, supports_parallel_request_streaming) |
+| `GET /v2/model/info?modelId=X` | 200 | ✅ filters by modelId | ✅ 1 deployment | Works correctly — returns single deployment by model_id hash |
+| `GET /model/info` | 200 | ✅ by `model_info.id` | ✅ 39 deployments | Same as v2 but different response structure |
+| `GET /model_group/info` | 200 | ❌ by model group | ✅ 39 groups | Returns providers array per group with pricing, supports. Groups by `model_group`, not deployment |
+| `GET /model/settings` | 200 | ❌ | ✅ | Model settings per model group |
+
+**Assessment:**
+
+- **`/v2/model/info`** is the **primary per-deployment listing endpoint** —
+  it returns `model_info.id` (the `model_id` hash) for each deployment with
+  full `litellm_params` including `model`, `api_key`, `api_base`.
+- **`/v1/models` is NOT per-deployment** — it lists model groups, not
+  individual deployments. The `healthy_only` filter appears non-functional
+  (returns all models regardless of health).
+- **`/model_group/info`** groups by model group — useful for understanding
+  how many deployments back each model, but not for per-deployment metrics.
+
+**Gap:** `/v1/models?healthy_only=true` does not filter — this is a bug or
+misconfiguration. The endpoint should only return healthy models when the
+flag is set.
+
+### F.5 Spend tracking endpoints — live test results
+
+| Endpoint | HTTP | Per-deployment? | Data populated? | Notes |
+|---|---|---|---|---|
+| `GET /spend/logs/ui` | 200 | ⚠️ has `model_id` but nullable | ✅ 4 entries | **Date format: `YYYY-MM-DD HH:MM:SS`** (rejected `YYYY-MM-DD`). Returns `model_id` populated on first attempt, empty on retries. Also has `api_base`, `model_group`, `custom_llm_provider` (all empty) |
+| `GET /spend/logs/ui/{request_id}` | 200 | ✅ has `model_id` | ✅ 1 entry | Single request detail with `model_id` |
+| `GET /spend/logs/v2` | 200 | ⚠️ has `model_id` | ✅ entries | V2 API, similar structure |
+| `GET /spend/logs` | 200 | ⚠️ has `model_id` | ✅ entries | Basic spend logs |
+| `GET /spend/logs/session/ui` | 200 | ⚠️ has `model_id` | ✅ entries | Session-grouped spend logs |
+| `GET /global/spend` | 200 | ❌ | ✅ `{spend: 0.0, max_budget: 0.0}` | Total spend, no breakdown |
+| `GET /global/spend/models` | 200 | ❌ by `model` | ✅ 2 entries | Groups by `model` field (provider model name), not `model_id`. Returns `spend`, `total_tokens` per model |
+| `GET /global/spend/provider` | 200 | ❌ by provider | ✅ 1 entry | Groups by `custom_llm_provider` (all empty → 1 group) |
+| `GET /global/spend/keys` | 200 | ❌ by api_key | ✅ 1 entry | Groups by API key |
+| `GET /global/spend/teams` | 200 | ❌ by team | ❌ 0 entries | No teams configured |
+| `GET /global/spend/logs` | 200 | ❌ by date | ✅ 1 entry | Daily spend, returns `{date, spend}` |
+| `GET /global/spend/report` | 200 | ❌ | ✅ 1 entry | Returns `{group_by_day, teams}` — not per-deployment |
+| `GET /global/activity` | 200 | ❌ by `api_base` | ❌ 0 entries | **Requires `api_base` param** to get data. Groups by `api_base` + `model_group` |
+| `GET /global/activity/model` | 200 | ❌ by `model` | ✅ 1 entry | Groups by model field (provider model name). Returns `api_requests`, `total_tokens` |
+| `GET /global/activity/exceptions` | 422 | ❌ | ❌ **REQUIRES `model_group` param** | Returns 422 if `model_group` not provided. Then returns `{daily_data: [], sum_num_rate_limit_exceptions: 0}` |
+| `GET /global/activity/exceptions/deployment` | 200 | ✅ by `model_id` | ❌ 0 entries | **Per-deployment!** Accepts `model_group` param, queries by `model_id`. Returns empty because no error logs in DB |
+| `GET /global/activity/cache_hits` | 200 | ❌ by `api_key` + `model` | ✅ 2 entries | Groups by api_key + model, not deployment |
+
+**Assessment:**
+
+- **`/spend/logs/ui`** is the only endpoint that returns `model_id` in raw
+  log entries. But it has the NULL/empty-on-retry problem (2/5 entries have
+  empty `model_id`).
+- **`/global/activity/exceptions/deployment`** is the ONLY spend/analytics
+  endpoint that explicitly aggregates by `model_id` — but it returned 0
+  entries because `LiteLLM_ErrorLogs` table is empty.
+- **All `/global/spend/*` endpoints** group by model group, provider, key,
+  or team — none group by `model_id`.
+- **Date format inconsistency:** `/spend/logs/ui` requires
+  `YYYY-MM-DD HH:MM:SS` format (rejected plain `YYYY-MM-DD` with "Invalid
+  date format" error), while all `/global/*` endpoints accept plain
+  `YYYY-MM-DD`. This is an API inconsistency that makes client code more
+  complex.
+
+**Gaps:**
+
+1. No endpoint aggregates spend/tokens by `model_id` (only raw logs have it)
+2. `/global/activity/exceptions/deployment` returns empty because
+   `LiteLLM_ErrorLogs` is not being populated
+3. Date format inconsistency between `/spend/logs/ui` and `/global/*`
+4. `api_base` and `custom_llm_provider` are empty in all spend logs
+5. `/global/activity/exceptions` requires `model_group` as mandatory param
+   (422 error if missing) — should be optional with a default
+
+### F.6 Router & debug endpoints — live test results
+
+| Endpoint | HTTP | Per-deployment? | Data populated? | Notes |
+|---|---|---|---|---|
+| `GET /router/settings` | 200 | ❌ | ⚠️ partial | Returns `routing_strategy=simple-shuffle`, `cooldown_time=5`, `allowed_fails=3`, `num_retries=2`, `timeout=6000`. **`routing_groups: 0` (EMPTY)** despite 39 deployments existing |
+| `GET /router/fields` | 200 | ❌ | ✅ | Returns available router fields and routing strategy descriptions |
+| `GET /debug/memory/summary` | 200 | ❌ | ✅ | Process memory, GC stats. `router_memory: {}` (empty in summary) |
+| `GET /debug/memory/details` | 200 | ✅ partial | ✅ | **Reveals router internal state:** `model_list` (num_models), `model_names_set` (num_model_groups), `deployment_names` (num_deployments), `deployment_latency_map` (num_tracked_deployments=39), `router_object` |
+| `GET /debug/asyncio-tasks` | 200 | ❌ | ✅ | Async task list |
+| `GET /memory-usage` | 200 | ❌ | ✅ | Memory usage metrics |
+| `GET /memory-usage-in-mem-cache` | 200 | ❌ | ✅ | In-memory cache stats |
+| `GET /debug/memory/details` (router_memory section) | 200 | ✅ | ✅ | See below |
+
+**`/debug/memory/details` router_memory breakdown:**
+
+```
+model_list: {num_models: N, size_bytes, size_mb}
+model_names_set: {num_model_groups: N, size_bytes, size_mb}
+deployment_names: {num_deployments: 39, size_bytes, size_mb}
+deployment_latency_map: {num_tracked_deployments: 39, size_bytes, size_mb}
+router_object: {size_bytes, size_mb}
+```
+
+**Assessment:**
+
+- **`/router/settings`** returns routing configuration but
+  `routing_groups` is **EMPTY** (count: 0) despite 39 deployments existing.
+  This is a gap — the endpoint should expose the full deployment list or at
+  least the routing group structure. The `routing_groups` field appears to
+  be for routing-group configurations (weighted groups, etc.), not the
+  actual deployment list.
+- **`/debug/memory/details`** is the only endpoint that reveals router
+  internal state including `deployment_names` and
+  `deployment_latency_map` — but it only returns counts and sizes, not the
+  actual deployment data. The `deployment_latency_map` tracks 39
+  deployments but the actual latency values are not exposed.
+
+**Gaps:**
+
+1. `/router/settings` does not expose the deployment list
+2. `/debug/memory/details` shows counts but not actual deployment data
+3. No endpoint exposes the router's `model_id_to_deployment_index_map`
+4. No endpoint exposes `cooldown_cache` state (which deployments are
+   cooling down, remaining cooldown time)
+5. No endpoint exposes `health_state_cache` state (which deployments are
+   marked unhealthy in the in-memory cache)
+6. No endpoint exposes `track_deployment_metrics` (per-minute success/fail
+   counts per deployment_id)
+
+### F.7 Missing endpoints — confirmed 404s
+
+The following endpoints were tested and confirmed to return `404 Not Found`,
+confirming they do not exist and need implementation:
+
+| Endpoint tested | HTTP | Status |
+|---|---|---|
+| `GET /cooldown` | 404 | ❌ Does not exist |
+| `GET /v1/deployment/metrics` | 404 | ❌ Does not exist |
+| `GET /router/deployments` | 404 | ❌ Does not exist |
+
+### F.8 Comprehensive gap analysis — missing endpoints to implement
+
+Based on the live audit, the following endpoints are missing and need
+implementation for complete per-deployment observability:
+
+#### Gap 1: Unified per-deployment observability endpoint
+
+**Missing:** `GET /v1/deployment/metrics`
+
+No single endpoint aggregates per-deployment data from all sources (DB,
+Prometheus, router caches). The design in Appendix E.7 addresses this.
+
+**Data available but not exposed via HTTP:**
+- DB: `LiteLLM_SpendLogs` has `model_id` (3/5 populated) with spend,
+  tokens, duration, status
+- DB: `LiteLLM_HealthCheckTable` has `model_id` with health status
+- DB: `LiteLLM_ErrorLogs` has `model_id` column (but 0 rows)
+- Prometheus: 12 `litellm_deployment_*` metrics with `model_id` label
+  (when enabled)
+- Router: `cooldown_cache`, `health_state_cache`,
+  `track_deployment_metrics` (in-memory, not exposed)
+
+#### Gap 2: Cooldown state endpoint
+
+**Missing:** `GET /router/cooldowns` or `GET /v1/deployments/cooldowns`
+
+The router's `CooldownCache` (`litellm/router_utils/cooldown_cache.py`)
+has `async_get_active_cooldowns(model_ids)` that returns active cooldown
+entries per `model_id` with reason and remaining time. This is NOT exposed
+via any HTTP endpoint.
+
+**Impact:** Dashboard cannot show which deployments are currently in
+cooldown, why they were cooled down, or when they will retry.
+
+#### Gap 3: Health state cache endpoint
+
+**Missing:** `GET /router/health_state` or `GET /v1/deployments/health_state`
+
+The router's `health_state_cache`
+(`litellm/router_utils/health_state_cache.py`) has
+`async_get_unhealthy_deployment_ids()` that returns deployment IDs marked
+unhealthy in the in-memory cache. This is NOT exposed via any HTTP endpoint.
+
+**Impact:** Dashboard cannot distinguish between "unhealthy because the
+last health check failed" (from `/health`) and "unhealthy because the
+router marked it as failed and is not routing to it" (from
+`health_state_cache`).
+
+#### Gap 4: Per-minute deployment metrics endpoint
+
+**Missing:** `GET /v1/deployments/realtime_metrics`
+
+The router's `track_deployment_metrics`
+(`litellm/router_utils/track_deployment_metrics.py`) tracks per-minute
+success/fail counts per `deployment_id` in-memory with 60s TTL. This is NOT
+exposed via any HTTP endpoint.
+
+**Impact:** Dashboard cannot show real-time (sub-minute) request
+success/failure rates per deployment.
+
+#### Gap 5: Deployment listing endpoint (router state)
+
+**Missing:** `GET /router/deployments`
+
+`/router/settings` returns `routing_groups: 0` (empty). There is no
+endpoint that returns the router's full deployment list with:
+- `model_id` (deployment hash)
+- `model_name` (model group)
+- `model` (provider model string)
+- `api_base`
+- `api_provider`
+- `api_key` (redacted)
+- current health status
+- current cooldown status
+- routing weight/priority
+
+`/v2/model/info` returns the deployment list but not the runtime state
+(health, cooldown, routing weight). A combined endpoint would provide a
+complete deployment inventory with live state.
+
+#### Gap 6: DB spend aggregation by model_id
+
+**Missing:** `GET /global/spend/deployments` or
+`GET /v1/deployments/spend`
+
+No `/global/spend/*` endpoint aggregates spend by `model_id`. They all
+group by `model` (provider model name), `api_base`, `provider`, `key`, or
+`team`. A new endpoint that runs:
+```sql
+SELECT model_id, SUM(spend), SUM(total_tokens), COUNT(*),
+       COUNT(*) FILTER (WHERE status='success'),
+       COUNT(*) FILTER (WHERE status!='success'),
+       AVG(request_duration_ms)
+FROM "LiteLLM_SpendLogs"
+WHERE model_id IS NOT NULL AND model_id != ''
+  AND "startTime" >= $1
+GROUP BY model_id
+```
+would provide per-deployment spend analytics from the DB.
+
+#### Gap 7: Error logs endpoint
+
+**Missing:** `GET /v1/deployments/errors` or `GET /global/spend/errors`
+
+`LiteLLM_ErrorLogs` table exists with `model_id`, `api_base`,
+`exception_type`, `status_code` columns but has 0 rows and no endpoint to
+query it. Additionally, errors are not being written to this table — the
+error logging path needs to be fixed to populate it.
+
+#### Gap 8: Historical health time-series endpoint
+
+**Missing:** `GET /health/history?model_id=X&start_date=Y&end_date=Z`
+
+`/health/history` returns 0 records (in-memory, not persisted across
+restarts). The `LiteLLM_HealthCheckTable` has `model_id`, `status`,
+`healthy_count`, `unhealthy_count`, `response_time_ms`, `checked_at` — but
+only stores 1 row (latest). A historical health endpoint that queries the
+DB table with date range filtering would provide health time-series.
+
+### F.9 Per-deployment data usability summary
+
+| Endpoint | Per-deployment? | Data usable? | Gaps |
+|---|---|---|---|
+| `/health` | ✅ by `model_id` | ✅ yes | No historical time-series |
+| `/health?model_id=X` | ✅ filters | ✅ yes | — |
+| `/health/latest` | ✅ keyed by `model_id` | ✅ yes | Only latest, no history |
+| `/health/history` | ✅ has `model_id` | ❌ empty | In-memory only, not persisted |
+| `/v2/model/info` | ✅ by `model_info.id` | ✅ yes | No runtime state (health, cooldown) |
+| `/v2/model/info?modelId=X` | ✅ filters | ✅ yes | — |
+| `/model/info` | ✅ by `model_info.id` | ✅ yes | — |
+| `/spend/logs/ui` | ⚠️ has `model_id` (nullable) | ⚠️ partial | 2/5 entries have empty `model_id` (retries) |
+| `/model/metrics/per_model` | ✅ by `model_id` | ⚠️ requires Prometheus | Empty without `PROMETHEUS_URL` |
+| `/global/activity/exceptions/deployment` | ✅ by `model_id` | ❌ empty | `LiteLLM_ErrorLogs` table empty |
+| `/model/metrics` | ❌ by `api_base` | ❌ empty | Groups by `api_base`, not `model_id` |
+| `/model/streaming_metrics` | ❌ by `api_base` | ❌ empty | Same |
+| `/model/metrics/slow_responses` | ❌ by `api_base` | ❌ empty | Same |
+| `/model/metrics/exceptions` | ❌ by `api_base` | ❌ empty | Same |
+| `/global/spend/models` | ❌ by `model` | ✅ 2 entries | Groups by provider model name |
+| `/global/spend/provider` | ❌ by provider | ✅ 1 entry | — |
+| `/global/activity/model` | ❌ by `model` | ✅ 1 entry | — |
+| `/global/activity/cache_hits` | ❌ by api_key+model | ✅ 2 entries | — |
+| `/router/settings` | ❌ | ⚠️ partial | `routing_groups` empty |
+| `/debug/memory/details` | ⚠️ counts only | ⚠️ partial | Shows counts, not actual data |
+| `/v1/models` | ❌ by model group | ✅ 39 models | `healthy_only` filter broken |
+| `/model_group/info` | ❌ by model group | ✅ 39 groups | — |
+| `/metrics` (Prometheus) | ✅ has labels | ❌ empty | Prometheus not enabled in config |
+
+### F.10 API inconsistencies found
+
+1. **Date format:** `/spend/logs/ui` requires `YYYY-MM-DD HH:MM:SS` format.
+   `/global/*` endpoints accept `YYYY-MM-DD`. A unified date format should
+   be adopted.
+2. **Required params:** `/global/activity/exceptions` requires `model_group`
+   as a mandatory parameter (returns 422 if missing). Other `/global/*`
+   endpoints have optional params. This should be made optional.
+3. **Filter bug:** `/v1/models?healthy_only=true` returns all 39 models
+   even when all are unhealthy. The filter does not work.
+4. **Empty string vs NULL:** `model_id` in `LiteLLM_SpendLogs` is empty
+   string (`""`) on retry entries, not SQL `NULL`. Queries must use
+   `model_id IS NOT NULL AND model_id != ''` to filter properly.
+5. **`api_base` and `custom_llm_provider` always empty:** These columns
+   exist in `LiteLLM_SpendLogs` but are populated as empty string for all
+   entries. The spend logging path does not populate them for some
+   providers.
+
+### F.11 Recommended implementation priority
+
+| Priority | Gap | Effort | Impact |
+|---|---|---|---|
+| P0 | Gap 1: `/v1/deployment/metrics` unified endpoint | Medium | High — single endpoint for dashboard |
+| P0 | Gap 6: DB spend aggregation by `model_id` | Low | High — enables spend per deployment |
+| P1 | Gap 2: Cooldown state endpoint | Low | Medium — operational visibility |
+| P1 | Gap 5: Deployment listing with runtime state | Medium | Medium — deployment inventory |
+| P1 | Fix `api_base`/`custom_llm_provider` population in spend logs | Low | High — data quality |
+| P2 | Gap 3: Health state cache endpoint | Low | Medium — distinguishes check-fail vs router-marked |
+| P2 | Gap 4: Per-minute deployment metrics endpoint | Low | Medium — real-time rates |
+| P2 | Gap 7: Error logs endpoint + fix error logging | Medium | Medium — error analytics |
+| P2 | Gap 8: Historical health time-series | Medium | Medium — health trends |
+| P3 | Fix date format inconsistency | Low | Low — API consistency |
+| P3 | Fix `healthy_only` filter on `/v1/models` | Low | Low — API correctness |
+| P3 | Make `model_group` optional on `/global/activity/exceptions` | Low | Low — API consistency |
