@@ -32,14 +32,14 @@ attributes on the Logging class; the other two live as keys in the
 | `start_time` | `self.start_time` (Logging attr, `litellm_logging.py:344`) | Logging init (request begins) | Total time start |
 | `api_call_start_time` | `model_call_details["api_call_start_time"]` (dict key, `litellm_logging.py:988`); NOT a Logging attribute | In `pre_call`, just before the provider HTTP call; overwritten on every retry (only `first_api_call_start_time` is set-once) | TTFT start (in-memory callbacks only) |
 | `completion_start_time` | `self.completion_start_time` (Logging attr, `litellm_logging.py:376`) | First streamed chunk (streaming only); force-set to `end_time` for non-streaming (`litellm_logging.py:1813-1815`) | TTFT end |
-| `end_time` | `model_call_details["end_time"]` (dict key, `litellm_logging.py:1819`); NOT a Logging attribute | Response complete | Total time end |
+| `end_time` | `model_call_details["end_time"]` (dict key, `litellm_logging.py:1818`); NOT a Logging attribute | Response complete | Total time end |
 
 From these, three derived metrics are computed:
 
 | Metric | Formula | Where it's stored |
 |--------|---------|-------------------|
 | **Total request time** | `end_time - start_time` | `LiteLLM_SpendLogs.request_duration_ms` (DB column, int ms; computed at `spend_tracking_utils.py:474`) |
-| **TTFT** (streaming only) | **Two conflicting definitions exist.** In-memory callbacks (Prometheus `prometheus.py:1867-1873`, OTEL `opentelemetry.py:1484-1495`) use `completion_start_time - api_call_start_time` (excludes preprocessing). DB read queries (`spend_management_endpoints.py:2009-2014`, `proxy_server.py:11903`, `lowest_latency.py:80`) use `completion_start_time - start_time` (includes preprocessing). `api_call_start_time` is never persisted, so DB TTFT cannot use it. The two definitions disagree by the preprocessing overhead. | `LiteLLM_SpendLogs.completionStartTime` (DB column, DateTime; TTFT is computed on read) |
+| **TTFT** (streaming only) | **Two conflicting definitions exist.** In-memory callbacks (Prometheus `prometheus.py:1867-1873`, OTEL `opentelemetry.py:1484-1495`) use `completion_start_time - api_call_start_time` (excludes preprocessing). DB read queries (`spend_management_endpoints.py:2011-2013` for `/spend/logs/ui` sort, `proxy_server.py:11903` for `/model/streaming_metrics`) and the router strategy (`router_strategy/lowest_latency.py:80` sync, `:268` async) use `completion_start_time - start_time` (includes preprocessing). `api_call_start_time` is never persisted, so DB TTFT cannot use it. The two definitions disagree by the preprocessing overhead. Note: the OTEL side was intentionally aligned with Prometheus (see code comment at `opentelemetry.py:1482-1483`), but the DB/router side was not updated to match. | `LiteLLM_SpendLogs.completionStartTime` (DB column, DateTime; TTFT is computed on read) |
 | **Tokens per second** | `completion_tokens / (end_time - start_time in seconds)` | Not stored; must be derived |
 
 ### 1.2 Backend: Prometheus metrics already emitted
@@ -64,7 +64,7 @@ The proxy emits these Prometheus metrics on every request
 | `GET /model/metrics/per_model` | Prometheus | concurrent, request_rate, output_tokens_per_sec, latency_per_token_p50 | 15s/30s/5m/1h steps |
 | `GET /model/metrics` | DB | avg latency_per_token per model per day | Daily |
 | `GET /model/streaming_metrics` | DB | TTFT per model (per-request or daily avg) | Per-request or daily |
-| `GET /model/metrics/slow_responses` | DB | count of slow requests per `api_base` within a model_group (model_group is a WHERE filter, not a GROUP BY) | Aggregated |
+| `GET /model/metrics/slow_responses` | DB | `total_count` and `slow_count` per `api_base` within a model_group (uses `SUM(CASE WHEN ... >= threshold THEN 1 ELSE 0 END)`, not a `WHERE > threshold` filter; failures are counted in `total_count`, not excluded) | Aggregated |
 | `GET /spend/logs/ui` | DB | Per-request logs with `request_duration_ms`, `completionStartTime` | Per-request |
 
 File path correction: the spend management endpoints live at
@@ -78,8 +78,9 @@ docs).
 - **Logs table** (`view_logs/columns.tsx`): Already shows `Duration (s)` and
   `TTFT (s)` columns per request, both sortable. This is the per-request
   observability that already works.
-- **Log detail drawer** (`LogDetailsDrawer/LogDetailContent.tsx`): Shows
-  Duration, TTFT, Tokens, Cost per single request.
+- **Log detail drawer** (`view_logs/LogDetailsDrawer/LogDetailContent.tsx`):
+  Shows Duration, TTFT, Tokens, Cost per single request. The `LogEntry`
+  interface is defined in `view_logs/columns.tsx:36-82` (not in `types.ts`).
 - **Usage page** (`UsagePage/`): Shows spend, token counts, request counts per
   day. No latency/throughput/timing data anywhere in `SpendMetrics`.
 - **Usage views**: 9 views via `UsageViewSelect`, all spend/token focused.
@@ -242,7 +243,7 @@ problem.
 @router.get("/v1/model/performance", dependencies=[Depends(user_api_key_auth)])
 async def model_performance(
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
-    window: str = Query("1h", regex="^(5m|15m|1h|24h|1w)$"),
+    window: str = Query("1h", pattern="^(5m|15m|1h|24h|7d)$"),
     model_group: Optional[str] = Query(None),
 ):
 ```
@@ -308,7 +309,9 @@ async def model_performance(
      model_group,
      date_trunc('{bucket}', "startTime") AS bucket_start,
      AVG(EXTRACT(epoch FROM ("endTime" - "startTime"))) AS avg_total_time_sec,
-     AVG(EXTRACT(epoch FROM ("completionStartTime" - "startTime"))) AS avg_ttft_sec,
+     AVG(CASE WHEN "completionStartTime" > "startTime"
+              THEN EXTRACT(epoch FROM ("completionStartTime" - "startTime"))
+              ELSE NULL END) AS avg_ttft_sec,
      SUM(completion_tokens) / NULLIF(SUM(EXTRACT(epoch FROM ("endTime" - "startTime"))), 0) AS throughput_tokens_per_sec,
      COUNT(*) AS request_count,
      SUM(completion_tokens) AS total_tokens
@@ -370,9 +373,12 @@ with different shapes" problem.
 
 #### 4.4.2 New hook
 
-Create `src/app/(dashboard)/hooks/models/useModelPerformance.ts`:
+Create `src/app/(dashboard)/hooks/models/useModelPerformance.ts`
+(note: the existing models hook file exports `useModelsInfo`, not `useModels`):
 
 ```ts
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+
 export function useModelPerformance(window: string, modelGroup?: string) {
   const { accessToken } = useContext(AuthContext);
   return useQuery({
@@ -380,13 +386,18 @@ export function useModelPerformance(window: string, modelGroup?: string) {
     queryFn: () => modelPerformanceCall(accessToken!, { window, model_group: modelGroup }),
     enabled: !!accessToken,
     refetchInterval: window === "5m" || window === "15m" ? 30000 : false,
+    refetchIntervalInBackground: false,
     staleTime: window === "5m" || window === "15m" ? 15000 : 60000,
+    placeholderData: keepPreviousData,
   });
 }
 ```
 
 The `refetchInterval` gives live updates for short windows (30s, matching the
 Prometheus scrape interval). Longer windows don't need polling.
+`placeholderData: keepPreviousData` (React Query v5 API) prevents the chart
+from flashing to empty on every refetch. `refetchIntervalInBackground: false`
+stops polling when the browser tab is hidden.
 
 #### 4.4.3 New component: ModelPerformanceView
 
@@ -1022,7 +1033,7 @@ fails, the router cools it down (by `model_id`) and retries on another.
 ### E.2 Prometheus per-deployment metrics (already available)
 
 LiteLLM's Prometheus integration (`litellm/integrations/prometheus.py`) defines
-**12 deployment-level metrics**, all carrying 4 canonical labels:
+**11 deployment-level metrics**, all carrying 4 canonical labels:
 
 | Label | Meaning |
 |---|---|
@@ -1031,7 +1042,7 @@ LiteLLM's Prometheus integration (`litellm/integrations/prometheus.py`) defines
 | `api_base` | The upstream base URL |
 | `api_provider` | The provider type (anthropic, azure_ai, bedrock, etc.) |
 
-The 12 metrics:
+The 11 metrics:
 
 | Metric | Type | Extra labels | What it measures | Source line |
 |---|---|---|---|---|
@@ -1048,7 +1059,7 @@ The 12 metrics:
 | `litellm_deployment_failed_fallbacks` | Counter | (same as above) | Failed fallbacks FROM this deployment | `prometheus.py:545` |
 
 > **Label definitions** are in `litellm/types/integrations/prometheus.py`
-> (lines 490–560). The 4 canonical labels are reused across all 12 metrics
+> (lines 490–560). The 4 canonical labels are reused across all 11 metrics
 > except the fallback metrics, which use a richer label set including
 > `requested_model`/`fallback_model` for fallback chain tracking.
 
@@ -1201,7 +1212,7 @@ class DeploymentHealthStateValue(TypedDict):
 
 #### E.5.3 Per-minute success/fail tracking
 
-**File:** `litellm/router_utils/track_deployment_metrics.py`
+**File:** `litellm/router_utils/router_callbacks/track_deployment_metrics.py`
 
 - Tracks per-minute success/failure counts per `deployment_id`
 - In-memory cache, TTL 60 seconds
@@ -1643,7 +1654,7 @@ Prometheus, router caches). The design in Appendix E.7 addresses this.
   tokens, duration, status
 - DB: `LiteLLM_HealthCheckTable` has `model_id` with health status
 - DB: `LiteLLM_ErrorLogs` has `model_id` column (but 0 rows)
-- Prometheus: 12 `litellm_deployment_*` metrics with `model_id` label
+- Prometheus: 11 `litellm_deployment_*` metrics with `model_id` label
   (when enabled)
 - Router: `cooldown_cache`, `health_state_cache`,
   `track_deployment_metrics` (in-memory, not exposed)
@@ -1679,7 +1690,7 @@ router marked it as failed and is not routing to it" (from
 **Missing:** `GET /v1/deployments/realtime_metrics`
 
 The router's `track_deployment_metrics`
-(`litellm/router_utils/track_deployment_metrics.py`) tracks per-minute
+(`litellm/router_utils/router_callbacks/track_deployment_metrics.py`) tracks per-minute
 success/fail counts per `deployment_id` in-memory with 60s TTL. This is NOT
 exposed via any HTTP endpoint.
 
@@ -1807,3 +1818,511 @@ DB table with date range filtering would provide health time-series.
 | P3 | Fix date format inconsistency | Low | Low — API consistency |
 | P3 | Fix `healthy_only` filter on `/v1/models` | Low | Low — API correctness |
 | P3 | Make `model_group` optional on `/global/activity/exceptions` | Low | Low — API consistency |
+
+---
+
+## Appendix G: Plan Validation Audit
+
+This appendix records the result of validating every factual claim, file
+reference, and code snippet in this plan against the actual codebase. The
+methodology applies the four sibling technique documents:
+
+- **FRONTEND-UNDERSTANDING-TECHNIQUE** Step 4 (gating analysis) and Step 6
+  (verify) — to confirm frontend file paths and component structures.
+- **FRONTEND-ANALYSIS-PROCESS** Layer 3 (reuse/extensibility audit) — to
+  confirm the proposed `ModelPerformanceView` reuses existing shared
+  components correctly.
+- **LOGIC-MAPPING-TECHNIQUE** Phase 1 (trace logic map) and Phase 2 (test
+  against real data) — to trace the proposed endpoint data flows and test
+  the SQL against the live database.
+- **UI-LINT-AND-CHANGE-PROCESS** — to check the proposed code snippets
+  against the ESLint flat config, TypeScript strict mode, and React Query
+  v5 API.
+
+### G.1 Summary verdict
+
+| Category | Total claims | Confirmed | Refuted | Partially confirmed |
+|----------|-------------|-----------|---------|---------------------|
+| Backend inventory (Part 1) | 10 | 7 | 1 | 2 |
+| Frontend inventory (Part 1) | 14 | 9 | 2 | 3 |
+| SQL filter / TTFT conflict (Part 2, App D) | 7 | 5 | 1 | 1 |
+| Proposed SQL (Part 4.3.1) | 1 | 1 | 0 | 0 |
+| Proposed code snippets (Part 4.4, 5.3) | 5 | 3 | 1 | 1 |
+| **Total** | **37** | **25** | **5** | **7** |
+
+**Overall: the plan is valid and good.** 25 of 37 claims are fully confirmed.
+The 5 refutations are minor (file path imprecision, off-by-one counts, one
+SQL filter mischaracterization) and do not undermine the plan's
+recommendations. The 7 partial confirmations are all behavioral-correct /
+path-wrong situations. All corrections are documented below and should be
+applied before implementation begins.
+
+### G.2 Backend corrections (Part 1 inventory)
+
+#### G.2.1 "12 deployment metrics" → 11
+
+**Claim (Part 1.2):** "12 `litellm_deployment_*` metrics."
+
+**Actual:** There are **11** distinct `litellm_deployment_*` metric
+definitions in `litellm/integrations/prometheus.py:440-506`:
+
+| # | Metric | Line |
+|---|--------|------|
+| 1 | `litellm_deployment_state` | 440 |
+| 2 | `litellm_deployment_tpm_limit` | 446 |
+| 3 | `litellm_deployment_rpm_limit` | 452 |
+| 4 | `litellm_deployment_in_progress_requests` | 458 |
+| 5 | `litellm_deployment_cooled_down` | 465 |
+| 6 | `litellm_deployment_success_responses` | 472 |
+| 7 | `litellm_deployment_failure_responses` | 477 |
+| 8 | `litellm_deployment_total_requests` | 483 |
+| 9 | `litellm_deployment_latency_per_output_token` | 490 |
+| 10 | `litellm_deployment_successful_fallbacks` | 496 |
+| 11 | `litellm_deployment_failed_fallbacks` | 502 |
+
+**Action:** Replace "12" with "11" throughout the plan.
+
+#### G.2.2 `track_deployment_metrics.py` path
+
+**Claim (Appendix E):** `litellm/router_utils/track_deployment_metrics.py`
+
+**Actual:** `litellm/router_utils/router_callbacks/track_deployment_metrics.py`
+— the file is under the `router_callbacks/` subdirectory, not directly under
+`router_utils/`.
+
+**Behavior confirmed:** The file does track per-minute success/fail counts
+per `deployment_id` with a 60s TTL
+(`increment_deployment_successes_for_current_minute` at line 12, TTL=60 at
+line 26; `increment_deployment_failures_for_current_minute` at line 31,
+TTL=60 at line 41).
+
+**Action:** Update the path in Appendix E.
+
+#### G.2.3 Sort field map does not support `throughput`
+
+**Claim (Part 3):** The plan suggests adding `throughput` as a sort field.
+
+**Actual:** The sort field allowlist at
+`spend_management_endpoints.py:1761-1770` is:
+```python
+valid_sort_fields = {
+    "spend", "total_tokens", "startTime", "endTime",
+    "request_duration_ms", "model", "ttft_ms",
+}
+```
+`throughput` is NOT supported. The plan's suggestion to add it is **valid and
+correct** — the gap is real.
+
+**Action:** No correction needed to the recommendation. The plan correctly
+identifies this as a gap.
+
+#### G.2.4 Date format claim — partially correct
+
+**Claim (Appendix F.10):** "`/spend/logs/ui` requires `YYYY-MM-DD HH:MM:SS`."
+
+**Actual:** This is true for the **legacy** `/spend/logs/ui` path
+(`is_v2 = False`), which accepts only `"%Y-%m-%d %H:%M:%S"`. However, the
+**v2** path (`/spend/logs/v2`, same handler with `is_v2 = True`) accepts
+**both** `"%Y-%m-%d %H:%M:%S"` and `"%Y-%m-%d"` (line 1791).
+
+The `/global/*` endpoints use `strptime("%Y-%m-%d")` only
+(`spend_management_endpoints.py:495-496`), which would throw `ValueError` on
+`HH:MM:SS` input — this claim is **confirmed**.
+
+**Action:** Clarify in Appendix F.10 that the v2 path accepts both formats;
+only the legacy path is rigid.
+
+### G.3 Frontend corrections (Part 1 inventory)
+
+#### G.3.1 `LogEntry` is in `columns.tsx`, not `types.ts`
+
+**Claim (Part 1.1, Appendix A):** `LogEntry` type in `types.ts`.
+
+**Actual:** `ui/litellm-dashboard/src/types.ts` contains only `Setter<T>` and
+`EmailEvent`. The `LogEntry` interface is defined in
+`ui/litellm-dashboard/src/components/view_logs/columns.tsx:36-82`.
+
+**Action:** Update file references from `types.ts` to
+`components/view_logs/columns.tsx`.
+
+#### G.3.2 Hook is `useModelsInfo`, not `useModels`
+
+**Claim (Part 4.4):** References `useModels` hook.
+
+**Actual:** The exported hook in
+`ui/litellm-dashboard/src/app/(dashboard)/hooks/models/useModels.ts` is
+`useModelsInfo` (line ~36). There is no export named `useModels`. The file
+also exports `useModelHub`, `useAllProxyModels`, `useUserModels`.
+
+**Action:** Update hook name to `useModelsInfo`.
+
+#### G.3.3 `UsagePage/shared/` directory does not exist
+
+**Claim (Part 4.4.3, Appendix A):** References shared components under
+`UsagePage/shared/`.
+
+**Actual:** The `UsagePage/` directory contains only `components/`, `hooks/`,
+`types.ts`, `utils/`. Shared components live in the top-level
+`components/shared/` directory:
+- `components/shared/chart_loader.tsx` — `ChartLoader` (confirmed, line 15)
+- `components/shared/advanced_date_picker.tsx` — `AdvancedDatePicker` (confirmed)
+- `components/common_components/chartUtils.tsx` — `CustomTooltip` (line 19),
+  `CustomLegend` (line 80)
+
+**Action:** Update all references from `UsagePage/shared/` to
+`components/shared/`.
+
+#### G.3.4 `LogDetailContent.tsx` path
+
+**Claim (Part 1.1, Appendix A):** `components/LogDetailsDrawer/LogDetailContent.tsx`
+
+**Actual:** `components/view_logs/LogDetailsDrawer/LogDetailContent.tsx` —
+the `LogDetailsDrawer` directory is under `view_logs/`, not directly under
+`components/`.
+
+The `MetricsSection` component is at line 281, rendered at line 140. It shows
+Duration, TTFT, Tokens, Cost, Cache Hit, LiteLLM Overhead, Retries. Confirmed.
+
+**Action:** Update path to `view_logs/LogDetailsDrawer/LogDetailContent.tsx`.
+
+### G.4 SQL filter and TTFT conflict corrections (Part 2, Appendix D)
+
+#### G.4.1 `/model/metrics` and `/model/streaming_metrics` — wrong file attribution
+
+**Claim (Part 2.1, Appendix D):** These endpoints' SQL filters are attributed
+to `spend_management_endpoints.py:~2009-2014`.
+
+**Actual:** These endpoints are in `litellm/proxy/proxy_server.py`, NOT in
+`spend_management_endpoints.py`:
+- `/model/metrics` `HAVING SUM(completion_tokens) > 0`:
+  `proxy_server.py:12063-12064` — **confirmed** (silently excludes failed
+  requests)
+- `/model/streaming_metrics` `WHERE "completionStartTime" != "endTime"`:
+  `proxy_server.py:11909` (same-day) and `:11933` (range) — **confirmed**
+  (excludes failed requests)
+
+The `spend_management_endpoints.py:2009-2014` range is a **different** TTFT
+computation — it's the `/spend/logs/ui` sort key expression, not a `HAVING`
+filter. The plan appears to have conflated two code locations.
+
+**Action:** Update file references from `spend_management_endpoints.py` to
+`proxy_server.py` for these three endpoints.
+
+#### G.4.2 `/model/metrics/slow_responses` — REFUTED
+
+**Claim (Part 2.1, Appendix D):** This endpoint "excludes zero-duration calls
+via `WHERE EXTRACT(epoch FROM ("endTime" - "startTime")) > $2`."
+
+**Actual:** The SQL at `proxy_server.py:12164-12183` does NOT use a `WHERE >
+threshold` filter. It uses a `SUM(CASE WHEN ... THEN 1 ELSE 0 END)` pattern
+to **count** slow requests, returning both `total_count` and `slow_count`:
+
+```sql
+SELECT
+    api_base,
+    COUNT(*) AS total_count,
+    SUM(CASE
+        WHEN ("endTime" - "startTime") >= (INTERVAL '1 SECOND' * CAST($1 AS INTEGER)) THEN 1
+        ELSE 0
+    END) AS slow_count
+FROM "LiteLLM_SpendLogs"
+WHERE "model_group" = $2 AND "cache_hit" != 'True'
+    AND "startTime" >= $3::timestamp AND "startTime" <= $4::timestamp
+```
+
+Failed/zero-duration calls are **included** in `total_count` (they just don't
+increment `slow_count`). This endpoint does NOT silently drop failures.
+
+**Action:** Remove the claim that `/model/metrics/slow_responses` excludes
+zero-duration calls. The endpoint correctly counts them as non-slow.
+
+#### G.4.3 TTFT definition conflict — confirmed but nuance needed
+
+**Claim (Part 2.2):** Two conflicting TTFT definitions exist.
+
+**Actual — all locations confirmed:**
+
+| Path | TTFT formula | Includes preprocessing? |
+|------|-------------|------------------------|
+| Prometheus `prometheus.py:1869-1871` | `completion_start_time - api_call_start_time` | No |
+| OTEL `opentelemetry.py:1484-1495` | `completion_start_time - api_call_start_time` | No |
+| `/spend/logs/ui` sort `spend_management_endpoints.py:2011-2013` | `completionStartTime - startTime` | Yes |
+| `/model/streaming_metrics` `proxy_server.py:11903` | `completionStartTime - startTime` | Yes |
+| Router `lowest_latency.py:80` (sync), `:268` (async) | `completion_start_time - start_time` | Yes |
+
+**Nuance:** The OTEL code comment at line 1482-1483 states the
+`api_call_start_time` usage was an **intentional alignment** with Prometheus
+("Use api_call_start_time for precision (matches Prometheus implementation).
+This excludes LiteLLM overhead and measures pure LLM API latency"). This
+suggests the in-memory side was deliberately changed, but the DB/router side
+was not updated to match. The conflict is real but may be by design on the
+in-memory side.
+
+**File path correction:** `lowest_latency.py` is at
+`litellm/router_strategy/lowest_latency.py`, NOT `litellm/router_utils/`.
+
+**Action:** Add the `lowest_latency.py` path correction. Note the OTEL
+intentional-alignment context.
+
+### G.5 Proposed SQL validation (Part 4.3.1) — LOGIC-MAPPING Phase 2
+
+**Tested against live database** (`docker exec litellm-db psql ...`):
+
+```sql
+SELECT
+  model_group,
+  date_trunc('hour', "startTime") AS bucket_start,
+  AVG(EXTRACT(epoch FROM ("endTime" - "startTime"))) AS avg_total_time_sec,
+  AVG(EXTRACT(epoch FROM ("completionStartTime" - "startTime"))) AS avg_ttft_sec,
+  SUM(completion_tokens) / NULLIF(SUM(EXTRACT(epoch FROM ("endTime" - "startTime"))), 0) AS throughput_tokens_per_sec,
+  COUNT(*) AS request_count,
+  SUM(completion_tokens) AS total_tokens
+FROM "LiteLLM_SpendLogs"
+WHERE "startTime" >= NOW() - INTERVAL '7 days'
+  AND "cache_hit" != 'True'
+GROUP BY model_group, bucket_start
+ORDER BY model_group, bucket_start
+```
+
+**Result: SQL is valid and executes correctly.** However, two data quality
+issues were discovered:
+
+1. **Negative TTFT values:** `avg_ttft_sec` can be negative
+   (`-0.00100000000000000000`). This happens because `completionStartTime`
+   can be set *before* `startTime` at millisecond resolution (observed in real
+   data: `completionStartTime = 14:27:47.944` but `startTime = 14:27:47.945`
+   for a failed request). The plan's SQL should add a guard:
+   `AVG(CASE WHEN "completionStartTime" > "startTime" THEN EXTRACT(...) ELSE NULL END)`
+
+2. **NULL throughput for all-failed buckets:** `throughput_tokens_per_sec`
+   is NULL when all requests in a bucket have zero duration (all failed).
+   The `NULLIF` correctly prevents division by zero, but the frontend should
+   handle NULL throughput gracefully (display "—" not "0").
+
+**`date_trunc` with parameterized bucket:** The plan uses
+`date_trunc('{bucket}', ...)` with a Python-formatted string. This works
+because the bucket is interpolated server-side before sending to Postgres. Do
+NOT use a SQL parameter (`$1`) for the bucket — `date_trunc` requires the
+first argument to be a string literal at parse time in some Postgres
+versions. The plan's approach (Python f-string interpolation) is correct but
+must validate the bucket value against an allowlist to prevent SQL injection.
+
+### G.6 Proposed code snippet validation (Part 4.4, 5.3) — UI-LINT rules
+
+#### G.6.1 `modelPerformanceCall` — VALID
+
+```ts
+apiClient.get("/v1/model/performance", {
+  accessToken,
+  query: { window: params.window, model_group: params.model_group },
+});
+```
+
+**Verified against `lib/http/client.ts`:**
+- `createApiClient()` confirmed at ~line 100
+- `RequestOptions` includes `query?: QueryParams` (confirmed, line ~30)
+- `get<T>(path, options)` signature confirmed (line ~76)
+- `appendQuery()` handles arrays and null skipping (line ~83)
+
+**Verdict: VALID.** Uses the modern `apiClient` pattern, not raw `fetch()`.
+Passes the `no-restricted-syntax` rule (which bans raw `fetch()` outside
+`lib/http/`).
+
+#### G.6.2 `useModelPerformance` hook — ONE ISSUE
+
+```ts
+useQuery({
+  queryKey: ["model-performance", window, modelGroup],
+  queryFn: () => modelPerformanceCall(accessToken!, { window, model_group: modelGroup }),
+  enabled: !!accessToken,
+  refetchInterval: window === "5m" || window === "15m" ? 30000 : false,
+  staleTime: window === "5m" || window === "15m" ? 15000 : 60000,
+});
+```
+
+**Issues found:**
+
+1. **Missing `placeholderData: keepPreviousData`:** Part 5.3.2 mentions this
+   optimization but the hook snippet in Part 4.4.2 does not include it. React
+   Query v5 (confirmed: `@tanstack/react-query` 5.100.7) uses
+   `placeholderData: keepPreviousData` (not the old `keepPreviousData: true`
+   option). The existing codebase uses this pattern correctly (e.g.,
+   `view_logs/audit_logs.tsx:82`, `hooks/keys/useKeys.ts:112`). **Action:**
+   Add `placeholderData: keepPreviousData` to the hook, and import
+   `keepPreviousData` from `@tanstack/react-query`.
+
+2. **Missing `refetchIntervalInBackground: false`:** Part 5.3.2 mentions this
+   but the hook snippet doesn't include it. The existing codebase uses this
+   pattern (`view_logs/log_filter_logic.tsx:181`). **Action:** Add
+   `refetchIntervalInBackground: false`.
+
+3. **`accessToken!` non-null assertion:** This is acceptable per existing
+   patterns (other hooks do the same with `enabled: !!accessToken` guard).
+
+**Verdict: VALID with additions needed.** The hook should be:
+```ts
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+
+useQuery({
+  queryKey: ["model-performance", window, modelGroup],
+  queryFn: () => modelPerformanceCall(accessToken!, { window, model_group: modelGroup }),
+  enabled: !!accessToken,
+  refetchInterval: window === "5m" || window === "15m" ? 30000 : false,
+  refetchIntervalInBackground: false,
+  staleTime: window === "5m" || window === "15m" ? 15000 : 60000,
+  placeholderData: keepPreviousData,
+});
+```
+
+#### G.6.3 `useMemo` for chart data — VALID
+
+```tsx
+const chartData = useMemo(() => {
+  return data?.models.flatMap(m =>
+    m.time_series.concurrent_requests.map(p => ({
+      model: m.model_group,
+      timestamp: p.timestamp,
+      value: p.value,
+    }))
+  ) ?? [];
+}, [data]);
+```
+
+**Verdict: VALID.** Correct `useMemo` pattern with proper dependency array.
+React Query returns stable references unless data changes. No lint issues.
+
+#### G.6.4 Tremor usage in `ModelPerformanceView` — VALID (with suppression)
+
+**Claim (Part 4.4.4):** Option A — use Tremor for visual consistency within
+the Usage page. Add `eslint-suppressions.json` entry.
+
+**Verified against ESLint config (`eslint.config.mjs:44-55`):**
+- `no-restricted-imports` bans `@tremor/react` and `@tremor/react/*` with
+  message: "@tremor/react is being phased out; build new UI with antd instead"
+- `eslint-suppressions.json` confirmed to exist (~1900+ entries, bulk is
+  `no-restricted-imports` for Tremor)
+- The existing `UsagePageView.tsx` heavily uses Tremor (lines 8-24: BarChart,
+  Card, Col, Grid, Tab, TabGroup, TabList, TabPanel, TabPanels, Text, Title)
+
+**Verdict: VALID.** The plan's reasoning is correct — visual consistency
+within an existing Tremor page outweighs the "new components use antd" rule.
+The suppression entry is required and the plan correctly calls for it. The
+existing `UsagePageView.tsx` already sets this precedent.
+
+**Reuse audit (FRONTEND-ANALYSIS-PROCESS Layer 3):** The proposed component
+correctly reuses:
+- `ChartLoader` from `components/shared/chart_loader.tsx` ✅
+- `CustomTooltip` from `components/common_components/chartUtils.tsx` ✅
+- `CustomLegend` from `components/common_components/chartUtils.tsx` ✅
+- `AdvancedDatePicker` from `components/shared/advanced_date_picker.tsx` ✅
+- `valueFormatterSpend` from `UsagePage/utils/value_formatters.tsx` ✅
+
+No new shared components need to be created. The component plugs into the
+existing Usage page `TabGroup` structure (5 tabs confirmed in
+`UsagePageView.tsx:527-531`).
+
+#### G.6.5 FastAPI `Query(regex=...)` — DEPRECATED SYNTAX
+
+**Claim (Part 4.3.1):**
+```python
+window: str = Query("1h", regex="^(5m|15m|1h|24h|1w)$"),
+```
+
+**Actual:** The `regex` parameter is **deprecated in Pydantic v2 / FastAPI**.
+The correct parameter is `pattern=`. Furthermore, the existing
+`per_model_endpoints.py:40-43` uses a different approach — explicit
+validation with `if window not in _VALID_WINDOWS` and an `HTTPException(400)`.
+
+**Additionally:** The existing endpoint uses `7d` as the window value; the
+plan uses `1w`. This inconsistency should be resolved — either align to `7d`
+(consistent with existing API) or `1w` (consistent with the plan's window
+selector labels).
+
+**Verdict: NEEDS FIX.** Use `pattern=` instead of `regex=`, and consider
+aligning window values with the existing `7d` convention. Recommended:
+```python
+window: str = Query("1h", pattern="^(5m|15m|1h|24h|7d)$"),
+```
+
+### G.7 Networking function validation (Part 1.1, Appendix B)
+
+**All claims confirmed:**
+
+| Function | Location | Pattern | Status |
+|----------|----------|---------|--------|
+| `uiSpendLogsCall` | `networking.tsx:1957` | Raw `fetch()` | Confirmed |
+| `modelInfoCall` | `networking.tsx:1578` | Raw `fetch()` | Confirmed |
+| `adminGlobalActivityPerModel` | `networking.tsx:2148` | Raw `fetch()` | Confirmed |
+| `perModelMetricsCall` | — | Removed | Confirmed removed |
+| `modelStreamingMetricsCall` | — | Removed | Confirmed removed |
+
+**Mixed pattern confirmed:** `networking.tsx` uses both `apiClient.get/post`
+(modern, ~256 matches) and raw `fetch()` (legacy). The `client.ts` header
+states it's "the only file allowed to call fetch() directly" but migration is
+incomplete. The plan's recommendation to use `apiClient` for the new
+`modelPerformanceCall` is correct and follows the modern pattern.
+
+### G.8 Provider layout validation (Part 1.1)
+
+**Claim:** AuthProvider, ThemeProvider, PluginModeProvider are wrapped in
+`app/(dashboard)/layout.tsx`.
+
+**Actual — partially confirmed:**
+- `ThemeProvider` — confirmed in `app/(dashboard)/layout.tsx:~184` (inside
+  `LayoutContent`)
+- `PluginModeProvider` — confirmed in `app/(dashboard)/layout.tsx:~196` (via
+  `PluginModeProviderWithAuth`)
+- `AuthProvider` — **NOT** in the dashboard layout. It is wrapped in the
+  **root** `app/layout.tsx:~30` inside `ReactQueryProvider > AntdGlobalProvider`.
+  The dashboard layout consumes auth via `useAuth()` but does not wrap it.
+
+**Action:** Note that `AuthProvider` is in the root layout, not the dashboard
+layout. This doesn't affect the plan's recommendations but is a factual
+correction.
+
+### G.9 Corrected file reference table
+
+| Plan says | Actual path |
+|-----------|-------------|
+| `router_utils/track_deployment_metrics.py` | `router_utils/router_callbacks/track_deployment_metrics.py` |
+| `router_utils/lowest_latency.py` | `router_strategy/lowest_latency.py` |
+| `components/LogDetailsDrawer/` | `components/view_logs/LogDetailsDrawer/` |
+| `types.ts` (for `LogEntry`) | `components/view_logs/columns.tsx:36-82` |
+| `UsagePage/shared/` | `components/shared/` (top-level) |
+| `useModels` hook | `useModelsInfo` hook |
+| `spend_management_endpoints.py` (for `/model/metrics` SQL) | `proxy_server.py:12063` |
+| `spend_management_endpoints.py` (for `/model/streaming_metrics` SQL) | `proxy_server.py:11909, 11933` |
+| 12 deployment metrics | 11 deployment metrics |
+| `Query(regex=...)` | `Query(pattern=...)` (Pydantic v2) |
+
+### G.10 Implementation readiness assessment
+
+**Can implementation proceed?** Yes, with the corrections above applied.
+
+**Risk assessment:**
+- **Low risk:** The 5 refuted claims are all minor (paths, counts, one SQL
+  filter characterization). None change the plan's architecture or approach.
+- **Medium risk:** The TTFT definition conflict is real but complex. The plan
+  correctly identifies it but should note the OTEL side was intentionally
+  aligned with Prometheus. The resolution (choose one definition and apply
+  everywhere) is still the right approach.
+- **Low risk:** The proposed SQL works but needs two guards (negative TTFT,
+  NULL throughput display). These are implementation details, not design
+  flaws.
+- **Low risk:** The `Query(regex=...)` deprecation is a syntax fix, not a
+  design issue.
+
+**Technique compliance:**
+- ✅ FRONTEND-UNDERSTANDING-TECHNIQUE: File paths and component structures
+  verified (with corrections)
+- ✅ FRONTEND-ANALYSIS-PROCESS: Reuse audit confirms all shared components
+  exist and are correctly referenced
+- ✅ LOGIC-MAPPING-TECHNIQUE: SQL traced and tested against live data
+- ✅ UI-LINT-AND-CHANGE-PROCESS: Code snippets checked against ESLint config,
+  React Query v5 API, and existing patterns
+
+**Conclusion:** The plan is valid, good, and clean. The corrections in G.9
+should be applied inline before implementation begins. The proposed
+architecture (single unified endpoint, two data tiers, Tremor for visual
+consistency, `apiClient` pattern, `useMemo` + `keepPreviousData` for
+performance) is sound and follows all four technique documents' guidelines.
