@@ -3,7 +3,7 @@
 Status: reference.
 Date: 2026-07-22.
 
-This documents the existing linting, type-checking, and quality tooling that gates UI changes in `ui/litellm-dashboard/`. Every Tier 2 / Tier 0 change must pass all of these before commit.
+This documents the existing linting, type-checking, and quality tooling that gates UI changes in `ui/litellm-dashboard/`. Every UI change must pass all of these before commit.
 
 ---
 
@@ -72,7 +72,7 @@ A ratcheting budget system that caps the total count of specific lint violations
 
 ### 1.5 ESLint suppressions (`eslint-suppressions.json`)
 
-Legacy files that violate the `no-restricted-imports` rule (Tremor imports) or `unused-imports` rule have suppression entries here. These are pre-existing violations that are accepted but tracked. New files should not add suppressions unless there is a deliberate reason (e.g., the Tier 1 `ModelAnalyticsView.tsx` uses Tremor to match the surrounding Usage page components).
+Legacy files that violate the `no-restricted-imports` rule (Tremor imports) or `unused-imports` rule have suppression entries here. These are pre-existing violations that are accepted but tracked. New files should not add suppressions unless there is a deliberate reason (e.g., matching the charting library used by surrounding components on the same page).
 
 Run `npx eslint --suppress-all <file>` to generate suppression entries for a new file that intentionally violates a rule.
 
@@ -168,11 +168,11 @@ If `make pre-commit` fails:
 
 ---
 
-## 5. Rules that matter most for Tier 2 / Tier 0
+## 5. Rules that matter most for any UI change
 
 ### 5.1 No raw `fetch()`
 
-All new API wrappers in `networking.tsx` must use `apiClient.get()` / `apiClient.post()` etc. The Tier 1 wrappers already follow this pattern. Example:
+All new API wrappers in `networking.tsx` must use `apiClient.get()` / `apiClient.post()` etc. Example:
 
 ```typescript
 export const modelConcurrentRequestsCall = async (
@@ -188,7 +188,7 @@ export const modelConcurrentRequestsCall = async (
 
 ### 5.2 No new `@tremor/react` imports
 
-New components should use antd for layout and charts. The Tier 1 `ModelAnalyticsView.tsx` uses Tremor (grandfathered via suppression) to match the existing Usage page, but new Tier 2 components should use antd. If Tremor is unavoidable for visual consistency within the same page, add a suppression via `npx eslint --suppress-all <file>`.
+New components should use antd for layout and charts. Existing components that use Tremor are grandfathered via suppression. If Tremor is unavoidable for visual consistency within the same page, add a suppression via `npx eslint --suppress-all <file>`.
 
 ### 5.3 TypeScript strict
 
@@ -200,7 +200,7 @@ If you fix violations (e.g., remove `console.log` calls or reduce `any` usage), 
 
 ### 5.5 API types must be in sync
 
-If Tier 2 / Tier 0 adds new backend endpoints, `schema.d.ts` must be regenerated. Run:
+If new backend endpoints are added, `schema.d.ts` must be regenerated. Run:
 
 ```bash
 cd ui/litellm-dashboard
@@ -211,4 +211,4 @@ Commit the updated `schema.d.ts` alongside the backend changes.
 
 ### 5.6 Test coverage
 
-New components must have colocated `.test.tsx` files. Tests should verify meaningful behavior (not just "it renders"). The Tier 1 tests at `ModelAnalyticsView.test.tsx` are the reference: they check the `enabled` guard, the error flag, the `% Slow` computation, and the empty state. Follow the same pattern: mock the networking calls, render with `QueryClientProvider`, assert on user-visible output.
+New components must have colocated `.test.tsx` files. Tests should verify meaningful behavior (not just "it renders"). Follow the established pattern: mock the networking calls, render with `QueryClientProvider`, assert on user-visible output.

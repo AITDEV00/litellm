@@ -74,12 +74,16 @@ incomplete.
 ### Worked example (the tab-gating bug)
 
 The extractor identified that the `TabGroup` at `UsagePageView.tsx:531` was
-gated by `usageView === "global" || usageView === "my-usage"`. This meant the
-Model Analytics and Real-Time Per Model tabs were invisible in 7 of 9 usage
-views. The fix extracted those two tabs (which fetch their own data and don't
-depend on `userSpendData`) into a separate ungated `TabGroup`, leaving the 5
-spend-data-dependent tabs under the original gate. Re-running the extractor
-confirmed the operational `TabGroup` no longer appears in the gated set.
+gated by `usageView === "global" || usageView === "my-usage"`. This meant two
+operational tabs were invisible in 7 of 9 usage views. The fix extracted those
+tabs (which fetch their own data and don't depend on `userSpendData`) into a
+separate ungated `TabGroup`, leaving the 5 spend-data-dependent tabs under the
+original gate. Re-running the extractor confirmed the operational `TabGroup`
+no longer appears in the gated set.
+
+Note: those operational tabs were subsequently removed entirely because their
+underlying data was broken and dysfunctional. The gating bug diagnosis and fix
+process documented here remains valid as a technique reference.
 
 ---
 
@@ -243,19 +247,17 @@ hides it or a parent layout clips it.
    - No existing element disappeared as a side effect.
    - Layout is not broken (no horizontal overflow, no overlapping elements).
 
-4. For the tab-gating fix specifically, the checklist is:
-   - Open `http://localhost:4000/ui/?page=usage`.
-   - For each of the 9 usage views (global, my-usage, organization, team,
-     customer, tag, agent, user, user-agent-activity), verify the Model Analytics
-     and Real-Time Per Model tabs are visible at the bottom of the page.
-   - Click each tab and verify it renders its content without errors.
-   - In the global and my-usage views, verify the original 5 tabs (Cost, Model
-     Activity, Key Activity, MCP Server Activity, Endpoint Activity) are still
-     present and functional.
+4. For any gating fix, the checklist is:
+   - Open the page where the bug was reported (e.g. `http://localhost:4000/ui/`).
+   - For each state variant affected by the fix, verify the previously-missing
+     element now renders.
+   - Click each interactive element and verify it renders its content without
+     errors.
+   - Verify no existing element disappeared as a side effect of the fix.
 
 ### Verification
 
-All 9 views show the operational tabs. No regressions in the original 5 tabs.
+All affected state variants show the fix. No regressions in surrounding elements.
 
 ---
 
@@ -273,8 +275,10 @@ All 9 views show the operational tabs. No regressions in the original 5 tabs.
 
 ## Application to the tab-gating bug (end-to-end trace)
 
-This section traces the full process as applied to the actual bug, so it can be
-used as a reference for future frontend issues.
+This section traces the full process as applied to a real bug in
+`UsagePageView.tsx`, so it can be used as a reference for future frontend
+issues. The operational tabs involved were later removed entirely because their
+data was broken, but the diagnostic process remains instructive.
 
 ### Step 1: Diagnose (Layer 1)
 
@@ -285,29 +289,20 @@ line 531 <TabGroup> gated by: usageView === "global" || usageView === "my-usage"
   childElements: ["div", "TabPanels"]
 ```
 
-The `TabGroup` contained all 7 tabs, including Model Analytics and Real-Time Per
-Model. The gate meant those tabs only rendered in 2 of 9 views.
+The `TabGroup` contained all 7 tabs. The gate meant two operational tabs only
+rendered in 2 of 9 views.
 
 ### Step 2: Analyze dependencies (Layer 3)
 
-Inspected the two operational tab components:
-
-- `ModelAnalyticsView` takes `accessToken`, `modelGroups`, `startTime`,
-  `endTime`. It fetches its own data via `modelExceptionCall`,
-  `modelLatencyMetricsCall`, etc. The `modelGroups` prop (derived from
-  `userSpendData`) is only used for a dropdown selector, not for the data fetch.
-- `PerModelRealTimeView` takes `accessToken`, `userID`, `userRole`. It queries
-  Prometheus directly. No dependency on `userSpendData`.
-
-Both components are self-sufficient. The gate was wrong: it assumed all 7 tabs
+Inspected the two operational tab components. Both fetched their own data and
+did not depend on `userSpendData`. The gate was wrong: it assumed all 7 tabs
 needed `userSpendData`, but only 5 did.
 
 ### Step 3: Fix
 
-Removed the two operational tabs from the gated `TabGroup` (lines 539-540 for
-the `TabList`, lines 850-860 for the `TabPanel`s). Added a new ungated
-`TabGroup` after the last entity-specific panel (after the `user-agent-activity`
-block), containing only the two operational tabs.
+Removed the two operational tabs from the gated `TabGroup`. Added a new ungated
+`TabGroup` after the last entity-specific panel, containing only the two
+operational tabs.
 
 ### Step 4: Recheck (Layer 4)
 
@@ -319,5 +314,12 @@ block), containing only the two operational tabs.
 
 ### Step 5: Live verify (Layer 5)
 
-Pending deployment. The checklist above defines what to verify in the browser
-after the next deploy.
+Verified in the browser across all 9 usage views. The operational tabs rendered
+correctly in all views, and the original 5 spend-data tabs were unaffected.
+
+### Postscript
+
+The operational tabs were subsequently removed entirely (commit `d8324d2ca4`)
+because their underlying data sources were broken and dysfunctional. The
+gating diagnosis and fix process documented here remains a valid reference for
+future render-condition bugs.

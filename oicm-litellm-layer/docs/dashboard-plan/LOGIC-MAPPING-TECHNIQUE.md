@@ -65,7 +65,7 @@ Entry Point → [function A (file:line)] → [function B (file:line)] → ... �
 With ASCII flow diagrams showing branching, parallel paths, and side effects.
 ```
 
-**Example** (from Tier 2 metrics pipeline):
+**Example** (from a metrics pipeline trace):
 
 ```
 User request
@@ -113,12 +113,11 @@ scraped from the live system.
 3. **Save scraped data** in a `live-data/` directory alongside the logic map:
 
    ```text
-   docs/dashboard-plan/live-data/
+   live-data/
    ├── 01-all-metrics-instant.json      # All metrics at a point in time
    ├── 02-gauge-instant.json            # Specific gauge values
    ├── 03-gauge-range-1h.json           # Time series over 1 hour
    ├── 04-request-rate-range-1h.json
-   ├── 07-limit-instant.json
    ├── 11-raw-pod-metrics.txt           # Raw /metrics/ endpoint output
    └── 12-endpoint-response-1h.json     # API endpoint response
    ```
@@ -134,6 +133,7 @@ scraped from the live system.
    # Load scraped data for offline testing
    import json
    with open("live-data/03-gauge-range-1h.json") as f:
+   # (replace with your own scraped data file)
        gauge_data = json.load(f)
    # Verify: does this match what _inc_deployment_in_progress produces?
    ```
@@ -223,7 +223,7 @@ Save this methodology in the folder in [DOCS_PATH].
 ```
 
 **Fill in**:
-- `[FEATURE/TIER]` — what you're building (e.g., "tier 2 per-model metrics")
+- `[FEATURE/TIER]` — what you're building
 - `[PROMETHEUS / SERVICE]` — the live system to scrape data from
 - `[CODEBASE]` — the existing codebase to borrow functions from
 - `[DOCS_PATH]` — where to save the methodology and logic map
@@ -267,22 +267,15 @@ When applying this technique, the following artifacts should be produced:
   - Flow: route → `service.py:convert_image()` → `_core/inference.py:run_layout_detection()` → `converter/service.py:convert()` → export
   - Exit: `ConvertDocumentResponse` with 6 output formats
 
-### Example 2: LiteLLM Tier 2 per-model metrics dashboard
+### Key Insight
 
-- **Logic map**: `oicm-litellm-layer/docs/dashboard-plan/TIER2-LOGIC-MAP.md`
-  - Entry: `proxy_server.py:chat_completion()` → `router.acompletion()`
-  - Flow: `async_pre_call_deployment_hook` (INC gauge) → provider call → `success_handler`/`failure_handler` (DEC gauge) → Prometheus scrape → `get_per_model_metrics()` → endpoint response
-  - Live data: `live-data/01-13-*.json` scraped from production Prometheus
-  - Testing: `TIER2-TESTING-METHODOLOGY.md` documents port-forward + scrape commands
-  - Found bug: INC gauge was in dead method `async_log_pre_api_call` (never called) — moved to `async_pre_call_deployment_hook`
+The logic map caught bugs that were invisible without tracing. In the PaddleX
+api_compat example, a missing `DOCLANG` exporter in the dispatch table was only
+visible when every enum member was mapped to its consumer. The bug required
+**understanding the full flow** before it became visible; it could not be found
+by reading a single file in isolation.
 
-### Key Insight from Both Examples
-
-The logic map caught bugs that were invisible without tracing:
-- **api_compat**: Missing `DOCLANG` exporter in dispatch table — only visible
-  when you map every enum member to its consumer
-- **LiteLLM Tier 2**: INC gauge in a dead method — only visible when you trace
-  the full call chain and find the method has zero call sites
-
-Both bugs required **understanding the full flow** before they became visible.
-Neither could be found by reading a single file in isolation.
+Note: a previous LiteLLM-specific example (per-model metrics dashboard) was
+removed because that feature's implementation turned out to have broken,
+dysfunctional data and was deleted from the codebase. The technique itself
+remains valid for any feature that requires tracing data flow end-to-end.
