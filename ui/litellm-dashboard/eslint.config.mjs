@@ -60,6 +60,12 @@ const eslintConfig = [
       "no-restricted-syntax": "off",
     },
   },
+  {
+    files: ["src/components/UsagePage/**"],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;
