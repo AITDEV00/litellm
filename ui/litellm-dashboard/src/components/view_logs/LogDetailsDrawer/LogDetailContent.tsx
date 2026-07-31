@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Typography, Descriptions, Card, Tag, Tabs, Alert, Collapse, Radio, Space, Spin } from "antd";
 import moment from "moment";
-import { LogEntry } from "../columns";
+import { computeThroughput, LogEntry } from "../columns";
 import { formatNumberWithCommas } from "@/utils/dataUtils";
 import GuardrailViewer from "../GuardrailViewer/GuardrailViewer";
 import EvalViewer from "../EvalViewer/EvalViewer";
@@ -285,6 +285,8 @@ function MetricsSection({ logEntry, metadata }: { logEntry: LogEntry; metadata: 
       ? new Date(completionStartTime).getTime() - new Date(logEntry.startTime).getTime()
       : null;
 
+  const throughput = computeThroughput(logEntry.completion_tokens, logEntry.request_duration_ms);
+
   const hasCacheActivity =
     logEntry.cache_hit ||
     (metadata?.additional_usage_values?.cache_read_input_tokens &&
@@ -324,6 +326,9 @@ function MetricsSection({ logEntry, metadata }: { logEntry: LogEntry; metadata: 
           </Descriptions.Item>
           {ttftMs != null && ttftMs > 0 && (
             <Descriptions.Item label="Time to First Token">{(ttftMs / 1000).toFixed(3)} s</Descriptions.Item>
+          )}
+          {throughput != null && (
+            <Descriptions.Item label="Throughput">{throughput.toFixed(1)} tokens/s</Descriptions.Item>
           )}
 
           {hasCacheActivity && (

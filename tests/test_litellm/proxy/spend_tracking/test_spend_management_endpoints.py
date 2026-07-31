@@ -1111,6 +1111,139 @@ async def test_ui_view_spend_logs_sort_by_ttft_ms(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ui_view_spend_logs_sort_by_throughput(client, monkeypatch):
+    """sort_by=throughput orders rows by completion_tokens / request_duration_ms, NULLS LAST for zero-duration rows."""
+    # req_high:   100 tokens / 0.1s   = 1000 tok/s
+    # req_low:    10 tokens  / 1.0s   = 10 tok/s
+    # req_zero:   request_duration_ms = 0 -> NULL (division by zero guard)
+    # req_null:   request_duration_ms = NULL -> NULL
+    base_logs = [
+        {
+            "request_id": "req_high",
+            "api_key": "sk-test-key",
+            "user": "user1",
+            "spend": 0.10,
+            "total_tokens": 100,
+            "completion_tokens": 100,
+            "request_duration_ms": 100,
+            "startTime": "2025-01-01T00:00:00+00:00",
+            "endTime": "2025-01-01T00:00:00.100000+00:00",
+            "model": "gpt-4",
+            "_throughput": 1000.0,
+        },
+        {
+            "request_id": "req_low",
+            "api_key": "sk-test-key",
+            "user": "user1",
+            "spend": 0.10,
+            "total_tokens": 100,
+            "completion_tokens": 10,
+            "request_duration_ms": 1000,
+            "startTime": "2025-01-01T00:00:02+00:00",
+            "endTime": "2025-01-01T00:00:03+00:00",
+            "model": "gpt-4",
+            "_throughput": 10.0,
+        },
+        {
+            "request_id": "req_zero_dur",
+            "api_key": "sk-test-key",
+            "user": "user1",
+            "spend": 0.10,
+            "total_tokens": 100,
+            "completion_tokens": 50,
+            "request_duration_ms": 0,
+            "startTime": "2025-01-01T00:00:04+00:00",
+            "endTime": "2025-01-01T00:00:04+00:00",
+            "model": "gpt-4",
+            "_throughput": None,
+        },
+        {
+            "request_id": "req_null_dur",
+            "api_key": "sk-test-key",
+            "user": "user1",
+            "spend": 0.10,
+            "total_tokens": 100,
+            "completion_tokens": 50,
+            "request_duration_ms": None,
+            "startTime": "2025-01-01T00:00:06+00:00",
+            "endTime": "2025-01-01T00:00:07+00:00",
+            "model": "gpt-4",
+            "_throughput": None,
+        },
+    ]
+
+    async def mock_count(*args, **kwargs):
+        return len(base_logs)
+
+    async def mock_query_raw(sql_query, *params):
+        assert "NULLIF(request_duration_ms" in sql_query, "must use NULLIF to avoid div-by-zero"
+        assert "NULLS LAST" in sql_query, "throughput sort must use NULLS LAST"
+        reverse = "DESC" in sql_query
+        non_null = [r for r in base_logs if r["_throughput"] is not None]
+        nulls = [r for r in base_logs if r["_throughput"] is None]
+        non_null.sort(key=lambda x: x["_throughput"], reverse=reverse)
+        sorted_logs = non_null + nulls
+        page_size = params[-2] if len(params) >= 2 else 50
+        skip = params[-1] if len(params) >= 1 else 0
+        return [
+            {
+                **{k: v for k, v in row.items() if k != "_throughput"},
+                "total_count": len(base_logs),
+            }
+            for row in sorted_logs[skip : skip + page_size]
+        ]
+
+    class MockPrismaClient:
+        def __init__(self):
+            self.db = MagicMock()
+            self.db.litellm_spendlogs = MagicMock()
+            self.db.litellm_spendlogs.count = AsyncMock(side_effect=mock_count)
+            self.db.query_raw = AsyncMock(side_effect=mock_query_raw)
+
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", MockPrismaClient())
+    monkeypatch.setattr(
+        "litellm.proxy.spend_tracking.spend_management_endpoints._is_admin_view_safe",
+        lambda user_api_key_dict: True,
+    )
+    app.dependency_overrides[ps.user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin_user"
+    )
+
+    try:
+        response = client.get(
+            "/spend/logs/ui",
+            params={
+                "start_date": "2024-12-25 00:00:00",
+                "end_date": "2025-01-02 23:59:59",
+                "sort_by": "throughput",
+                "sort_order": "asc",
+            },
+            headers={"Authorization": "Bearer sk-test"},
+        )
+        assert response.status_code == 200, response.text
+        actual_ids = [log["request_id"] for log in response.json()["data"]]
+        assert actual_ids[:2] == ["req_low", "req_high"]
+        assert set(actual_ids[2:]) == {"req_zero_dur", "req_null_dur"}
+
+        response = client.get(
+            "/spend/logs/ui",
+            params={
+                "start_date": "2024-12-25 00:00:00",
+                "end_date": "2025-01-02 23:59:59",
+                "sort_by": "throughput",
+                "sort_order": "desc",
+            },
+            headers={"Authorization": "Bearer sk-test"},
+        )
+        assert response.status_code == 200, response.text
+        actual_ids = [log["request_id"] for log in response.json()["data"]]
+        assert actual_ids[:2] == ["req_high", "req_low"]
+        assert set(actual_ids[2:]) == {"req_zero_dur", "req_null_dur"}
+    finally:
+        app.dependency_overrides.pop(ps.user_api_key_auth, None)
+
+
+@pytest.mark.asyncio
 async def test_ui_view_spend_logs_with_team_id(client, monkeypatch):
     mock_spend_logs = [
         {

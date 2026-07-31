@@ -17,6 +17,7 @@ export const LOGS_SORT_FIELD_MAP = {
   request_duration_ms: "request_duration_ms",
   model: "model",
   ttft_ms: "ttft_ms",
+  throughput: "throughput",
 } as const;
 
 export type LogsSortField = keyof typeof LOGS_SORT_FIELD_MAP;
@@ -76,6 +77,11 @@ export type LogEntry = {
   onKeyHashClick?: (keyHash: string) => void;
   onSessionClick?: (sessionId: string) => void;
 };
+
+export function computeThroughput(completionTokens?: number, requestDurationMs?: number): number | undefined {
+  if (!completionTokens || !requestDurationMs || requestDurationMs <= 0) return undefined;
+  return completionTokens / (requestDurationMs / 1000);
+}
 
 const SortableHeader = ({
   label,
@@ -299,6 +305,30 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       return (
         <Tooltip title={`${ttftMs}ms`}>
           <span className="max-w-[15ch] truncate block">{ttftSeconds}</span>
+        </Tooltip>
+      );
+    },
+  },
+  {
+    header: sortProps
+      ? () => (
+          <SortableHeader
+            label="Throughput"
+            field="throughput"
+            sortBy={sortProps.sortBy}
+            sortOrder={sortProps.sortOrder}
+            onSortChange={sortProps.onSortChange}
+          />
+        )
+      : "Throughput",
+    id: "throughput",
+    cell: (info: any) => {
+      const row = info.row.original;
+      const tps = computeThroughput(row.completion_tokens, row.request_duration_ms);
+      if (tps == null) return <span>-</span>;
+      return (
+        <Tooltip title={`${row.completion_tokens} tokens / ${(row.request_duration_ms / 1000).toFixed(2)}s`}>
+          <span className="max-w-[15ch] truncate block">{tps.toFixed(1)}</span>
         </Tooltip>
       );
     },

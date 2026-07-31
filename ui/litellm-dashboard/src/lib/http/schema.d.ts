@@ -48693,7 +48693,7 @@ export interface operations {
                 error_code?: string | null;
                 /** @description Filter logs by error message (partial string match) */
                 error_message?: string | null;
-                /** @description Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, or ttft_ms */
+                /** @description Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, ttft_ms, or throughput */
                 sort_by?: string;
                 /** @description Sort order: asc or desc */
                 sort_order?: string | null;
@@ -48799,7 +48799,7 @@ export interface operations {
                 error_code?: string | null;
                 /** @description Filter logs by error message (partial string match) */
                 error_message?: string | null;
-                /** @description Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, or ttft_ms */
+                /** @description Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, ttft_ms, or throughput */
                 sort_by?: string;
                 /** @description Sort order: asc or desc */
                 sort_order?: string | null;

@@ -1720,7 +1720,7 @@ async def ui_view_spend_logs(
     ),
     sort_by: str = fastapi.Query(
         default="startTime",
-        description="Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, or ttft_ms",
+        description="Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, ttft_ms, or throughput",
     ),
     sort_order: str | None = fastapi.Query(
         default="desc",
@@ -1766,6 +1766,7 @@ async def ui_view_spend_logs(
         "request_duration_ms",
         "model",
         "ttft_ms",
+        "throughput",
     }
     if sort_by not in valid_sort_fields:
         raise ProxyException(
@@ -2012,6 +2013,9 @@ async def ui_view_spend_logs(
                 'OR "completionStartTime" = "endTime" THEN NULL '
                 'ELSE (EXTRACT(EPOCH FROM ("completionStartTime" - "startTime")) * 1000) END'
             )
+            _nulls_clause = " NULLS LAST"
+        elif order_column == "throughput":
+            _order_expr = "completion_tokens::float8 / NULLIF(request_duration_ms, 0)"
             _nulls_clause = " NULLS LAST"
         elif order_column in ("startTime", "endTime"):
             _order_expr = f'"{order_column}"'
