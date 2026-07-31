@@ -14,12 +14,21 @@ import fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from litellm._logging import verbose_proxy_logger
+from litellm.caching.in_memory_cache import InMemoryCache
 from litellm.proxy._types import CommonProxyErrors, ProxyException, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 
 router = APIRouter()
 
 _VALID_WINDOWS = ("5m", "15m", "1h", "24h", "7d")
+
+_DB_CACHE: InMemoryCache = InMemoryCache(max_size_in_memory=64, default_ttl=300)
+
+_DB_CACHE_TTL: dict[str, int] = {
+    "1h": 0,
+    "24h": 120,
+    "7d": 300,
+}
 
 _WINDOW_DELTAS: dict[str, timedelta] = {
     "5m": timedelta(minutes=5),
@@ -155,6 +164,13 @@ async def _fetch_db_performance(
             code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+    cache_ttl = _DB_CACHE_TTL.get(window, 0)
+    cache_key = f"{window}:{model_group or ''}"
+    if cache_ttl > 0:
+        cached = _DB_CACHE.get_cache(cache_key)
+        if cached is not None:
+            return cached
+
     delta = _WINDOW_DELTAS[window]
     end_time = datetime.now(timezone.utc)
     start_time = end_time - delta
@@ -261,12 +277,17 @@ async def _fetch_db_performance(
 
     source = "db" if window not in _PROMETHEUS_WINDOWS else "db"
 
-    return {
+    result = {
         "window": window,
         "source": source,
         "step": bucket_interval,
         "models": list(models.values()),
     }
+
+    if cache_ttl > 0:
+        _DB_CACHE.set_cache(cache_key, result, ttl=cache_ttl)
+
+    return result
 
 
 def _empty_model_dict(model_group: str) -> dict:

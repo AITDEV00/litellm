@@ -613,6 +613,7 @@ model LiteLLM_SpendLogs {
   proxy_server_request Json?     @default("{}")
   @@index([startTime])
   @@index([startTime, request_id])
+  @@index([model_group, startTime])
   @@index([end_user])
   @@index([session_id])
 }

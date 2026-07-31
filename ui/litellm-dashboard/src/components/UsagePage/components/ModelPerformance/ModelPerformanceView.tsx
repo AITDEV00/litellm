@@ -11,7 +11,7 @@ import {
   Title,
 } from "@tremor/react";
 import { Segmented, Select } from "antd";
-import React, { useMemo } from "react";
+import React, { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { useModelPerformance } from "@/app/(dashboard)/hooks/models/useModelPerformance";
 import { ChartLoader } from "../../../shared/chart_loader";
@@ -24,6 +24,8 @@ const WINDOW_OPTIONS = [
   { label: "24h", value: "24h" },
   { label: "7d", value: "7d" },
 ];
+
+const TREMOR_COLORS = ["blue", "cyan", "indigo", "violet", "purple", "fuchsia", "pink", "rose", "red", "orange"];
 
 function transformTimeSeries(
   models: ModelPerformanceModel[],
@@ -77,15 +79,58 @@ function formatNumber(value: number | null | undefined, decimals: number = 2): s
   return value.toFixed(decimals);
 }
 
-const TREMOR_COLORS = ["blue", "cyan", "indigo", "violet", "purple", "fuchsia", "pink", "rose", "red", "orange"];
+interface PerformanceChartProps {
+  title: string;
+  data: Array<Record<string, string | number | null>>;
+  categories: string[];
+  decimals: number;
+}
+
+const PerformanceChart = memo(function PerformanceChart({ title, data, categories, decimals }: PerformanceChartProps) {
+  if (data.length === 0) {
+    return (
+      <Card>
+        <Title>{title}</Title>
+        <p className="text-gray-500 mt-4">No data available</p>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <Title>{title}</Title>
+      <LineChart
+        className="h-72 mt-4"
+        data={data}
+        index="timestamp"
+        categories={categories}
+        colors={TREMOR_COLORS.slice(0, categories.length)}
+        valueFormatter={(v) => formatNumber(v, decimals)}
+        showLegend={categories.length <= 8}
+        connectNulls
+        yAxisWidth={60}
+      />
+    </Card>
+  );
+});
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 const ModelPerformanceView: React.FC = () => {
-  const [window, setWindow] = React.useState<string>("1h");
-  const [selectedModelGroup, setSelectedModelGroup] = React.useState<string | undefined>(undefined);
+  const [window, setWindow] = useState<string>("1h");
+  const [selectedModelGroup, setSelectedModelGroup] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, isError } = useModelPerformance(window, selectedModelGroup);
+  const debouncedWindow = useDebouncedValue(window, 200);
+  const { data, isLoading, isError } = useModelPerformance(debouncedWindow, selectedModelGroup);
 
-  const models = data?.models || [];
+  const models = useMemo(() => data?.models || [], [data]);
+  const deferredModels = useDeferredValue(models);
 
   const modelGroupOptions = useMemo(() => {
     const opts = [{ label: "All Models", value: "" }];
@@ -95,12 +140,17 @@ const ModelPerformanceView: React.FC = () => {
     return opts;
   }, [models]);
 
-  const concurrentChart = useMemo(() => transformTimeSeries(models, "concurrent_requests"), [models]);
-  const throughputChart = useMemo(() => transformTimeSeries(models, "throughput_tokens_per_sec"), [models]);
-  const ttftChart = useMemo(() => transformTimeSeries(models, "ttft_seconds"), [models]);
+  const concurrentChart = useMemo(() => transformTimeSeries(deferredModels, "concurrent_requests"), [deferredModels]);
+  const throughputChart = useMemo(
+    () => transformTimeSeries(deferredModels, "throughput_tokens_per_sec"),
+    [deferredModels],
+  );
+  const ttftChart = useMemo(() => transformTimeSeries(deferredModels, "ttft_seconds"), [deferredModels]);
+
+  const isStale = deferredModels !== models;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={{ opacity: isStale ? 0.7 : 1, transition: "opacity 0.2s" }}>
       <div className="flex items-center justify-between gap-4">
         <Segmented options={WINDOW_OPTIONS} value={window} onChange={(val) => setWindow(val as string)} />
         <Select
@@ -130,62 +180,27 @@ const ModelPerformanceView: React.FC = () => {
       ) : (
         <>
           <Grid numItems={1} className="gap-4">
-            <Card>
-              <Title>Concurrent Requests</Title>
-              {concurrentChart.data.length === 0 ? (
-                <p className="text-gray-500 mt-4">No data available</p>
-              ) : (
-                <LineChart
-                  className="h-72 mt-4"
-                  data={concurrentChart.data}
-                  index="timestamp"
-                  categories={concurrentChart.categories}
-                  colors={TREMOR_COLORS.slice(0, concurrentChart.categories.length)}
-                  valueFormatter={(v) => formatNumber(v, 0)}
-                  showLegend={concurrentChart.categories.length <= 8}
-                  connectNulls
-                  yAxisWidth={60}
-                />
-              )}
-            </Card>
+            {isStale && <p className="text-xs text-gray-400">Updating charts…</p>}
+            <PerformanceChart
+              title="Concurrent Requests"
+              data={concurrentChart.data}
+              categories={concurrentChart.categories}
+              decimals={0}
+            />
 
-            <Card>
-              <Title>Throughput (tokens/sec)</Title>
-              {throughputChart.data.length === 0 ? (
-                <p className="text-gray-500 mt-4">No data available</p>
-              ) : (
-                <LineChart
-                  className="h-72 mt-4"
-                  data={throughputChart.data}
-                  index="timestamp"
-                  categories={throughputChart.categories}
-                  colors={TREMOR_COLORS.slice(0, throughputChart.categories.length)}
-                  valueFormatter={(v) => formatNumber(v, 1)}
-                  showLegend={throughputChart.categories.length <= 8}
-                  connectNulls
-                  yAxisWidth={60}
-                />
-              )}
-            </Card>
+            <PerformanceChart
+              title="Throughput (tokens/sec)"
+              data={throughputChart.data}
+              categories={throughputChart.categories}
+              decimals={1}
+            />
 
-            <Card>
-              <Title>Time to First Token (seconds)</Title>
-              {ttftChart.data.length === 0 ? (
-                <p className="text-gray-500 mt-4">No data available</p>
-              ) : (
-                <LineChart
-                  className="h-72 mt-4"
-                  data={ttftChart.data}
-                  index="timestamp"
-                  categories={ttftChart.categories}
-                  colors={TREMOR_COLORS.slice(0, ttftChart.categories.length)}
-                  valueFormatter={(v) => formatNumber(v, 3)}
-                  showLegend={ttftChart.categories.length <= 8}
-                  connectNulls
-                  yAxisWidth={60}
-                />
-              )}
-            </Card>
+            <PerformanceChart
+              title="Time to First Token (seconds)"
+              data={ttftChart.data}
+              categories={ttftChart.categories}
+              decimals={3}
+            />
           </Grid>
 
           <Card>
