@@ -23,7 +23,7 @@ LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
-	litellm-src-build litellm-src-push litellm-src-build-push \
+	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-docker litellm-ui-dev litellm-local-stop
 
 all: pull build push
@@ -60,9 +60,9 @@ push-litellm:
 
 ## Deploy all manifests to the cluster
 deploy:
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-local.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
 
 ## Remove built images from local storage
 clean:
@@ -87,6 +87,22 @@ litellm-src-push:
 
 ## Build then push the LiteLLM source image in one step
 litellm-src-build-push: litellm-src-build litellm-src-push
+
+## Build, push, update the deploy manifest image tag, and apply to the cluster.
+## Uses LITELLM_SRC_TAG (defaults to current git branch name).
+## e.g. make litellm-src-release  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0)
+litellm-src-release: litellm-src-build-push litellm-src-deploy
+
+## Update deploy/litellm-proxy.yaml to use the current LITELLM_SRC_TAG image,
+## then kubectl apply all deploy manifests.
+litellm-src-deploy:
+	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/litellm-proxy.yaml"
+	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/litellm-proxy.yaml
+	@echo "Deploying to cluster"
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
 ## Create the litellm-logo ConfigMap from the optimized logo and favicon files
 litellm-logo:

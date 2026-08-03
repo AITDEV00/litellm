@@ -1,3 +1,14 @@
+import { getSpendString } from "@/utils/dataUtils";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Badge, Button } from "@tremor/react";
+import { Tooltip } from "antd";
+import React, { useState } from "react";
+import { getProviderLogoAndName } from "../provider_info_helpers";
+import { TableHeaderSortDropdown } from "../common_components/TableHeaderSortDropdown/TableHeaderSortDropdown";
+import { TimeCell } from "./time_cell";
+import { AGENT_CALL_TYPES, MCP_CALL_TYPES } from "./constants";
+import { AgentBadge, AgentIcon, LlmBadge, McpBadge, SparkleIcon, WrenchIcon } from "./TypeBadges";
+
 /** API sort field mapping for /spend/logs/ui endpoint */
 export const LOGS_SORT_FIELD_MAP = {
   startTime: "startTime",
@@ -10,6 +21,22 @@ export const LOGS_SORT_FIELD_MAP = {
 } as const;
 
 export type LogsSortField = keyof typeof LOGS_SORT_FIELD_MAP;
+
+export interface LogsSortProps {
+  sortBy: LogsSortField;
+  sortOrder: "asc" | "desc";
+  onSortChange: (sortBy: LogsSortField, sortOrder: "asc" | "desc") => void;
+}
+
+// Helper to get the appropriate logo URL
+const getLogoUrl = (row: LogEntry, provider: string) => {
+  // Check if mcp_tool_call_metadata exists and contains mcp_server_logo_url
+  if (row.metadata?.mcp_tool_call_metadata?.mcp_server_logo_url) {
+    return row.metadata.mcp_tool_call_metadata.mcp_server_logo_url;
+  }
+  // Fall back to default provider logo
+  return provider ? getProviderLogoAndName(provider).logo : "";
+};
 
 export type LogEntry = {
   request_id: string;
@@ -48,6 +75,8 @@ export type LogEntry = {
   session_llm_count?: number;
   session_mcp_count?: number;
   session_agent_count?: number;
+  onKeyHashClick?: (keyHash: string) => void;
+  onSessionClick?: (sessionId: string) => void;
 };
 
 export function computeThroughput(completionTokens?: number, requestDurationMs?: number): number | undefined {
