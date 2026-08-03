@@ -58,6 +58,10 @@ INCEPTION_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "use_xai_oauth",
         "use_chat_completions_api",
         "merge_reasoning_content_in_choices",
+        "secret_fields",
+        "stream_timeout",
+        "num_retries",
+        "organization",
     }
 )
 

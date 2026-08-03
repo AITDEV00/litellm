@@ -31,6 +31,8 @@ def _collect_passthrough(
     for key, value in source.items():
         if value is None or key in INCEPTION_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
             continue
+        if isinstance(value, (dict, list)):
+            continue
         dest[key] = value
 
 

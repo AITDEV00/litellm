@@ -58,6 +58,10 @@ OMNIVOICE_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "use_xai_oauth",
         "use_chat_completions_api",
         "merge_reasoning_content_in_choices",
+        "secret_fields",
+        "stream_timeout",
+        "num_retries",
+        "organization",
     }
 )
 
@@ -66,9 +70,17 @@ def _collect_passthrough(
     source: dict[str, Any],
     dest: dict[str, Any],
 ) -> None:
-    """Copy non-internal, non-None entries from *source* into *dest*."""
+    """Copy non-internal, non-None entries from *source* into *dest*.
+
+    Dict and list values are skipped as defense-in-depth: multipart form
+    fields only accept primitives, and internal litellm params (e.g.
+    ``secret_fields``) are dict-valued.  Tuples are allowed because
+    ``ref_audio`` is a ``FileTypes`` tuple that is popped downstream.
+    """
     for key, value in source.items():
         if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
+            continue
+        if isinstance(value, (dict, list)):
             continue
         dest[key] = value
 

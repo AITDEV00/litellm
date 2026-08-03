@@ -196,6 +196,49 @@ def test_omnivoice_voice_clone_internal_params_filtered():
     assert mapped["custom_param"] == "kept"
 
 
+def test_omnivoice_voice_clone_secret_fields_filtered():
+    config = OmniVoiceVoiceCloneConfig()
+    voice, mapped = config.map_openai_params(
+        model="omnivoice",
+        optional_params={},
+        voice="clone",
+        drop_params=False,
+        kwargs={
+            "ref_audio": ("ref.wav", b"\x00", "audio/wav"),
+            "secret_fields": {"raw_headers": {"authorization": "Bearer secret"}},
+            "custom_param": "kept",
+        },
+    )
+    assert "secret_fields" not in mapped
+    assert mapped["custom_param"] == "kept"
+
+
+def test_omnivoice_voice_clone_non_primitive_values_filtered():
+    config = OmniVoiceVoiceCloneConfig()
+    voice, mapped = config.map_openai_params(
+        model="omnivoice",
+        optional_params={},
+        voice="clone",
+        drop_params=False,
+        kwargs={
+            "ref_audio": ("ref.wav", b"\x00", "audio/wav"),
+            "not_a_known_internal_dict": {"suspicious": "value"},
+            "not_a_known_internal_list": [1, 2, 3],
+            "custom_string_param": "kept",
+            "custom_int_param": 42,
+            "custom_float_param": 1.5,
+            "custom_bool_param": True,
+        },
+    )
+    assert "not_a_known_internal_dict" not in mapped
+    assert "not_a_known_internal_list" not in mapped
+    assert mapped["custom_string_param"] == "kept"
+    assert mapped["custom_int_param"] == 42
+    assert mapped["custom_float_param"] == 1.5
+    assert mapped["custom_bool_param"] is True
+    assert "ref_audio" in mapped
+
+
 def test_omnivoice_voice_clone_router_level_params_filtered():
     config = OmniVoiceVoiceCloneConfig()
     voice, mapped = config.map_openai_params(
