@@ -36,7 +36,7 @@
     "limit": 190
   },
   "B008": {
-    "limit": 506
+    "limit": 517
   },
   "B009": {
     "limit": 84
@@ -60,7 +60,7 @@
     "limit": 4
   },
   "BLE001": {
-    "limit": 2911
+    "limit": 2919
   },
   "C401": {
     "limit": 11
@@ -144,7 +144,7 @@
     "limit": 74
   },
   "PIE790": {
-    "limit": 277
+    "limit": 276
   },
   "PIE800": {
     "limit": 4
@@ -264,10 +264,10 @@
     "limit": 63
   },
   "SIM102": {
-    "limit": 325
+    "limit": 324
   },
   "SIM103": {
-    "limit": 129
+    "limit": 128
   },
   "SIM113": {
     "limit": 6

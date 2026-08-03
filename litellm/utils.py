@@ -9024,12 +9024,16 @@ class ProviderConfigManager:
 
     @staticmethod
     def get_provider_voice_config(
-        provider: Literal["hamsa"],
+        provider: Literal["hamsa", "omnivoice"],
     ) -> Optional[Any]:
         if litellm.LlmProviders.HAMSA == provider:
             from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
 
             return HamsaVoiceConfig()
+        if litellm.LlmProviders.OMNIVOICE == provider:
+            from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceConfig
+
+            return OmniVoiceVoiceConfig()
         return None
 
 

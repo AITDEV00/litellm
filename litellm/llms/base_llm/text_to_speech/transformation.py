@@ -34,6 +34,7 @@ class TextToSpeechRequestData(TypedDict, total=False):
     form_data: dict[str, Any]  # Multipart form fields (e.g., voice clone with ref_audio)
     files: dict[str, Any]  # Multipart file fields (e.g., {"ref_audio": (filename, content, content_type)})
     headers: Dict[str, str]  # Provider-specific headers to merge with base headers
+    method: str  # HTTP method override (default: POST). Used by voice management configs for GET/PATCH/DELETE.
 
 
 class BaseTextToSpeechConfig(ABC):

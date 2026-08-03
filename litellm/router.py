@@ -3937,6 +3937,101 @@ class Router:
                 self.fail_calls[model_name] += 1
             raise e
 
+    async def alist_voices(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def alist_voice_profiles(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def aget_voice_profile(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def acreate_voice_profile(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def aupdate_voice_profile(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def adelete_voice_profile(self, model: str, voice_data: dict, **kwargs):
+        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
+
+    async def ascript(self, model: str, input: str, voice: str, **kwargs):
+        try:
+            kwargs["model"] = model
+            kwargs["input"] = input
+            kwargs["voice"] = voice
+            kwargs["original_function"] = self._ascript
+            self._update_kwargs_before_fallbacks(model=model, kwargs=kwargs)
+            response = await self.async_function_with_fallbacks(**kwargs)
+            return response
+        except Exception as e:
+            asyncio.create_task(
+                send_llm_exception_alert(
+                    litellm_router_instance=self,
+                    request_kwargs=kwargs,
+                    error_traceback_str=traceback.format_exc(),
+                    original_exception=e,
+                )
+            )
+            raise e
+
+    async def _ascript(self, model: str, input: str, voice: str, **kwargs):
+        model_name = model
+        try:
+            verbose_router_logger.debug(f"Inside _ascript()- model: {model}; kwargs: {kwargs}")
+            parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
+            deployment = await self.async_get_available_deployment(
+                model=model,
+                messages=[{"role": "user", "content": "prompt"}],
+                specific_deployment=kwargs.pop("specific_deployment", None),
+                request_kwargs=kwargs,
+            )
+
+            self._update_kwargs_with_deployment(deployment=deployment, kwargs=kwargs)
+            data = deployment["litellm_params"].copy()
+            model_client = self._get_async_openai_model_client(
+                deployment=deployment,
+                kwargs=kwargs,
+            )
+
+            self.total_calls[model_name] += 1
+            response = litellm.ascript(
+                **{
+                    **data,
+                    "input": input,
+                    "voice": voice,
+                    "client": model_client,
+                    **kwargs,
+                }
+            )
+
+            rpm_semaphore = self._get_client(
+                deployment=deployment,
+                kwargs=kwargs,
+                client_type="max_parallel_requests",
+            )
+
+            if rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
+                async with rpm_semaphore:
+                    await self.async_routing_strategy_pre_call_checks(
+                        deployment=deployment, parent_otel_span=parent_otel_span
+                    )
+                    response = await response
+            else:
+                await self.async_routing_strategy_pre_call_checks(
+                    deployment=deployment, parent_otel_span=parent_otel_span
+                )
+                response = await response
+
+            self.success_calls[model_name] += 1
+            verbose_router_logger.info(f"litellm.ascript(model={model_name})\033[32m 200 OK\033[0m")
+            return response
+        except Exception as e:
+            verbose_router_logger.info(f"litellm.ascript(model={model_name})\033[31m Exception {str(e)}\033[0m")
+            if model_name is not None:
+                self.fail_calls[model_name] += 1
+            raise e
+
     async def arerank(self, model: str, **kwargs):
         try:
             kwargs["model"] = model

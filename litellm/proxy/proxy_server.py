@@ -9374,6 +9374,358 @@ async def create_voice(
         raise e
 
 
+_VOICE_DATA_KEYS = frozenset(
+    {
+        "speaker",
+        "speaker_id",
+        "voice_id",
+        "name",
+        "audio_url",
+        "audio_path",
+        "stored_path",
+        "prompt_text",
+        "transcript",
+        "dialect",
+        "global_token_ids",
+        "semantic_token_ids",
+        "action",
+        "ref_audio",
+        "ref_text",
+        "profile_id",
+    }
+)
+
+
+async def _route_voice_management(
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth,
+    action: str,
+    route_type: str,
+    profile_id: str | None = None,
+) -> JSONResponse:
+    global proxy_logging_obj
+    data: Dict = {}
+    try:
+        content_type = request.headers.get("content-type", "")
+        if "multipart/form-data" in content_type:
+            form_data = await get_form_data(request)
+            raw = {key: value for key, value in form_data.items() if key != "ref_audio"}
+            ref_audio_upload = form_data.get("ref_audio")
+            if ref_audio_upload is not None and hasattr(ref_audio_upload, "read"):
+                file_content = await ref_audio_upload.read()
+                raw["ref_audio"] = (
+                    ref_audio_upload.filename or "ref_audio.wav",
+                    file_content,
+                    ref_audio_upload.content_type or "audio/wav",
+                )
+        else:
+            body = await request.body()
+            raw = orjson.loads(body) if body else {}
+
+        data = await add_litellm_data_to_request(
+            data=raw,
+            request=request,
+            general_settings=general_settings,
+            user_api_key_dict=user_api_key_dict,
+            version=version,
+            proxy_config=proxy_config,
+        )
+
+        if data.get("user", None) is None and user_api_key_dict.user_id is not None:
+            data["user"] = user_api_key_dict.user_id
+
+        model = data.pop("model", None) or user_model
+
+        voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
+        voice_data["action"] = action
+        if profile_id is not None:
+            voice_data["profile_id"] = profile_id
+        data = {"model": model, "voice_data": voice_data, **data}
+
+        data = await proxy_logging_obj.pre_call_hook(
+            user_api_key_dict=user_api_key_dict, data=data, call_type=route_type
+        )
+
+        llm_call = await route_request(
+            data=data,
+            route_type=route_type,
+            llm_router=llm_router,
+            user_model=user_model,
+        )
+        response = await llm_call
+
+        asyncio.create_task(
+            proxy_logging_obj.update_request_status(litellm_call_id=data.get("litellm_call_id", ""), status="success")
+        )
+
+        hidden_params = getattr(response, "_hidden_params", {}) or {}
+        custom_headers = ProxyBaseLLMRequestProcessing.get_custom_headers(
+            user_api_key_dict=user_api_key_dict,
+            model_id=hidden_params.get("model_id", None) or "",
+            cache_key=hidden_params.get("cache_key", None) or "",
+            api_base=hidden_params.get("api_base", None) or "",
+            version=version,
+            response_cost=hidden_params.get("response_cost", None) or "",
+            model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
+            fastest_response_batch_completion=None,
+            call_id=hidden_params.get("litellm_call_id", None) or "",
+            request_data=data,
+            hidden_params=hidden_params,
+        )
+
+        return JSONResponse(content=response, headers=custom_headers)
+
+    except Exception as e:
+        await proxy_logging_obj.post_call_failure_hook(
+            user_api_key_dict=user_api_key_dict,
+            original_exception=e,
+            request_data=data,
+        )
+        verbose_proxy_logger.error(
+            "litellm.proxy.proxy_server._route_voice_management(): Exception occured - {}".format(str(e))
+        )
+        verbose_proxy_logger.debug(traceback.format_exc())
+        raise e
+
+
+@router.get(
+    "/v1/voices",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/voices",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def list_voices(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request, user_api_key_dict=user_api_key_dict, action="list", route_type="alist_voices"
+    )
+
+
+@router.get(
+    "/v1/voices/profiles",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/voices/profiles",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def list_voice_profiles(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request, user_api_key_dict=user_api_key_dict, action="list_profiles", route_type="alist_voice_profiles"
+    )
+
+
+@router.get(
+    "/v1/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def get_voice_profile(
+    request: Request,
+    fastapi_response: Response,
+    profile_id: str = Path(...),
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action="get_profile",
+        route_type="aget_voice_profile",
+        profile_id=profile_id,
+    )
+
+
+@router.post(
+    "/v1/voices/profiles",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.post(
+    "/voices/profiles",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def create_voice_profile(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action="create_profile",
+        route_type="acreate_voice_profile",
+    )
+
+
+@router.patch(
+    "/v1/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.patch(
+    "/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def update_voice_profile(
+    request: Request,
+    fastapi_response: Response,
+    profile_id: str = Path(...),
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action="update_profile",
+        route_type="aupdate_voice_profile",
+        profile_id=profile_id,
+    )
+
+
+@router.delete(
+    "/v1/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.delete(
+    "/voices/profiles/{profile_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def delete_voice_profile(
+    request: Request,
+    fastapi_response: Response,
+    profile_id: str = Path(...),
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    return await _route_voice_management(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action="delete_profile",
+        route_type="adelete_voice_profile",
+        profile_id=profile_id,
+    )
+
+
+@router.post(
+    "/v1/audio/script",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.post(
+    "/audio/script",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_script(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    """
+    OmniVoice multi-speaker script synthesis.
+
+    JSON body with 'input' (script text) and optional 'voice', 'response_format',
+    'speed', 'language', 'stream' fields.
+    """
+    global proxy_logging_obj
+    data: Dict = {}
+    try:
+        body = await request.body()
+        raw = orjson.loads(body) if body else {}
+
+        data = await add_litellm_data_to_request(
+            data=raw,
+            request=request,
+            general_settings=general_settings,
+            user_api_key_dict=user_api_key_dict,
+            version=version,
+            proxy_config=proxy_config,
+        )
+
+        if data.get("user", None) is None and user_api_key_dict.user_id is not None:
+            data["user"] = user_api_key_dict.user_id
+
+        model = data.pop("model", None) or user_model
+        input_text = data.pop("input", None)
+        if input_text is None:
+            raise ProxyException(
+                message="input is required for script synthesis",
+                code=status.HTTP_400_BAD_REQUEST,
+                type="bad_request",
+                param="input",
+            )
+        voice = data.pop("voice", None)
+
+        data = {"model": model, "input": input_text, "voice": voice, **data}
+
+        data = await proxy_logging_obj.pre_call_hook(
+            user_api_key_dict=user_api_key_dict, data=data, call_type="ascript"
+        )
+
+        llm_call = await route_request(
+            data=data,
+            route_type="ascript",
+            llm_router=llm_router,
+            user_model=user_model,
+        )
+        response = await llm_call
+
+        asyncio.create_task(
+            proxy_logging_obj.update_request_status(litellm_call_id=data.get("litellm_call_id", ""), status="success")
+        )
+
+        hidden_params = getattr(response, "_hidden_params", {}) or {}
+        custom_headers = ProxyBaseLLMRequestProcessing.get_custom_headers(
+            user_api_key_dict=user_api_key_dict,
+            model_id=hidden_params.get("model_id", None) or "",
+            cache_key=hidden_params.get("cache_key", None) or "",
+            api_base=hidden_params.get("api_base", None) or "",
+            version=version,
+            response_cost=hidden_params.get("response_cost", None) or "",
+            model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
+            fastest_response_batch_completion=None,
+            call_id=hidden_params.get("litellm_call_id", None) or "",
+            request_data=data,
+            hidden_params=hidden_params,
+        )
+
+        return StreamingResponse(
+            _audio_speech_chunk_generator(response),
+            media_type="audio/mpeg",
+            headers=custom_headers,
+        )
+
+    except Exception as e:
+        await proxy_logging_obj.post_call_failure_hook(
+            user_api_key_dict=user_api_key_dict,
+            original_exception=e,
+            request_data=data,
+        )
+        verbose_proxy_logger.error("litellm.proxy.proxy_server.audio_script(): Exception occured - {}".format(str(e)))
+        verbose_proxy_logger.debug(traceback.format_exc())
+        raise e
+
+
 @router.post(
     "/v1/audio/transcriptions",
     dependencies=[Depends(user_api_key_auth)],

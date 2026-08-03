@@ -232,6 +232,61 @@ def _has_pre_call_deployment_hook(logging_obj: Any) -> bool:
     return False
 
 
+_VOICE_BODY_TYPE_ERROR = "No body found in voice request_data. Must provide one of: dict_body, form_data"
+
+
+def _voice_http_method(request_data: Dict[str, Any]) -> str:
+    return request_data.get("method", "POST").upper()
+
+
+def _send_voice_request_sync(
+    client: HTTPHandler,
+    url: str,
+    headers: dict,
+    request_data: Dict[str, Any],
+    timeout: float | httpx.Timeout,
+) -> httpx.Response:
+    method = _voice_http_method(request_data)
+
+    if "dict_body" in request_data:
+        return client.post(url=url, headers=headers, json=request_data["dict_body"], timeout=timeout)
+    if "form_data" in request_data:
+        data = request_data["form_data"]
+        files = request_data.get("files")
+        if method == "PATCH":
+            return client.patch(url=url, headers=headers, data=data, files=files, timeout=timeout)
+        return client.post(url=url, headers=headers, data=data, files=files, timeout=timeout)
+    if method == "GET":
+        return client.get(url=url, headers=headers, timeout=timeout)
+    if method == "DELETE":
+        return client.delete(url=url, headers=headers, timeout=timeout)
+    raise ValueError(_VOICE_BODY_TYPE_ERROR)
+
+
+async def _send_voice_request_async(
+    client: AsyncHTTPHandler,
+    url: str,
+    headers: dict,
+    request_data: Dict[str, Any],
+    timeout: float | httpx.Timeout,
+) -> httpx.Response:
+    method = _voice_http_method(request_data)
+
+    if "dict_body" in request_data:
+        return await client.post(url=url, headers=headers, json=request_data["dict_body"], timeout=timeout)
+    if "form_data" in request_data:
+        data = request_data["form_data"]
+        files = request_data.get("files")
+        if method == "PATCH":
+            return await client.patch(url=url, headers=headers, data=data, files=files, timeout=timeout)
+        return await client.post(url=url, headers=headers, data=data, files=files, timeout=timeout)
+    if method == "GET":
+        return await client.get(url=url, headers=headers, timeout=timeout)
+    if method == "DELETE":
+        return await client.delete(url=url, headers=headers, timeout=timeout)
+    raise ValueError(_VOICE_BODY_TYPE_ERROR)
+
+
 class BaseLLMHTTPHandler:
     async def _make_common_async_call(
         self,
@@ -11334,11 +11389,11 @@ class BaseLLMHTTPHandler:
         optional_params: Any,
         litellm_params: Dict,
         logging_obj: LiteLLMLoggingObj,
-        timeout: Union[float, httpx.Timeout],
-        extra_headers: Optional[Dict[str, Any]] = None,
-        client: Optional[Union[HTTPHandler, AsyncHTTPHandler]] = None,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
         _is_async: bool = False,
-    ) -> Union[Dict[str, Any], Coroutine[Any, Any, Dict[str, Any]]]:
+    ) -> dict[str, Any] | Coroutine[Any, Any, dict[str, Any]]:
         if _is_async:
             return self.async_voice_handler(
                 model=model,
@@ -11395,15 +11450,13 @@ class BaseLLMHTTPHandler:
         )
 
         try:
-            if "dict_body" in request_data:
-                response = sync_httpx_client.post(
-                    url=api_base,
-                    headers=headers,
-                    json=request_data["dict_body"],
-                    timeout=timeout,
-                )
-            else:
-                raise ValueError("No body found in request_data. Must provide dict_body")
+            response = _send_voice_request_sync(
+                client=sync_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
         except Exception as e:
             raise self._handle_error(
                 e=e,
@@ -11424,9 +11477,9 @@ class BaseLLMHTTPHandler:
         optional_params: Any,
         litellm_params: Dict,
         logging_obj: LiteLLMLoggingObj,
-        timeout: Union[float, httpx.Timeout],
-        extra_headers: Optional[Dict[str, Any]] = None,
-        client: Optional[Union[HTTPHandler, AsyncHTTPHandler]] = None,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
     ) -> Dict[str, Any]:
         if client is None or not isinstance(client, AsyncHTTPHandler):
             async_httpx_client = get_async_httpx_client(
@@ -11474,15 +11527,13 @@ class BaseLLMHTTPHandler:
         )
 
         try:
-            if "dict_body" in request_data:
-                response = await async_httpx_client.post(
-                    url=api_base,
-                    headers=headers,
-                    json=request_data["dict_body"],
-                    timeout=timeout,
-                )
-            else:
-                raise ValueError("No body found in request_data. Must provide dict_body")
+            response = await _send_voice_request_async(
+                client=async_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
         except Exception as e:
             raise self._handle_error(
                 e=e,
