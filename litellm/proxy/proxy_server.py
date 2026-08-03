@@ -9171,6 +9171,11 @@ async def audio_speech_clone(
         if user_model:
             data["model"] = user_model
 
+        if data.get("model") is None and llm_router is not None:
+            resolved = _resolve_voice_management_model(llm_router)
+            if resolved is not None:
+                data["model"] = resolved
+
         ref_audio_upload = form_data.get("ref_audio")
         if ref_audio_upload is None or not hasattr(ref_audio_upload, "read"):
             raise ProxyException(
@@ -9392,8 +9397,39 @@ _VOICE_DATA_KEYS = frozenset(
         "ref_audio",
         "ref_text",
         "profile_id",
+        "overwrite",
     }
 )
+
+
+def _resolve_voice_management_model(router_instance: Router) -> str | None:
+    for deployment in router_instance.model_list:
+        litellm_params = deployment.get("litellm_params", {})
+        model_str = litellm_params.get("model", "")
+        if "omnivoice/" in model_str or "/omnivoice" in model_str:
+            return deployment.get("model_name")
+    for deployment in router_instance.model_list:
+        litellm_params = deployment.get("litellm_params", {})
+        if litellm_params.get("mode") == "audio_speech":
+            return deployment.get("model_name")
+    return None
+
+
+def _resolve_omnivoice_api_base(router_instance: Router) -> str | None:
+    for deployment in router_instance.model_list:
+        litellm_params = deployment.get("litellm_params", {})
+        model_str = litellm_params.get("model", "")
+        if "omnivoice/" in model_str or "/omnivoice" in model_str:
+            api_base = litellm_params.get("api_base")
+            if api_base:
+                return str(api_base).rstrip("/")
+    for deployment in router_instance.model_list:
+        litellm_params = deployment.get("litellm_params", {})
+        if litellm_params.get("mode") == "audio_speech":
+            api_base = litellm_params.get("api_base")
+            if api_base:
+                return str(api_base).rstrip("/")
+    return None
 
 
 async def _route_voice_management(
@@ -9435,6 +9471,9 @@ async def _route_voice_management(
             data["user"] = user_api_key_dict.user_id
 
         model = data.pop("model", None) or user_model
+
+        if model is None and llm_router is not None:
+            model = _resolve_voice_management_model(llm_router)
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         voice_data["action"] = action
@@ -9644,8 +9683,9 @@ async def audio_script(
     """
     OmniVoice multi-speaker script synthesis.
 
-    JSON body with 'input' (script text) and optional 'voice', 'response_format',
-    'speed', 'language', 'stream' fields.
+    JSON body with 'script' (list of speaker/text segments) and optional
+    'default_voice', 'speed', 'response_format', 'output_format',
+    'pause_between_speakers', 'on_error' fields.
     """
     global proxy_logging_obj
     data: Dict = {}
@@ -9666,17 +9706,26 @@ async def audio_script(
             data["user"] = user_api_key_dict.user_id
 
         model = data.pop("model", None) or user_model
-        input_text = data.pop("input", None)
-        if input_text is None:
+
+        if model is None and llm_router is not None:
+            model = _resolve_voice_management_model(llm_router)
+
+        script_segments = data.pop("script", None)
+        if script_segments is None:
             raise ProxyException(
-                message="input is required for script synthesis",
+                message="script is required for script synthesis",
                 code=status.HTTP_400_BAD_REQUEST,
                 type="bad_request",
-                param="input",
+                param="script",
             )
-        voice = data.pop("voice", None)
 
-        data = {"model": model, "input": input_text, "voice": voice, **data}
+        script_kwargs: dict = {"script": script_segments}
+        for key in ("default_voice", "speed", "response_format", "output_format", "pause_between_speakers", "on_error"):
+            value = data.pop(key, None)
+            if value is not None:
+                script_kwargs[key] = value
+
+        data = {"model": model, "input": "", "voice": None, **script_kwargs, **data}
 
         data = await proxy_logging_obj.pre_call_hook(
             user_api_key_dict=user_api_key_dict, data=data, call_type="ascript"
@@ -9709,6 +9758,9 @@ async def audio_script(
             hidden_params=hidden_params,
         )
 
+        if isinstance(response, dict):
+            return JSONResponse(content=response, headers=custom_headers)
+
         return StreamingResponse(
             _audio_speech_chunk_generator(response),
             media_type="audio/mpeg",
@@ -9724,6 +9776,123 @@ async def audio_script(
         verbose_proxy_logger.error("litellm.proxy.proxy_server.audio_script(): Exception occured - {}".format(str(e)))
         verbose_proxy_logger.debug(traceback.format_exc())
         raise e
+
+
+async def _proxy_to_omnivoice_pod(
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth,
+    path: str,
+) -> Response:
+    import httpx
+
+    if llm_router is None:
+        raise ProxyException(
+            message="No router configured",
+            code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            type="server_error",
+            param=None,
+        )
+
+    api_base = _resolve_omnivoice_api_base(llm_router)
+    if api_base is None:
+        raise ProxyException(
+            message="No OmniVoice deployment found",
+            code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            type="server_error",
+            param=None,
+        )
+
+    if api_base.lower().endswith("/v1"):
+        base = api_base[:-3]
+    else:
+        base = api_base
+    target_url = base + path
+
+    async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        headers = {
+            k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length", "authorization")
+        }
+        resp = await client.get(target_url, headers=headers, params=dict(request.query_params))
+
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+    )
+
+
+@router.get(
+    "/v1/audio/models",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/audio/models",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_models(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> Response:
+    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/v1/models")
+
+
+@router.get(
+    "/v1/audio/models/{model_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/audio/models/{model_id}",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_model_detail(
+    model_id: str,
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> Response:
+    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, f"/v1/models/{model_id}")
+
+
+@router.get(
+    "/v1/audio/health",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/audio/health",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_health(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> Response:
+    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/health")
+
+
+@router.get(
+    "/v1/audio/metrics",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.get(
+    "/audio/metrics",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_metrics(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> Response:
+    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/metrics")
 
 
 @router.post(

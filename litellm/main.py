@@ -8413,7 +8413,7 @@ async def ascript(*args, **kwargs) -> HttpxBinaryResponseContent:
 @client
 def script(
     model: str,
-    input: str,
+    input: str = "",
     voice: str | dict | None = None,
     api_key: str | None = None,
     api_base: str | None = None,

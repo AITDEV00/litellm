@@ -3748,7 +3748,7 @@ class Router:
                 self.fail_calls[model_name] += 1
             raise e
 
-    async def aspeech(self, model: str, input: str, voice: str, **kwargs):
+    async def aspeech(self, model: str, input: str, voice: str | None = None, **kwargs):
         """
         Example Usage:
 
@@ -3800,7 +3800,7 @@ class Router:
             )
             raise e
 
-    async def _aspeech(self, model: str, input: str, voice: str, **kwargs):
+    async def _aspeech(self, model: str, input: str, voice: str | None = None, **kwargs):
         model_name = model
         try:
             verbose_router_logger.debug(f"Inside _aspeech()- model: {model}; kwargs: {kwargs}")
@@ -3955,7 +3955,7 @@ class Router:
     async def adelete_voice_profile(self, model: str, voice_data: dict, **kwargs):
         return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
 
-    async def ascript(self, model: str, input: str, voice: str, **kwargs):
+    async def ascript(self, model: str, input: str = "", voice: str | None = None, **kwargs):
         try:
             kwargs["model"] = model
             kwargs["input"] = input
@@ -3975,7 +3975,7 @@ class Router:
             )
             raise e
 
-    async def _ascript(self, model: str, input: str, voice: str, **kwargs):
+    async def _ascript(self, model: str, input: str = "", voice: str | None = None, **kwargs):
         model_name = model
         try:
             verbose_router_logger.debug(f"Inside _ascript()- model: {model}; kwargs: {kwargs}")

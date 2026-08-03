@@ -90,7 +90,7 @@ class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         request_body: dict[str, Any] = {
             "model": model,
             "input": input,
-            "voice": voice or "alloy",
+            "voice": voice or "auto",
         }
 
         for key in _TTS_FORM_KEYS:

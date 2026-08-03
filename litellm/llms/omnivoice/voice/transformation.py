@@ -165,9 +165,6 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         return HttpxBinaryResponseContent(raw_response)
 
 
-_PROFILE_FORM_KEYS: tuple[str, ...] = _CLONE_FORM_KEYS + ("ref_text",)
-
-
 class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
     """Voice management config for OmniVoice: list voices and profile CRUD.
 
@@ -227,27 +224,36 @@ class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
 
         if action == "update_profile":
             form_fields: dict[str, Any] = {}
-            for key in ("ref_text", "speaker", "name", "voice_id", "dialect", "prompt_text"):
+            for key in ("ref_text", "overwrite"):
                 value = voice_data.get(key)
                 if value is not None:
                     form_fields[key] = value
-            return TextToSpeechRequestData(form_data=form_fields, method="PATCH")
+
+            ref_audio = voice_data.get("ref_audio") or optional_params.get("ref_audio")
+            files: dict[str, Any] = _build_ref_audio_files(ref_audio) if ref_audio is not None else {}
+
+            return TextToSpeechRequestData(form_data=form_fields, files=files, method="PATCH")
 
         if action == "create_profile":
             ref_audio = voice_data.get("ref_audio") or optional_params.get("ref_audio")
+            if ref_audio is None:
+                from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+                raise BaseLLMException(
+                    status_code=400,
+                    message="'ref_audio' is required for voice profile creation.",
+                    headers={},
+                )
             profile_id = _require_profile_id(voice_data, "voice profile creation")
 
             form_fields: dict[str, Any] = {"profile_id": profile_id}
 
-            for key in _PROFILE_FORM_KEYS:
+            for key in ("ref_text", "overwrite"):
                 value = voice_data.get(key) or optional_params.get(key)
                 if value is not None:
                     form_fields[key] = value
 
-            form_fields |= _collect_passthrough(voice_data)
-            form_fields |= _collect_passthrough(optional_params)
-
-            files: dict[str, Any] = _build_ref_audio_files(ref_audio) if ref_audio is not None else {}
+            files: dict[str, Any] = _build_ref_audio_files(ref_audio)
 
             return TextToSpeechRequestData(form_data=form_fields, files=files)
 

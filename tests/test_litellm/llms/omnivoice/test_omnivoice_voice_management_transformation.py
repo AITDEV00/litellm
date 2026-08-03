@@ -197,23 +197,39 @@ def test_create_profile_request_requires_profile_id():
         assert "profile_id" in str(e)
 
 
-def test_create_profile_request_without_ref_audio():
+def test_create_profile_request_requires_ref_audio():
+    import pytest
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+    with pytest.raises(BaseLLMException, match="ref_audio"):
+        _config().transform_create_voice_request(
+            model="omnivoice",
+            voice_data={"profile_id": "test_profile", "ref_text": "text"},
+            optional_params={},
+            litellm_params={"voice_action": "create_profile"},
+            headers={},
+        )
+
+
+def test_create_profile_request_with_ref_audio():
+    ref_audio = ("ref.wav", b"AUDIO", "audio/wav")
     data = _config().transform_create_voice_request(
         model="omnivoice",
-        voice_data={"profile_id": "test_profile", "ref_text": "text"},
+        voice_data={"profile_id": "test_profile", "ref_text": "text", "ref_audio": ref_audio},
         optional_params={},
         litellm_params={"voice_action": "create_profile"},
         headers={},
     )
     assert "form_data" in data
-    assert data["files"] == {}
     assert data["form_data"]["profile_id"] == "test_profile"
+    assert data["form_data"]["ref_text"] == "text"
+    assert "ref_audio" in data["files"]
 
 
 def test_update_profile_request_uses_form_data_and_patch_method():
     data = _config().transform_create_voice_request(
         model="omnivoice",
-        voice_data={"ref_text": "updated text", "speaker": "Speaker1"},
+        voice_data={"ref_text": "updated text"},
         optional_params={},
         litellm_params={"voice_action": "update_profile", "profile_id": "Morgan"},
         headers={},
@@ -224,13 +240,13 @@ def test_update_profile_request_uses_form_data_and_patch_method():
 
     form = data["form_data"]
     assert form["ref_text"] == "updated text"
-    assert form["speaker"] == "Speaker1"
+    assert "speaker" not in form
 
 
 def test_update_profile_request_skips_none_fields():
     data = _config().transform_create_voice_request(
         model="omnivoice",
-        voice_data={"ref_text": "updated text", "speaker": None, "name": None},
+        voice_data={"ref_text": "updated text", "overwrite": None},
         optional_params={},
         litellm_params={"voice_action": "update_profile", "profile_id": "Morgan"},
         headers={},
@@ -249,6 +265,7 @@ def test_update_profile_request_empty_voice_data():
     )
     assert data.get("method") == "PATCH"
     assert data["form_data"] == {}
+    assert data["files"] == {}
 
 
 def test_transform_response_with_json_body():

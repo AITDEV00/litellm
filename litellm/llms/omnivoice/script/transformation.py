@@ -114,6 +114,9 @@ class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         raw_response: httpx.Response,
         logging_obj: Any,
     ) -> Any:
+        content_type = raw_response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return raw_response.json()
         from litellm.types.llms.openai import HttpxBinaryResponseContent
 
         return HttpxBinaryResponseContent(raw_response)

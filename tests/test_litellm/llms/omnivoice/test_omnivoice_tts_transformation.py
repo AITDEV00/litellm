@@ -139,7 +139,7 @@ def test_omnivoice_tts_default_voice_when_none():
         headers={},
     )
     body = request_data["dict_body"]
-    assert body["voice"] == "alloy"
+    assert body["voice"] == "auto"
 
 
 def test_omnivoice_tts_instructions_filtered():
