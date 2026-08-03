@@ -272,3 +272,115 @@ class TestManagementObjectTTL:
         )
 
         assert mem.last_ttl == 300
+
+
+class TestSkipInMemory:
+    """Tests for the skip_in_memory flag on UserApiKeyCache.
+
+    This flag is the multi-pod cache-staleness fix: auth-critical reads bypass
+    per-pod in-memory cache and read only from the shared Redis layer. See
+    CACHE_INVALIDATION_FIX_TESTING.md for the full design.
+    """
+
+    @pytest.mark.asyncio
+    async def test_skip_in_memory_bypasses_stale_in_memory_and_returns_redis(self):
+        cache = UserApiKeyCache(
+            redis_cache=FakeRedisCache(),
+            default_in_memory_ttl=60,
+        )
+
+        # Write a fresh value to Redis only (not in-memory)
+        await cache.redis_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "fresh", "models": ["new-model"]}
+        )
+
+        # Poison in-memory with a stale value
+        await cache.in_memory_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "stale", "models": ["old-model"]}
+        )
+
+        result = await cache.async_get_cache(
+            "auth_key", model_type=UserAPIKeyAuth, skip_in_memory=True
+        )
+        assert result is not None
+        assert result.token == "fresh"
+        assert result.models == ["new-model"]
+
+    @pytest.mark.asyncio
+    async def test_skip_in_memory_does_not_write_back_to_in_memory(self):
+        cache = UserApiKeyCache(
+            redis_cache=FakeRedisCache(),
+            default_in_memory_ttl=60,
+        )
+
+        # Redis has fresh data; in-memory is empty
+        await cache.redis_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "fresh"}
+        )
+
+        await cache.async_get_cache(
+            "auth_key", model_type=UserAPIKeyAuth, skip_in_memory=True
+        )
+
+        # In-memory must still be empty (no re-poisoning write-back)
+        raw = await cache.in_memory_cache.async_get_cache("auth_key")  # type: ignore[union-attr]
+        assert raw is None, "skip_in_memory=True must not write Redis result back to in-memory"
+
+    @pytest.mark.asyncio
+    async def test_skip_in_memory_returns_none_on_redis_miss_even_with_stale_in_memory(self):
+        cache = UserApiKeyCache(
+            redis_cache=FakeRedisCache(),
+            default_in_memory_ttl=60,
+        )
+
+        # Only in-memory has a stale value; Redis is empty
+        await cache.in_memory_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "stale"}
+        )
+
+        result = await cache.async_get_cache(
+            "auth_key", model_type=UserAPIKeyAuth, skip_in_memory=True
+        )
+        assert result is None, "skip_in_memory=True must return None on Redis miss"
+
+    @pytest.mark.asyncio
+    async def test_without_skip_in_memory_still_reads_in_memory_first(self):
+        """When skip_in_memory=False is explicitly passed, in-memory hit
+        short-circuits and Redis is not consulted. The default is now
+        skip_in_memory=True for multi-pod consistency."""
+        cache = UserApiKeyCache(
+            redis_cache=FakeRedisCache(),
+            default_in_memory_ttl=60,
+        )
+
+        await cache.in_memory_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "from-mem"}
+        )
+
+        result = await cache.async_get_cache(
+            "auth_key", model_type=UserAPIKeyAuth, skip_in_memory=False
+        )
+        assert result is not None
+        assert result.token == "from-mem"
+
+    @pytest.mark.asyncio
+    async def test_default_skip_in_memory_is_true(self):
+        """UserApiKeyCache defaults to skip_in_memory=True: omitting the
+        parameter bypasses stale in-memory and reads from Redis."""
+        cache = UserApiKeyCache(
+            redis_cache=FakeRedisCache(),
+            default_in_memory_ttl=60,
+        )
+
+        await cache.redis_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "fresh"}
+        )
+        await cache.in_memory_cache.async_set_cache(  # type: ignore[union-attr]
+            "auth_key", {"token": "stale"}
+        )
+
+        result = await cache.async_get_cache(
+            "auth_key", model_type=UserAPIKeyAuth
+        )
+        assert result is not None
+        assert result.token == "fresh"

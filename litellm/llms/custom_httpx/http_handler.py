@@ -741,6 +741,7 @@ class AsyncHTTPHandler:
         headers: Optional[dict] = None,
         timeout: Optional[Union[float, httpx.Timeout]] = None,
         stream: bool = False,
+        files: RequestFiles | None = None,
         content: Any = None,
     ):
         try:
@@ -758,6 +759,7 @@ class AsyncHTTPHandler:
                 params=params,
                 headers=headers,
                 timeout=timeout,
+                files=files,
                 content=request_content,  # type: ignore
             )
             response = await self.client.send(req)
@@ -1205,6 +1207,7 @@ class HTTPHandler:
         headers: Optional[dict] = None,
         stream: bool = False,
         timeout: Optional[Union[float, httpx.Timeout]] = None,
+        files: RequestFiles | None = None,
         content: Any = None,
     ):
         try:
@@ -1220,6 +1223,7 @@ class HTTPHandler:
                     params=params,
                     headers=headers,
                     timeout=timeout,
+                    files=files,
                     content=request_content,  # type: ignore
                 )
             else:
@@ -1230,6 +1234,7 @@ class HTTPHandler:
                     json=json,
                     params=params,
                     headers=headers,
+                    files=files,
                     content=request_content,  # type: ignore
                 )
             response = self.client.send(req, stream=stream)

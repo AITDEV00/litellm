@@ -478,6 +478,8 @@ priority_reservation: Optional[Dict[str, Union[float, "PriorityReservationDict"]
 if TYPE_CHECKING:
     priority_reservation_settings: Optional["PriorityReservationSettings"] = None
 
+priority_body_fields: Optional[Dict[str, Dict[str, Any]]] = None
+
 
 ######## Networking Settings ########
 use_aiohttp_transport: bool = True  # Older variable, aiohttp is now the default. use disable_aiohttp_transport instead.

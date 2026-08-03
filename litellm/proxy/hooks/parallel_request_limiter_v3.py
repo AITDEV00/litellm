@@ -249,6 +249,143 @@ end
 return results
 """
 
+HTB_CHECK_AND_INCREMENT_SCRIPT = """
+-- HTB (Hierarchical Token Bucket) check-and-increment with demand-based borrowing.
+--
+-- A demand counter (sliding-window, same as the request counter) is incremented
+-- BEFORE this script runs. The demand counter reflects how many requests a
+-- priority has ATTEMPTED in the current window, including requests that were
+-- denied. This makes a priority's demand visible to siblings immediately,
+-- even before its first request is processed by this script.
+--
+-- For each sibling, reservation = min(sibling_demand, sibling_guaranteed).
+-- This means:
+--   - Sibling with 200 demand (guaranteed=54): reservation = 54, fully protected
+--   - Sibling with 10 demand  (guaranteed=54): reservation = 10, 44 borrowable
+--   - Sibling with 0 demand   (guaranteed=54): reservation = 0,  fully borrowable
+--   - Sibling idle (demand expired):           reservation = 0,  fully borrowable
+--
+-- Semantics:
+--   1. Within guaranteed rate (priority_current < priority_limit):
+--      ALLOW if model_current < model_limit.
+--   2. Borrowing (priority_current >= priority_limit):
+--      ALLOW if priority_current < borrow_ceiling AND model_current < model_limit.
+--      borrow_ceiling = min(saturation_cap, model_limit) - sum_of_sibling_reservations
+--   3. Otherwise: DENY.
+--
+-- KEYS layout (6 + 2*num_siblings keys):
+--   KEYS[1] = priority window key
+--   KEYS[2] = priority counter key (accepted requests)
+--   KEYS[3] = model window key
+--   KEYS[4] = model counter key (accepted requests)
+--   KEYS[5] = (unused, reserved for backward compat)
+--   KEYS[6] = (unused, reserved for backward compat)
+--   KEYS[7..] = per sibling: (demand_window_key, demand_counter_key)
+--
+-- ARGV layout:
+--   ARGV[1] = priority_limit        (guaranteed rate for this priority)
+--   ARGV[2] = model_limit           (total model RPM)
+--   ARGV[3] = ttl_seconds           (counter TTL when window resets)
+--   ARGV[4] = window_size           (sliding-window length in seconds)
+--   ARGV[5] = num_siblings          (number of sibling priority entries)
+--   ARGV[6] = saturation_cap        (model_limit * saturation_threshold)
+--   ARGV[7] = (unused, reserved for backward compat)
+--   ARGV[8..] = sibling_guaranteed_rates (one per sibling)
+--
+-- Return:
+--   { 0, priority_counter, model_counter, borrowed_flag }
+--   { 1, current_priority_counter, priority_limit, 0 }
+local time_reply = redis.call('TIME')
+local now = tonumber(time_reply[1])
+
+local priority_window = KEYS[1]
+local priority_counter_key = KEYS[2]
+local model_window = KEYS[3]
+local model_counter_key = KEYS[4]
+
+local priority_limit = tonumber(ARGV[1])
+local model_limit = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+local window_size = tonumber(ARGV[4])
+local num_siblings = tonumber(ARGV[5])
+local saturation_cap = tonumber(ARGV[6])
+
+-- Helper: read counter with window expiry
+local function read_counter(window_key, counter_key)
+    local window_start = redis.call('GET', window_key)
+    local window_expired = (not window_start) or
+        ((now - tonumber(window_start)) >= window_size)
+    if window_expired then
+        return 0, true
+    else
+        return tonumber(redis.call('GET', counter_key) or 0), false
+    end
+end
+
+-- Helper: increment counter (reset if window expired)
+local function increment_counter(window_key, counter_key, window_expired, ttl, window_size)
+    if window_expired then
+        redis.call('SET', window_key, tostring(now))
+        redis.call('SET', counter_key, 1)
+        redis.call('EXPIRE', window_key, window_size)
+        if ttl > 0 then
+            redis.call('EXPIRE', counter_key, ttl)
+        end
+        return 1
+    else
+        local new_counter = redis.call('INCRBY', counter_key, 1)
+        local current_ttl = redis.call('TTL', counter_key)
+        if current_ttl == -1 and ttl > 0 then
+            redis.call('EXPIRE', counter_key, ttl)
+        end
+        return new_counter
+    end
+end
+
+local priority_current, priority_window_expired = read_counter(priority_window, priority_counter_key)
+local model_current, model_window_expired = read_counter(model_window, model_counter_key)
+
+-- Demand-based borrow ceiling.
+-- For each sibling, read their demand counter and reserve
+-- min(demand, sibling_guaranteed).
+local borrow_ceiling = math.min(saturation_cap, model_limit)
+local arg_idx = 8
+local key_idx = 7
+for i = 1, num_siblings do
+    local sib_demand_window_key = KEYS[key_idx]
+    local sib_demand_counter_key = KEYS[key_idx + 1]
+    local sibling_guaranteed = tonumber(ARGV[arg_idx])
+    local sib_demand = read_counter(sib_demand_window_key, sib_demand_counter_key)
+    local reservation = math.min(sib_demand, sibling_guaranteed)
+    borrow_ceiling = borrow_ceiling - reservation
+    arg_idx = arg_idx + 1
+    key_idx = key_idx + 2
+end
+if borrow_ceiling < priority_limit then
+    borrow_ceiling = priority_limit
+end
+
+-- DENY checks:
+-- 1. Borrowing and priority has exceeded its borrow ceiling
+-- 2. Model is at total capacity (hard limit, cannot be exceeded)
+if priority_current >= priority_limit and priority_current >= borrow_ceiling then
+    return { 1, priority_current, priority_limit, 0 }
+end
+if model_current >= model_limit then
+    return { 1, priority_current, priority_limit, 0 }
+end
+
+local borrowed = 0
+if priority_current >= priority_limit then
+    borrowed = 1
+end
+
+local new_priority = increment_counter(priority_window, priority_counter_key, priority_window_expired, ttl, window_size)
+local new_model = increment_counter(model_window, model_counter_key, model_window_expired, ttl, window_size)
+
+return { 0, new_priority, new_model, borrowed }
+"""
+
 TOKEN_INCREMENT_SCRIPT = """
 local results = {}
 
@@ -408,6 +545,9 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
             self.parallel_count_script = self.internal_usage_cache.dual_cache.redis_cache.async_register_script(
                 PARALLEL_COUNT_SCRIPT
             )
+            self.htb_check_and_increment_script = (
+                self.internal_usage_cache.dual_cache.redis_cache.async_register_script(HTB_CHECK_AND_INCREMENT_SCRIPT)
+            )
         else:
             self.batch_rate_limiter_script = None
             self.token_increment_script = None
@@ -415,6 +555,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
             self.parallel_acquire_script = None
             self.parallel_release_script = None
             self.parallel_count_script = None
+            self.htb_check_and_increment_script = None
 
         self.window_size = int(os.getenv("LITELLM_RATE_LIMIT_WINDOW_SIZE", 60))
 
@@ -1278,6 +1419,374 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                 per_counter_meta=flat_meta,
                 parent_otel_span=parent_otel_span,
             )
+
+    async def htb_check_and_increment(
+        self,
+        priority_descriptor: RateLimitDescriptor,
+        model_descriptor: RateLimitDescriptor,
+        parent_otel_span: Optional[Span] = None,
+        sibling_priorities: Optional[List[Tuple[str, int]]] = None,
+        saturation_threshold: float = 1.0,
+    ) -> RateLimitResponse:
+        """
+        HTB (Hierarchical Token Bucket) atomic check-and-increment.
+
+        Checks a priority bucket (guaranteed rate) and a model-wide bucket
+        (total capacity) atomically. If the priority bucket is within its
+        guaranteed rate, the request is allowed. If the priority bucket
+        exceeds its guaranteed rate but the model-wide bucket has spare
+        capacity (accounting for other priorities' reservations), the
+        request is allowed (borrowing). Otherwise, the request is denied.
+
+        Uses a single Lua script for Redis (atomic across both buckets).
+        Falls back to in-memory with an asyncio lock when Redis is unavailable.
+
+        Args:
+            priority_descriptor: Descriptor with the priority's guaranteed limit
+            model_descriptor: Descriptor with the model's total RPM/TPM limit
+            sibling_priorities: List of (priority_key, guaranteed_rate) for all
+                other priority levels. Used to compute the borrow ceiling.
+
+        Returns:
+            RateLimitResponse. On OVER_LIMIT, the descriptor_key is
+            "priority_model" (for fallback-deferred handling by the caller).
+        """
+        p_rate_limit: RateLimitDescriptorRateLimitObject = (
+            priority_descriptor.get("rate_limit") or RateLimitDescriptorRateLimitObject()
+        )
+        m_rate_limit: RateLimitDescriptorRateLimitObject = (
+            model_descriptor.get("rate_limit") or RateLimitDescriptorRateLimitObject()
+        )
+        priority_limit = p_rate_limit.get("requests_per_unit")
+        model_limit = m_rate_limit.get("requests_per_unit")
+        if priority_limit is None or model_limit is None:
+            return RateLimitResponse(overall_code="OK", statuses=[])
+
+        window_size = int(p_rate_limit.get("window_size") or self.window_size)
+        ttl = window_size
+
+        htb_hash = f"htb:{model_descriptor['value']}"
+        priority_suffix = priority_descriptor["value"]
+        priority_window_key = f"{{{htb_hash}}}:{priority_suffix}:window"
+        priority_counter_key = f"{{{htb_hash}}}:{priority_suffix}:requests"
+        model_window_key = f"{{{htb_hash}}}:window"
+        model_counter_key = f"{{{htb_hash}}}:requests"
+
+        # Demand counter: incremented BEFORE the Lua script so siblings
+        # can see this priority's demand even if its request hasn't been
+        # processed yet. Uses the same sliding-window mechanism as the
+        # request counter.
+        my_demand_window_key = f"{{{htb_hash}}}:{priority_suffix}:demand:window"
+        my_demand_counter_key = f"{{{htb_hash}}}:{priority_suffix}:demand:requests"
+
+        saturation_cap = int(model_limit * saturation_threshold)
+
+        # Build sibling demand keys (window + counter pairs) and guaranteed rates.
+        sibling_keys: List[str] = []
+        sibling_args: List[int] = []
+        if sibling_priorities:
+            for sibling_key, sibling_limit in sibling_priorities:
+                sib_demand_window_key = f"{{{htb_hash}}}:{sibling_key}:demand:window"
+                sib_demand_counter_key = f"{{{htb_hash}}}:{sibling_key}:demand:requests"
+                sibling_keys.append(sib_demand_window_key)
+                sibling_keys.append(sib_demand_counter_key)
+                sibling_args.append(int(sibling_limit))
+
+        # KEYS[5] and KEYS[6] are unused (reserved for backward compat with
+        # the old EWMA layout so the KEYS index numbering stays stable).
+        keys = [
+            priority_window_key,
+            priority_counter_key,
+            model_window_key,
+            model_counter_key,
+            my_demand_window_key,
+            my_demand_counter_key,
+        ] + sibling_keys
+        args = [
+            int(priority_limit),
+            int(model_limit),
+            ttl,
+            window_size,
+            len(sibling_priorities or []),
+            saturation_cap,
+            0,
+        ] + sibling_args
+
+        # Increment demand counter BEFORE the lock/Lua script so siblings
+        # can see this priority's demand even if its request hasn't been
+        # processed yet. This is best-effort and non-atomic; a race only
+        # means a sibling sees a slightly stale demand count.
+        await self._increment_demand_counter(
+            my_demand_window_key,
+            my_demand_counter_key,
+            window_size,
+            ttl,
+            parent_otel_span,
+        )
+
+        if self.htb_check_and_increment_script is not None:
+            try:
+                raw = await self.htb_check_and_increment_script(keys=keys, args=args)
+                return self._build_htb_response(raw, priority_limit, model_limit)
+            except Exception as e:
+                verbose_proxy_logger.error(
+                    f"htb_check_and_increment: Redis Lua failed ({type(e).__name__}: {e}). Falling back to in-memory."
+                )
+
+        async with self._check_and_increment_lock:
+            return await self._htb_in_memory(
+                priority_window_key=priority_window_key,
+                priority_counter_key=priority_counter_key,
+                model_window_key=model_window_key,
+                model_counter_key=model_counter_key,
+                priority_limit=int(priority_limit),
+                model_limit=int(model_limit),
+                ttl=ttl,
+                window_size=window_size,
+                parent_otel_span=parent_otel_span,
+                sibling_priorities=sibling_priorities,
+                saturation_threshold=saturation_threshold,
+                htb_hash=htb_hash,
+                priority_suffix=priority_suffix,
+            )
+
+    async def _increment_demand_counter(
+        self,
+        demand_window_key: str,
+        demand_counter_key: str,
+        window_size: int,
+        ttl: int,
+        parent_otel_span: Optional[Span] = None,
+    ) -> None:
+        """Increment the demand counter before the Lua script runs.
+
+        Writes to both in-memory and Redis (local_only=False) so siblings on
+        other pods can read the demand via the Lua script's
+        redis.call('GET', ...). When the window is active, uses an atomic
+        Redis INCR (async_increment_cache) to eliminate the read-modify-write
+        race across pods. The window-expiry reset is best-effort (two pods
+        could both reset at the boundary), which is acceptable because the
+        demand counter is conservative.
+
+        When Redis is not configured, DualCache gracefully degrades to
+        in-memory-only writes (the redis_cache is None guard in
+        async_set_cache / async_increment_cache), so single-pod and test
+        environments behave exactly as before.
+
+        The yield at the end ensures other priorities' demand increments
+        are visible before this request acquires the lock. With Redis,
+        the network I/O provides natural interleaving; with in-memory
+        cache (synchronous), the explicit yield is needed.
+        """
+        now = int(self._get_current_time().timestamp())
+        window_start = await self.internal_usage_cache.async_get_cache(
+            key=demand_window_key,
+            litellm_parent_otel_span=parent_otel_span,
+            local_only=False,
+        )
+        if window_start is None or (now - int(window_start)) >= window_size:
+            await self.internal_usage_cache.async_set_cache(
+                key=demand_window_key,
+                value=str(now),
+                ttl=window_size,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=False,
+            )
+            await self.internal_usage_cache.async_set_cache(
+                key=demand_counter_key,
+                value=1,
+                ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=False,
+            )
+        else:
+            await self.internal_usage_cache.async_increment_cache(
+                key=demand_counter_key,
+                value=1,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=False,
+                ttl=ttl,
+            )
+        await asyncio.sleep(0)
+
+    def _build_htb_response(
+        self,
+        raw: List[Any],
+        priority_limit: int,
+        model_limit: int,
+    ) -> RateLimitResponse:
+        """Convert HTB Lua script return to RateLimitResponse."""
+        if not raw:
+            return RateLimitResponse(overall_code="OK", statuses=[])
+
+        status_code = int(raw[0])
+        if status_code == 1:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=int(priority_limit),
+                        limit_remaining=0,
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+
+        priority_counter = int(raw[1])
+        model_counter = int(raw[2])
+        return RateLimitResponse(
+            overall_code="OK",
+            statuses=[
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=int(priority_limit),
+                    limit_remaining=max(0, int(priority_limit) - priority_counter),
+                    rate_limit_type="requests",
+                    descriptor_key="priority_model",
+                ),
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=int(model_limit),
+                    limit_remaining=max(0, int(model_limit) - model_counter),
+                    rate_limit_type="requests",
+                    descriptor_key="model_saturation_check",
+                ),
+            ],
+        )
+
+    async def _htb_in_memory(
+        self,
+        priority_window_key: str,
+        priority_counter_key: str,
+        model_window_key: str,
+        model_counter_key: str,
+        priority_limit: int,
+        model_limit: int,
+        ttl: int,
+        window_size: int,
+        parent_otel_span: Optional[Span] = None,
+        sibling_priorities: Optional[List[Tuple[str, int]]] = None,
+        saturation_threshold: float = 1.0,
+        htb_hash: str = "",
+        priority_suffix: str = "",
+    ) -> RateLimitResponse:
+        """In-memory HTB fallback. Caller holds the lock.
+
+        Demand counter was already incremented before the lock was acquired.
+        """
+        now_int = int(self._get_current_time().timestamp())
+
+        async def _read(window_key: str, counter_key: str) -> Tuple[int, bool]:
+            window_start = await self.internal_usage_cache.async_get_cache(
+                key=window_key,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            window_expired = window_start is None or (now_int - int(window_start)) >= window_size
+            if window_expired:
+                return 0, True
+            val = await self.internal_usage_cache.async_get_cache(
+                key=counter_key,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            return (int(val) if val is not None else 0), False
+
+        async def _increment(window_key: str, counter_key: str, window_expired: bool) -> int:
+            if window_expired:
+                await self.internal_usage_cache.async_set_cache(
+                    key=window_key,
+                    value=str(now_int),
+                    ttl=window_size,
+                    litellm_parent_otel_span=parent_otel_span,
+                    local_only=True,
+                )
+                new_val = 1
+            else:
+                current = await self.internal_usage_cache.async_get_cache(
+                    key=counter_key,
+                    litellm_parent_otel_span=parent_otel_span,
+                    local_only=True,
+                )
+                new_val = (int(current) if current is not None else 0) + 1
+            await self.internal_usage_cache.async_set_cache(
+                key=counter_key,
+                value=new_val,
+                ttl=ttl,
+                litellm_parent_otel_span=parent_otel_span,
+                local_only=True,
+            )
+            return new_val
+
+        priority_current, priority_expired = await _read(priority_window_key, priority_counter_key)
+        model_current, model_expired = await _read(model_window_key, model_counter_key)
+
+        # Demand-based borrow ceiling.
+        # For each sibling, read their demand counter and reserve
+        # min(demand, sibling_guaranteed).
+        saturation_cap = int(model_limit * saturation_threshold)
+        borrow_ceiling = min(saturation_cap, model_limit)
+        if sibling_priorities:
+            for sibling_key, sibling_limit in sibling_priorities:
+                sib_demand_window_k = f"{{{htb_hash}}}:{sibling_key}:demand:window"
+                sib_demand_counter_k = f"{{{htb_hash}}}:{sibling_key}:demand:requests"
+                sib_demand, _ = await _read(sib_demand_window_k, sib_demand_counter_k)
+                reservation = min(sib_demand, sibling_limit)
+                borrow_ceiling -= reservation
+        if borrow_ceiling < priority_limit:
+            borrow_ceiling = priority_limit
+
+        if priority_current >= priority_limit and priority_current >= borrow_ceiling:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=priority_limit,
+                        limit_remaining=max(0, priority_limit - priority_current),
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+        if model_current >= model_limit:
+            return RateLimitResponse(
+                overall_code="OVER_LIMIT",
+                statuses=[
+                    RateLimitStatus(
+                        code="OVER_LIMIT",
+                        current_limit=priority_limit,
+                        limit_remaining=max(0, priority_limit - priority_current),
+                        rate_limit_type="requests",
+                        descriptor_key="priority_model",
+                    )
+                ],
+            )
+
+        new_priority = await _increment(priority_window_key, priority_counter_key, priority_expired)
+        new_model = await _increment(model_window_key, model_counter_key, model_expired)
+
+        return RateLimitResponse(
+            overall_code="OK",
+            statuses=[
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=priority_limit,
+                    limit_remaining=max(0, priority_limit - new_priority),
+                    rate_limit_type="requests",
+                    descriptor_key="priority_model",
+                ),
+                RateLimitStatus(
+                    code="OK",
+                    current_limit=model_limit,
+                    limit_remaining=max(0, model_limit - new_model),
+                    rate_limit_type="requests",
+                    descriptor_key="model_saturation_check",
+                ),
+            ],
+        )
 
     def _build_descriptor_atomic_payload(
         self,

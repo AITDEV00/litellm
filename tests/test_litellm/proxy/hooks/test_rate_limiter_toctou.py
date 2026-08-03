@@ -91,9 +91,7 @@ async def test_batch_limiter_concurrent_bypasses_tpm_via_toctou():
 
     dual_cache = DualCache()
     internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
-    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(
-        internal_usage_cache=internal_usage_cache
-    )
+    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(internal_usage_cache=internal_usage_cache)
     batch_limiter = rate_limiter._get_batch_rate_limiter()
     assert batch_limiter is not None
 
@@ -144,9 +142,7 @@ async def test_batch_limiter_uses_atomic_check_and_increment():
     """
     dual_cache = DualCache()
     internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
-    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(
-        internal_usage_cache=internal_usage_cache
-    )
+    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(internal_usage_cache=internal_usage_cache)
     batch_limiter = rate_limiter._get_batch_rate_limiter()
     assert batch_limiter is not None
 
@@ -178,35 +174,29 @@ async def test_batch_limiter_uses_atomic_check_and_increment():
     )
 
     assert "atomic_check_and_increment_by_n" in call_log, (
-        f"Batch limiter must route through atomic_check_and_increment_by_n. "
-        f"Calls observed: {call_log}"
+        f"Batch limiter must route through atomic_check_and_increment_by_n. Calls observed: {call_log}"
     )
     legacy_calls = [c for c in call_log if c.startswith("should_rate_limit(")]
     assert not legacy_calls, (
-        f"Batch limiter must not call should_rate_limit directly (legacy "
-        f"two-phase pattern). Observed: {legacy_calls}"
+        f"Batch limiter must not call should_rate_limit directly (legacy two-phase pattern). Observed: {legacy_calls}"
     )
 
 
 @pytest.mark.asyncio
 async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
     """
-    DynamicRateLimitHandler PHASE 1 (read_only check) → PHASE 3 (increment)
-    is non-atomic: dynamic_rate_limiter_v3.py:463-548.
+    The HTB dynamic limiter uses an atomic Lua script
+    (htb_check_and_increment) that checks and increments in one step,
+    eliminating the TOCTOU race that the legacy two-phase approach had.
 
-    With TPM=100 model capacity and 5 concurrent priority="high" requests
-    each consuming the full model_saturation_check counter, all observe the
-    same Phase 1 state (counter=0), all pass, all proceed to Phase 3.
-
-    Sequential atomic semantics would block requests once the model counter
-    reaches its limit. TOCTOU lets all pass Phase 1 simultaneously.
+    With RPM=2 model capacity and 10 concurrent requests, the atomic
+    Lua script must not let more than RPM+1 through (strict > comparison
+    allows counter==RPM to pass before the next sees counter > RPM).
     """
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+
     NUM_CONCURRENT = 10
     MODEL_RPM = 2
-    # Sequential bound: dynamic limiter rejects when `counter > current_limit`
-    # (strict `>`), so a request whose Phase 1 sees counter=RPM still passes
-    # (RPM is not strictly greater). Atomic execution therefore admits up to
-    # RPM + 1 successes before the next sees counter > RPM.
     MAX_SEQUENTIAL_SUCCESSES = MODEL_RPM + 1
 
     os.environ["LITELLM_LICENSE"] = "test-license-key"
@@ -231,29 +221,12 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
     )
     handler.update_variables(llm_router=llm_router)
 
-    barrier = _make_phase1_barrier(NUM_CONCURRENT)
-    handler.v3_limiter.should_rate_limit = barrier(handler.v3_limiter.should_rate_limit)
-
-    from litellm.types.router import ModelGroupInfo
-
-    model_group_info = ModelGroupInfo(
-        model_group=model,
-        providers=["openai"],
-        rpm=MODEL_RPM,
-        tpm=None,
-    )
-
     async def one_request(idx: int):
-        user = UserAPIKeyAuth(api_key=hash_token(f"dyn-key-{idx}"))
-        user.metadata = {"priority": "high"}
+        htb_priority.set("high")
         try:
-            await handler._check_rate_limits(
-                model=model,
-                model_group_info=model_group_info,
-                user_api_key_dict=user,
-                priority="high",
-                saturation=0.0,
-                data={},
+            await handler.async_pre_call_check(
+                deployment={"model_name": model},
+                parent_otel_span=None,
             )
             return "OK"
         except Exception as e:
@@ -266,24 +239,23 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
     successes = [r for r in results if r == "OK"]
 
     assert len(successes) <= MAX_SEQUENTIAL_SUCCESSES, (
-        f"TOCTOU bypass in DynamicRateLimitHandler: {len(successes)}/{NUM_CONCURRENT} "
-        f"concurrent requests passed Phase 1 + Phase 3 despite model RPM={MODEL_RPM}. "
-        f"Atomic check-and-increment would block once counter > RPM "
-        f"(at most {MAX_SEQUENTIAL_SUCCESSES} sequential successes)."
+        f"HTB atomic check should not let more than {MAX_SEQUENTIAL_SUCCESSES} "
+        f"concurrent requests through with RPM={MODEL_RPM}. "
+        f"Got {len(successes)}/{NUM_CONCURRENT} successes."
     )
 
 
 @pytest.mark.asyncio
 async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment():
     """
-    Regression test: dynamic limiter's enforced descriptors flow through
-    `atomic_check_and_increment_by_n`, not the legacy
-    read_only=True check followed by a separate read_only=False increment.
-
-    When priority is enforced (saturation >= threshold), priority_model is
-    bundled into the atomic call alongside model_saturation_check. When not
-    enforced, priority counter is incremented for tracking only.
+    Regression test: the HTB dynamic limiter routes through
+    `htb_check_and_increment`, which is an atomic Lua-script-based
+    check-and-increment. This replaces the legacy two-phase
+    read_only=True check followed by a separate read_only=False increment
+    that was vulnerable to TOCTOU races.
     """
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+
     os.environ["LITELLM_LICENSE"] = "test-license-key"
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
@@ -299,50 +271,34 @@ async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment():
                     "model": "gpt-3.5-turbo",
                     "api_key": "test-key",
                     "api_base": "test-base",
-                    "tpm": 1000,
+                    "rpm": 100,
                 },
             }
         ]
     )
     handler.update_variables(llm_router=llm_router)
 
-    atomic_descriptors_observed: List[List[str]] = []
-    original_atomic = handler.v3_limiter.atomic_check_and_increment_by_n
+    htb_calls: List[dict] = []
+    original_htb = handler.v3_limiter.htb_check_and_increment
 
-    async def logging_atomic(*args, **kwargs):
-        ds = kwargs.get("descriptors") or (args[0] if args else [])
-        atomic_descriptors_observed.append([d["key"] for d in ds])
-        return await original_atomic(*args, **kwargs)
+    async def logging_htb(*args, **kwargs):
+        htb_calls.append(kwargs)
+        return await original_htb(*args, **kwargs)
 
-    handler.v3_limiter.atomic_check_and_increment_by_n = logging_atomic
+    handler.v3_limiter.htb_check_and_increment = logging_htb
 
-    from litellm.types.router import ModelGroupInfo
-
-    user = UserAPIKeyAuth(api_key=hash_token("dyn-atomic-key"))
-    user.metadata = {"priority": "high"}
-
-    await handler._check_rate_limits(
-        model=model,
-        model_group_info=ModelGroupInfo(
-            model_group=model,
-            providers=["openai"],
-            rpm=None,
-            tpm=1000,
-        ),
-        user_api_key_dict=user,
-        priority="high",
-        saturation=0.0,
-        data={},
+    htb_priority.set("high")
+    await handler.async_pre_call_check(
+        deployment={"model_name": model},
+        parent_otel_span=None,
     )
 
-    assert atomic_descriptors_observed, (
-        "Dynamic limiter must route enforced descriptors through "
-        "atomic_check_and_increment_by_n (no legacy read_only=True / "
-        "separate-increment pattern)."
+    assert htb_calls, (
+        "Dynamic limiter must route through htb_check_and_increment "
+        "(atomic Lua script, no legacy two-phase read_only pattern)."
     )
-    assert "model_saturation_check" in atomic_descriptors_observed[0], (
-        f"Expected model_saturation_check in atomic descriptor set. "
-        f"Got: {atomic_descriptors_observed}"
+    assert htb_calls[0].get("priority_descriptor") is not None, (
+        f"Expected priority_descriptor in htb_check_and_increment call. Got: {htb_calls}"
     )
 
 
@@ -360,9 +316,7 @@ async def test_batch_zero_token_consumes_rpm_only():
     """
     dual_cache = DualCache()
     internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
-    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(
-        internal_usage_cache=internal_usage_cache
-    )
+    rate_limiter = _PROXY_MaxParallelRequestsHandler_v3(internal_usage_cache=internal_usage_cache)
     batch_limiter = rate_limiter._get_batch_rate_limiter()
     assert batch_limiter is not None
 
@@ -383,18 +337,10 @@ async def test_batch_zero_token_consumes_rpm_only():
         )
 
     # Inspect counters: RPM key incremented to 3, TPM key absent (or 0).
-    rpm_key = rate_limiter.create_rate_limit_keys(
-        "api_key", user_api_key_dict.api_key or "", "requests"
-    )
-    tpm_key = rate_limiter.create_rate_limit_keys(
-        "api_key", user_api_key_dict.api_key or "", "tokens"
-    )
-    rpm_val = await internal_usage_cache.async_get_cache(
-        key=rpm_key, litellm_parent_otel_span=None, local_only=True
-    )
-    tpm_val = await internal_usage_cache.async_get_cache(
-        key=tpm_key, litellm_parent_otel_span=None, local_only=True
-    )
+    rpm_key = rate_limiter.create_rate_limit_keys("api_key", user_api_key_dict.api_key or "", "requests")
+    tpm_key = rate_limiter.create_rate_limit_keys("api_key", user_api_key_dict.api_key or "", "tokens")
+    rpm_val = await internal_usage_cache.async_get_cache(key=rpm_key, litellm_parent_otel_span=None, local_only=True)
+    tpm_val = await internal_usage_cache.async_get_cache(key=tpm_key, litellm_parent_otel_span=None, local_only=True)
     assert int(rpm_val or 0) == 3, f"RPM counter must reach 3, got {rpm_val}"
     assert tpm_val in (
         None,
@@ -417,15 +363,17 @@ async def test_batch_zero_token_consumes_rpm_only():
 @pytest.mark.asyncio
 async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor():
     """
-    Fail-closed guard: when atomic_check_and_increment_by_n returns
-    overall_code=OVER_LIMIT but with a descriptor_key the dispatcher does
-    not recognize, the dynamic limiter must raise 429 rather than silently
-    fall through.
+    Fail-closed guard: when htb_check_and_increment returns
+    overall_code=OVER_LIMIT, the dynamic limiter must raise a 429
+    rather than silently fall through, regardless of which descriptor
+    triggered the limit.
 
-    Reproduces by patching atomic_check_and_increment_by_n to return an
+    Reproduces by patching htb_check_and_increment to return an
     OVER_LIMIT response carrying an unknown descriptor_key.
     """
-    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
 
     os.environ["LITELLM_LICENSE"] = "test-license-key"
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
@@ -442,48 +390,32 @@ async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor():
                     "model": "gpt-3.5-turbo",
                     "api_key": "test-key",
                     "api_base": "test-base",
-                    "tpm": 1000,
+                    "rpm": 100,
                 },
             }
         ]
     )
     handler.update_variables(llm_router=llm_router)
 
-    async def fake_atomic(*args, **kwargs):
-        return {
+    handler.v3_limiter.htb_check_and_increment = AsyncMock(
+        return_value={
             "overall_code": "OVER_LIMIT",
             "statuses": [
                 {
                     "code": "OVER_LIMIT",
                     "current_limit": 100,
                     "limit_remaining": 0,
-                    "rate_limit_type": "tokens",
+                    "rate_limit_type": "requests",
                     "descriptor_key": "future_unrecognized_descriptor",
                 }
             ],
         }
+    )
 
-    handler.v3_limiter.atomic_check_and_increment_by_n = fake_atomic
-
-    from litellm.types.router import ModelGroupInfo
-
-    user = UserAPIKeyAuth(api_key=hash_token("fail-closed-key"))
-    user.metadata = {"priority": "high"}
-
-    with pytest.raises(HTTPException) as exc:
-        await handler._check_rate_limits(
-            model=model,
-            model_group_info=ModelGroupInfo(
-                model_group=model,
-                providers=["openai"],
-                rpm=None,
-                tpm=1000,
-            ),
-            user_api_key_dict=user,
-            priority="high",
-            saturation=0.0,
-            data={},
+    htb_priority.set("high")
+    with pytest.raises(litellm.RateLimitError) as exc:
+        await handler.async_pre_call_check(
+            deployment={"model_name": model},
+            parent_otel_span=None,
         )
-    assert (
-        exc.value.status_code == 429
-    ), f"Expected 429 fail-closed on unknown descriptor; got {exc.value.status_code}"
+    assert exc.value.status_code == 429, f"Expected 429 fail-closed on unknown descriptor; got {exc.value.status_code}"

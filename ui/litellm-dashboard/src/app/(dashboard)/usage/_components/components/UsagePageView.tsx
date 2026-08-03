@@ -57,6 +57,7 @@ import EndpointUsage from "./EndpointUsage/EndpointUsage";
 import EntityUsage, { EntityList } from "./EntityUsage/EntityUsage";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
 import UsageAIChatPanel from "./UsageAIChatPanel";
 import { UsageOption, UsageViewSelect } from "./UsageViewSelect/UsageViewSelect";
 
@@ -537,6 +538,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <Tab>Key Activity</Tab>
                     <Tab>MCP Server Activity</Tab>
                     <Tab>Endpoint Activity</Tab>
+                    <Tab>Model Performance</Tab>
                   </TabList>
                   <div className="flex items-center gap-2">
                     <Button
@@ -849,6 +851,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                   </TabPanel>
                   <TabPanel>
                     <EndpointUsage userSpendData={userSpendData} />
+                  </TabPanel>
+                  <TabPanel>
+                    <ModelPerformanceView />
                   </TabPanel>
                 </TabPanels>
               </TabGroup>

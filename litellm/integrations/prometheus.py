@@ -58,6 +58,7 @@ from litellm.types.integrations.prometheus import (
     _sanitize_prometheus_label_value,
 )
 from litellm.types.utils import (
+    CallTypes,
     StandardLoggingGuardrailInformation,
     StandardLoggingPayload,
 )
@@ -86,6 +87,29 @@ def _get_budget_metrics_per_request_timeout() -> float:
         )
         return _DEFAULT_BUDGET_METRICS_PER_REQUEST_TIMEOUT
     return parsed
+
+
+_API_BASE_ENDPOINT_SUFFIXES: tuple[str, ...] = (
+    "/chat/completions",
+    "/completions",
+    "/embeddings",
+    "/responses",
+    "/rerank",
+    "/transcriptions",
+    "/translations",
+    "/images/generations",
+    "/audio/speech",
+)
+
+
+def _normalize_api_base_for_gauge(api_base: str) -> str:
+    if not api_base:
+        return ""
+    stripped = api_base.rstrip("/")
+    for suffix in _API_BASE_ENDPOINT_SUFFIXES:
+        if stripped.endswith(suffix):
+            return stripped[: -len(suffix)].rstrip("/")
+    return stripped
 
 
 class PrometheusLogger(CustomLogger):
@@ -442,6 +466,13 @@ class PrometheusLogger(CustomLogger):
                 "litellm_deployment_rpm_limit",
                 "Deployment RPM limit found in config",
                 labelnames=self.get_labels_for_metric("litellm_deployment_rpm_limit"),
+            )
+
+            self.litellm_deployment_in_progress_requests = self._gauge_factory(
+                "litellm_deployment_in_progress_requests",
+                "Number of LLM API calls currently in progress per deployment",
+                labelnames=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                multiprocess_mode="livesum",
             )
 
             self.litellm_deployment_cooled_down = self._counter_factory(
@@ -1175,6 +1206,69 @@ class PrometheusLogger(CustomLogger):
         counter.labels(**_labels).inc(amount)
         self._track_end_user_metric_series(counter, metric_name, _labels)
 
+    def _inc_deployment_in_progress(self, model, kwargs):
+        try:
+            standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
+            _litellm_params = kwargs.get("litellm_params", {}) or {}
+            if standard_logging_payload is None:
+                _metadata = get_litellm_metadata_from_kwargs(kwargs)
+                if not _metadata:
+                    _meta_key = get_metadata_variable_name_from_kwargs(kwargs)
+                    _metadata = kwargs.get(_meta_key, {}) or {}
+                model_info = _metadata.get("model_info", {})
+                model_id = model_info.get("id", "") if isinstance(model_info, dict) else ""
+                if not model_id:
+                    return
+                litellm_model_name = model
+                api_provider = (
+                    _litellm_params.get("custom_llm_provider", "")
+                    or _metadata.get("custom_llm_provider", "")
+                    or kwargs.get("custom_llm_provider", "")
+                )
+                if not api_provider and litellm_model_name:
+                    try:
+                        _, _parsed_provider, _, _ = litellm.get_llm_provider(
+                            model=litellm_model_name,
+                            custom_llm_provider=None,
+                        )
+                        api_provider = _parsed_provider
+                    except Exception:  # noqa: BLE001
+                        pass
+                api_base = (
+                    _litellm_params.get("api_base", "") or _metadata.get("api_base", "") or kwargs.get("api_base", "")
+                )
+            else:
+                model_id = standard_logging_payload.get("model_id", "") or ""
+                if not model_id:
+                    return
+                litellm_model_name = standard_logging_payload.get("model", "") or model
+                api_provider = standard_logging_payload.get("custom_llm_provider", "") or _litellm_params.get(
+                    "custom_llm_provider", ""
+                )
+                api_base = _litellm_params.get("api_base", "") or standard_logging_payload.get("api_base", "")
+            api_base = _normalize_api_base_for_gauge(api_base or "")
+            _labels = prometheus_label_factory(
+                supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                enum_values=UserAPIKeyLabelValues(
+                    litellm_model_name=litellm_model_name,
+                    model_id=model_id,
+                    api_base=api_base,
+                    api_provider=api_provider,
+                ),
+            )
+            self.litellm_deployment_in_progress_requests.labels(**_labels).inc()
+        except Exception as e:  # noqa: BLE001
+            verbose_logger.debug("Prometheus: _inc_deployment_in_progress error: {}".format(str(e)))
+
+    async def async_pre_call_deployment_hook(
+        self,
+        kwargs: dict[str, Any],
+        call_type: Optional[CallTypes],
+    ) -> Optional[dict]:
+        model = kwargs.get("model", "")
+        self._inc_deployment_in_progress(model, kwargs)
+        return None
+
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
         # Define prometheus client
         verbose_logger.debug(
@@ -1388,9 +1482,6 @@ class PrometheusLogger(CustomLogger):
     ):
         verbose_logger.debug("prometheus Logging - Enters token metrics function")
         # token metrics
-
-        if standard_logging_payload is not None and isinstance(standard_logging_payload, dict):
-            _tags = standard_logging_payload["request_tags"]
 
         PrometheusLogger._inc_labeled_counter(
             self,
@@ -2436,7 +2527,9 @@ class PrometheusLogger(CustomLogger):
                     _litellm_params.get("metadata") or {}
                 ).get("model_group")
 
-            llm_provider = _litellm_params.get("custom_llm_provider", None)
+            llm_provider = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
 
             if self._should_skip_metrics_for_invalid_key(
                 kwargs=request_kwargs,
@@ -2526,7 +2619,19 @@ class PrometheusLogger(CustomLogger):
                 label_context=_deployment_label_ctx,
             )
 
-            pass
+            if deployment_selected:
+                _in_progress_labels = prometheus_label_factory(
+                    supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                    enum_values=UserAPIKeyLabelValues(
+                        litellm_model_name=standard_logging_payload.get("model", "") or label_litellm_model_name or "",
+                        model_id=label_model_id,
+                        api_base=_normalize_api_base_for_gauge(
+                            _litellm_params.get("api_base", "") or label_api_base or ""
+                        ),
+                        api_provider=label_api_provider,
+                    ),
+                )
+                self.litellm_deployment_in_progress_requests.labels(**_in_progress_labels).dec()
         except Exception as e:
             verbose_logger.debug(
                 "Prometheus Error: set_llm_deployment_failure_metrics. Exception occured - {}".format(str(e))
@@ -2676,7 +2781,9 @@ class PrometheusLogger(CustomLogger):
             _litellm_params = request_kwargs.get("litellm_params", {}) or {}
             _metadata = get_litellm_metadata_from_kwargs(request_kwargs)
             litellm_model_name = request_kwargs.get("model", None)
-            llm_provider = _litellm_params.get("custom_llm_provider", None)
+            llm_provider = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
             _model_info = _metadata.get("model_info") or {}
             model_id = _model_info.get("id", None)
 
@@ -2760,6 +2867,18 @@ class PrometheusLogger(CustomLogger):
                 enum_values,
                 label_context=label_context,
             )
+
+            if model_id:
+                _in_progress_labels = prometheus_label_factory(
+                    supported_enum_labels=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                    enum_values=UserAPIKeyLabelValues(
+                        litellm_model_name=standard_logging_payload.get("model", "") or litellm_model_name or "",
+                        model_id=model_id,
+                        api_base=_normalize_api_base_for_gauge(_litellm_params.get("api_base", "") or api_base or ""),
+                        api_provider=llm_provider or "",
+                    ),
+                )
+                self.litellm_deployment_in_progress_requests.labels(**_in_progress_labels).dec()
 
             # Track deployment Latency
             response_ms: timedelta = end_time - start_time

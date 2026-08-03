@@ -2473,7 +2473,6 @@ def test_filter_and_transform_beta_headers_passes_context_management_for_bedrock
     assert out_converse == []
 
 
-
 def test_bedrock_messages_thinking_shape_follows_exact_bedrock_entry_flag(
     local_model_cost_map, monkeypatch
 ):

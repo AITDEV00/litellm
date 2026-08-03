@@ -1,0 +1,19 @@
+[project]
+name = "oicm-litellm-layer"
+version = "0.1.0"
+description = "OICM to LiteLLM integration layer"
+requires-python = ">=3.12"
+dependencies = [
+    "kubernetes>=28.0",
+    "httpx>=0.25",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+oicm-discovery = "controller.__main__:run"

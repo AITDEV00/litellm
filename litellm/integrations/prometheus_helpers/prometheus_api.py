@@ -4,7 +4,7 @@ Helper functions to query prometheus API
 
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from litellm import get_secret
@@ -33,8 +33,7 @@ async def get_metric_from_prometheus(
     )  # End of the day
     _json_response = response.json()
     verbose_logger.debug("json response from prometheus /query api %s", _json_response)
-    results = response.json()["data"]["result"]
-    return results
+    return response.json()["data"]["result"]
 
 
 async def get_fallback_metric_from_prometheus():
@@ -55,17 +54,19 @@ async def get_fallback_metric_from_prometheus():
             verbose_logger.debug("response json %s", response_json)
             for result in response_json:
                 verbose_logger.debug("result= %s", result)
-                metric = result["metric"]
+                metric_labels = result["metric"]
                 metric_values = result["values"]
                 most_recent_value = metric_values[0]
 
-                if PROMETHEUS_SELECTED_INSTANCE is not None:
-                    if metric.get("instance") != PROMETHEUS_SELECTED_INSTANCE:
-                        continue
+                if (
+                    PROMETHEUS_SELECTED_INSTANCE is not None
+                    and metric_labels.get("instance") != PROMETHEUS_SELECTED_INSTANCE
+                ):
+                    continue
 
                 value = int(float(most_recent_value[1]))  # Convert value to integer
-                primary_model = metric.get("primary_model", "Unknown")
-                fallback_model = metric.get("fallback_model", "Unknown")
+                primary_model = metric_labels.get("primary_model", "Unknown")
+                fallback_model = metric_labels.get("fallback_model", "Unknown")
                 response_message += f"`{value} successful fallback requests` with primary model=`{primary_model}` -> fallback model=`{fallback_model}`"
                 response_message += "\n"
         verbose_logger.debug("response message %s", response_message)
@@ -73,9 +74,7 @@ async def get_fallback_metric_from_prometheus():
 
 
 def is_prometheus_connected() -> bool:
-    if PROMETHEUS_URL is not None:
-        return True
-    return False
+    return PROMETHEUS_URL is not None
 
 
 def _quote_promql_string_literal(value: str) -> str:
@@ -147,3 +146,253 @@ async def get_daily_spend_from_prometheus(api_key: Optional[str]):
             formatted_results.append({"date": date, "spend": spend})
 
     return formatted_results
+
+
+# ---------------------------------------------------------------------------
+# Per-model real-time metrics (Tier 2)
+# ---------------------------------------------------------------------------
+
+_WINDOW_CONFIG: dict[str, tuple[str, str]] = {
+    "1m": ("1m", "15s"),
+    "15m": ("15m", "15s"),
+    "1h": ("1h", "30s"),
+    "24h": ("24h", "5m"),
+    "7d": ("7d", "1h"),
+}
+
+_DEPLOYMENT_LABEL_FIELDS = ("litellm_model_name", "api_base", "api_provider")
+
+
+async def query_prometheus_range(
+    query: str,
+    start: datetime,
+    end: datetime,
+    step: str,
+) -> list[dict]:
+    """Run a Prometheus ``query_range`` and return raw result entries.
+
+    Returns the list under ``data.result`` (each entry has ``metric`` and
+    ``values`` keys). Use ``_parse_range_result`` to flatten into
+    ``[{timestamp, value}, ...]``.
+    """
+    if PROMETHEUS_URL is None:
+        raise ValueError("PROMETHEUS_URL not set")
+
+    params = {
+        "query": query,
+        "start": start.timestamp(),
+        "end": end.timestamp(),
+        "step": step,
+    }
+    response = await async_http_handler.get(
+        f"{PROMETHEUS_URL}/api/v1/query_range",
+        params=params,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data.get("data", {}).get("result", [])
+
+
+async def query_prometheus_instant(query: str) -> list[dict]:
+    """Run a Prometheus instant query and return raw result entries."""
+    if PROMETHEUS_URL is None:
+        raise ValueError("PROMETHEUS_URL not set")
+
+    response = await async_http_handler.get(
+        f"{PROMETHEUS_URL}/api/v1/query",
+        params={"query": query},
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data.get("data", {}).get("result", [])
+
+
+def _parse_range_result(result: list[dict]) -> list[dict]:
+    """Convert a Prometheus range-query result into ``[{timestamp, value}, ...]``."""
+    points: list[dict] = []
+    for series in result:
+        for ts, val in series.get("values", []):
+            parsed = float(val)
+            if parsed != parsed:
+                continue
+            points.append(
+                {
+                    "timestamp": datetime.fromtimestamp(float(ts)).isoformat() + "+00:00",
+                    "value": parsed,
+                }
+            )
+    return points
+
+
+def _extract_deployment_key(metric_labels: dict) -> str:
+    return metric_labels.get("model_id", "")
+
+
+def _empty_deployment_dict(model_id: str) -> dict:
+    return {
+        "model_id": model_id,
+        "litellm_model_name": "",
+        "api_base": "",
+        "api_provider": "",
+        "rpm_limit": 0,
+        "concurrent_requests": [],
+        "request_rate": [],
+        "output_tokens_per_sec": [],
+        "latency_per_token_p50": [],
+    }
+
+
+async def _get_deployment_label_metadata(
+    label_filter: str,
+) -> tuple[dict[str, dict[str, str]], dict[str, int]]:
+    """Build ``model_id -> labels`` and ``model_id -> rpm_limit`` maps.
+
+    The 4 time-series queries group by ``model_id`` only, so they lose the
+    ``litellm_model_name`` / ``api_base`` / ``api_provider`` labels. This
+    function queries multiple gauge metrics that carry all 4 labels to
+    recover them. When the same ``model_id`` has multiple series (stale
+    labels from before the Bug 4 fix), the entry with the most non-empty
+    label fields wins. The ``litellm_deployment_rpm_limit`` metric also
+    provides the RPM limit value.
+    """
+    label_sources = [
+        "litellm_deployment_in_progress_requests",
+        "litellm_deployment_rpm_limit",
+        "litellm_deployment_state",
+        "litellm_deployment_total_requests_total",
+    ]
+    labels_by_id: dict[str, dict[str, str]] = {}
+    rpm_by_id: dict[str, int] = {}
+    for metric_name in label_sources:
+        try:
+            raw = await query_prometheus_instant(f"{metric_name}{label_filter}")
+        except Exception as e:  # noqa: BLE001
+            verbose_logger.debug(f"Prometheus label metadata query '{metric_name}' failed: {e}")
+            continue
+        for entry in raw:
+            labels = entry.get("metric", {})
+            model_id = labels.get("model_id", "")
+            if not model_id:
+                continue
+            candidate = {field: labels.get(field, "") for field in _DEPLOYMENT_LABEL_FIELDS}
+            if model_id not in labels_by_id:
+                labels_by_id[model_id] = candidate
+            else:
+                existing_filled = sum(1 for v in labels_by_id[model_id].values() if v)
+                candidate_filled = sum(1 for v in candidate.values() if v)
+                if candidate_filled > existing_filled:
+                    labels_by_id[model_id] = candidate
+            if metric_name == "litellm_deployment_rpm_limit":
+                raw_value = entry.get("value", [0, "0"])[1]
+                rpm_by_id[model_id] = int(float(raw_value))
+    return labels_by_id, rpm_by_id
+
+
+async def get_per_model_metrics(
+    window: str,
+    model_id: Optional[str] = None,
+) -> dict:
+    """Query Prometheus for per-deployment time-series metrics.
+
+    Returns a dict with ``prometheus_connected``, ``window``, ``step``, and
+    ``deployments`` keys. Each deployment has 4 time-series arrays.
+    """
+    if PROMETHEUS_URL is None:
+        return {
+            "prometheus_connected": False,
+            "window": window,
+            "step": "",
+            "deployments": [],
+        }
+
+    range_str, step = _WINDOW_CONFIG.get(window, _WINDOW_CONFIG["1h"])
+    end = datetime.now(timezone.utc)
+    start = end - _parse_window_to_timedelta(range_str)
+
+    label_filter = ""
+    if model_id:
+        quoted = _quote_promql_string_literal(model_id)
+        label_filter = f"{{model_id={quoted}}}"
+
+    queries = {
+        "concurrent_requests": f"max by (model_id) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{range_str}]))",
+        "request_rate": f"sum by (model_id) (rate(litellm_deployment_total_requests_total{label_filter}[{range_str}]))",
+        "output_tokens_per_sec": f"sum by (model_id) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))",
+        "latency_per_token_p50": f"histogram_quantile(0.50, sum by (le, model_id) (rate(litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))",
+    }
+
+    deployments: dict[str, dict] = {}
+
+    for series_name, promql in queries.items():
+        try:
+            raw = await query_prometheus_range(promql, start, end, step)
+        except Exception as e:  # noqa: BLE001
+            verbose_logger.debug(f"Prometheus query '{series_name}' failed: {e}")
+            continue
+
+        for entry in raw:
+            model_id = _extract_deployment_key(entry.get("metric", {}))
+            if not model_id:
+                continue
+            if model_id not in deployments:
+                deployments[model_id] = _empty_deployment_dict(model_id)
+            deployments[model_id][series_name] = _parse_range_result([entry])
+
+    label_metadata, rpm_by_id = await _get_deployment_label_metadata(label_filter)
+    for model_id, labels in label_metadata.items():
+        if model_id in deployments:
+            for field, value in labels.items():
+                if value:
+                    deployments[model_id][field] = value
+    for model_id, rpm in rpm_by_id.items():
+        if model_id in deployments:
+            deployments[model_id]["rpm_limit"] = rpm
+
+    return {
+        "prometheus_connected": True,
+        "window": window,
+        "step": step,
+        "deployments": list(deployments.values()),
+    }
+
+
+async def get_in_progress_requests_instant() -> list[dict]:
+    """Get the current instant value of in-progress requests per deployment.
+
+    Used as a fallback when Prometheus is not connected; queries the gauge
+    via the Prometheus ``/api/v1/query`` instant endpoint.
+    """
+    if PROMETHEUS_URL is None:
+        return []
+
+    try:
+        raw = await query_prometheus_instant("litellm_deployment_in_progress_requests")
+        result: list[dict] = []
+        for entry in raw:
+            labels = entry.get("metric", {})
+            result.append(
+                {
+                    "model_id": labels.get("model_id", ""),
+                    "litellm_model_name": labels.get("litellm_model_name", ""),
+                    "api_base": labels.get("api_base", ""),
+                    "api_provider": labels.get("api_provider", ""),
+                    "value": float(entry.get("value", [0, "0"])[1]),
+                }
+            )
+        return result
+    except Exception as e:  # noqa: BLE001
+        verbose_logger.debug(f"Prometheus instant query failed: {e}")
+        return []
+
+
+def _parse_window_to_timedelta(window: str) -> timedelta:
+    """Parse a PromQL-style duration string (``1m``, ``24h``, ``7d``) into ``timedelta``."""
+    if window.endswith("m"):
+        return timedelta(minutes=int(window[:-1]))
+    if window.endswith("h"):
+        return timedelta(hours=int(window[:-1]))
+    if window.endswith("d"):
+        return timedelta(days=int(window[:-1]))
+    if window.endswith("w"):
+        return timedelta(weeks=int(window[:-1]))
+    raise ValueError(f"Cannot parse duration string: {window!r}")

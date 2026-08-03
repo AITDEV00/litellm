@@ -36,7 +36,7 @@
     "limit": 190
   },
   "B008": {
-    "limit": 505
+    "limit": 517
   },
   "B009": {
     "limit": 84
@@ -81,7 +81,7 @@
     "limit": 4
   },
   "C901": {
-    "limit": 316
+    "limit": 318
   },
   "D419": {
     "limit": 9
@@ -144,7 +144,7 @@
     "limit": 74
   },
   "PIE790": {
-    "limit": 278
+    "limit": 275
   },
   "PIE800": {
     "limit": 4
@@ -225,7 +225,7 @@
     "limit": 717
   },
   "RUF010": {
-    "limit": 874
+    "limit": 871
   },
   "RUF012": {
     "limit": 168
@@ -264,10 +264,10 @@
     "limit": 63
   },
   "SIM102": {
-    "limit": 324
+    "limit": 323
   },
   "SIM103": {
-    "limit": 129
+    "limit": 127
   },
   "SIM113": {
     "limit": 6

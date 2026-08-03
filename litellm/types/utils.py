@@ -328,6 +328,8 @@ class CallTypes(str, Enum):
     transcription = "transcription"
     aspeech = "aspeech"
     speech = "speech"
+    acreate_voice = "acreate_voice"
+    create_voice = "create_voice"
     rerank = "rerank"
     arerank = "arerank"
     search = "search"
@@ -506,6 +508,8 @@ CallTypesLiteral = Literal[
     "transcription",
     "aspeech",
     "speech",
+    "acreate_voice",
+    "create_voice",
     "rerank",
     "arerank",
     "search",
@@ -602,6 +606,9 @@ API_ROUTE_TO_CALL_TYPES = {
     # Audio Speech
     "/audio/speech": [CallTypes.aspeech, CallTypes.speech],
     "/v1/audio/speech": [CallTypes.aspeech, CallTypes.speech],
+    # Audio Voices
+    "/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
     # Moderations
     "/moderations": [CallTypes.amoderation, CallTypes.moderation],
     "/v1/moderations": [CallTypes.amoderation, CallTypes.moderation],
@@ -3514,6 +3521,8 @@ class LlmProviders(str, Enum):
     CURSOR = "cursor"
     BEDROCK_MANTLE = "bedrock_mantle"
     GDC = "gdc"
+    HAMSA = "hamsa"
+    OMNIVOICE = "omnivoice"
 
 
 # Create a set of all provider values for quick lookup
@@ -3851,13 +3860,8 @@ class PriorityReservationSettings(BaseModel):
     )
 
     saturation_threshold: float = Field(
-        default=0.50,
-        description="Saturation threshold (0.0-1.0) at which strict priority enforcement begins. Below this threshold, generous mode allows priority borrowing. Above this threshold, strict mode enforces normalized priority limits.",
-    )
-
-    saturation_check_cache_ttl: int = Field(
-        default=60,
-        description="TTL in seconds for local cache when reading saturation check values from Redis.",
+        default=1.0,
+        description="Cap on borrow headroom as a fraction of model RPM. With demand-counter-based sibling reservation protecting guaranteed rates (reservation = min(sibling_demand, sibling_guaranteed)), the default of 1.0 means borrowing can use the full model RPM. Lower values (e.g. 0.80) leave headroom for priority transitions but may cause under-utilization when sum(guaranteed) == model_limit.",
     )
 
     model_config = ConfigDict(protected_namespaces=())

@@ -40,7 +40,6 @@ TEXT_PART_TYPES: FrozenSet[str] = frozenset({"text", "input_text", "output_text"
 # counterpart (see ``ChatCompletionCustomToolCallOutput``).
 _OUTPUT_ITEM_TYPES: frozenset[str] = frozenset({"function_call_output", "custom_tool_call_output"})
 
-
 def _iter_text_parts_in_content(content: Any) -> Iterator[str]:
     """Yield text fragments from a ``message.content`` value (string or
     multimodal list). Non-text parts (images, audio, …) are skipped."""

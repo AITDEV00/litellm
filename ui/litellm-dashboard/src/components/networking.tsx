@@ -1742,6 +1742,56 @@ export const modelHubCall = async (accessToken: string) => {
   }
 };
 
+export interface ModelPerformanceTimePoint {
+  timestamp: string;
+  value: number | null;
+}
+
+export interface ModelPerformanceSummary {
+  avg_concurrent: number;
+  avg_throughput: number;
+  p50_ttft: number | null;
+  p95_ttft: number | null;
+  total_requests: number;
+  total_tokens: number;
+}
+
+export interface ModelPerformanceModel {
+  model_group: string;
+  time_series: {
+    concurrent_requests: ModelPerformanceTimePoint[];
+    throughput_tokens_per_sec: ModelPerformanceTimePoint[];
+    ttft_seconds: ModelPerformanceTimePoint[];
+  };
+  summary: ModelPerformanceSummary;
+}
+
+export interface ModelPerformanceResponse {
+  window: string;
+  source: string;
+  step: string;
+  models: ModelPerformanceModel[];
+}
+
+export const modelPerformanceCall = async (
+  accessToken: string,
+  window: string = "1h",
+  modelGroup?: string,
+): Promise<ModelPerformanceResponse> => {
+  try {
+    return await apiClient.get(`/model/performance`, {
+      accessToken,
+      query: {
+        window,
+        ...(modelGroup ? { model_group: modelGroup } : {}),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to fetch model performance:", error);
+    throw error;
+  }
+};
+
 // Function to get allowed IPs
 export const getAllowedIPs = async (accessToken: string) => {
   try {

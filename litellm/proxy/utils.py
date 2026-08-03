@@ -557,6 +557,8 @@ class ProxyLogging:
             if "prisma_client" in expected_args:
                 passed_in_args["prisma_client"] = prisma_client
             proxy_hook_obj = cast(CustomLogger, proxy_hook(**passed_in_args))
+            if hasattr(proxy_hook_obj, "update_variables") and llm_router is not None:
+                proxy_hook_obj.update_variables(llm_router=llm_router)
             litellm.logging_callback_manager.add_litellm_callback(proxy_hook_obj)
 
             self.proxy_hook_mapping[hook] = proxy_hook_obj
@@ -6361,6 +6363,8 @@ def create_model_info_response(
         "created": DEFAULT_MODEL_CREATED_AT_TIME,
         "owned_by": provider,
     }
+    if not include_metadata:
+        return base
 
     try:
         model_cost_info: ModelInfo | None = get_model_info(model_id)
@@ -6397,12 +6401,11 @@ def create_model_info_response(
         return base
 
     effective_fallback_type = fallback_type if fallback_type is not None else "general"
-
-    valid_fallback_types = ["general", "context_window", "content_policy"]
+    valid_fallback_types = ("general", "context_window", "content_policy")
     if effective_fallback_type not in valid_fallback_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid fallback_type. Must be one of: {valid_fallback_types}",
+            detail=f"Invalid fallback_type. Must be one of: {list(valid_fallback_types)}",
         )
 
     fallbacks = get_all_fallbacks(
