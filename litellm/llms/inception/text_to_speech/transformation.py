@@ -83,7 +83,10 @@ class InceptionTextToSpeechConfig(InceptionAudioModelInfo, BaseTextToSpeechConfi
         api_base: Optional[str],
         litellm_params: dict,
     ) -> str:
-        return self._resolve_base(api_base) + "/v1/audio/speech"
+        base = self._resolve_base(api_base)
+        if base.lower().endswith("/v1"):
+            base = base[:-3]
+        return base + "/v1/audio/speech"
 
     def transform_text_to_speech_request(
         self,

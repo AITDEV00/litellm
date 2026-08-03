@@ -69,7 +69,10 @@ class InceptionAudioTranscriptionConfig(InceptionAudioModelInfo, BaseAudioTransc
         litellm_params: dict,
         stream: Optional[bool] = None,
     ) -> str:
-        return self._resolve_base(api_base) + "/v1/audio/transcriptions"
+        base = self._resolve_base(api_base)
+        if base.lower().endswith("/v1"):
+            base = base[:-3]
+        return base + "/v1/audio/transcriptions"
 
     def transform_audio_transcription_request(
         self,

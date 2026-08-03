@@ -35,6 +35,18 @@ def test_inception_stt_url_strips_trailing_slash():
     assert url == "http://10.0.0.5:8000/v1/audio/transcriptions"
 
 
+def test_inception_stt_url_strips_double_v1():
+    config = InceptionAudioTranscriptionConfig()
+    url = config.get_complete_url(
+        api_base="http://10.0.0.5:8000/v1",
+        api_key=None,
+        model="inception-stt",
+        optional_params={},
+        litellm_params={},
+    )
+    assert url == "http://10.0.0.5:8000/v1/audio/transcriptions"
+
+
 def test_inception_stt_url_requires_api_base():
     config = InceptionAudioTranscriptionConfig()
     try:

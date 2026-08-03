@@ -33,6 +33,16 @@ def test_inception_tts_url_strips_trailing_slash():
     assert url == "http://10.0.0.5:8000/v1/audio/speech"
 
 
+def test_inception_tts_url_strips_double_v1():
+    config = InceptionTextToSpeechConfig()
+    url = config.get_complete_url(
+        model="inception-tts",
+        api_base="http://10.0.0.5:8000/v1",
+        litellm_params={},
+    )
+    assert url == "http://10.0.0.5:8000/v1/audio/speech"
+
+
 def test_inception_tts_url_requires_api_base():
     config = InceptionTextToSpeechConfig()
     try:
