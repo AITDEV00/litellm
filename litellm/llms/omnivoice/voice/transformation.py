@@ -34,8 +34,35 @@ _CLONE_FORM_KEYS: tuple[str, ...] = (
 )
 
 
+def _require_profile_id(
+    source: dict[str, Any],
+    action: str,
+) -> str:
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+    profile_id = source.get("profile_id")
+    if profile_id is None:
+        raise BaseLLMException(
+            status_code=400,
+            message=f"'profile_id' is required for {action}.",
+            headers={},
+        )
+    return str(profile_id)
+
+
+def _build_ref_audio_files(ref_audio: FileTypes) -> dict[str, Any]:
+    if isinstance(ref_audio, tuple):
+        return {"ref_audio": ref_audio}
+    if isinstance(ref_audio, (bytes, bytearray)):
+        return {"ref_audio": ("ref_audio.wav", bytes(ref_audio), "audio/wav")}
+    from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
+
+    processed = process_audio_file(ref_audio)
+    return {"ref_audio": (processed.filename, processed.file_content, processed.content_type)}
+
+
 class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
-    def get_supported_openai_params(self, model: str) -> list:
+    def get_supported_openai_params(self, model: str) -> list[str]:
         return ["voice", "response_format", "speed", "language", "stream"]
 
     def map_openai_params(
@@ -60,9 +87,9 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             mapped_params.update({k: v for k, v in extra_body.items() if v is not None})
 
         if kwargs is not None:
-            _collect_passthrough(kwargs, mapped_params)
+            mapped_params |= _collect_passthrough(kwargs)
 
-        _collect_passthrough(optional_params, mapped_params)
+        mapped_params |= _collect_passthrough(optional_params)
 
         return voice, mapped_params
 
@@ -118,19 +145,9 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             if value is not None:
                 form_fields[key] = value
 
-        _collect_passthrough(optional_params, form_fields)
+        form_fields |= _collect_passthrough(optional_params)
 
-        if isinstance(ref_audio, tuple):
-            files = {"ref_audio": ref_audio}
-        elif isinstance(ref_audio, (bytes, bytearray)):
-            files = {"ref_audio": ("ref_audio.wav", bytes(ref_audio), "audio/wav")}
-        else:
-            from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
-
-            processed = process_audio_file(ref_audio)
-            files = {
-                "ref_audio": (processed.filename, processed.file_content, processed.content_type),
-            }
+        files = _build_ref_audio_files(ref_audio)
 
         return TextToSpeechRequestData(
             form_data=form_fields,
@@ -148,26 +165,7 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         return HttpxBinaryResponseContent(raw_response)
 
 
-_PROFILE_FORM_KEYS: tuple[str, ...] = (
-    "response_format",
-    "speed",
-    "stream",
-    "num_step",
-    "guidance_scale",
-    "denoise",
-    "t_shift",
-    "position_temperature",
-    "class_temperature",
-    "duration",
-    "language",
-    "layer_penalty_factor",
-    "preprocess_prompt",
-    "postprocess_output",
-    "audio_chunk_duration",
-    "audio_chunk_threshold",
-    "request_timeout_s",
-    "ref_text",
-)
+_PROFILE_FORM_KEYS: tuple[str, ...] = _CLONE_FORM_KEYS + ("ref_text",)
 
 
 class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
@@ -204,29 +202,13 @@ class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
         if action in ("list", "list_profiles"):
             return base + "/v1/voices"
         if action == "get_profile":
-            profile_id = litellm_params.get("profile_id")
-            if profile_id is None:
-                from litellm.llms.base_llm.chat.transformation import BaseLLMException
-
-                raise BaseLLMException(
-                    status_code=400,
-                    message="'profile_id' is required for get_profile.",
-                    headers={},
-                )
-            return base + "/v1/voices/profiles/" + str(profile_id)
+            profile_id = _require_profile_id(litellm_params, "get_profile")
+            return base + "/v1/voices/profiles/" + profile_id
         if action == "create_profile":
             return base + "/v1/voices/profiles"
         if action in ("update_profile", "delete_profile"):
-            profile_id = litellm_params.get("profile_id")
-            if profile_id is None:
-                from litellm.llms.base_llm.chat.transformation import BaseLLMException
-
-                raise BaseLLMException(
-                    status_code=400,
-                    message=f"'profile_id' is required for {action}.",
-                    headers={},
-                )
-            return base + "/v1/voices/profiles/" + str(profile_id)
+            profile_id = _require_profile_id(litellm_params, action)
+            return base + "/v1/voices/profiles/" + profile_id
         return base + "/v1/voices"
 
     def transform_create_voice_request(
@@ -253,37 +235,19 @@ class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
 
         if action == "create_profile":
             ref_audio = voice_data.get("ref_audio") or optional_params.get("ref_audio")
-            profile_id = voice_data.get("profile_id")
-            if profile_id is None:
-                from litellm.llms.base_llm.chat.transformation import BaseLLMException
-
-                raise BaseLLMException(
-                    status_code=400,
-                    message="'profile_id' is required for voice profile creation.",
-                    headers={},
-                )
+            profile_id = _require_profile_id(voice_data, "voice profile creation")
 
             form_fields: dict[str, Any] = {"profile_id": profile_id}
 
             for key in _PROFILE_FORM_KEYS:
-                value = voice_data.pop(key, None) or optional_params.pop(key, None)
+                value = voice_data.get(key) or optional_params.get(key)
                 if value is not None:
                     form_fields[key] = value
 
-            _collect_passthrough(voice_data, form_fields)
-            _collect_passthrough(optional_params, form_fields)
+            form_fields |= _collect_passthrough(voice_data)
+            form_fields |= _collect_passthrough(optional_params)
 
-            files: dict[str, Any] = {}
-            if ref_audio is not None:
-                if isinstance(ref_audio, tuple):
-                    files["ref_audio"] = ref_audio
-                elif isinstance(ref_audio, (bytes, bytearray)):
-                    files["ref_audio"] = ("ref_audio.wav", bytes(ref_audio), "audio/wav")
-                else:
-                    from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
-
-                    processed = process_audio_file(ref_audio)
-                    files["ref_audio"] = (processed.filename, processed.file_content, processed.content_type)
+            files: dict[str, Any] = _build_ref_audio_files(ref_audio) if ref_audio is not None else {}
 
             return TextToSpeechRequestData(form_data=form_fields, files=files)
 

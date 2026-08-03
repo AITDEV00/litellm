@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
@@ -68,43 +68,41 @@ OMNIVOICE_INTERNAL_PARAMS: frozenset[str] = frozenset(
 
 def _collect_passthrough(
     source: dict[str, Any],
-    dest: dict[str, Any],
-) -> None:
-    """Copy non-internal, non-None entries from *source* into *dest*.
+) -> dict[str, Any]:
+    """Return non-internal, non-None entries from *source* as a new dict.
 
     Dict and list values are skipped as defense-in-depth: multipart form
     fields only accept primitives, and internal litellm params (e.g.
     ``secret_fields``) are dict-valued.  Tuples are allowed because
     ``ref_audio`` is a ``FileTypes`` tuple that is popped downstream.
     """
-    for key, value in source.items():
-        if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
-            continue
-        if isinstance(value, (dict, list)):
-            continue
-        dest[key] = value
+    return {
+        key: value
+        for key, value in source.items()
+        if value is not None and key not in OMNIVOICE_INTERNAL_PARAMS and not isinstance(value, (dict, list))
+    }
 
 
 class OmniVoiceModelInfo(BaseLLMModelInfo):
-    def get_provider_info(self, model: str) -> Optional[ProviderSpecificModelInfo]:
+    def get_provider_info(self, model: str) -> ProviderSpecificModelInfo | None:
         return ProviderSpecificModelInfo(
             supports_audio_input=True,
             supports_audio_output=True,
         )
 
-    def get_models(self, api_key: Optional[str] = None, api_base: Optional[str] = None) -> list[str]:
+    def get_models(self, api_key: str | None = None, api_base: str | None = None) -> list[str]:
         return []
 
     @staticmethod
-    def get_api_key(api_key: Optional[str] = None) -> Optional[str]:
+    def get_api_key(api_key: str | None = None) -> str | None:
         return api_key or "no-api-key-required"
 
     @staticmethod
-    def get_api_base(api_base: Optional[str] = None) -> Optional[str]:
+    def get_api_base(api_base: str | None = None) -> str | None:
         return api_base
 
     @staticmethod
-    def _resolve_base(api_base: Optional[str] = None) -> str:
+    def _resolve_base(api_base: str | None = None) -> str:
         base = OmniVoiceModelInfo.get_api_base(api_base)
         if base is None:
             from litellm.llms.base_llm.chat.transformation import BaseLLMException
@@ -117,5 +115,5 @@ class OmniVoiceModelInfo(BaseLLMModelInfo):
         return base.rstrip("/")
 
     @staticmethod
-    def get_base_model(model: str) -> Optional[str]:
+    def get_base_model(model: str) -> str | None:
         return model

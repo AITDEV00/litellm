@@ -11,6 +11,8 @@ from litellm.llms.omnivoice.common_utils import (
     _collect_passthrough,
 )
 
+_SCRIPT_FORM_KEYS: tuple[str, ...] = ("response_format", "speed", "language", "stream")
+
 
 class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
     """Multi-speaker script synthesis: POST /v1/audio/script.
@@ -19,7 +21,7 @@ class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
     ``speakers`` (list of speaker/voice mappings), returns WAV audio.
     """
 
-    def get_supported_openai_params(self, model: str) -> list:
+    def get_supported_openai_params(self, model: str) -> list[str]:
         return ["voice", "response_format", "speed", "language", "stream"]
 
     def map_openai_params(
@@ -32,7 +34,7 @@ class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
     ) -> tuple[str | None, dict]:
         mapped_params: dict[str, Any] = {}
 
-        for key in ("response_format", "speed", "language", "stream"):
+        for key in _SCRIPT_FORM_KEYS:
             value = optional_params.pop(key, None)
             if value is not None:
                 mapped_params[key] = value
@@ -50,9 +52,9 @@ class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             speakers = kwargs.pop("speakers", None)
             if speakers is not None:
                 mapped_params["speakers"] = speakers
-            _collect_passthrough(kwargs, mapped_params)
+            mapped_params |= _collect_passthrough(kwargs)
 
-        _collect_passthrough(optional_params, mapped_params)
+        mapped_params |= _collect_passthrough(optional_params)
 
         return voice, mapped_params
 
@@ -95,12 +97,12 @@ class OmniVoiceScriptConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         if speakers is not None:
             request_body["speakers"] = speakers
 
-        for key in ("response_format", "speed", "language", "stream"):
+        for key in _SCRIPT_FORM_KEYS:
             value = optional_params.pop(key, None)
             if value is not None:
                 request_body[key] = value
 
-        _collect_passthrough(optional_params, request_body)
+        request_body |= _collect_passthrough(optional_params)
 
         return TextToSpeechRequestData(
             dict_body=request_body,

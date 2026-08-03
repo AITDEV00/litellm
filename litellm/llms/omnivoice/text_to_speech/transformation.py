@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -14,7 +14,7 @@ from litellm.llms.omnivoice.common_utils import (
 _TTS_FORM_KEYS: tuple[str, ...] = ("response_format", "speed", "language", "stream")
 
 
-def _resolve_voice(voice: Optional[str | dict]) -> Optional[str]:
+def _resolve_voice(voice: str | dict | None) -> str | None:
     if isinstance(voice, str):
         return voice
     if isinstance(voice, dict):
@@ -25,17 +25,17 @@ def _resolve_voice(voice: Optional[str | dict]) -> Optional[str]:
 
 
 class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
-    def get_supported_openai_params(self, model: str) -> list:
+    def get_supported_openai_params(self, model: str) -> list[str]:
         return ["voice", "response_format", "speed", "language", "stream"]
 
     def map_openai_params(
         self,
         model: str,
         optional_params: dict,
-        voice: Optional[str | dict] = None,
+        voice: str | dict | None = None,
         drop_params: bool = False,
-        kwargs: Optional[dict[str, Any]] = None,
-    ) -> tuple[Optional[str], dict]:
+        kwargs: dict[str, Any] | None = None,
+    ) -> tuple[str | None, dict]:
         mapped_params: dict[str, Any] = {}
 
         resolved_voice = _resolve_voice(voice)
@@ -52,9 +52,9 @@ class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             mapped_params.update({k: v for k, v in extra_body.items() if v is not None})
 
         if kwargs is not None:
-            _collect_passthrough(kwargs, mapped_params)
+            mapped_params |= _collect_passthrough(kwargs)
 
-        _collect_passthrough(optional_params, mapped_params)
+        mapped_params |= _collect_passthrough(optional_params)
 
         return resolved_voice, mapped_params
 
@@ -62,15 +62,15 @@ class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         self,
         headers: dict,
         model: str,
-        api_key: Optional[str] = None,
-        api_base: Optional[str] = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
     ) -> dict:
         return headers
 
     def get_complete_url(
         self,
         model: str,
-        api_base: Optional[str],
+        api_base: str | None,
         litellm_params: dict,
     ) -> str:
         base = self._resolve_base(api_base)
@@ -82,7 +82,7 @@ class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
         self,
         model: str,
         input: str,
-        voice: Optional[str],
+        voice: str | None,
         optional_params: dict,
         litellm_params: dict,
         headers: dict,
@@ -98,7 +98,7 @@ class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             if value is not None:
                 request_body[key] = value
 
-        _collect_passthrough(optional_params, request_body)
+        request_body |= _collect_passthrough(optional_params)
 
         return TextToSpeechRequestData(
             dict_body=request_body,
