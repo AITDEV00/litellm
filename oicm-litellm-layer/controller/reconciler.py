@@ -80,7 +80,7 @@ class SyncReconciler:
 
         for uuid in k8s_uuids - litellm_uuids:
             model = k8s_models[uuid]
-            if not model.is_ready or model.mode == "tts_skip":
+            if not model.is_ready:
                 continue
             pricing = await self.pricing.resolve(model.model_id)
             plan.registers.append((model, pricing_to_params(pricing)))
@@ -89,15 +89,8 @@ class SyncReconciler:
             model = k8s_models[uuid]
             existing_id = plan.new_id_map.get(uuid)
 
-            if model.mode == "tts_skip":
-                if existing_id:
-                    plan.deletes.append(existing_id)
-                    plan.new_id_map.pop(uuid, None)
-                continue
-
             existing_entry = litellm_by_uuid[uuid][0]
             existing_model_name = existing_entry.get("model_name", "")
-            existing_params = existing_entry.get("litellm_params", {}) or {}
 
             if existing_model_name != model.model_name:
                 if existing_id:
@@ -107,7 +100,7 @@ class SyncReconciler:
             else:
                 if existing_id:
                     patch_params: dict = {
-                        "model": f"hosted_vllm/{model.model_id}",
+                        "model": f"{model.provider}/{model.model_id}",
                         "api_base": model.api_base,
                     }
                     pricing = await self.pricing.resolve(model.model_id)

@@ -3,7 +3,7 @@ from typing import Optional
 from .models import PricingResult
 
 
-def pricing_to_params(result: Optional[PricingResult]) -> Optional[dict]:
+def pricing_to_params(result: Optional[PricingResult]) -> Optional[dict[str, float]]:
     if result is None:
         return None
     return {

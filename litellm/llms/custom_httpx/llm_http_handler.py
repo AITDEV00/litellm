@@ -11198,10 +11198,16 @@ class BaseLLMHTTPHandler:
                     data=request_data["ssml_body"],
                     timeout=timeout,
                 )
-            else:
-                raise ValueError(
-                    "No body found in request_data. Must provide one of: dict_body, ssml_body, text_body, binary_body"
+            elif "form_data" in request_data:
+                response = sync_httpx_client.post(
+                    url=api_base,
+                    headers=headers,
+                    data=request_data["form_data"],
+                    files=request_data.get("files"),
+                    timeout=timeout,
                 )
+            else:
+                raise ValueError("No body found in request_data. Must provide one of: dict_body, ssml_body, form_data")
 
         except Exception as e:
             raise self._handle_error(
@@ -11297,10 +11303,16 @@ class BaseLLMHTTPHandler:
                     data=request_data["ssml_body"],
                     timeout=timeout,
                 )
-            else:
-                raise ValueError(
-                    "No body found in request_data. Must provide one of: dict_body, ssml_body, text_body, binary_body"
+            elif "form_data" in request_data:
+                response = await async_httpx_client.post(
+                    url=api_base,
+                    headers=headers,
+                    data=request_data["form_data"],
+                    files=request_data.get("files"),
+                    timeout=timeout,
                 )
+            else:
+                raise ValueError("No body found in request_data. Must provide one of: dict_body, ssml_body, form_data")
 
         except Exception as e:
             raise self._handle_error(

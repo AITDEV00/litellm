@@ -7728,7 +7728,7 @@ async def aspeech(*args, **kwargs) -> HttpxBinaryResponseContent:
         )
 
 
-_CUSTOM_AUDIO_HANDLER_PROVIDERS: frozenset[str] = frozenset({"inception"})
+_CUSTOM_AUDIO_HANDLER_PROVIDERS: frozenset[str] = frozenset({"inception", "omnivoice"})
 
 
 @client
@@ -8168,8 +8168,6 @@ def speech(
         if text_to_speech_provider_config is None:
             text_to_speech_provider_config = HamsaTextToSpeechConfig()
 
-        hamsa_config = cast(HamsaTextToSpeechConfig, text_to_speech_provider_config)
-
         if api_base is not None:
             litellm_params_dict["api_base"] = api_base
         if api_key is not None:
@@ -8179,7 +8177,7 @@ def speech(
             model=model,
             input=input,
             voice=voice,
-            text_to_speech_provider_config=hamsa_config,
+            text_to_speech_provider_config=text_to_speech_provider_config,
             text_to_speech_optional_params=optional_params,
             custom_llm_provider=custom_llm_provider,
             litellm_params=litellm_params_dict,
@@ -8197,7 +8195,42 @@ def speech(
         if text_to_speech_provider_config is None:
             text_to_speech_provider_config = InceptionTextToSpeechConfig()
 
-        inception_config = cast(InceptionTextToSpeechConfig, text_to_speech_provider_config)
+        if api_base is not None:
+            litellm_params_dict["api_base"] = api_base
+        if api_key is not None:
+            litellm_params_dict["api_key"] = api_key
+
+        response = base_llm_http_handler.text_to_speech_handler(
+            model=model,
+            input=input,
+            voice=voice,
+            text_to_speech_provider_config=text_to_speech_provider_config,
+            text_to_speech_optional_params=optional_params,
+            custom_llm_provider=custom_llm_provider,
+            litellm_params=litellm_params_dict,
+            logging_obj=logging_obj,
+            timeout=timeout,
+            extra_headers=extra_headers,
+            client=client,
+            _is_async=aspeech or False,
+        )
+    elif custom_llm_provider == "omnivoice":
+        if kwargs.get("ref_audio") is not None:
+            from litellm.llms.omnivoice.voice.transformation import (
+                OmniVoiceVoiceCloneConfig,
+            )
+
+            if text_to_speech_provider_config is None or not isinstance(
+                text_to_speech_provider_config, OmniVoiceVoiceCloneConfig
+            ):
+                text_to_speech_provider_config = OmniVoiceVoiceCloneConfig()
+        else:
+            from litellm.llms.omnivoice.text_to_speech.transformation import (
+                OmniVoiceTextToSpeechConfig,
+            )
+
+            if text_to_speech_provider_config is None:
+                text_to_speech_provider_config = OmniVoiceTextToSpeechConfig()
 
         if api_base is not None:
             litellm_params_dict["api_base"] = api_base
@@ -8208,7 +8241,7 @@ def speech(
             model=model,
             input=input,
             voice=voice,
-            text_to_speech_provider_config=inception_config,
+            text_to_speech_provider_config=text_to_speech_provider_config,
             text_to_speech_optional_params=optional_params,
             custom_llm_provider=custom_llm_provider,
             litellm_params=litellm_params_dict,
@@ -8313,7 +8346,7 @@ def create_voice(
             )
         )
 
-    logging_obj: LiteLLMLoggingObj = cast(LiteLLMLoggingObj, kwargs.get("litellm_logging_obj"))
+    logging_obj: LiteLLMLoggingObj = kwargs.get("litellm_logging_obj")  # type: ignore
     logging_obj.update_environment_variables(
         model=model,
         user=user,

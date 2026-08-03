@@ -8980,6 +8980,12 @@ class ProviderConfigManager:
             )
 
             return InceptionTextToSpeechConfig()
+        elif litellm.LlmProviders.OMNIVOICE == provider:
+            from litellm.llms.omnivoice.text_to_speech.transformation import (
+                OmniVoiceTextToSpeechConfig,
+            )
+
+            return OmniVoiceTextToSpeechConfig()
         return None
 
     @staticmethod

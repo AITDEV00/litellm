@@ -9,6 +9,7 @@ from kubernetes import client, config
 from ..config import (
     MODEL_DEPLOYMENT_TYPE,
     NAMESPACE,
+    WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
 from ..models import OicmModel, detect_mode, sanitize_model_id
@@ -20,7 +21,6 @@ LIGHTHOUSE_LABEL = "endpointslice.kubernetes.io/managed-by"
 LIGHTHOUSE_VALUE = "lighthouse-agent.submariner.io"
 SOURCE_CLUSTER_LABEL = "multicluster.kubernetes.io/source-cluster"
 SERVICE_NAME_LABEL = "multicluster.kubernetes.io/service-name"
-WORKLOAD_ID_LABEL = "oip/workload-id"
 
 
 class SubmarinerImportSource(ModelSource):

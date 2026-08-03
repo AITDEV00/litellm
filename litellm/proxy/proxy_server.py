@@ -9130,6 +9130,140 @@ async def audio_speech(
 
 
 @router.post(
+    "/v1/audio/speech/clone",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+@router.post(
+    "/audio/speech/clone",
+    dependencies=[Depends(user_api_key_auth)],
+    tags=["audio"],
+)
+async def audio_speech_clone(
+    request: Request,
+    fastapi_response: Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
+    """
+    One-shot voice cloning: synthesize speech from text using a reference audio clip.
+
+    Multipart form-data endpoint. Required: text, ref_audio (file).
+    Optional: ref_text, response_format, speed, language, num_step, guidance_scale, etc.
+    """
+    global proxy_logging_obj
+    data: dict = {}
+    try:
+        form_data = await get_form_data(request)
+        data = {key: value for key, value in form_data.items() if key != "ref_audio"}
+
+        data = await add_litellm_data_to_request(
+            data=data,
+            request=request,
+            general_settings=general_settings,
+            user_api_key_dict=user_api_key_dict,
+            version=version,
+            proxy_config=proxy_config,
+        )
+
+        if data.get("user", None) is None and user_api_key_dict.user_id is not None:
+            data["user"] = user_api_key_dict.user_id
+
+        if user_model:
+            data["model"] = user_model
+
+        ref_audio_upload = form_data.get("ref_audio")
+        if ref_audio_upload is None or not hasattr(ref_audio_upload, "read"):
+            raise ProxyException(
+                message="ref_audio file is required for voice cloning",
+                code=status.HTTP_400_BAD_REQUEST,
+                type="bad_request",
+                param="ref_audio",
+            )
+
+        file_content = await ref_audio_upload.read()
+        data["ref_audio"] = (
+            ref_audio_upload.filename or "ref_audio.wav",
+            file_content,
+            ref_audio_upload.content_type or "audio/wav",
+        )
+
+        text_input = data.pop("text", None)
+        if text_input is None:
+            raise ProxyException(
+                message="text is required for voice cloning",
+                code=status.HTTP_400_BAD_REQUEST,
+                type="bad_request",
+                param="text",
+            )
+        data["input"] = text_input
+        data.setdefault("voice", "clone")
+
+        data = await proxy_logging_obj.pre_call_hook(
+            user_api_key_dict=user_api_key_dict, data=data, call_type="aspeech"
+        )
+
+        llm_call = await route_request(
+            data=data,
+            route_type="aspeech",
+            llm_router=llm_router,
+            user_model=user_model,
+        )
+        response = await llm_call
+
+        asyncio.create_task(
+            proxy_logging_obj.update_request_status(litellm_call_id=data.get("litellm_call_id", ""), status="success")
+        )
+
+        hidden_params = getattr(response, "_hidden_params", {}) or {}
+        model_id = hidden_params.get("model_id", None) or ""
+        cache_key = hidden_params.get("cache_key", None) or ""
+        api_base = hidden_params.get("api_base", None) or ""
+        response_cost = hidden_params.get("response_cost", None) or ""
+        litellm_call_id = hidden_params.get("litellm_call_id", None) or ""
+
+        custom_headers = ProxyBaseLLMRequestProcessing.get_custom_headers(
+            user_api_key_dict=user_api_key_dict,
+            model_id=model_id,
+            cache_key=cache_key,
+            api_base=api_base,
+            version=version,
+            response_cost=response_cost,
+            model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
+            fastest_response_batch_completion=None,
+            call_id=litellm_call_id,
+            request_data=data,
+            hidden_params=hidden_params,
+        )
+
+        callback_headers = await proxy_logging_obj.post_call_response_headers_hook(
+            data=data,
+            user_api_key_dict=user_api_key_dict,
+            response=response,
+            request_headers=dict(request.headers),
+        )
+        if callback_headers:
+            custom_headers.update(callback_headers)
+
+        return StreamingResponse(
+            _audio_speech_chunk_generator(response),
+            media_type="audio/mpeg",
+            headers=custom_headers,
+        )
+
+    except Exception as e:
+        await proxy_logging_obj.post_call_failure_hook(
+            user_api_key_dict=user_api_key_dict,
+            original_exception=e,
+            request_data=data,
+        )
+        verbose_proxy_logger.error(
+            "litellm.proxy.proxy_server.audio_speech_clone(): Exception occured - {}".format(str(e))
+        )
+        verbose_proxy_logger.debug(traceback.format_exc())
+        raise e
+
+
+@router.post(
     "/v1/audio/voices",
     dependencies=[Depends(user_api_key_auth)],
     tags=["audio"],

@@ -10,10 +10,6 @@ from .models import OicmModel
 logger = logging.getLogger("oicm-discovery")
 
 
-async def _empty_list() -> list:
-    return []
-
-
 class LiteLLMClient:
     def __init__(
         self,
@@ -28,7 +24,7 @@ class LiteLLMClient:
         }
         self._semaphore = asyncio.Semaphore(concurrency)
 
-    async def list_all_models_by_uuid(self) -> dict:
+    async def list_all_models_by_uuid(self) -> dict[str, list[dict]]:
         async with httpx.AsyncClient(timeout=30.0) as http_client:
             try:
                 resp = await http_client.get(
@@ -57,32 +53,20 @@ class LiteLLMClient:
     ) -> Tuple[int, List[Optional[str]], int]:
         valid_deletes = [mid for mid in deletes if mid]
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            del_coro = (
-                asyncio.gather(
-                    *(self._delete_one(http_client, mid) for mid in valid_deletes)
-                )
-                if valid_deletes
-                else _empty_list()
+            del_coro = asyncio.gather(
+                *(self._delete_one(http_client, mid) for mid in valid_deletes)
             )
-            reg_coro = (
-                asyncio.gather(
-                    *(
-                        self._register_one(http_client, model, params)
-                        for model, params in registers
-                    )
+            reg_coro = asyncio.gather(
+                *(
+                    self._register_one(http_client, model, params)
+                    for model, params in registers
                 )
-                if registers
-                else _empty_list()
             )
-            pat_coro = (
-                asyncio.gather(
-                    *(
-                        self._patch_one(http_client, mid, params)
-                        for mid, params in patches
-                    )
+            pat_coro = asyncio.gather(
+                *(
+                    self._patch_one(http_client, mid, params)
+                    for mid, params in patches
                 )
-                if patches
-                else _empty_list()
             )
 
             del_results, reg_results, pat_results = await asyncio.gather(
@@ -102,14 +86,6 @@ class LiteLLMClient:
     async def deregister_model(self, litellm_model_id: str) -> bool:
         deleted, _, _ = await self.batch([litellm_model_id], [], [])
         return deleted > 0
-
-    async def patch_model(
-        self, litellm_model_id: str, litellm_params: dict
-    ) -> bool:
-        _, _, patched = await self.batch(
-            [], [], [(litellm_model_id, litellm_params)]
-        )
-        return patched > 0
 
     async def _delete_one(
         self, client: httpx.AsyncClient, mid: str
@@ -133,16 +109,12 @@ class LiteLLMClient:
         model: OicmModel,
         inherited_params: Optional[dict] = None,
     ) -> Optional[str]:
-        if model.mode == "tts_skip":
-            logger.info(f"Skipping TTS model {model.uuid} ({model.model_id})")
-            return None
-
         litellm_mode = model.mode
-        if litellm_mode == "transcription":
+        if litellm_mode == "text_to_speech":
             litellm_mode = "chat"
 
         litellm_params = {
-            "model": f"hosted_vllm/{model.model_id}",
+            "model": f"{model.provider}/{model.model_id}",
             "api_base": model.api_base,
             "api_key": "",
             "drop_params": True,

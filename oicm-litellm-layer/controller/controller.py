@@ -18,7 +18,12 @@ from .config import (
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
-from .models import OicmModel, detect_mode, sanitize_model_id
+from .models import (
+    OicmModel,
+    detect_mode_from_paths,
+    detect_provider,
+    sanitize_model_id,
+)
 from .pricing import PricingResolver, PricingSource, pricing_to_params
 from .reconciler import SyncReconciler
 from .sources import ModelSource
@@ -85,7 +90,7 @@ class DiscoveryController:
             await self._runner.cleanup()
         logger.info("Stopped OICM Discovery Controller")
 
-    async def _health(self, request):
+    async def _health(self, _request):
         return web.Response(text="ok")
 
     async def full_sync(self):
@@ -181,7 +186,11 @@ class DiscoveryController:
             logger.warning(f"No MODEL_ID for {uuid[:8]}, using UUID as fallback")
 
         model_name = sanitize_model_id(model_id)
-        mode = detect_mode(model_id, extra_args)
+
+        paths = await self.local_source.probe_openapi_paths(uuid)
+        owned_by = await self.local_source.discover_owned_by(uuid)
+        mode = detect_mode_from_paths(paths, model_id, extra_args)
+        provider = detect_provider(owned_by or "", model_id)
 
         model = OicmModel(
             uuid=uuid,
@@ -191,13 +200,10 @@ class DiscoveryController:
             ready_replicas=ready,
             total_replicas=dep.status.replicas or 0,
             mode=mode,
+            provider=provider,
             extra_args=extra_args,
             source="local",
         )
-
-        if mode == "tts_skip":
-            logger.info(f"Skipping TTS model {uuid[:8]}")
-            return
 
         pricing = await self.pricing_resolver.resolve(model.model_id)
         inherited = pricing_to_params(pricing)

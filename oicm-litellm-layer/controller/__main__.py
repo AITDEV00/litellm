@@ -3,7 +3,7 @@ import logging
 import signal
 import sys
 
-from . import config as _config  # noqa: F401 - import side-effect: configures logging
+from . import config as _config  # noqa: F401 - side-effect: configures logging
 from .controller import DiscoveryController
 
 logger = logging.getLogger("oicm-discovery")
@@ -18,7 +18,7 @@ def run():
     controller = DiscoveryController()
     loop = asyncio.new_event_loop()
 
-    def _shutdown(signum, frame):
+    def _shutdown(signum, _frame):
         logger.info(f"Received signal {signum}, shutting down...")
         loop.create_task(controller.stop())
 
