@@ -8150,6 +8150,12 @@ class ProviderConfigManager:
             )
 
             return HamsaAudioTranscriptionConfig()
+        elif litellm.LlmProviders.INCEPTION == provider:
+            from litellm.llms.inception.transcription.transformation import (
+                InceptionAudioTranscriptionConfig,
+            )
+
+            return InceptionAudioTranscriptionConfig()
         return None
 
     @staticmethod
@@ -8968,6 +8974,12 @@ class ProviderConfigManager:
             )
 
             return HamsaTextToSpeechConfig()
+        elif litellm.LlmProviders.INCEPTION == provider:
+            from litellm.llms.inception.text_to_speech.transformation import (
+                InceptionTextToSpeechConfig,
+            )
+
+            return InceptionTextToSpeechConfig()
         return None
 
     @staticmethod
