@@ -1,4 +1,3 @@
-import json
 from unittest import mock
 
 import httpx
@@ -104,10 +103,10 @@ def test_inception_tts_default_voice_when_none():
     assert body["voice"] == "alloy"
 
 
-def test_inception_tts_validate_environment_sets_content_type():
+def test_inception_tts_validate_environment_does_not_force_content_type():
     config = InceptionTextToSpeechConfig()
     headers = config.validate_environment(headers={}, model="inception-tts", api_key=None, api_base="http://x")
-    assert headers["Content-Type"] == "application/json"
+    assert "Content-Type" not in headers
 
 
 def test_inception_tts_response_returns_binary():

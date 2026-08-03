@@ -1,5 +1,3 @@
-from unittest import mock
-
 import httpx
 
 from litellm.llms.inception.transcription.transformation import (
@@ -137,7 +135,7 @@ def test_inception_stt_response_includes_duration_and_language_for_verbose():
     assert result["language"] == "arabic"
 
 
-def test_inception_stt_validate_environment_sets_content_type():
+def test_inception_stt_validate_environment_does_not_force_content_type():
     config = InceptionAudioTranscriptionConfig()
     headers = config.validate_environment(
         headers={},
@@ -148,7 +146,7 @@ def test_inception_stt_validate_environment_sets_content_type():
         api_key=None,
         api_base="http://x",
     )
-    assert headers["Content-Type"] == "application/json"
+    assert "Content-Type" not in headers
 
 
 def test_inception_stt_internal_params_filtered_from_form():

@@ -29,7 +29,7 @@ def _collect_passthrough(
     dest: dict[str, Any],
 ) -> None:
     for key, value in source.items():
-        if value is None or key in INCEPTION_INTERNAL_PARAMS or key in ("extra_body", "extra_headers"):
+        if value is None or key in INCEPTION_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
             continue
         dest[key] = value
 
@@ -75,7 +75,7 @@ class InceptionTextToSpeechConfig(InceptionAudioModelInfo, BaseTextToSpeechConfi
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ) -> dict:
-        return self._inject_auth_headers(headers, api_key)
+        return headers
 
     def get_complete_url(
         self,

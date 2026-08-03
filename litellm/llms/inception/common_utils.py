@@ -89,13 +89,5 @@ class InceptionAudioModelInfo(BaseLLMModelInfo):
         return base.rstrip("/")
 
     @staticmethod
-    def _inject_auth_headers(
-        headers: dict,
-        api_key: Optional[str] = None,
-    ) -> dict:
-        headers["Content-Type"] = "application/json"
-        return headers
-
-    @staticmethod
     def get_base_model(model: str) -> Optional[str]:
         return model

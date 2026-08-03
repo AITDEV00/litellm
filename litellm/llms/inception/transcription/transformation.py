@@ -30,6 +30,8 @@ class InceptionAudioTranscriptionConfig(InceptionAudioModelInfo, BaseAudioTransc
         model: str,
         drop_params: bool,
     ) -> dict:
+        stt_known_keys = {"language", "prompt", "response_format", "temperature", "timestamp_granularities"}
+
         for key in ("language", "prompt", "response_format", "temperature"):
             if key in non_default_params and non_default_params[key] is not None:
                 optional_params[key] = non_default_params[key]
@@ -38,9 +40,7 @@ class InceptionAudioTranscriptionConfig(InceptionAudioModelInfo, BaseAudioTransc
             optional_params["timestamp_granularities"] = non_default_params["timestamp_granularities"]
 
         for key, value in non_default_params.items():
-            if value is None or key in INCEPTION_INTERNAL_PARAMS:
-                continue
-            if key in ("language", "prompt", "response_format", "temperature", "timestamp_granularities"):
+            if value is None or key in INCEPTION_INTERNAL_PARAMS or key in stt_known_keys:
                 continue
             optional_params[key] = value
         return optional_params
@@ -58,7 +58,7 @@ class InceptionAudioTranscriptionConfig(InceptionAudioModelInfo, BaseAudioTransc
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ) -> dict:
-        return self._inject_auth_headers(headers, api_key)
+        return headers
 
     def get_complete_url(
         self,
