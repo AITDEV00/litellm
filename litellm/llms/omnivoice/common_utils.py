@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
@@ -60,6 +60,17 @@ OMNIVOICE_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "merge_reasoning_content_in_choices",
     }
 )
+
+
+def _collect_passthrough(
+    source: dict[str, Any],
+    dest: dict[str, Any],
+) -> None:
+    """Copy non-internal, non-None entries from *source* into *dest*."""
+    for key, value in source.items():
+        if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
+            continue
+        dest[key] = value
 
 
 class OmniVoiceModelInfo(BaseLLMModelInfo):

@@ -7,8 +7,8 @@ from litellm.llms.base_llm.text_to_speech.transformation import (
     TextToSpeechRequestData,
 )
 from litellm.llms.omnivoice.common_utils import (
-    OMNIVOICE_INTERNAL_PARAMS,
     OmniVoiceModelInfo,
+    _collect_passthrough,
 )
 
 _TTS_FORM_KEYS: tuple[str, ...] = ("response_format", "speed", "language", "stream")
@@ -22,16 +22,6 @@ def _resolve_voice(voice: Optional[str | dict]) -> Optional[str]:
     if voice is not None:
         return str(voice)
     return None
-
-
-def _collect_passthrough(
-    source: dict[str, Any],
-    dest: dict[str, Any],
-) -> None:
-    for key, value in source.items():
-        if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
-            continue
-        dest[key] = value
 
 
 class OmniVoiceTextToSpeechConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):

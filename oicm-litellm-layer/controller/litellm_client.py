@@ -111,7 +111,7 @@ class LiteLLMClient:
     ) -> Optional[str]:
         litellm_mode = model.mode
         if litellm_mode == "text_to_speech":
-            litellm_mode = "chat"
+            litellm_mode = "audio_speech"
 
         litellm_params = {
             "model": f"{model.provider}/{model.model_id}",

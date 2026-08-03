@@ -7,8 +7,8 @@ from litellm.llms.base_llm.text_to_speech.transformation import (
     TextToSpeechRequestData,
 )
 from litellm.llms.omnivoice.common_utils import (
-    OMNIVOICE_INTERNAL_PARAMS,
     OmniVoiceModelInfo,
+    _collect_passthrough,
 )
 from litellm.types.utils import FileTypes
 
@@ -59,18 +59,9 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             mapped_params.update({k: v for k, v in extra_body.items() if v is not None})
 
         if kwargs is not None:
-            for key, value in kwargs.items():
-                if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
-                    continue
-                if key in {"ref_audio", "ref_text", "text"}:
-                    mapped_params[key] = value
-                    continue
-                mapped_params[key] = value
+            _collect_passthrough(kwargs, mapped_params)
 
-        for key, value in optional_params.items():
-            if value is None or key in OMNIVOICE_INTERNAL_PARAMS:
-                continue
-            mapped_params[key] = value
+        _collect_passthrough(optional_params, mapped_params)
 
         return voice, mapped_params
 
@@ -126,10 +117,7 @@ class OmniVoiceVoiceCloneConfig(OmniVoiceModelInfo, BaseTextToSpeechConfig):
             if value is not None:
                 form_fields[key] = value
 
-        for key, value in optional_params.items():
-            if value is None or key in OMNIVOICE_INTERNAL_PARAMS or key in {"extra_body", "extra_headers"}:
-                continue
-            form_fields[key] = value
+        _collect_passthrough(optional_params, form_fields)
 
         if isinstance(ref_audio, tuple):
             files = {"ref_audio": ref_audio}
