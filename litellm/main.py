@@ -7573,7 +7573,10 @@ def transcription(
             max_retries=max_retries,
             litellm_params=litellm_params_dict,
         )
-    elif custom_llm_provider == "openai" or (custom_llm_provider in litellm.openai_compatible_providers):
+    elif custom_llm_provider == "openai" or (
+        custom_llm_provider in litellm.openai_compatible_providers
+        and custom_llm_provider not in _CUSTOM_AUDIO_HANDLER_PROVIDERS
+    ):
         api_base = (
             api_base
             or litellm.api_base
@@ -7725,7 +7728,7 @@ async def aspeech(*args, **kwargs) -> HttpxBinaryResponseContent:
         )
 
 
-_TTS_CUSTOM_HANDLER_PROVIDERS: frozenset[str] = frozenset({"inception"})
+_CUSTOM_AUDIO_HANDLER_PROVIDERS: frozenset[str] = frozenset({"inception"})
 
 
 @client
@@ -7815,7 +7818,7 @@ def speech(
     ] = None
     if custom_llm_provider == "openai" or (
         custom_llm_provider in litellm.openai_compatible_providers
-        and custom_llm_provider not in _TTS_CUSTOM_HANDLER_PROVIDERS
+        and custom_llm_provider not in _CUSTOM_AUDIO_HANDLER_PROVIDERS
     ):
         if voice is None or not (isinstance(voice, str)):
             raise litellm.BadRequestError(
