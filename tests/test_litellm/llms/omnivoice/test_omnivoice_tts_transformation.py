@@ -13,7 +13,6 @@ def test_omnivoice_in_provider_list():
 
 
 def test_omnivoice_in_custom_audio_handler_providers():
-    import litellm
     from litellm.main import _CUSTOM_AUDIO_HANDLER_PROVIDERS
 
     assert "omnivoice" in _CUSTOM_AUDIO_HANDLER_PROVIDERS
