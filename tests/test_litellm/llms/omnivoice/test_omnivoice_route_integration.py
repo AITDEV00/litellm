@@ -251,7 +251,7 @@ async def test_router_acreate_voice_delegates_to_litellm_acreate_voice():
 
 
 @pytest.mark.asyncio
-async def test_router_alist_voices_delegates_to_acreate_voice():
+async def test_route_request_voice_management_uses_acreate_voice():
     from unittest.mock import AsyncMock, patch
 
     with patch.object(
@@ -259,6 +259,7 @@ async def test_router_alist_voices_delegates_to_acreate_voice():
     ) as mock_acreate:
         mock_acreate.return_value = {"voices": []}
         from litellm import Router
+        from litellm.proxy.route_llm_request import route_request
 
         router = Router(
             model_list=[
@@ -272,10 +273,16 @@ async def test_router_alist_voices_delegates_to_acreate_voice():
             ]
         )
 
-        result = await router.alist_voices(
-            model="omnivoice",
-            voice_data={"action": "list"},
+        result = await route_request(
+            data={
+                "model": "omnivoice",
+                "voice_data": {"action": "list"},
+            },
+            route_type="acreate_voice",
+            llm_router=router,
+            user_model=None,
         )
+        result = await result
 
         assert result == {"voices": []}
         mock_acreate.assert_awaited_once()

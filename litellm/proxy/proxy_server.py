@@ -9172,7 +9172,7 @@ async def audio_speech_clone(
             data["model"] = user_model
 
         if data.get("model") is None and llm_router is not None:
-            resolved = _resolve_voice_management_model(llm_router)
+            resolved = _resolve_audio_model(llm_router)
             if resolved is not None:
                 data["model"] = resolved
 
@@ -9305,22 +9305,7 @@ async def create_voice(
             data["model"] = user_model
 
         model = data.pop("model", None) or user_model
-        voice_data_keys = (
-            "speaker",
-            "speaker_id",
-            "voice_id",
-            "name",
-            "audio_url",
-            "audio_path",
-            "stored_path",
-            "prompt_text",
-            "transcript",
-            "dialect",
-            "global_token_ids",
-            "semantic_token_ids",
-            "action",
-        )
-        voice_data = {k: data.pop(k) for k in list(data.keys()) if k in voice_data_keys}
+        voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         data = {"model": model, "voice_data": voice_data, **data}
 
         ### CALL HOOKS ###
@@ -9402,12 +9387,15 @@ _VOICE_DATA_KEYS = frozenset(
 )
 
 
-def _resolve_voice_management_model(router_instance: Router) -> str | None:
-    for deployment in router_instance.model_list:
-        litellm_params = deployment.get("litellm_params", {})
-        model_str = litellm_params.get("model", "")
-        if "omnivoice/" in model_str or "/omnivoice" in model_str:
-            return deployment.get("model_name")
+def _resolve_audio_model(router_instance: Router, provider: str | None = None) -> str | None:
+    if provider is not None:
+        prefix = f"{provider}/"
+        suffix = f"/{provider}"
+        for deployment in router_instance.model_list:
+            litellm_params = deployment.get("litellm_params", {})
+            model_str = litellm_params.get("model", "")
+            if prefix in model_str or suffix in model_str:
+                return deployment.get("model_name")
     for deployment in router_instance.model_list:
         litellm_params = deployment.get("litellm_params", {})
         if litellm_params.get("mode") == "audio_speech":
@@ -9415,14 +9403,17 @@ def _resolve_voice_management_model(router_instance: Router) -> str | None:
     return None
 
 
-def _resolve_omnivoice_api_base(router_instance: Router) -> str | None:
-    for deployment in router_instance.model_list:
-        litellm_params = deployment.get("litellm_params", {})
-        model_str = litellm_params.get("model", "")
-        if "omnivoice/" in model_str or "/omnivoice" in model_str:
-            api_base = litellm_params.get("api_base")
-            if api_base:
-                return str(api_base).rstrip("/")
+def _resolve_audio_api_base(router_instance: Router, provider: str | None = None) -> str | None:
+    if provider is not None:
+        prefix = f"{provider}/"
+        suffix = f"/{provider}"
+        for deployment in router_instance.model_list:
+            litellm_params = deployment.get("litellm_params", {})
+            model_str = litellm_params.get("model", "")
+            if prefix in model_str or suffix in model_str:
+                api_base = litellm_params.get("api_base")
+                if api_base:
+                    return str(api_base).rstrip("/")
     for deployment in router_instance.model_list:
         litellm_params = deployment.get("litellm_params", {})
         if litellm_params.get("mode") == "audio_speech":
@@ -9473,7 +9464,7 @@ async def _route_voice_management(
         model = data.pop("model", None) or user_model
 
         if model is None and llm_router is not None:
-            model = _resolve_voice_management_model(llm_router)
+            model = _resolve_audio_model(llm_router)
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         voice_data["action"] = action
@@ -9543,7 +9534,7 @@ async def list_voices(
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
     return await _route_voice_management(
-        request=request, user_api_key_dict=user_api_key_dict, action="list", route_type="alist_voices"
+        request=request, user_api_key_dict=user_api_key_dict, action="list", route_type="acreate_voice"
     )
 
 
@@ -9563,7 +9554,7 @@ async def list_voice_profiles(
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ):
     return await _route_voice_management(
-        request=request, user_api_key_dict=user_api_key_dict, action="list_profiles", route_type="alist_voice_profiles"
+        request=request, user_api_key_dict=user_api_key_dict, action="list_profiles", route_type="acreate_voice"
     )
 
 
@@ -9587,7 +9578,7 @@ async def get_voice_profile(
         request=request,
         user_api_key_dict=user_api_key_dict,
         action="get_profile",
-        route_type="aget_voice_profile",
+        route_type="acreate_voice",
         profile_id=profile_id,
     )
 
@@ -9611,7 +9602,7 @@ async def create_voice_profile(
         request=request,
         user_api_key_dict=user_api_key_dict,
         action="create_profile",
-        route_type="acreate_voice_profile",
+        route_type="acreate_voice",
     )
 
 
@@ -9635,7 +9626,7 @@ async def update_voice_profile(
         request=request,
         user_api_key_dict=user_api_key_dict,
         action="update_profile",
-        route_type="aupdate_voice_profile",
+        route_type="acreate_voice",
         profile_id=profile_id,
     )
 
@@ -9660,7 +9651,7 @@ async def delete_voice_profile(
         request=request,
         user_api_key_dict=user_api_key_dict,
         action="delete_profile",
-        route_type="adelete_voice_profile",
+        route_type="acreate_voice",
         profile_id=profile_id,
     )
 
@@ -9708,7 +9699,7 @@ async def audio_script(
         model = data.pop("model", None) or user_model
 
         if model is None and llm_router is not None:
-            model = _resolve_voice_management_model(llm_router)
+            model = _resolve_audio_model(llm_router)
 
         script_segments = data.pop("script", None)
         if script_segments is None:
@@ -9719,13 +9710,10 @@ async def audio_script(
                 param="script",
             )
 
-        script_kwargs: dict = {"script": script_segments}
-        for key in ("default_voice", "speed", "response_format", "output_format", "pause_between_speakers", "on_error"):
-            value = data.pop(key, None)
-            if value is not None:
-                script_kwargs[key] = value
-
-        data = {"model": model, "input": "", "voice": None, **script_kwargs, **data}
+        data["script"] = script_segments
+        data.setdefault("model", model)
+        data.setdefault("input", "")
+        data.setdefault("voice", None)
 
         data = await proxy_logging_obj.pre_call_hook(
             user_api_key_dict=user_api_key_dict, data=data, call_type="ascript"
@@ -9778,10 +9766,11 @@ async def audio_script(
         raise e
 
 
-async def _proxy_to_omnivoice_pod(
+async def _proxy_to_audio_pod(
     request: Request,
     user_api_key_dict: UserAPIKeyAuth,
     path: str,
+    provider: str = "omnivoice",
 ) -> Response:
     import httpx
 
@@ -9793,22 +9782,30 @@ async def _proxy_to_omnivoice_pod(
             param=None,
         )
 
-    api_base = _resolve_omnivoice_api_base(llm_router)
+    api_base = _resolve_audio_api_base(llm_router, provider=provider)
     if api_base is None:
         raise ProxyException(
-            message="No OmniVoice deployment found",
+            message="No {} deployment found".format(provider),
             code=status.HTTP_503_SERVICE_UNAVAILABLE,
             type="server_error",
             param=None,
         )
 
-    if api_base.lower().endswith("/v1"):
-        base = api_base[:-3]
-    else:
-        base = api_base
-    target_url = base + path
+    target_url = api_base + path
 
-    async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+    ssl_verify = True
+    timeout = 30.0
+    for deployment in llm_router.model_list:
+        litellm_params = deployment.get("litellm_params", {})
+        model_str = litellm_params.get("model", "")
+        if f"{provider}/" in model_str or f"/{provider}" in model_str:
+            ssl_verify = litellm_params.get("ssl_verify", True)
+            request_timeout = litellm_params.get("request_timeout")
+            if request_timeout is not None:
+                timeout = float(request_timeout)
+            break
+
+    async with httpx.AsyncClient(verify=ssl_verify, timeout=timeout) as client:
         headers = {
             k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length", "authorization")
         }
@@ -9837,7 +9834,7 @@ async def audio_models(
     fastapi_response: Response,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> Response:
-    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/v1/models")
+    return await _proxy_to_audio_pod(request, user_api_key_dict, "/v1/models")
 
 
 @router.get(
@@ -9856,7 +9853,7 @@ async def audio_model_detail(
     fastapi_response: Response,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> Response:
-    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, f"/v1/models/{model_id}")
+    return await _proxy_to_audio_pod(request, user_api_key_dict, f"/v1/models/{model_id}")
 
 
 @router.get(
@@ -9874,7 +9871,7 @@ async def audio_health(
     fastapi_response: Response,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> Response:
-    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/health")
+    return await _proxy_to_audio_pod(request, user_api_key_dict, "/health")
 
 
 @router.get(
@@ -9892,7 +9889,7 @@ async def audio_metrics(
     fastapi_response: Response,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> Response:
-    return await _proxy_to_omnivoice_pod(request, user_api_key_dict, "/metrics")
+    return await _proxy_to_audio_pod(request, user_api_key_dict, "/metrics")
 
 
 @router.post(

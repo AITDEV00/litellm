@@ -12,12 +12,6 @@ def test_omnivoice_in_provider_list():
     assert "omnivoice" in litellm.openai_compatible_providers
 
 
-def test_omnivoice_in_custom_audio_handler_providers():
-    from litellm.main import _CUSTOM_AUDIO_HANDLER_PROVIDERS
-
-    assert "omnivoice" in _CUSTOM_AUDIO_HANDLER_PROVIDERS
-
-
 def test_omnivoice_get_provider_text_to_speech_config():
     from litellm.utils import ProviderConfigManager
     from litellm.types.utils import LlmProviders
@@ -27,6 +21,30 @@ def test_omnivoice_get_provider_text_to_speech_config():
         provider=LlmProviders.OMNIVOICE,
     )
     assert isinstance(config, OmniVoiceTextToSpeechConfig)
+
+
+def test_omnivoice_get_provider_text_to_speech_config_returns_clone_config_with_ref_audio():
+    from litellm.utils import ProviderConfigManager
+    from litellm.types.utils import LlmProviders
+    from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceCloneConfig
+
+    config = ProviderConfigManager.get_provider_text_to_speech_config(
+        model="omnivoice",
+        provider=LlmProviders.OMNIVOICE,
+        kwargs={"ref_audio": ("ref.wav", b"\x00", "audio/wav")},
+    )
+    assert isinstance(config, OmniVoiceVoiceCloneConfig)
+
+
+def test_omnivoice_get_provider_script_config():
+    from litellm.utils import ProviderConfigManager
+    from litellm.types.utils import LlmProviders
+    from litellm.llms.omnivoice.script.transformation import OmniVoiceScriptConfig
+
+    config = ProviderConfigManager.get_provider_script_config(
+        provider=LlmProviders.OMNIVOICE,
+    )
+    assert isinstance(config, OmniVoiceScriptConfig)
 
 
 def test_omnivoice_tts_supported_params():

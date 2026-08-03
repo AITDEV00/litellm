@@ -7574,8 +7574,7 @@ def transcription(
             litellm_params=litellm_params_dict,
         )
     elif custom_llm_provider == "openai" or (
-        custom_llm_provider in litellm.openai_compatible_providers
-        and custom_llm_provider not in _CUSTOM_AUDIO_HANDLER_PROVIDERS
+        custom_llm_provider in litellm.openai_compatible_providers and provider_config is None
     ):
         api_base = (
             api_base
@@ -7728,9 +7727,6 @@ async def aspeech(*args, **kwargs) -> HttpxBinaryResponseContent:
         )
 
 
-_CUSTOM_AUDIO_HANDLER_PROVIDERS: frozenset[str] = frozenset({"inception", "omnivoice"})
-
-
 @client
 def speech(
     model: str,
@@ -7783,6 +7779,7 @@ def speech(
     text_to_speech_provider_config = ProviderConfigManager.get_provider_text_to_speech_config(
         model=model,
         provider=litellm.LlmProviders(custom_llm_provider),
+        kwargs=kwargs,
     )
 
     # Map OpenAI params to provider-specific params if config exists
@@ -7817,8 +7814,7 @@ def speech(
         None,
     ] = None
     if custom_llm_provider == "openai" or (
-        custom_llm_provider in litellm.openai_compatible_providers
-        and custom_llm_provider not in _CUSTOM_AUDIO_HANDLER_PROVIDERS
+        custom_llm_provider in litellm.openai_compatible_providers and text_to_speech_provider_config is None
     ):
         if voice is None or not (isinstance(voice, str)):
             raise litellm.BadRequestError(
@@ -8160,78 +8156,11 @@ def speech(
             api_key=api_key,
             **kwargs,
         )
-    elif custom_llm_provider == "hamsa":
-        from litellm.llms.hamsa.text_to_speech.transformation import (
-            HamsaTextToSpeechConfig,
-        )
-
-        if text_to_speech_provider_config is None:
-            text_to_speech_provider_config = HamsaTextToSpeechConfig()
-
-        if api_base is not None:
-            litellm_params_dict["api_base"] = api_base
-        if api_key is not None:
-            litellm_params_dict["api_key"] = api_key
-
-        response = base_llm_http_handler.text_to_speech_handler(
-            model=model,
-            input=input,
-            voice=voice,
-            text_to_speech_provider_config=text_to_speech_provider_config,
-            text_to_speech_optional_params=optional_params,
-            custom_llm_provider=custom_llm_provider,
-            litellm_params=litellm_params_dict,
-            logging_obj=logging_obj,
-            timeout=timeout,
-            extra_headers=extra_headers,
-            client=client,
-            _is_async=aspeech or False,
-        )
-    elif custom_llm_provider == "inception":
-        from litellm.llms.inception.text_to_speech.transformation import (
-            InceptionTextToSpeechConfig,
-        )
-
-        if text_to_speech_provider_config is None:
-            text_to_speech_provider_config = InceptionTextToSpeechConfig()
-
-        if api_base is not None:
-            litellm_params_dict["api_base"] = api_base
-        if api_key is not None:
-            litellm_params_dict["api_key"] = api_key
-
-        response = base_llm_http_handler.text_to_speech_handler(
-            model=model,
-            input=input,
-            voice=voice,
-            text_to_speech_provider_config=text_to_speech_provider_config,
-            text_to_speech_optional_params=optional_params,
-            custom_llm_provider=custom_llm_provider,
-            litellm_params=litellm_params_dict,
-            logging_obj=logging_obj,
-            timeout=timeout,
-            extra_headers=extra_headers,
-            client=client,
-            _is_async=aspeech or False,
-        )
-    elif custom_llm_provider == "omnivoice":
-        if kwargs.get("ref_audio") is not None:
-            from litellm.llms.omnivoice.voice.transformation import (
-                OmniVoiceVoiceCloneConfig,
-            )
-
-            if text_to_speech_provider_config is None or not isinstance(
-                text_to_speech_provider_config, OmniVoiceVoiceCloneConfig
-            ):
-                text_to_speech_provider_config = OmniVoiceVoiceCloneConfig()
-        else:
-            from litellm.llms.omnivoice.text_to_speech.transformation import (
-                OmniVoiceTextToSpeechConfig,
-            )
-
-            if text_to_speech_provider_config is None:
-                text_to_speech_provider_config = OmniVoiceTextToSpeechConfig()
-
+    elif text_to_speech_provider_config is not None and custom_llm_provider in (
+        "hamsa",
+        "inception",
+        "omnivoice",
+    ):
         if api_base is not None:
             litellm_params_dict["api_base"] = api_base
         if api_key is not None:
@@ -8344,10 +8273,10 @@ def create_voice(
     )
 
     if voice_provider_config is None:
-        raise Exception(
-            "Voice management is not supported for provider={}. Supported providers: hamsa, omnivoice.".format(
-                custom_llm_provider
-            )
+        raise litellm.BadRequestError(
+            message="Voice management is not supported for provider={}".format(custom_llm_provider),
+            model=model,
+            llm_provider=custom_llm_provider,
         )
 
     logging_obj: LiteLLMLoggingObj = kwargs.get("litellm_logging_obj")  # pyright: ignore[reportAny]  # kwargs-typed; Logging is the runtime type
@@ -8457,9 +8386,15 @@ def script(
         max_retries = litellm.num_retries or openai.DEFAULT_MAX_RETRIES
     litellm_params_dict = get_litellm_params(**kwargs)
 
-    from litellm.llms.omnivoice.script.transformation import OmniVoiceScriptConfig
-
-    text_to_speech_provider_config = OmniVoiceScriptConfig()
+    text_to_speech_provider_config = ProviderConfigManager.get_provider_script_config(
+        provider=litellm.LlmProviders(custom_llm_provider),
+    )
+    if text_to_speech_provider_config is None:
+        raise litellm.BadRequestError(
+            message="Script synthesis is not supported for provider={}".format(custom_llm_provider),
+            model=model,
+            llm_provider=custom_llm_provider,
+        )
 
     voice, optional_params = text_to_speech_provider_config.map_openai_params(
         model=model,

@@ -268,6 +268,7 @@ if TYPE_CHECKING:
     from litellm.llms.base_llm.realtime.http_transformation import (
         BaseRealtimeHTTPConfig,
     )
+    from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
     from litellm.proxy._types import AllowedModelRegion
 
     # Type stubs for lazy-loaded functions to help mypy understand their types
@@ -8921,9 +8922,14 @@ class ProviderConfigManager:
     def get_provider_text_to_speech_config(
         model: str,
         provider: LlmProviders,
+        kwargs: dict[str, Any] | None = None,
     ) -> Optional["BaseTextToSpeechConfig"]:
         """
         Get text-to-speech configuration for a given provider.
+
+        For providers that support multiple TTS modes (e.g. OmniVoice with
+        voice cloning), *kwargs* is inspected to select the correct config
+        subclass.
         """
         from litellm.llms.base_llm.text_to_speech.transformation import (
             BaseTextToSpeechConfig,
@@ -8981,6 +8987,12 @@ class ProviderConfigManager:
 
             return InceptionTextToSpeechConfig()
         elif litellm.LlmProviders.OMNIVOICE == provider:
+            if kwargs is not None and kwargs.get("ref_audio") is not None:
+                from litellm.llms.omnivoice.voice.transformation import (
+                    OmniVoiceVoiceCloneConfig,
+                )
+
+                return OmniVoiceVoiceCloneConfig()
             from litellm.llms.omnivoice.text_to_speech.transformation import (
                 OmniVoiceTextToSpeechConfig,
             )
@@ -9024,8 +9036,10 @@ class ProviderConfigManager:
 
     @staticmethod
     def get_provider_voice_config(
-        provider: Literal["hamsa", "omnivoice"],
-    ) -> Optional[Any]:
+        provider: LlmProviders,
+    ) -> Optional[BaseVoiceConfig]:
+        from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
+
         if litellm.LlmProviders.HAMSA == provider:
             from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
 
@@ -9034,6 +9048,18 @@ class ProviderConfigManager:
             from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceConfig
 
             return OmniVoiceVoiceConfig()
+        return None
+
+    @staticmethod
+    def get_provider_script_config(
+        provider: LlmProviders,
+    ) -> Optional[BaseTextToSpeechConfig]:
+        if litellm.LlmProviders.OMNIVOICE == provider:
+            from litellm.llms.omnivoice.script.transformation import (
+                OmniVoiceScriptConfig,
+            )
+
+            return OmniVoiceScriptConfig()
         return None
 
 

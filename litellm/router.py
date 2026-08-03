@@ -3937,24 +3937,6 @@ class Router:
                 self.fail_calls[model_name] += 1
             raise e
 
-    async def alist_voices(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
-    async def alist_voice_profiles(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
-    async def aget_voice_profile(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
-    async def acreate_voice_profile(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
-    async def aupdate_voice_profile(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
-    async def adelete_voice_profile(self, model: str, voice_data: dict, **kwargs):
-        return await self.acreate_voice(model=model, voice_data=voice_data, **kwargs)
-
     async def ascript(self, model: str, input: str = "", voice: str | None = None, **kwargs):
         try:
             kwargs["model"] = model
