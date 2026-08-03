@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 
@@ -49,7 +49,7 @@ class LiteLLMClient:
         self,
         deletes: List[str],
         registers: List[Tuple[OicmModel, Optional[dict]]],
-        patches: List[Tuple[str, dict]],
+        patches: List[Tuple[str, dict, Optional[Dict[str, str]]]],
     ) -> Tuple[int, List[Optional[str]], int]:
         valid_deletes = [mid for mid in deletes if mid]
         async with httpx.AsyncClient(timeout=10.0) as http_client:
@@ -64,8 +64,8 @@ class LiteLLMClient:
             )
             pat_coro = asyncio.gather(
                 *(
-                    self._patch_one(http_client, mid, params)
-                    for mid, params in patches
+                    self._patch_one(http_client, mid, params, model_info)
+                    for mid, params, model_info in patches
                 )
             )
 
@@ -162,13 +162,17 @@ class LiteLLMClient:
         client: httpx.AsyncClient,
         litellm_model_id: str,
         litellm_params: dict,
+        model_info: Optional[Dict[str, str]] = None,
     ) -> bool:
+        body: dict = {"litellm_params": litellm_params}
+        if model_info:
+            body["model_info"] = model_info
         async with self._semaphore:
             try:
                 resp = await client.patch(
                     f"{self.base_url}/model/{litellm_model_id}/update",
                     headers=self.headers,
-                    json={"litellm_params": litellm_params},
+                    json=body,
                 )
                 resp.raise_for_status()
                 logger.info(f"Patched model litellm_id={litellm_model_id}")

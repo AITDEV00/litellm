@@ -23,7 +23,7 @@ CONFIG_KEYS = {
 class SyncPlan:
     deletes: List[str] = field(default_factory=list)
     registers: List[Tuple[OicmModel, Optional[dict]]] = field(default_factory=list)
-    patches: List[Tuple[str, dict]] = field(default_factory=list)
+    patches: List[Tuple[str, dict, Optional[dict]]] = field(default_factory=list)
     new_state: Dict[str, OicmModel] = field(default_factory=dict)
     new_id_map: Dict[str, str] = field(default_factory=dict)
 
@@ -107,7 +107,11 @@ class SyncReconciler:
                     inherited = pricing_to_params(pricing)
                     if inherited:
                         patch_params.update(inherited)
-                    plan.patches.append((existing_id, patch_params))
+                    litellm_mode = model.mode
+                    if litellm_mode == "text_to_speech":
+                        litellm_mode = "audio_speech"
+                    patch_model_info: dict = {"mode": litellm_mode}
+                    plan.patches.append((existing_id, patch_params, patch_model_info))
                 plan.new_state[uuid] = model
 
         return plan
