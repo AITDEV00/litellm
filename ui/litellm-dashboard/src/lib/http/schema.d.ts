@@ -684,6 +684,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audio/speech/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Audio Speech Clone
+         * @description One-shot voice cloning: synthesize speech from text using a reference audio clip.
+         *
+         *     Multipart form-data endpoint. Required: text, ref_audio (file).
+         *     Optional: ref_text, response_format, speed, language, num_step, guidance_scale, etc.
+         */
+        post: operations["audio_speech_clone_audio_speech_clone_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audio/transcriptions": {
         parameters: {
             query?: never;
@@ -15312,6 +15335,29 @@ export interface paths {
          *     https://platform.openai.com/docs/api-reference/audio/createSpeech
          */
         post: operations["audio_speech_v1_audio_speech_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audio/speech/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Audio Speech Clone
+         * @description One-shot voice cloning: synthesize speech from text using a reference audio clip.
+         *
+         *     Multipart form-data endpoint. Required: text, ref_audio (file).
+         *     Optional: ref_text, response_format, speed, language, num_step, guidance_scale, etc.
+         */
+        post: operations["audio_speech_clone_v1_audio_speech_clone_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -34395,6 +34441,26 @@ export interface operations {
             };
         };
     };
+    audio_speech_clone_audio_speech_clone_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     audio_transcriptions_audio_transcriptions_post: {
         parameters: {
             query?: never;
@@ -52110,6 +52176,26 @@ export interface operations {
         };
     };
     audio_speech_v1_audio_speech_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_speech_clone_v1_audio_speech_clone_post: {
         parameters: {
             query?: never;
             header?: never;
