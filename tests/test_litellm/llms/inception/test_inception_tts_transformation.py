@@ -157,3 +157,43 @@ def test_inception_tts_internal_params_filtered():
     assert "litellm_call_id" not in mapped
     assert "proxy_server_request" not in mapped
     assert mapped["custom_param"] == "kept"
+
+
+def test_inception_tts_router_level_params_filtered():
+    config = InceptionTextToSpeechConfig()
+    voice, mapped = config.map_openai_params(
+        model="inception-tts",
+        optional_params={},
+        voice="samia",
+        drop_params=False,
+        kwargs={
+            "use_in_pass_through": True,
+            "use_litellm_proxy": True,
+            "use_xai_oauth": True,
+            "use_chat_completions_api": True,
+            "merge_reasoning_content_in_choices": True,
+            "custom_param": "kept",
+        },
+    )
+    assert "use_in_pass_through" not in mapped
+    assert "use_litellm_proxy" not in mapped
+    assert "use_xai_oauth" not in mapped
+    assert "use_chat_completions_api" not in mapped
+    assert "merge_reasoning_content_in_choices" not in mapped
+    assert mapped["custom_param"] == "kept"
+
+    request_data = config.transform_text_to_speech_request(
+        model="inception-tts",
+        input="hello",
+        voice="samia",
+        optional_params=dict(mapped),
+        litellm_params={},
+        headers={},
+    )
+    body = request_data["dict_body"]
+    assert "use_in_pass_through" not in body
+    assert "use_litellm_proxy" not in body
+    assert "use_xai_oauth" not in body
+    assert "use_chat_completions_api" not in body
+    assert "merge_reasoning_content_in_choices" not in body
+    assert body["custom_param"] == "kept"

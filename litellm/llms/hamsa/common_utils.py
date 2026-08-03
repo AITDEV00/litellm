@@ -63,6 +63,11 @@ HAMSA_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "async_mode",
         "litellm_session_id",
         "litellm_trace_id",
+        "use_in_pass_through",
+        "use_litellm_proxy",
+        "use_xai_oauth",
+        "use_chat_completions_api",
+        "merge_reasoning_content_in_choices",
     }
 )
 
