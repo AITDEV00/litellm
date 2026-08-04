@@ -40,6 +40,8 @@ data:
       cache: true
       cache_params:
         type: redis
+        ttl: 3600
+        default_in_memory_ttl: 60
         max_connections: 500
         socket_timeout: 10.0
       enable_redis_auth_cache: true

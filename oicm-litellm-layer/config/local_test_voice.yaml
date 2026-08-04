@@ -3,6 +3,7 @@ model_list:
     litellm_params:
       model: omnivoice/omnivoice
       api_base: http://localhost:18080
+      mode: audio_speech
 
 litellm_settings:
   store_model_in_db: false
