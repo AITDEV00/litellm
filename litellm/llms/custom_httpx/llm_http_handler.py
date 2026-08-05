@@ -1305,16 +1305,12 @@ class BaseLLMHTTPHandler:
         # keeps the fix in the shared chokepoint so no future provider can
         # silently regress.
         if files is None and isinstance(data, dict):
-            clean_data: dict = {}
-            for key, value in data.items():
-                if _is_file_like(value):
-                    continue
-                clean_data[key] = value
-            if len(clean_data) != len(data):
+            file_value = next((v for v in data.values() if _is_file_like(v)), None)
+            if file_value is not None:
                 from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
 
-                processed = process_audio_file(audio_file)
-                data = clean_data
+                processed = process_audio_file(file_value)
+                data = {k: v for k, v in data.items() if not _is_file_like(v)}
                 files = {
                     "file": (
                         processed.filename,

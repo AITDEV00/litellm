@@ -11,6 +11,7 @@ the fix: the audio file must be split out into the ``files`` dict as a
 """
 
 import io
+import json
 
 from litellm.llms.base_llm.audio_transcription.transformation import (
     AudioTranscriptionRequestData,
@@ -55,8 +56,6 @@ class TestHostedVLLMAudioTranscriptionTransform:
         assert content_type
 
         # the whole payload must remain JSON-serializable after dropping files
-        import json
-
         json.dumps(result.data)
 
     def test_passes_through_supported_openai_params(self):

@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 import sys
@@ -1872,19 +1873,11 @@ def _file_in_data_transcription_call_kwargs(provider_config, audio_file):
     return kwargs
 
 
-@pytest.mark.parametrize("atranscription", [False, True])
-def test_audio_transcriptions_promotes_file_from_data_to_multipart(atranscription):
+def test_audio_transcriptions_promotes_file_from_data_to_multipart():
     """Regression: a provider that leaves the raw file object inside ``data``
     with ``files=None`` must not hit "BytesIO is not JSON serializable". The
     shared handler must promote the file into the multipart ``files=`` dict and
     keep ``data`` as JSON-safe form fields."""
-    import io
-
-    import pytest as _pytest
-
-    if atranscription:
-        _pytest.skip("async variant covered by dedicated test")
-
     captured = {}
     client = HTTPHandler(client=httpx.Client(transport=httpx.MockTransport(_capture_multipart_transcription_request(captured))))
 
@@ -1904,8 +1897,6 @@ def test_audio_transcriptions_promotes_file_from_data_to_multipart(atranscriptio
 @pytest.mark.asyncio
 async def test_async_audio_transcriptions_promotes_file_from_data_to_multipart():
     """Async variant of the shared-handler guard."""
-    import io
-
     captured = {}
     client = AsyncHTTPHandler()
     client.client = httpx.AsyncClient(transport=httpx.MockTransport(_capture_multipart_transcription_request(captured)))
