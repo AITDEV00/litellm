@@ -1780,6 +1780,12 @@ export interface ModelPerformanceScope {
   endUserId?: string;
   apiKey?: string;
   agentId?: string;
+  /** Bucket/granularity override for the x-axis (e.g. "1 hour"). */
+  step?: string;
+  /** Explicit range start (ISO-8601). Overrides window-relative start. */
+  startTime?: string;
+  /** Explicit range end (ISO-8601). Overrides window-relative end. */
+  endTime?: string;
 }
 
 export const modelPerformanceCall = async (
@@ -1793,6 +1799,7 @@ export const modelPerformanceCall = async (
       accessToken,
       query: {
         window,
+        ...(scope.step ? { step: scope.step } : {}),
         ...(modelGroup ? { model_group: modelGroup } : {}),
         ...(scope.teamId ? { team_id: scope.teamId } : {}),
         ...(scope.organizationId ? { organization_id: scope.organizationId } : {}),
@@ -1800,6 +1807,8 @@ export const modelPerformanceCall = async (
         ...(scope.endUserId ? { end_user_id: scope.endUserId } : {}),
         ...(scope.apiKey ? { api_key: scope.apiKey } : {}),
         ...(scope.agentId ? { agent_id: scope.agentId } : {}),
+        ...(scope.startTime ? { start_time: scope.startTime } : {}),
+        ...(scope.endTime ? { end_time: scope.endTime } : {}),
       },
     });
   } catch (error) {

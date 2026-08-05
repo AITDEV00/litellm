@@ -1,11 +1,12 @@
 import { Card, Grid, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, Title } from "@tremor/react";
 import { Segmented, Select } from "antd";
-import React, { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 
 import { useModelPerformance } from "@/app/(dashboard)/hooks/models/useModelPerformance";
 import { ChartLoader } from "../../../shared/chart_loader";
 import { LineChart, DEFAULT_COLOR_CYCLE } from "../../../shared/charts";
+import { UiLoadingSpinner } from "../../../ui/ui-loading-spinner";
 import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "../../../networking";
 import { uiSpendLogsCall } from "../../../networking";
 import { LogDetailsDrawer } from "../../../view_logs/LogDetailsDrawer/LogDetailsDrawer";
@@ -18,6 +19,86 @@ const WINDOW_OPTIONS = [
   { label: "24h", value: "24h" },
   { label: "7d", value: "7d" },
 ];
+
+// When "Live" is active the component overrides the shared date range and the
+// internal window with a short Prometheus-backed window that auto-refreshes,
+// so the tab shows near-real-time concurrent requests / throughput regardless
+// of which date period the user selected in the top "Select Time Range" widget.
+const LIVE_WINDOW = "5m";
+const LIVE_REFRESH_MS = 10_000;
+
+// x-axis granularity knob ("zoom in/out"): smaller buckets = smoother curves
+// with more points; larger buckets = coarser. DB-backed windows (24h/7d) map
+// each option to a Postgres interval; Prometheus-backed windows (5m/15m/1h)
+// are not zoomable, so the knob is hidden for them. The "" value means "use
+// the backend's per-window default bucket" (24h=1h, 7d=6h) so the knob is
+// safe by default and users can zoom in (e.g. 7d at 1 hour) for smooth curves.
+const GRANULARITY_OPTIONS: Record<string, { label: string; value: string }[]> = {
+  "24h": [
+    { label: "Auto", value: "" },
+    { label: "30m", value: "30 minutes" },
+    { label: "1h", value: "1 hour" },
+    { label: "2h", value: "2 hours" },
+    { label: "6h", value: "6 hours" },
+  ],
+  "7d": [
+    { label: "Auto", value: "" },
+    { label: "1h", value: "1 hour" },
+    { label: "3h", value: "3 hours" },
+    { label: "6h", value: "6 hours" },
+    { label: "12h", value: "12 hours" },
+  ],
+};
+
+// Granularity options for a custom time range (the shared "Select Time Range"
+// widget), bucketed by the range duration. "" = backend-computed default.
+function getRangeGranularityOptions(durationMs: number): { label: string; value: string }[] {
+  const hours = durationMs / (60 * 60 * 1000);
+  if (hours <= 2) {
+    return [
+      { label: "Auto", value: "" },
+      { label: "5m", value: "5 minutes" },
+      { label: "15m", value: "15 minutes" },
+      { label: "30m", value: "30 minutes" },
+    ];
+  }
+  if (hours <= 24) {
+    return [
+      { label: "Auto", value: "" },
+      { label: "30m", value: "30 minutes" },
+      { label: "1h", value: "1 hour" },
+      { label: "2h", value: "2 hours" },
+      { label: "6h", value: "6 hours" },
+    ];
+  }
+  if (hours <= 72) {
+    return [
+      { label: "Auto", value: "" },
+      { label: "1h", value: "1 hour" },
+      { label: "3h", value: "3 hours" },
+      { label: "6h", value: "6 hours" },
+      { label: "12h", value: "12 hours" },
+    ];
+  }
+  return [
+    { label: "Auto", value: "" },
+    { label: "6h", value: "6 hours" },
+    { label: "12h", value: "12 hours" },
+    { label: "1d", value: "1 day" },
+    { label: "3d", value: "3 days" },
+  ];
+}
+
+// Map a time range to the closest predefined window (used only for the query
+// refetch cadence and cache key; the backend honors start_time/end_time).
+function deriveWindowFromRange(durationMs: number): string {
+  const h = durationMs / (60 * 60 * 1000);
+  if (h <= 0.25) return "5m";
+  if (h <= 1) return "15m";
+  if (h <= 6) return "1h";
+  if (h <= 48) return "24h";
+  return "7d";
+}
 
 function transformTimeSeries(
   models: ModelPerformanceModel[],
@@ -115,17 +196,86 @@ const PerformanceChart = memo(function PerformanceChart({
 interface ModelPerformanceViewProps {
   scope?: ModelPerformanceScope;
   accessToken?: string | null;
+  /** Optional time range from the shared "Select Time Range" widget. When
+   * present, it overrides the internal window-relative date. */
+  dateValue?: { from?: Date | null; to?: Date | null };
 }
 
-const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {}, accessToken }) => {
+const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {}, accessToken, dateValue }) => {
   const [window, setWindow] = useState<string>("1h");
+  const [granularity, setGranularity] = useState<string>("");
+  const [live, setLive] = useState<boolean>(false);
   const [selectedModelGroups, setSelectedModelGroups] = useState<string[]>([]);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [drilldownLogs, setDrilldownLogs] = useState<LogEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const [debouncedWindow] = useDebouncedValue(window, { wait: 200 });
-  const { data, isLoading, isError } = useModelPerformance(debouncedWindow, undefined, scope);
+  const [debouncedGranularity] = useDebouncedValue(granularity, { wait: 200 });
+
+  // Live mode is a self-contained realtime view: it overrides the shared date
+  // range widget AND the internal window with a short Prometheus-backed window
+  // that auto-refreshes. It is disabled whenever the view is entity-scoped
+  // (team/user/key/etc.) because the Prometheus live metrics do not carry
+  // entity-scope labels, so per-entity realtime would leak cross-entity data.
+  const canLive = !(
+    scope.teamId ||
+    scope.organizationId ||
+    scope.userId ||
+    scope.endUserId ||
+    scope.apiKey ||
+    scope.agentId
+  );
+
+  // The parent "Select Time Range" widget (if provided) owns the date range;
+  // we pass its from/to through to the backend, which overrides the
+  // window-relative start. The internal window segmented control is hidden in
+  // that case, but the granularity knob stays so users can still zoom.
+  const hasCustomRange = Boolean(dateValue?.from && dateValue?.to);
+  const rangeDurationMs = useMemo(() => {
+    if (!dateValue?.from || !dateValue?.to) return 0;
+    return Math.max(0, dateValue.to.getTime() - dateValue.from.getTime());
+  }, [dateValue?.from, dateValue?.to]);
+
+  // When a custom range is active, derive the window from its duration (used
+  // for refetch cadence / cache key) and reset granularity if the range size
+  // class changes so the option set always fits the range. Live mode overrides
+  // everything and forces the short realtime window.
+  const effectiveWindow = live ? LIVE_WINDOW : hasCustomRange ? deriveWindowFromRange(rangeDurationMs) : debouncedWindow;
+  const granularityOptions = live
+    ? []
+    : hasCustomRange
+      ? getRangeGranularityOptions(rangeDurationMs)
+      : (GRANULARITY_OPTIONS[effectiveWindow] ?? []);
+
+  useEffect(() => {
+    if (!live && hasCustomRange) setGranularity("");
+  }, [live, hasCustomRange, rangeDurationMs]);
+
+  // When toggling into/out of live mode, reset granularity so stale zoom levels
+  // don't carry across modes.
+  useEffect(() => {
+    setGranularity("");
+  }, [live]);
+
+  const effectiveScope = useMemo<ModelPerformanceScope>(() => {
+    // Live mode must ignore the shared date range entirely.
+    if (live) return scope;
+    if (!hasCustomRange) return scope;
+    return {
+      ...scope,
+      startTime: dateValue!.from!.toISOString(),
+      endTime: dateValue!.to!.toISOString(),
+    };
+  }, [scope, live, hasCustomRange, dateValue?.from, dateValue?.to]);
+
+  const { data, isLoading, isFetching, isError, dataUpdatedAt } = useModelPerformance(
+    effectiveWindow,
+    undefined,
+    effectiveScope,
+    debouncedGranularity,
+    live,
+  );
 
   const models = useMemo(() => data?.models || [], [data]);
   const deferredModels = useDeferredValue(models);
@@ -147,7 +297,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
   );
   const ttftChart = useMemo(() => transformTimeSeries(filteredModels, "ttft_seconds"), [filteredModels]);
 
-  const isStale = deferredModels !== models;
+  const isStale = deferredModels !== models || isFetching;
 
   const handleConcurrentPointClick = useCallback(
     (datum: Record<string, string | number | null>, category: string) => {
@@ -195,7 +345,9 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
         </Card>
       );
     }
-    if (isLoading) {
+    // Initial load (no cached data yet) or an in-flight refetch after the user
+    // changed the window / granularity / model selection.
+    if (isLoading || (isFetching && models.length === 0)) {
       return (
         <Card>
           <ChartLoader />
@@ -212,7 +364,12 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
     return (
       <>
         <Grid numItems={1} className="gap-4">
-          {isStale && <p className="text-xs text-gray-400">Updating charts…</p>}
+          {isFetching && models.length > 0 && (
+            <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
+              <UiLoadingSpinner className="size-4" />
+              <span>Refreshing charts…</span>
+            </div>
+          )}
           <PerformanceChart
             title="Concurrent Requests"
             data={concurrentChart.data}
@@ -272,7 +429,38 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
   return (
     <div className="space-y-4" style={{ opacity: isStale ? 0.7 : 1, transition: "opacity 0.2s" }}>
       <div className="flex items-center justify-between gap-4">
-        <Segmented options={WINDOW_OPTIONS} value={window} onChange={(val) => setWindow(val as string)} />
+        <div className="flex items-center gap-3">
+          {canLive && (
+            <Segmented
+              options={[
+                { label: "Live", value: "live" },
+                { label: "Historical", value: "hist" },
+              ]}
+              value={live ? "live" : "hist"}
+              onChange={(val) => setLive(val === "live")}
+            />
+          )}
+          {!live && !hasCustomRange && (
+            <Segmented options={WINDOW_OPTIONS} value={window} onChange={(val) => {
+              setWindow(val as string);
+              setGranularity("");
+            }} />
+          )}
+          {!live && (
+            <Segmented
+              size="small"
+              options={granularityOptions}
+              value={granularity}
+              onChange={(val) => setGranularity(val as string)}
+            />
+          )}
+          {live && dataUpdatedAt > 0 && (
+            <span className="text-xs text-gray-500 whitespace-nowrap">
+              Updated {new Date(dataUpdatedAt).toLocaleTimeString()}
+              {isFetching && " · refreshing"}
+            </span>
+          )}
+        </div>
         <Select
           style={{ minWidth: 280, maxWidth: 380 }}
           mode="multiple"

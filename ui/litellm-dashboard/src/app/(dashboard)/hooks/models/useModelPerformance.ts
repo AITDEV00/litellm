@@ -11,18 +11,28 @@ const performanceKeys = createQueryKeys("modelPerformance");
 
 const SHORT_WINDOWS = new Set(["5m", "15m"]);
 
-export const useModelPerformance = (window: string = "1h", modelGroup?: string, scope: ModelPerformanceScope = {}) => {
+export const useModelPerformance = (
+  window: string = "1h",
+  modelGroup?: string,
+  scope: ModelPerformanceScope = {},
+  step?: string,
+  live: boolean = false,
+) => {
   const { accessToken } = useAuthorized();
+  const effectiveScope: ModelPerformanceScope =
+    step == null || step === "" ? scope : { ...scope, step };
   const filters = {
     window,
     ...(modelGroup ? { modelGroup } : {}),
-    ...scope,
+    ...effectiveScope,
   };
   return useQuery<ModelPerformanceResponse>({
     queryKey: performanceKeys.list({ filters }),
-    queryFn: () => modelPerformanceCall(accessToken!, window, modelGroup, scope),
+    queryFn: () => modelPerformanceCall(accessToken!, window, modelGroup, effectiveScope),
     enabled: Boolean(accessToken),
     placeholderData: keepPreviousData,
-    refetchInterval: SHORT_WINDOWS.has(window) ? 30_000 : false,
+    // Live mode ticks continuously; short windows without live mode refresh
+    // every 30s as before.
+    refetchInterval: live ? 10_000 : SHORT_WINDOWS.has(window) ? 30_000 : false,
   });
 };

@@ -44755,6 +44755,8 @@ export interface operations {
                 window?: string;
                 /** @description Filter to a specific model_group */
                 model_group?: string | null;
+                /** @description Bucket/granularity for the time series (e.g. '1 hour', '6 hours'). Overrides the window default so the UI can zoom in/out the x-axis. */
+                step?: string | null;
                 /** @description Scope to a specific team */
                 team_id?: string | null;
                 /** @description Scope to a specific organization */

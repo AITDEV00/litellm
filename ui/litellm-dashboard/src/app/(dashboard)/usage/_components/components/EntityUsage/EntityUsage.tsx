@@ -716,7 +716,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({ accessToken, entityType, enti
     {
       key: "performance",
       label: "Model Performance",
-      content: <ModelPerformanceView scope={modelPerformanceScope} accessToken={accessToken} />,
+      content: <ModelPerformanceView scope={modelPerformanceScope} accessToken={accessToken} dateValue={dateValue} />,
     },
     ...(entityType === "team"
       ? [{ key: "agents", label: "Agent Activity", content: <ActivityMetrics modelMetrics={agentMetrics} /> }]

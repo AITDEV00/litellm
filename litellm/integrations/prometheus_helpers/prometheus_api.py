@@ -154,7 +154,9 @@ async def get_daily_spend_from_prometheus(api_key: Optional[str]):
 
 _WINDOW_CONFIG: dict[str, tuple[str, str]] = {
     "1m": ("1m", "15s"),
+    "5m": ("5m", "15s"),
     "15m": ("15m", "15s"),
+    "30m": ("30m", "1m"),
     "1h": ("1h", "30s"),
     "24h": ("24h", "5m"),
     "7d": ("7d", "1h"),

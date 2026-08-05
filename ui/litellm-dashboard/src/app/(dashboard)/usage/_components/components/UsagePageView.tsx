@@ -853,7 +853,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <EndpointUsage userSpendData={userSpendData} />
                   </TabPanel>
                   <TabPanel>
-                    <ModelPerformanceView />
+                    <ModelPerformanceView dateValue={dateValue} />
                   </TabPanel>
                 </TabPanels>
               </TabGroup>
