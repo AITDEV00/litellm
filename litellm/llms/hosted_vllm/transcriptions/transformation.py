@@ -14,7 +14,7 @@ from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.openai.transcriptions.whisper_transformation import (
     OpenAIWhisperAudioTranscriptionConfig,
 )
-from litellm.types.utils import FileTypes
+from litellm.types.utils import FileTypes, TranscriptionResponse
 
 
 class HostedVLLMAudioTranscriptionError(BaseLLMException):
@@ -92,3 +92,29 @@ class HostedVLLMAudioTranscriptionConfig(OpenAIWhisperAudioTranscriptionConfig):
             data=form_fields,
             files=files,
         )
+
+    def transform_audio_transcription_response(
+        self,
+        raw_response: httpx.Response,
+    ) -> TranscriptionResponse:
+        """
+        Transform the audio transcription response.
+
+        The inherited whisper transform calls ``TranscriptionResponse(**json)``,
+        which breaks whenever the endpoint returns extra keys (e.g. Qwen ASR
+        returns a ``usage`` field) because ``TranscriptionResponse.__init__``
+        only accepts ``text``. Here we build the response from ``text`` and copy
+        any remaining provider fields onto the object, matching the pattern used
+        by the other httpx-based providers (e.g. inception).
+        """
+        payload = raw_response.json()
+        text = payload.get("text", "")
+        response = TranscriptionResponse(text=text)
+
+        for key, value in payload.items():
+            if key == "text":
+                continue
+            response[key] = value
+
+        response._hidden_params = payload
+        return response

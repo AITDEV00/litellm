@@ -13,6 +13,8 @@ the fix: the audio file must be split out into the ``files`` dict as a
 import io
 import json
 
+import httpx
+
 from litellm.llms.base_llm.audio_transcription.transformation import (
     AudioTranscriptionRequestData,
 )
@@ -90,3 +92,48 @@ class TestHostedVLLMAudioTranscriptionTransform:
         assert filename == "clip.mp3"
         assert content == b"abc"
         assert content_type
+
+
+class TestHostedVLLMAudioTranscriptionResponse:
+    def _response(self, payload: dict) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    def test_handles_usage_field(self):
+        """A provider ``usage`` field must not crash response construction.
+
+        The inherited whisper transform does ``TranscriptionResponse(**json)``,
+        which fails with "unexpected keyword argument 'usage'" because the
+        response model only accepts ``text``. Qwen ASR returns a ``usage``
+        field, so this is the exact regression seen against a live hosted_vllm
+        ASR endpoint.
+        """
+        result = HostedVLLMAudioTranscriptionConfig().transform_audio_transcription_response(
+            self._response(
+                {
+                    "text": "hello world",
+                    "usage": {"type": "tokens", "input_tokens": 5, "output_tokens": 3, "total_tokens": 8},
+                }
+            )
+        )
+
+        assert result.text == "hello world"
+        assert result["usage"]["total_tokens"] == 8
+        assert result["usage"] == {"type": "tokens", "input_tokens": 5, "output_tokens": 3, "total_tokens": 8}
+
+    def test_keeps_other_provider_fields(self):
+        """Extra non-text keys survive on the response for logging/audit."""
+        result = HostedVLLMAudioTranscriptionConfig().transform_audio_transcription_response(
+            self._response({"text": "hi", "task": "transcribe", "language": "en"})
+        )
+
+        assert result.text == "hi"
+        assert result["task"] == "transcribe"
+        assert result["language"] == "en"
+
+    def test_empty_text(self):
+        """A response with no text yields an empty string, not a crash."""
+        result = HostedVLLMAudioTranscriptionConfig().transform_audio_transcription_response(
+            self._response({"usage": {"type": "tokens", "total_tokens": 0}})
+        )
+
+        assert result.text == ""
