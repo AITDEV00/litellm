@@ -243,7 +243,8 @@ async def _fetch_prometheus_performance(
                 models[mg] = _empty_model_dict(mg)
             models[mg]["time_series"][series_name] = _parse_range_result([entry])
 
-    _compute_summaries(models)
+    for mg_data in models.values():
+        _summarize_time_series(mg_data)
 
     return {
         "window": window,
@@ -256,7 +257,7 @@ async def _fetch_prometheus_performance(
 async def _fetch_db_performance(
     window: str,
     model_group: Optional[str],
-    scope: EntityScope = EntityScope(),
+    scope: EntityScope,
 ) -> dict:
     from litellm.proxy.proxy_server import prisma_client
 
@@ -408,7 +409,7 @@ async def _fetch_db_performance(
             summary["total_tokens"] += int(row.get("total_completion_tokens", 0))
 
         for mg_data in models.values():
-            _finalize_summary(mg_data)
+            _summarize_time_series(mg_data)
 
     source = "db"
 
@@ -444,23 +445,13 @@ def _empty_model_dict(model_group: str) -> dict:
     }
 
 
-def _compute_summaries(models: dict[str, dict[str, Any]]) -> None:
-    for mg_data in models.values():
-        ts = mg_data["time_series"]
-        mg_data["summary"]["avg_concurrent"] = _avg_values(ts.get("concurrent_requests", []))
-        mg_data["summary"]["avg_throughput"] = _avg_values(ts.get("throughput_tokens_per_sec", []))
-        ttft_vals = [p["value"] for p in ts.get("ttft_seconds", []) if p["value"] is not None]
-        if ttft_vals:
-            ttft_vals.sort()
-            mg_data["summary"]["p50_ttft"] = ttft_vals[len(ttft_vals) // 2]
-            mg_data["summary"]["p95_ttft"] = ttft_vals[
-                min(len(ttft_vals) - 1, int(math.ceil(len(ttft_vals) * 0.95)) - 1)
-            ]
-        mg_data["summary"]["total_requests"] = 0
-        mg_data["summary"]["total_tokens"] = 0
+def _summarize_time_series(mg_data: dict[str, Any]) -> None:
+    """Fill the summary block of a single model entry from its time series.
 
-
-def _finalize_summary(mg_data: dict[str, Any]) -> None:
+    The DB path and the Prometheus path both build models via ``_empty_model_dict``
+    and then fill ``summary`` from ``time_series``; sharing this one function
+    keeps the two percentile/avg computations in sync.
+    """
     ts = mg_data["time_series"]
     mg_data["summary"]["avg_concurrent"] = _avg_values(ts.get("concurrent_requests", []))
     mg_data["summary"]["avg_throughput"] = _avg_values(ts.get("throughput_tokens_per_sec", []))

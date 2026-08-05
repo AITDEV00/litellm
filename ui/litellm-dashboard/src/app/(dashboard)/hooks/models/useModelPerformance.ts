@@ -13,15 +13,14 @@ const SHORT_WINDOWS = new Set(["5m", "15m"]);
 
 export const useModelPerformance = (window: string = "1h", modelGroup?: string, scope: ModelPerformanceScope = {}) => {
   const { accessToken } = useAuthorized();
+  const filters = {
+    window,
+    ...(modelGroup ? { modelGroup } : {}),
+    ...scope,
+  };
   return useQuery<ModelPerformanceResponse>({
-    queryKey: performanceKeys.list({
-      filters: {
-        window,
-        ...(modelGroup ? { modelGroup } : {}),
-        ...scope,
-      },
-    }),
-    queryFn: async () => await modelPerformanceCall(accessToken!, window, modelGroup, scope),
+    queryKey: performanceKeys.list({ filters }),
+    queryFn: () => modelPerformanceCall(accessToken!, window, modelGroup, scope),
     enabled: Boolean(accessToken),
     placeholderData: keepPreviousData,
     refetchInterval: SHORT_WINDOWS.has(window) ? 30_000 : false,

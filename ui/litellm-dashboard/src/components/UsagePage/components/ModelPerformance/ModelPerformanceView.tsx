@@ -1,6 +1,7 @@
 import { Card, Grid, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, Title } from "@tremor/react";
 import { Segmented, Select } from "antd";
-import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
+import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 
 import { useModelPerformance } from "@/app/(dashboard)/hooks/models/useModelPerformance";
 import { ChartLoader } from "../../../shared/chart_loader";
@@ -111,14 +112,38 @@ const PerformanceChart = memo(function PerformanceChart({
   );
 });
 
-function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
+const PerformanceChart = memo(function PerformanceChart({
+  title,
+  data,
+  categories,
+  decimals,
+  onPointClick,
+}: PerformanceChartProps) {
+  if (data.length === 0) {
+    return (
+      <Card>
+        <Title>{title}</Title>
+        <p className="text-gray-500 mt-4">No data available</p>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <Title>{title}</Title>
+      <LineChart
+        className="mt-4"
+        data={data}
+        index="timestamp"
+        categories={categories}
+        colors={DEFAULT_COLOR_CYCLE}
+        valueFormatter={(v) => formatNumber(v, decimals)}
+        connectNulls
+        yAxisWidth={60}
+        onPointClick={onPointClick}
+      />
+    </Card>
+  );
+});
 
 interface ModelPerformanceViewProps {
   scope?: ModelPerformanceScope;
@@ -132,7 +157,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
   const [drilldownLogs, setDrilldownLogs] = useState<LogEntry[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  const debouncedWindow = useDebouncedValue(window, 200);
+  const [debouncedWindow] = useDebouncedValue(window, { wait: 200 });
   const { data, isLoading, isError } = useModelPerformance(debouncedWindow, undefined, scope);
 
   const models = useMemo(() => data?.models || [], [data]);
@@ -165,7 +190,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
         try {
           const end = new Date(timestamp);
           const start = new Date(end.getTime() - 5 * 60 * 1000);
-          const result = await uiSpendLogsCall({
+          const logOptions = {
             accessToken,
             start_date: start.toISOString(),
             end_date: end.toISOString(),
@@ -175,7 +200,8 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
               model: category,
               ...scopeToParams(scope),
             },
-          });
+          };
+          const result = await uiSpendLogsCall(logOptions);
           const logs = (result as { data?: LogEntry[] }).data || [];
           setDrilldownLogs(logs);
           setSelectedLog(logs[0] || null);
