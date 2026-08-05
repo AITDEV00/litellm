@@ -6,6 +6,7 @@ from typing import Optional, Union
 
 import httpx
 
+from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
 from litellm.llms.base_llm.audio_transcription.transformation import (
     AudioTranscriptionRequestData,
 )
@@ -55,11 +56,38 @@ class HostedVLLMAudioTranscriptionConfig(OpenAIWhisperAudioTranscriptionConfig):
         litellm_params: dict,
     ) -> AudioTranscriptionRequestData:
         """
-        Transform the audio transcription request
-        """
+        Transform the audio transcription request.
 
-        data = {"model": model, "file": audio_file, **optional_params}
+        Hosted VLLM is an OpenAI-compatible endpoint reached through
+        ``base_llm_http_handler``, which sends multipart form data via httpx
+        (``data=`` for the form fields plus ``files=`` for the upload). The
+        inherited OpenAI whisper transform instead puts the raw file object
+        inside ``data["file"]`` with ``files=None``; that works only for the
+        OpenAI SDK path. Here we must split the file out into the ``files``
+        dict (a ``(filename, content, content_type)`` tuple) exactly like the
+        other httpx-based providers, otherwise httpx JSON-serializes ``data``
+        and fails with "Object of type BytesIO is not JSON serializable".
+        """
+        processed_audio = process_audio_file(audio_file)
+
+        form_fields: dict = {
+            "model": model,
+        }
+
+        for key in self.get_supported_openai_params(model):
+            value = optional_params.get(key)
+            if value is not None:
+                form_fields[key] = value
+
+        files = {
+            "file": (
+                processed_audio.filename,
+                processed_audio.file_content,
+                processed_audio.content_type,
+            )
+        }
 
         return AudioTranscriptionRequestData(
-            data=data,
+            data=form_fields,
+            files=files,
         )
