@@ -8,8 +8,8 @@ import { ChartLoader } from "../../../shared/chart_loader";
 import { LineChart, DEFAULT_COLOR_CYCLE } from "../../../shared/charts";
 import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "../../../networking";
 import { uiSpendLogsCall } from "../../../networking";
-import { LogDetailsDrawer } from "../../view_logs/LogDetailsDrawer/LogDetailsDrawer";
-import type { LogEntry } from "../../view_logs/columns";
+import { LogDetailsDrawer } from "../../../view_logs/LogDetailsDrawer/LogDetailsDrawer";
+import type { LogEntry } from "../../../view_logs/columns";
 
 const WINDOW_OPTIONS = [
   { label: "5m", value: "5m" },
@@ -78,39 +78,6 @@ interface PerformanceChartProps {
   decimals: number;
   onPointClick?: (datum: Record<string, string | number | null>, category: string) => void;
 }
-
-const PerformanceChart = memo(function PerformanceChart({
-  title,
-  data,
-  categories,
-  decimals,
-  onPointClick,
-}: PerformanceChartProps) {
-  if (data.length === 0) {
-    return (
-      <Card>
-        <Title>{title}</Title>
-        <p className="text-gray-500 mt-4">No data available</p>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <Title>{title}</Title>
-      <LineChart
-        className="mt-4"
-        data={data}
-        index="timestamp"
-        categories={categories}
-        colors={DEFAULT_COLOR_CYCLE}
-        valueFormatter={(v) => formatNumber(v, decimals)}
-        connectNulls
-        yAxisWidth={60}
-        onPointClick={onPointClick}
-      />
-    </Card>
-  );
-});
 
 const PerformanceChart = memo(function PerformanceChart({
   title,
