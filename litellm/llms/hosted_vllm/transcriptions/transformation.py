@@ -1,5 +1,5 @@
 """
-Transformation logic for Hosted VLLM rerank
+Transformation logic for Hosted VLLM audio transcription.
 """
 
 from typing import Optional, Union
@@ -28,9 +28,6 @@ class HostedVLLMAudioTranscriptionError(BaseLLMException):
 
 
 class HostedVLLMAudioTranscriptionConfig(OpenAIWhisperAudioTranscriptionConfig):
-    def __init__(self) -> None:
-        pass
-
     def get_complete_url(
         self,
         api_base: Optional[str],
@@ -40,13 +37,17 @@ class HostedVLLMAudioTranscriptionConfig(OpenAIWhisperAudioTranscriptionConfig):
         litellm_params: dict,
         stream: Optional[bool] = None,
     ) -> str:
-        if api_base:
-            # Remove trailing slashes and ensure clean base URL
-            api_base = api_base.rstrip("/")
-            if not api_base.endswith("/v1/audio/transcriptions"):
-                api_base = f"{api_base}/v1/audio/transcriptions"
-            return api_base
-        raise ValueError("api_base must be provided for Hosted VLLM rerank")
+        url = super().get_complete_url(
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+            stream=stream,
+        )
+        if not url:
+            raise ValueError("api_base must be provided for Hosted VLLM audio transcription")
+        return url
 
     def transform_audio_transcription_request(
         self,
