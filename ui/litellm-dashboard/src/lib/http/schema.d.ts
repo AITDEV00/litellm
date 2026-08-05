@@ -662,6 +662,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audio/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Health */
+        get: operations["audio_health_audio_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audio/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Metrics */
+        get: operations["audio_metrics_audio_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audio/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Models */
+        get: operations["audio_models_audio_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audio/models/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Model Detail */
+        get: operations["audio_model_detail_audio_models__model_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audio/script": {
         parameters: {
             query?: never;
@@ -675,8 +743,9 @@ export interface paths {
          * Audio Script
          * @description OmniVoice multi-speaker script synthesis.
          *
-         *     JSON body with 'input' (script text) and optional 'voice', 'response_format',
-         *     'speed', 'language', 'stream' fields.
+         *     JSON body with 'script' (list of speaker/text segments) and optional
+         *     'default_voice', 'speed', 'response_format', 'output_format',
+         *     'pause_between_speakers', 'on_error' fields.
          */
         post: operations["audio_script_audio_script_post"];
         delete?: never;
@@ -15537,6 +15606,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audio/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Health */
+        get: operations["audio_health_v1_audio_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audio/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Metrics */
+        get: operations["audio_metrics_v1_audio_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audio/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Models */
+        get: operations["audio_models_v1_audio_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audio/models/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audio Model Detail */
+        get: operations["audio_model_detail_v1_audio_models__model_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audio/script": {
         parameters: {
             query?: never;
@@ -15550,8 +15687,9 @@ export interface paths {
          * Audio Script
          * @description OmniVoice multi-speaker script synthesis.
          *
-         *     JSON body with 'input' (script text) and optional 'voice', 'response_format',
-         *     'speed', 'language', 'stream' fields.
+         *     JSON body with 'script' (list of speaker/text segments) and optional
+         *     'default_voice', 'speed', 'response_format', 'output_format',
+         *     'pause_between_speakers', 'on_error' fields.
          */
         post: operations["audio_script_v1_audio_script_post"];
         delete?: never;
@@ -35362,6 +35500,97 @@ export interface operations {
             };
         };
     };
+    audio_health_audio_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_metrics_audio_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_models_audio_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_model_detail_audio_models__model_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     audio_script_audio_script_post: {
         parameters: {
             query?: never;
@@ -44526,6 +44755,18 @@ export interface operations {
                 window?: string;
                 /** @description Filter to a specific model_group */
                 model_group?: string | null;
+                /** @description Scope to a specific team */
+                team_id?: string | null;
+                /** @description Scope to a specific organization */
+                organization_id?: string | null;
+                /** @description Scope to a specific user */
+                user_id?: string | null;
+                /** @description Scope to a specific end user */
+                end_user_id?: string | null;
+                /** @description Scope to a specific virtual key (hashed) */
+                api_key?: string | null;
+                /** @description Scope to a specific agent */
+                agent_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -53357,6 +53598,97 @@ export interface operations {
             header?: never;
             path: {
                 assistant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    audio_health_v1_audio_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_metrics_v1_audio_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_models_v1_audio_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    audio_model_detail_v1_audio_models__model_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
             };
             cookie?: never;
         };

@@ -26,6 +26,8 @@ export type LineChartProps<TDatum extends Record<string, unknown>> = {
   curveType?: LineChartCurveType;
   className?: string;
   style?: React.CSSProperties;
+  /** Invoked when a point on a line is clicked, with the datum row and the category. */
+  onPointClick?: (datum: TDatum, category: string) => void;
 };
 
 export function LineChart<TDatum extends Record<string, unknown>>({
@@ -45,6 +47,7 @@ export function LineChart<TDatum extends Record<string, unknown>>({
   curveType = "linear",
   className,
   style,
+  onPointClick,
 }: LineChartProps<TDatum>) {
   const fills = categoryFills(categories.length, colors);
   const config: ChartConfig = Object.fromEntries(categories.map((category) => [category, { label: category }]));
@@ -52,7 +55,18 @@ export function LineChart<TDatum extends Record<string, unknown>>({
 
   return (
     <ChartContainer config={config} className={cn("aspect-auto h-80 w-full", className)} style={style}>
-      <RechartsLineChart data={[...data]}>
+      <RechartsLineChart
+        data={[...data]}
+        onClick={
+          onPointClick
+            ? (state: { activePayload?: Array<{ dataKey?: string | number; payload?: TDatum }> }) => {
+                const point = state.activePayload?.[0];
+                const row = point?.payload;
+                if (row && point.dataKey) onPointClick(row, String(point.dataKey));
+              }
+            : undefined
+        }
+      >
         {showGridLines && <CartesianGrid vertical={false} />}
         <XAxis
           dataKey={index}

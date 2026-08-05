@@ -7,6 +7,7 @@ bucketing; Prometheus-backed for 5m/15m (real-time concurrent requests).
 """
 
 import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -47,6 +48,66 @@ _WINDOW_BUCKET_INTERVALS: dict[str, str] = {
 _PROMETHEUS_WINDOWS = ("5m", "15m", "1h")
 
 
+@dataclass(frozen=True)
+class EntityScope:
+    """Entity-scope filter applied to the DB-backed performance query.
+
+    Mirrors the entity columns on ``LiteLLM_SpendLogs``. An empty scope (all
+    fields ``None``) means "global".
+    """
+
+    team_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    user_id: Optional[str] = None
+    end_user_id: Optional[str] = None
+    api_key: Optional[str] = None
+    agent_id: Optional[str] = None
+
+    @property
+    def is_empty(self) -> bool:
+        return all(
+            v is None
+            for v in (self.team_id, self.organization_id, self.user_id, self.end_user_id, self.api_key, self.agent_id)
+        )
+
+    def cache_key_suffix(self) -> str:
+        parts = (
+            f"t:{self.team_id or ''}",
+            f"o:{self.organization_id or ''}",
+            f"u:{self.user_id or ''}",
+            f"e:{self.end_user_id or ''}",
+            f"k:{self.api_key or ''}",
+            f"a:{self.agent_id or ''}",
+        )
+        return ":".join(parts)
+
+    def where_clause(self, start_idx: int) -> tuple[str, tuple[str, ...]]:
+        """Return a SQL ``AND ...`` fragment and its bound params.
+
+        ``start_idx`` is the 1-based index of the first placeholder for this
+        fragment. Returns ``("", ())`` when the scope is empty.
+        """
+        clauses: list[str] = []
+        params: list[str] = []
+        idx = start_idx
+        for column, value in (
+            ("team_id", self.team_id),
+            ("organization_id", self.organization_id),
+            ("user_id", self.user_id),
+            ("end_user", self.end_user_id),
+            ("api_key", self.api_key),
+            ("agent_id", self.agent_id),
+        ):
+            if value is None:
+                continue
+            clauses.append(f"COALESCE(\"{column}\", '') = ${idx}::text")
+            params.append(value)
+            idx += 1
+        if not clauses:
+            return "", ()
+        return f" AND {' AND '.join(clauses)}", tuple(params)
+
+
 @router.get(
     "/model/performance",
     tags=["model management"],
@@ -63,6 +124,30 @@ async def model_performance(
         default=None,
         description="Filter to a specific model_group",
     ),
+    team_id: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific team",
+    ),
+    organization_id: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific organization",
+    ),
+    user_id: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific user",
+    ),
+    end_user_id: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific end user",
+    ),
+    api_key: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific virtual key (hashed)",
+    ),
+    agent_id: Optional[str] = fastapi.Query(
+        default=None,
+        description="Scope to a specific agent",
+    ),
 ):
     if window not in _VALID_WINDOWS:
         raise HTTPException(
@@ -70,12 +155,25 @@ async def model_performance(
             detail=f"Invalid window '{window}'. Must be one of: {', '.join(_VALID_WINDOWS)}",
         )
 
-    if window in _PROMETHEUS_WINDOWS:
+    scope = EntityScope(
+        team_id=team_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        end_user_id=end_user_id,
+        api_key=api_key,
+        agent_id=agent_id,
+    )
+
+    # Entity-scoped requests always use the DB path: the Prometheus metrics for
+    # concurrent requests and TTFT do not carry the entity-scope labels, so we
+    # cannot filter them without leaking cross-entity data. The DB path filters
+    # on the SpendLogs entity columns directly.
+    if scope.is_empty and window in _PROMETHEUS_WINDOWS:
         prom_result = await _fetch_prometheus_performance(window=window, model_group=model_group)
         if prom_result is not None:
             return prom_result
 
-    return await _fetch_db_performance(window=window, model_group=model_group)
+    return await _fetch_db_performance(window=window, model_group=model_group, scope=scope)
 
 
 async def _fetch_prometheus_performance(
@@ -107,18 +205,23 @@ async def _fetch_prometheus_performance(
     label_filter = ""
     if model_group:
         quoted = _quote_promql_string_literal(model_group)
-        label_filter = f"{{requested_model={quoted}}}"
+        # The deployment-scoped metrics (concurrent gauge, latency histogram)
+        # carry litellm_model_name / model_id, not requested_model. Filter on
+        # litellm_model_name for the model_group filter so it matches.
+        label_filter = f"{{litellm_model_name={quoted}}}"
 
+    # Group by model_id: it is present on all three metrics, whereas
+    # requested_model only exists on the token counter. This mirrors the proven
+    # query in prometheus_api.get_per_model_metrics.
     queries = {
         "concurrent_requests": (
-            f"max by (requested_model) (max_over_time("
-            f"litellm_deployment_in_progress_requests{label_filter}[{range_str}]))"
+            f"max by (model_id) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{range_str}]))"
         ),
         "throughput_tokens_per_sec": (
-            f"sum by (requested_model) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
+            f"sum by (model_id) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
         ),
         "ttft_seconds": (
-            f"histogram_quantile(0.50, sum by (le, requested_model) (rate("
+            f"histogram_quantile(0.50, sum by (le, model_id) (rate("
             f"litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))"
         ),
     }
@@ -133,7 +236,7 @@ async def _fetch_prometheus_performance(
             continue
         for entry in raw:
             labels = entry.get("metric", {})
-            mg = labels.get("requested_model", "") or labels.get("model_id", "")
+            mg = labels.get("model_id", "") or labels.get("litellm_model_name", "")
             if not mg:
                 continue
             if mg not in models:
@@ -153,6 +256,7 @@ async def _fetch_prometheus_performance(
 async def _fetch_db_performance(
     window: str,
     model_group: Optional[str],
+    scope: EntityScope = EntityScope(),
 ) -> dict:
     from litellm.proxy.proxy_server import prisma_client
 
@@ -165,7 +269,7 @@ async def _fetch_db_performance(
         )
 
     cache_ttl = _DB_CACHE_TTL.get(window, 0)
-    cache_key = f"{window}:{model_group or ''}"
+    cache_key = f"{window}:{model_group or ''}:{scope.cache_key_suffix()}"
     if cache_ttl > 0:
         cached = _DB_CACHE.get_cache(cache_key)
         if cached is not None:
@@ -176,11 +280,32 @@ async def _fetch_db_performance(
     start_time = end_time - delta
     bucket_interval = _WINDOW_BUCKET_INTERVALS.get(window, "1 hour")
 
-    sql_query = """
-        WITH bucketed AS (
+    scope_sql, scope_params = scope.where_clause(start_idx=5)
+
+    sql_query = f"""
+        WITH base AS (
             SELECT
                 COALESCE(model_group, '') AS model_group,
                 date_bin($3::interval, "startTime", timestamp '2000-01-01') AS bucket,
+                "startTime",
+                "endTime",
+                completion_tokens,
+                request_duration_ms,
+                "completionStartTime",
+                "endTime" AS "end_time"
+            FROM "LiteLLM_SpendLogs"
+            WHERE
+                "startTime" >= $1::timestamptz
+                AND "startTime" < $2::timestamptz
+                AND "cache_hit" != 'True'
+                AND ($4::text IS NULL
+                     OR COALESCE(model_group, '') = $4::text)
+                {scope_sql}
+        ),
+        bucketed AS (
+            SELECT
+                model_group,
+                bucket,
                 COUNT(*) AS request_count,
                 SUM(completion_tokens) AS total_completion_tokens,
                 AVG(
@@ -193,7 +318,7 @@ async def _fetch_db_performance(
                 AVG(
                     CASE
                         WHEN "completionStartTime" IS NOT NULL
-                             AND "completionStartTime" != "endTime"
+                             AND "completionStartTime" != "end_time"
                         THEN EXTRACT(epoch FROM ("completionStartTime" - "startTime"))
                         ELSE NULL
                     END
@@ -202,7 +327,7 @@ async def _fetch_db_performance(
                     ORDER BY
                         CASE
                             WHEN "completionStartTime" IS NOT NULL
-                                 AND "completionStartTime" != "endTime"
+                                 AND "completionStartTime" != "end_time"
                             THEN EXTRACT(epoch FROM ("completionStartTime" - "startTime"))
                             ELSE NULL
                         END
@@ -211,33 +336,40 @@ async def _fetch_db_performance(
                     ORDER BY
                         CASE
                             WHEN "completionStartTime" IS NOT NULL
-                                 AND "completionStartTime" != "endTime"
+                                 AND "completionStartTime" != "end_time"
                             THEN EXTRACT(epoch FROM ("completionStartTime" - "startTime"))
                             ELSE NULL
                         END
                 ) AS p95_ttft_seconds
-            FROM "LiteLLM_SpendLogs"
-            WHERE
-                "startTime" >= $1::timestamptz
-                AND "startTime" < $2::timestamptz
-                AND "cache_hit" != 'True'
-                AND ($4::text IS NULL
-                     OR COALESCE(model_group, '') = $4::text)
-            GROUP BY
-                COALESCE(model_group, ''),
-                bucket
+            FROM base
+            GROUP BY model_group, bucket
+        ),
+        concurrency AS (
+            SELECT
+                b.bucket AS bucket,
+                b.model_group AS model_group,
+                COUNT(o."startTime") AS concurrent_requests
+            FROM bucketed b
+            LEFT JOIN base o
+                ON o.model_group = b.model_group
+                AND o."startTime" <= (b.bucket + $3::interval / 2)
+                AND (o."endTime" IS NULL OR o."endTime" > (b.bucket + $3::interval / 2))
+            GROUP BY b.bucket, b.model_group
         )
         SELECT
-            model_group,
-            bucket,
-            request_count,
-            total_completion_tokens,
-            avg_throughput_tokens_per_sec,
-            avg_ttft_seconds,
-            p50_ttft_seconds,
-            p95_ttft_seconds
-        FROM bucketed
-        ORDER BY model_group, bucket
+            bk.model_group AS model_group,
+            bk.bucket AS bucket,
+            bk.request_count AS request_count,
+            bk.total_completion_tokens AS total_completion_tokens,
+            bk.avg_throughput_tokens_per_sec AS avg_throughput_tokens_per_sec,
+            bk.avg_ttft_seconds AS avg_ttft_seconds,
+            bk.p50_ttft_seconds AS p50_ttft_seconds,
+            bk.p95_ttft_seconds AS p95_ttft_seconds,
+            COALESCE(c.concurrent_requests, 0) AS concurrent_requests
+        FROM bucketed bk
+        LEFT JOIN concurrency c
+            ON c.model_group = bk.model_group AND c.bucket = bk.bucket
+        ORDER BY bk.model_group, bk.bucket
     """
 
     rows = await prisma_client.db.query_raw(
@@ -246,6 +378,7 @@ async def _fetch_db_performance(
         end_time,
         bucket_interval,
         model_group,
+        *scope_params,
     )
 
     models: dict[str, dict[str, Any]] = {}
@@ -266,7 +399,9 @@ async def _fetch_db_performance(
             models[mg]["time_series"]["ttft_seconds"].append(
                 {"timestamp": ts_bucket, "value": _safe_float(row.get("avg_ttft_seconds"))}
             )
-            models[mg]["time_series"]["concurrent_requests"].append({"timestamp": ts_bucket, "value": 0.0})
+            models[mg]["time_series"]["concurrent_requests"].append(
+                {"timestamp": ts_bucket, "value": _safe_float(row.get("concurrent_requests"))}
+            )
 
             summary = models[mg]["summary"]
             summary["total_requests"] += int(row.get("request_count", 0))
@@ -275,7 +410,7 @@ async def _fetch_db_performance(
         for mg_data in models.values():
             _finalize_summary(mg_data)
 
-    source = "db" if window not in _PROMETHEUS_WINDOWS else "db"
+    source = "db"
 
     result = {
         "window": window,
@@ -327,6 +462,7 @@ def _compute_summaries(models: dict[str, dict[str, Any]]) -> None:
 
 def _finalize_summary(mg_data: dict[str, Any]) -> None:
     ts = mg_data["time_series"]
+    mg_data["summary"]["avg_concurrent"] = _avg_values(ts.get("concurrent_requests", []))
     mg_data["summary"]["avg_throughput"] = _avg_values(ts.get("throughput_tokens_per_sec", []))
     ttft_vals = [p["value"] for p in ts.get("ttft_seconds", []) if p["value"] is not None]
     if ttft_vals:
@@ -336,7 +472,6 @@ def _finalize_summary(mg_data: dict[str, Any]) -> None:
     else:
         mg_data["summary"]["p50_ttft"] = None
         mg_data["summary"]["p95_ttft"] = None
-    mg_data["summary"]["avg_concurrent"] = 0.0
 
 
 def _avg_values(points: list[dict]) -> float:

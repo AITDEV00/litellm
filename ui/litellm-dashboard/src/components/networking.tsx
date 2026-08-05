@@ -1773,10 +1773,20 @@ export interface ModelPerformanceResponse {
   models: ModelPerformanceModel[];
 }
 
+export interface ModelPerformanceScope {
+  teamId?: string;
+  organizationId?: string;
+  userId?: string;
+  endUserId?: string;
+  apiKey?: string;
+  agentId?: string;
+}
+
 export const modelPerformanceCall = async (
   accessToken: string,
   window: string = "1h",
   modelGroup?: string,
+  scope: ModelPerformanceScope = {},
 ): Promise<ModelPerformanceResponse> => {
   try {
     return await apiClient.get(`/model/performance`, {
@@ -1784,6 +1794,12 @@ export const modelPerformanceCall = async (
       query: {
         window,
         ...(modelGroup ? { model_group: modelGroup } : {}),
+        ...(scope.teamId ? { team_id: scope.teamId } : {}),
+        ...(scope.organizationId ? { organization_id: scope.organizationId } : {}),
+        ...(scope.userId ? { user_id: scope.userId } : {}),
+        ...(scope.endUserId ? { end_user_id: scope.endUserId } : {}),
+        ...(scope.apiKey ? { api_key: scope.apiKey } : {}),
+        ...(scope.agentId ? { agent_id: scope.agentId } : {}),
       },
     });
   } catch (error) {

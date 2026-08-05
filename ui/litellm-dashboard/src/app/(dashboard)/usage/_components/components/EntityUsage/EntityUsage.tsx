@@ -51,6 +51,8 @@ import { valueFormatterSpend } from "@/components/UsagePage/utils/value_formatte
 import EndpointUsage from "../EndpointUsage/EndpointUsage";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
 import TopModelView from "./TopModelView";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
+import type { ModelPerformanceScope } from "@/components/networking";
 
 interface EntityMetrics {
   metrics: {
@@ -116,6 +118,24 @@ const EntityUsage: React.FC<EntityUsageProps> = ({ accessToken, entityType, enti
 
   const startTime = useMemo(() => (dateValue.from ? new Date(dateValue.from) : null), [dateValue.from]);
   const endTime = useMemo(() => (dateValue.to ? new Date(dateValue.to) : null), [dateValue.to]);
+
+  const modelPerformanceScope = useMemo<ModelPerformanceScope>(() => {
+    if (!entityId) return {};
+    switch (entityType) {
+      case "team":
+        return { teamId: entityId };
+      case "organization":
+        return { organizationId: entityId };
+      case "customer":
+        return { endUserId: entityId };
+      case "agent":
+        return { agentId: entityId };
+      case "user":
+        return { userId: entityId };
+      default:
+        return {};
+    }
+  }, [entityType, entityId]);
 
   const entityFilterArg = useMemo(() => {
     if (entityType === "user") return selectedTags.length > 0 ? selectedTags[0] : null;
@@ -692,6 +712,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({ accessToken, entityType, enti
       key: "models",
       label: entityType === "agent" ? "Request / Token Consumption" : "Model Activity",
       content: <ActivityMetrics modelMetrics={modelMetrics} hidePromptCachingMetrics={entityType === "agent"} />,
+    },
+    {
+      key: "performance",
+      label: "Model Performance",
+      content: <ModelPerformanceView scope={modelPerformanceScope} accessToken={accessToken} />,
     },
     ...(entityType === "team"
       ? [{ key: "agents", label: "Agent Activity", content: <ActivityMetrics modelMetrics={agentMetrics} /> }]
