@@ -24,7 +24,8 @@ LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
-	litellm-local-run litellm-local-docker litellm-ui-dev litellm-local-stop
+	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
+	port-forward-datasources
 
 all: pull build push
 
@@ -132,6 +133,36 @@ litellm-local-run:
 		--config $(CURDIR)/$(LITELLM_LOCAL_CONFIG) \
 		--port $(LITELLM_LOCAL_PORT) \
 		--detailed_debug
+
+## Run LiteLLM against the port-forwarded cluster datasources (Postgres/Redis/
+## Prometheus). Start the forwards first (one terminal):
+##   make port-forward-datasources
+## then run this (another terminal). Uses config/local_datasource.yaml + the
+## env values in .env.datasource (copy from .env.datasource.example). See
+## docs/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
+litellm-local-datasource:
+	@if [ ! -f "$(CURDIR)/.env.datasource" ]; then \
+		echo "Missing $(CURDIR)/.env.datasource. Copy from .env.datasource.example and fill in secrets."; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN)/litellm" ]; then \
+		echo "LiteLLM not found in $(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN). Run: cd $(LITELLM_SRC_DIR) && uv sync --extra proxy && uv pip install -e ."; \
+		exit 1; \
+	fi
+	@echo "Starting LiteLLM proxy against forwarded datasources on port $(LITELLM_LOCAL_PORT)"
+	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
+	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
+	cd $(LITELLM_SRC_DIR) && set -a && . $(CURDIR)/.env.datasource && set +a && \
+		PATH="$(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN):$$PATH" $(LITELLM_VENV_BIN)/litellm \
+		--config $(CURDIR)/config/local_datasource.yaml \
+		--port $(LITELLM_LOCAL_PORT) \
+		--detailed_debug
+
+## Port-forward the cluster datasources for local validation (Postgres/Redis/
+## Prometheus). Runs in the foreground; Ctrl+C to stop. See
+## docs/DATASOURCE-LOCAL-VALIDATION.md.
+port-forward-datasources:
+	./scripts/port-forward-datasources.sh --validate
 
 ## Run the built Docker image locally with podman. Mounts the local config and
 ## hooks directory so changes are picked up without rebuilding. The UI is the
