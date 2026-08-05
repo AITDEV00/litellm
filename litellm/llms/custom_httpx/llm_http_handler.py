@@ -300,6 +300,21 @@ async def _send_voice_request_async(
     raise ValueError(_VOICE_BODY_TYPE_ERROR)
 
 
+def _is_file_like(value: Any) -> bool:
+    """Return True if ``value`` is a binary file object (BytesIO / open handle).
+
+    Used to detect an audio file accidentally left inside a JSON payload dict.
+    File-like objects expose a ``read()`` method; plain JSON-serializable values
+    (str/bytes/bytearray/dict/list/int/float/bool/None) do not. `process_audio_file`
+    normalises file-like objects into a ``(filename, content, content_type)``
+    multipart tuple, so this is the definitive signal that a value belongs in
+    ``files=`` rather than ``data=``.
+    """
+    if value is None or isinstance(value, (str, bytes, bytearray, dict, list, int, float, bool)):
+        return False
+    return hasattr(value, "read")
+
+
 class BaseLLMHTTPHandler:
     async def _make_common_async_call(
         self,
@@ -1278,6 +1293,35 @@ class BaseLLMHTTPHandler:
         files = transformed_result.files
         if transformed_result.content_type is not None:
             headers["Content-Type"] = transformed_result.content_type
+
+        # Defensive guard against a whole class of audio-transcription bugs:
+        # a provider transform (e.g. an OpenAI whisper base class reused by an
+        # httpx-routed provider like hosted_vllm) can leave the raw file object
+        # inside ``data`` (e.g. ``data["file"] = <BytesIO>``) with ``files=None``.
+        # This handler then sends ``json=`` for a dict ``data`` and httpx fails
+        # with "Object of type BytesIO is not JSON serializable". Detect a file
+        # object trapped in the payload and promote it to the ``files``
+        # multipart dict, which is what the upstream endpoint expects. This
+        # keeps the fix in the shared chokepoint so no future provider can
+        # silently regress.
+        if files is None and isinstance(data, dict):
+            clean_data: dict = {}
+            for key, value in data.items():
+                if _is_file_like(value):
+                    continue
+                clean_data[key] = value
+            if len(clean_data) != len(data):
+                from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
+
+                processed = process_audio_file(audio_file)
+                data = clean_data
+                files = {
+                    "file": (
+                        processed.filename,
+                        processed.file_content,
+                        processed.content_type,
+                    )
+                }
 
         ## LOGGING
         logging_obj.pre_call(
