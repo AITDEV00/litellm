@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CartesianGrid, Line, LineChart as RechartsLineChart, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart as RechartsLineChart,
+  XAxis,
+  YAxis,
+  type MouseHandlerDataParam,
+} from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/cva.config";
 import { ValueTooltip, type ChartTooltipComponent } from "./chart_tooltip";
@@ -59,10 +66,11 @@ export function LineChart<TDatum extends Record<string, unknown>>({
         data={[...data]}
         onClick={
           onPointClick
-            ? (state: { activePayload?: Array<{ dataKey?: string | number; payload?: TDatum }> }) => {
-                const point = state.activePayload?.[0];
-                const row = point?.payload;
-                if (row && point.dataKey) onPointClick(row, String(point.dataKey));
+            ? (state: MouseHandlerDataParam) => {
+                const index = state.activeIndex;
+                const row = typeof index === "number" ? data[index] : undefined;
+                const dataKey = state.activeDataKey;
+                if (row && dataKey) onPointClick(row, String(dataKey));
               }
             : undefined
         }
