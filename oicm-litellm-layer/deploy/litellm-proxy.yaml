@@ -288,6 +288,8 @@ spec:
                 secretKeyRef:
                   name: litellm-master-key
                   key: master-key
+            - name: UI_PASSWORD
+              value: "sk-1234"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

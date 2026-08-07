@@ -200,7 +200,7 @@ expected values.
 1. Re-run the step tests from Phase 2 against the new implementation.
 2. Verify each function in the logic map is exercised by at least one test.
 3. Verify no new dead branches were introduced (cross-check with the
-   [code smell audit technique](code_smell_detection_technique.md)).
+   [code smell audit technique](../code_smell_detection_technique.md)).
 4. Update the logic map if the implementation revealed flows the map missed.
 
 ---

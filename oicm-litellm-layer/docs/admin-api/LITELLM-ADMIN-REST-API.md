@@ -62,7 +62,7 @@ curl -sk -X GET "$PROXY_BASE_URL/model/info" \
 3. [Team Management](#3-team-management)
 4. [Organization Management](#4-organization-management)
 5. [Model Management and Model Rates](#5-model-management-and-model-rates)
-   - [Model RPM/TPM Rate Limits](#model-rpmtm-rate-limits)
+   - [Model RPM/TPM Rate Limits](#model-rpmtpm-rate-limits)
 6. [Fallback Management](#6-fallback-management)
 7. [Router Settings](#7-router-settings)
 8. [User Management](#8-user-management)

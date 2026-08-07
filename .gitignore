@@ -8,6 +8,8 @@
 newenv/*
 litellm/proxy/myenv/*
 litellm_uuid.txt
+# MkDocs build output
+oicm-litellm-layer/site/
 __pycache__/
 *.pyc
 
