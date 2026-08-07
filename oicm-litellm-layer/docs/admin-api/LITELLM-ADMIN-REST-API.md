@@ -1655,6 +1655,76 @@ curl -X POST 'http://localhost:4000/user/new' \
   }'
 ```
 
+#### Strategy: How to Create a New User
+
+Use `POST /user/new` to provision a person who needs to log into the Admin UI
+and/or mint their own API keys. Follow this checklist so the user gets the
+right access, the right guardrails, and a usable credential on the first call.
+
+**1. Decide the role.** `user_role` controls what the user can see and do.
+
+| Value | Can do | Use for |
+|-------|--------|---------|
+| `internal_user` | login, create/view/delete own keys, view own spend | Default for a normal developer |
+| `internal_user_viewer` | login, view own keys, view own spend | Read-only humans |
+| `proxy_admin_viewer` | login, view all keys + spend | Auditors, ops dashboards |
+| `proxy_admin` | all permissions | Service/admin accounts (rare) |
+
+Only a `PROXY_ADMIN` can create a `proxy_admin` or `proxy_admin_viewer`. For an
+ordinary person pick `internal_user`.
+
+**2. Set login credentials.** Pass `password` to let the user log in to the
+Admin UI (`UI_USERNAME`/`UI_PASSWORD` govern the top-level login; a user
+`password` authenticates that specific account). The proxy hashes it server
+side. Omit `password` and provide `sso_user_id` instead if the user authenticates
+via SSO.
+
+**3. Choose `auto_create_key`.**
+
+- `true` (default): the response also returns a fresh `sk-...` key, so the user
+  has a working credential immediately.
+- `false`: only the user row is created. Use this if the user must not hold a
+  key yet, or if key creation happens separately.
+
+**4. Scope model access.** `models: []` (the default) means "all models".
+To restrict, list explicit model names. To allow the user to call **no** models
+outright (only inherit access from a team), set `models: ["no-default-models"]`.
+
+**5. Put them in a team/org.** Pass `teams` (list of IDs, or
+`[{"team_id": "...", "user_role": "admin"|"user", "max_budget_in_team": n}]`) and
+`organizations` so the user inherits the team's model list, budgets, and
+priority. Team metadata priority overrides key-level priority.
+
+**6. Apply budget & rate limits.** `max_budget` + `budget_duration` cap spend
+(e.g. `200` USD per `30d`); `soft_budget` alerts before the hard cap; `tpm_limit`
+/ `rpm_limit` cap throughput. Set what is needed on day one.
+
+**7. Capture the response.** Save `user_id` and the returned `key`. `user_id` is
+the stable identifier for all subsequent `/user/update` and spend lookups.
+
+**Working example (ADEO gateway):**
+
+```bash
+curl -sk -X POST "$PROXY_BASE_URL/user/new" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_email": "adeogpt@ecouncil.ae",
+    "user_alias": "ADEOGPT",
+    "user_role": "internal_user",
+    "password": "Password123",
+    "auto_create_key": true
+  }'
+```
+
+The response returns `user_id`, `user_role`, `user_alias`, `user_email`, and an
+auto-created `key`. Save the `user_id`; it is the handle for `/user/update` and
+`/user/info`.
+
+**Verify after creation** with `GET /user/info?user_id=<id>` (shows the user's
+keys and memberships). Rotate the auto-created key with `/key/regenerate` or
+`/key/update` if it was exposed.
+
 ### POST `/user/update` ; Update a User
 
 Same fields as `/user/new` plus `user_id` (required).
