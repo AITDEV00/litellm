@@ -117,7 +117,7 @@ extension + a custom aggregate for the `(net, peak)` monoid).
 - **Prometheus**: `PROMETHEUS_URL=http://127.0.0.1:9090` (scrape_interval 15s).
 - **Proxy** (port 4000):
   `nohup .venv/bin/litellm --config oicm-litellm-layer/config/local_datasource.yaml --port 4000 > /tmp/litellm.log 2>&1 &`
-  env: `LITELLM_MASTER_KEY=sk-1234`, `STORE_MODEL_IN_DB=true`, `PYTHONPATH=litellm/proxy`.
+  env: `LITELLM_MASTER_KEY={{ master_key }}`, `STORE_MODEL_IN_DB=true`, `PYTHONPATH=litellm/proxy`.
 - **Dashboard dev server** (port 3000): `npm run dev` in `ui/litellm-dashboard`.
 - DB access: `.venv/bin/python` with psycopg3 (`import psycopg`) — psql NOT available,
   psycopg2 NOT installed.

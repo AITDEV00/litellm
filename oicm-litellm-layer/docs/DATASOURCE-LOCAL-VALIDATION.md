@@ -114,7 +114,7 @@ REDIS_HOST=127.0.0.1
 REDIS_PORT=16379
 REDIS_PASSWORD=litellm-redis-<...>
 PROMETHEUS_URL=http://127.0.0.1:9090
-LITELLM_MASTER_KEY=sk-1234
+LITELLM_MASTER_KEY={{ master_key }}
 STORE_MODEL_IN_DB=true
 ```
 
@@ -150,19 +150,19 @@ then `Uvicorn running on http://0.0.0.0:4000`.
 
 ## STEP 5 — Validate
 
-Health + model list (master key `sk-1234`):
+Health + model list (master key `{{ master_key }}`):
 
 ```bash
 curl -s http://localhost:4000/health/liveliness
 curl -s http://localhost:4000/health/readiness
-curl -s http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234"
+curl -s http://localhost:4000/v1/models -H "Authorization: Bearer {{ master_key }}"
 ```
 
 Model performance (reads Prometheus; earlier in `_fetch_prometheus_performance`):
 
 ```bash
 curl -s "http://localhost:4000/model/performance?window=1h" \
-  -H "Authorization: Bearer sk-1234"
+  -H "Authorization: Bearer {{ master_key }}"
 ```
 
 Expected a `source: "prometheus"` set of per-model series (tokens, latency,
@@ -170,14 +170,14 @@ concurrency, ttft). To exercise the DB path, scope the query to an entity/key:
 
 ```bash
 curl -s "http://localhost:4000/model/performance?window=1d&api_key=..." \
-  -H "Authorization: Bearer sk-1234"
+  -H "Authorization: Bearer {{ master_key }}"
 ```
 
 Admin API / spend surfaces (reads Postgres):
 
 ```bash
-curl -s http://localhost:4000/spend/logs -H "Authorization: Bearer sk-1234" | head
-curl -s http://localhost:4000/model/metrics  -H "Authorization: Bearer sk-1234"
+curl -s http://localhost:4000/spend/logs -H "Authorization: Bearer {{ master_key }}" | head
+curl -s http://localhost:4000/model/metrics  -H "Authorization: Bearer {{ master_key }}"
 ```
 
 UI (bundled in the proxy):

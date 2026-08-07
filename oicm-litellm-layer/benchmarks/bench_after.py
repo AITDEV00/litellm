@@ -4,11 +4,24 @@ import time
 import statistics
 import json
 import os
+import re
+from pathlib import Path
+
+
+def master_key() -> str:
+    env = os.getenv("LITELLM_MASTER_KEY")
+    if env:
+        return env
+    manifest = Path(__file__).resolve().parent.parent / "deploy" / "litellm-proxy.yaml"
+    block = next(b for b in re.split(r"^---\s*$", manifest.read_text(), flags=re.MULTILINE) if "name: litellm-master-key" in b)
+    scope = block[block.rfind("stringData:"):]
+    return re.search(r"^\s*master-key:\s*(\S.*?)\s*$", scope, re.MULTILINE).group(1)
+
 
 MODEL = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 DIRECT_URL = "http://s-a500a62d-ddda-45cc-87d9-f0b53e5d62af.adeo.svc.cluster.local:8080/v1/chat/completions"
 LITELLM_URL = "http://localhost:4000/v1/chat/completions"
-LITELLM_HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer sk-1234"}
+LITELLM_HEADERS = {"Content-Type": "application/json", "Authorization": f"Bearer {master_key()}"}
 DIRECT_HEADERS = {"Content-Type": "application/json"}
 
 PAYLOAD = {

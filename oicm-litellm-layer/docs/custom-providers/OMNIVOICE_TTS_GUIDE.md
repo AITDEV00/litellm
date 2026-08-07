@@ -119,7 +119,7 @@ Then curl localhost:4000:
 
 ```bash
 curl -sS http://localhost:4000/v1/audio/speech \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"model": "omnivoice", "input": "Hello from local proxy."}' \
   -o tts_local.mp3
@@ -196,7 +196,7 @@ curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech/clone \
 
 ```bash
 curl -sS http://localhost:4000/v1/audio/speech/clone \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -F "text=Hello from local proxy." \
   -F "ref_audio=@reference.wav" \
   -o clone_local.mp3

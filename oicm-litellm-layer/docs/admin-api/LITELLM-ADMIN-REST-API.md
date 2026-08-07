@@ -11,14 +11,14 @@ The ADEO gateway uses a self-signed TLS certificate. All `curl` commands must us
 | Setting | Value |
 |---------|-------|
 | **Base URL** | `https://litellm.adeoaiengine.ecouncil.ae` |
-| **Master Key** | `sk-1234` |
+| **Master Key** | `{{ master_key }}` |
 | **TLS** | Self-signed; use `-k` with curl |
 
 Set these environment variables for convenience:
 
 ```bash
 export PROXY_BASE_URL="https://litellm.adeoaiengine.ecouncil.ae"
-export LITELLM_API_KEY="sk-1234"
+export LITELLM_API_KEY="{{ master_key }}"
 ```
 
 Quick verification:
@@ -173,7 +173,7 @@ A custom header `litellm-changed-by` (optional) is accepted by mutation endpoint
 
 ```bash
 curl -X POST 'http://localhost:4000/key/generate' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "key_alias": "dev-team-key",
@@ -213,7 +213,7 @@ All other fields from `GenerateKeyRequest` are also accepted.
 
 ```bash
 curl -X POST 'http://localhost:4000/key/update' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "key": "sk-abc123...",
@@ -234,7 +234,7 @@ curl -X POST 'http://localhost:4000/key/update' \
 
 ```bash
 curl -X POST 'http://localhost:4000/key/delete' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{"keys": ["sk-abc123..."]}'
 ```
@@ -251,7 +251,7 @@ curl -X POST 'http://localhost:4000/key/delete' \
 
 ```bash
 curl -X GET 'http://localhost:4000/key/info?key=sk-abc123...' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### GET `/key/list` ; List Keys with Pagination
@@ -273,7 +273,7 @@ curl -X GET 'http://localhost:4000/key/info?key=sk-abc123...' \
 
 ```bash
 curl -X GET 'http://localhost:4000/key/list?page=1&size=20&team_id=team-123' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### POST `/key/block` ; Block a Key
@@ -288,7 +288,7 @@ curl -X GET 'http://localhost:4000/key/list?page=1&size=20&team_id=team-123' \
 
 ```bash
 curl -X POST 'http://localhost:4000/key/block' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{"key": "sk-abc123..."}'
 ```
@@ -718,7 +718,7 @@ curl -sk -X POST "$PROXY_BASE_URL/v2/key/info" \
 
 ```bash
 curl -X POST 'http://localhost:4000/team/new' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "team_alias": "ml-platform",
@@ -751,7 +751,7 @@ curl -X POST 'http://localhost:4000/team/new' \
 
 ```bash
 curl -X POST 'http://localhost:4000/team/update' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "team_id": "team-123",
@@ -797,7 +797,7 @@ Returns team with keys, memberships, and budget table.
 
 ```bash
 curl -X POST 'http://localhost:4000/team/member_add' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "team_id": "team-123",
@@ -896,7 +896,7 @@ All inherited from `LiteLLM_BudgetTable`:
 
 ```bash
 curl -X POST 'http://localhost:4000/organization/new' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "organization_alias": "acme-corp",
@@ -932,7 +932,7 @@ Also accepts a nested `litellm_budget_table` object (UI-style payload).
 
 ```bash
 curl -X PATCH 'http://localhost:4000/organization/update' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "organization_id": "org-123",
@@ -956,7 +956,7 @@ curl -X PATCH 'http://localhost:4000/organization/update' \
 
 ```bash
 curl -X DELETE 'http://localhost:4000/organization/delete' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{"organization_ids": ["org-123"]}'
 ```
@@ -1004,7 +1004,7 @@ Returns org with budget, members (including user objects), teams, and `object_pe
 
 ```bash
 curl -X POST 'http://localhost:4000/organization/member_add' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "organization_id": "org-123",
@@ -1098,7 +1098,7 @@ curl -X POST 'http://localhost:4000/organization/member_add' \
 
 ```bash
 curl -X POST 'http://localhost:4000/model/new' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "model_name": "gpt-4o",
@@ -1182,7 +1182,7 @@ Key points:
 
 ```bash
 curl -X PATCH 'http://localhost:4000/model/7916282c-35b8-4242-85a3-dbfee75d54f5/update' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "litellm_params": {
@@ -1282,7 +1282,7 @@ Returns all registered models with pricing, provider, and configuration details.
 
 ```bash
 curl -X GET 'http://localhost:4000/model/info' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### GET `/model_group/info` ; Model Group Info
@@ -1293,7 +1293,7 @@ Returns pricing, mode, and capabilities per model group (model_name).
 
 ```bash
 curl -X GET 'http://localhost:4000/model_group/info' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### Model Pricing / Cost Map
@@ -1502,7 +1502,7 @@ Returns all configurable router settings with metadata and their current live va
 
 ```bash
 curl -X GET 'http://localhost:4000/router/settings' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### POST `/config/update` ; Update Router Settings
@@ -1541,7 +1541,7 @@ curl -X GET 'http://localhost:4000/router/settings' \
 
 ```bash
 curl -X POST 'http://localhost:4000/config/update' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "router_settings": {
@@ -1643,7 +1643,7 @@ Full list of fields exposed by `GET /router/settings`, defined in `ROUTER_SETTIN
 
 ```bash
 curl -X POST 'http://localhost:4000/user/new' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "user_alias": "Jane Developer",
@@ -1730,7 +1730,7 @@ Returns user row, all API keys, and team memberships.
 
 ```bash
 curl -X POST 'http://localhost:4000/budget/new' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "max_budget": 5000.0,
@@ -1830,7 +1830,7 @@ Returns the list of fields that can be set on a budget, for UI rendering.
 
 ```bash
 curl -X GET 'http://localhost:4000/spend/logs/v2?start_date=2026-07-01&end_date=2026-07-10&page=1&size=20' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### POST `/spend/calculate` ; Calculate Spend
@@ -1856,7 +1856,7 @@ curl -X GET 'http://localhost:4000/spend/logs/v2?start_date=2026-07-01&end_date=
 
 ```bash
 curl -X GET 'http://localhost:4000/global/spend?start_date=2026-07-01&end_date=2026-07-10' \
-  -H 'Authorization: Bearer sk-1234'
+  -H 'Authorization: Bearer {{ master_key }}'
 ```
 
 ### GET `/global/spend/models` ; Spend by Model
@@ -1914,7 +1914,7 @@ Stored on the key object. Set via `router_settings` field on `/key/generate` and
 
 ```bash
 curl -X POST 'http://localhost:4000/key/generate' \
-  -H 'Authorization: Bearer sk-1234' \
+  -H 'Authorization: Bearer {{ master_key }}' \
   -H 'Content-Type: application/json' \
   -d '{
     "router_settings": {

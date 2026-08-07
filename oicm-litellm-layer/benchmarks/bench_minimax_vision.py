@@ -10,11 +10,25 @@ import statistics
 import json
 import base64
 import sys
+import os
+import re
+from pathlib import Path
+
+
+def master_key() -> str:
+    env = os.getenv("LITELLM_MASTER_KEY")
+    if env:
+        return env
+    manifest = Path(__file__).resolve().parent.parent / "deploy" / "litellm-proxy.yaml"
+    block = next(b for b in re.split(r"^---\s*$", manifest.read_text(), flags=re.MULTILINE) if "name: litellm-master-key" in b)
+    scope = block[block.rfind("stringData:"):]
+    return re.search(r"^\s*master-key:\s*(\S.*?)\s*$", scope, re.MULTILINE).group(1)
+
 
 MODEL = "MiniMaxAI/MiniMax-M3-MXFP8"
 DIRECT_URL = "http://s-908d3952-1e69-40a4-95b9-db1abff27fcb.adeo.svc.cluster.local:8080/v1/chat/completions"
 LITELLM_URL = "http://litellm-proxy.mlops.svc.cluster.local:4000/v1/chat/completions"
-LITELLM_HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer sk-1234"}
+LITELLM_HEADERS = {"Content-Type": "application/json", "Authorization": f"Bearer {master_key()}"}
 DIRECT_HEADERS = {"Content-Type": "application/json"}
 
 SMALL_IMG_PATH = "/tmp/apple_256x256.jpg"

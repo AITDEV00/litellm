@@ -9,7 +9,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 | File | Purpose |
 |------|---------|
 | `controller/__main__.py` | Entry point, signal handling, event loop |
-| `controller/config.py` | Env vars, constants, **`LITELLM_ADMIN_KEY` default (`sk-1234`)** |
+| `controller/config.py` | Env vars, constants, `LITELLM_ADMIN_KEY` (env wins; local fallback reads `deploy/litellm-proxy.yaml`) |
 | `controller/controller.py` | Orchestration, reconcile loop, event dispatch |
 | `controller/reconciler.py` | Model reconciliation |
 | `controller/models.py` | `OicmModel` dataclass, `sanitize_model_id`, `detect_mode` |
@@ -21,7 +21,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 | `controller/fallbacks/` | Fallback request client/service |
 | `controller/pricing/` | Model pricing resolution (aggregator, matchers, resolver) |
 | `controller/Dockerfile` | Container build |
-| `controller/README.md` | Dev docs + **env var table (says default `sk-1234`)** |
+| `controller/README.md` | Dev docs + **env var table (default derives from the manifest)** |
 
 ## Key entry points to edit
 

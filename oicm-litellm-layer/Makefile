@@ -22,10 +22,15 @@ LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
+# Master key for local runs, derived from the single source of truth: the
+# `litellm-master-key` Secret in deploy/litellm-proxy.yaml. A rotation in the
+# manifest propagates here automatically.
+MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
+
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
-	port-forward-datasources
+	port-forward-datasources docs
 
 all: pull build push
 
@@ -105,6 +110,14 @@ litellm-src-deploy:
 	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
+## Build the MkDocs documentation site. Requires the docs venv (see
+## requirements-docs.txt). Used by the rotation runbook in docs/credentials.md
+## to re-inject the current master key into the built docs.
+docs:
+	python3 -m venv .venv-docs 2>/dev/null; \
+	.venv-docs/bin/pip install -q -r requirements-docs.txt; \
+	.venv-docs/bin/mkdocs build
+
 ## Create the litellm-logo ConfigMap from the optimized logo and favicon files
 litellm-logo:
 	@echo "Creating litellm-logo ConfigMap"
@@ -128,8 +141,8 @@ litellm-local-run:
 	@echo "Starting LiteLLM proxy on port $(LITELLM_LOCAL_PORT) with $(LITELLM_LOCAL_CONFIG)"
 	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
 	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
-	@echo "Master key: sk-1234"
-	cd $(LITELLM_SRC_DIR) && PYTHONPATH=$(CURDIR) LITELLM_MODE=PRODUCTION env -u DATABASE_URL $(LITELLM_VENV_BIN)/litellm \
+	@echo "Master key: $(MASTER_KEY)"
+	cd $(LITELLM_SRC_DIR) && PYTHONPATH=$(CURDIR) LITELLM_MODE=PRODUCTION LITELLM_MASTER_KEY=$(MASTER_KEY) env -u DATABASE_URL $(LITELLM_VENV_BIN)/litellm \
 		--config $(CURDIR)/$(LITELLM_LOCAL_CONFIG) \
 		--port $(LITELLM_LOCAL_PORT) \
 		--detailed_debug
@@ -152,7 +165,7 @@ litellm-local-datasource:
 	@echo "Starting LiteLLM proxy against forwarded datasources on port $(LITELLM_LOCAL_PORT)"
 	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
 	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
-	cd $(LITELLM_SRC_DIR) && set -a && . $(CURDIR)/.env.datasource && set +a && \
+	cd $(LITELLM_SRC_DIR) && export LITELLM_MASTER_KEY=$(MASTER_KEY) && set -a && . $(CURDIR)/.env.datasource && set +a && \
 		PATH="$(LITELLM_SRC_DIR)/$(LITELLM_VENV_BIN):$$PATH" $(LITELLM_VENV_BIN)/litellm \
 		--config $(CURDIR)/config/local_datasource.yaml \
 		--port $(LITELLM_LOCAL_PORT) \
@@ -173,7 +186,7 @@ litellm-local-docker:
 	@echo "Running $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) on port $(LITELLM_LOCAL_PORT)"
 	@echo "UI: http://localhost:$(LITELLM_LOCAL_PORT)/ui/"
 	@echo "API: http://localhost:$(LITELLM_LOCAL_PORT)/v1/models"
-	@echo "Master key: sk-1234"
+	@echo "Master key: $(MASTER_KEY)"
 	@echo "Config: $(CURDIR)/$(LITELLM_LOCAL_CONFIG)"
 	podman run --rm -it \
 		--name litellm-local \
@@ -181,7 +194,7 @@ litellm-local-docker:
 		-v $(CURDIR)/$(LITELLM_LOCAL_CONFIG):/app/config.yaml:Z \
 		-v $(CURDIR)/hooks:/app/litellm_hooks:Z \
 		-e STORE_MODEL_IN_DB=true \
-		-e LITELLM_MASTER_KEY=sk-1234 \
+		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
 		$(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) \
 		--config /app/config.yaml \
 		--port 4000 \

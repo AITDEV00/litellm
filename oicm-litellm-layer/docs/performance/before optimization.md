@@ -90,7 +90,7 @@ kubectl exec -n mlops deploy/litellm-proxy -- sh -c 'ls /proc/1/task/ | wc -l'
 ```bash
 kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
 import urllib.request, json
-req = urllib.request.Request('http://localhost:4000/model/info', headers={'Authorization': 'Bearer sk-1234'})
+req = urllib.request.Request('http://localhost:4000/model/info', headers={'Authorization': 'Bearer {{ master_key }}'})
 resp = urllib.request.urlopen(req)
 data = json.loads(resp.read())
 for entry in data.get('data', []):
@@ -141,7 +141,7 @@ def do_request(url, headers, label, n):
 # Warmup both paths
 for url, hdrs, lbl in [
     (DIRECT_URL, {'Content-Type': 'application/json'}, 'direct'),
-    (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'}, 'litellm'),
+    (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'}, 'litellm'),
 ]:
     req = urllib.request.Request(url, data=payload, headers=hdrs)
     try:
@@ -154,7 +154,7 @@ print()
 print('=== Direct to vLLM ClusterIP ===')
 direct = do_request(DIRECT_URL, {'Content-Type': 'application/json'}, 'direct', N)
 print('=== Through LiteLLM Gateway ===')
-litellm = do_request(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'}, 'litellm', N)
+litellm = do_request(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'}, 'litellm', N)
 
 def stats(label, times):
     if not times:
@@ -231,7 +231,7 @@ def do_stream(url, headers, label, n):
     return ttft_times, total_times
 
 # Warmup
-for url, hdrs in [(DIRECT_URL, {'Content-Type': 'application/json'}), (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'})]:
+for url, hdrs in [(DIRECT_URL, {'Content-Type': 'application/json'}), (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'})]:
     req = urllib.request.Request(url, data=payload, headers=hdrs)
     try:
         resp = urllib.request.urlopen(req, timeout=60)
@@ -242,7 +242,7 @@ for url, hdrs in [(DIRECT_URL, {'Content-Type': 'application/json'}), (LITELLM_U
 print('=== Streaming: Direct to vLLM ===')
 d_ttft, d_total = do_stream(DIRECT_URL, {'Content-Type': 'application/json'}, 'direct', N)
 print('=== Streaming: Through LiteLLM ===')
-l_ttft, l_total = do_stream(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'}, 'litellm', N)
+l_ttft, l_total = do_stream(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'}, 'litellm', N)
 
 def st(label, times):
     if not times:
@@ -328,20 +328,20 @@ def concurrent_benchmark(url, headers, label, concurrency, total):
         return None
 
 # Warmup
-for url, hdrs in [(DIRECT_URL, {'Content-Type': 'application/json'}), (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'})]:
+for url, hdrs in [(DIRECT_URL, {'Content-Type': 'application/json'}), (LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'})]:
     try: single_request(url, hdrs)
     except: pass
 
 print('=== Concurrency=5, 20 requests each ===')
 d5 = concurrent_benchmark(DIRECT_URL, {'Content-Type': 'application/json'}, 'Direct  ', 5, 20)
-l5 = concurrent_benchmark(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'}, 'LiteLLM', 5, 20)
+l5 = concurrent_benchmark(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'}, 'LiteLLM', 5, 20)
 if d5 and l5:
     print(f'  Overhead: {l5-d5:.1f}ms ({(l5-d5)/d5*100:.1f}%)')
 
 print()
 print('=== Concurrency=10, 30 requests each ===')
 d10 = concurrent_benchmark(DIRECT_URL, {'Content-Type': 'application/json'}, 'Direct  ', 10, 30)
-l10 = concurrent_benchmark(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'}, 'LiteLLM', 10, 30)
+l10 = concurrent_benchmark(LITELLM_URL, {'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'}, 'LiteLLM', 10, 30)
 if d10 and l10:
     print(f'  Overhead: {l10-d10:.1f}ms ({(l10-d10)/d10*100:.1f}%)')
 "
@@ -379,7 +379,7 @@ def generate_load():
     count = 0
     while not stop:
         try:
-            req = urllib.request.Request(LITELLM_URL, data=payload, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'})
+            req = urllib.request.Request(LITELLM_URL, data=payload, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'})
             urllib.request.urlopen(req, timeout=60).read()
             count += 1
         except: pass
@@ -440,7 +440,7 @@ stop = False
 def gen():
     while not stop:
         try:
-            req = urllib.request.Request(URL, data=payload, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer sk-1234'})
+            req = urllib.request.Request(URL, data=payload, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer {{ master_key }}'})
             urllib.request.urlopen(req, timeout=60).read()
         except: pass
 threads = [threading.Thread(target=gen) for _ in range(20)]
@@ -831,4 +831,4 @@ This replaces the current uvicorn 1-worker setup with Granian 4-worker, providin
 - Near-zero overhead vs direct vLLM at high concurrency
 - Rust HTTP layer that frees the Python GIL for application logic
 
-Note: Multi-worker requires Redis for shared state (auth cache, rate limits). Without Redis, each worker has its own in-memory cache, which means the first request to each worker hits the DB. For the current deployment with `sk-1234` (master key), this is not an issue because the master key path skips DB lookup entirely.
+Note: Multi-worker requires Redis for shared state (auth cache, rate limits). Without Redis, each worker has its own in-memory cache, which means the first request to each worker hits the DB. For the current deployment with `{{ master_key }}` (master key), this is not an issue because the master key path skips DB lookup entirely.

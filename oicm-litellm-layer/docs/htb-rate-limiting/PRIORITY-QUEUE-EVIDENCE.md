@@ -49,7 +49,7 @@ Launch flags relevant to priority scheduling:
 | Server | Granian, 4 workers |
 | Config | `/app/config.yaml` (from `litellm-config` ConfigMap) |
 | Hooks | `/app/litellm_hooks` (from `litellm-hooks` ConfigMap) |
-| Master key | `sk-1234` |
+| Master key | `{{ master_key }}` |
 
 ### 1.3 API Keys Created for Testing
 

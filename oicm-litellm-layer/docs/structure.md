@@ -39,7 +39,7 @@ oicm-litellm-layer/
 │
 ├── config/                 ← component #5: LiteLLM PROXY CONFIG
 │   ├── litellm_config.yaml   ← production config (deployed as ConfigMap)
-│   ├── local_dev.yaml        ← local dev proxy config (master_key: sk-1234)
+│   ├── local_dev.yaml        ← local dev proxy config (master_key: os.environ/LITELLM_MASTER_KEY)
 │   ├── local_datasource.yaml ← local datasource validation config
 │   └── local_test_voice.yaml ← local voice test config
 │
@@ -86,6 +86,8 @@ oicm-litellm-layer/
 │   └── performance/        ← performance before/after
 │
 ├── scripts/                ← helper scripts
+│   ├── get_master_key.py       ← prints the master key from deploy/litellm-proxy.yaml (single source)
+│   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── htb_test.py  htb_test_v2.py
 │   └── port-forward-datasources.sh
 │
@@ -107,7 +109,7 @@ oicm-litellm-layer/
 
 | You want to... | Open |
 |----------------|------|
-| Change the proxy master key / UI password | `deploy/litellm-proxy.yaml` + `controller/config.py` fallback + `docs/credentials.md` |
+| Change the proxy master key / UI password | `deploy/litellm-proxy.yaml` (single source) + restart both Deployments. See `docs/credentials.md` |
 | Edit discovery controller logic | `controller/controller.py`, `controller/reconciler.py`, `controller/sources/*` |
 | Edit controller env defaults | `controller/config.py` |
 | Edit LiteLLM proxy settings | `config/litellm_config.yaml` |

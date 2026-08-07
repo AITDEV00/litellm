@@ -8,8 +8,8 @@ proxy loads on startup via `--config /app/config.yaml`.
 | File | Environment | Purpose |
 |------|-------------|---------|
 | `config/litellm_config.yaml` | Production | Deployed to the cluster. Models are registered dynamically by the controller (`model_list: []`) |
-| `config/local_dev.yaml` | Local dev | `master_key: sk-1234`, no DB persistence |
-| `config/local_test_voice.yaml` | Local test | voice test, `master_key: sk-1234` |
+| `config/local_dev.yaml` | Local dev | `master_key: os.environ/LITELLM_MASTER_KEY`, no DB persistence |
+| `config/local_test_voice.yaml` | Local test | voice test, `master_key: os.environ/LITELLM_MASTER_KEY` |
 | `config/local_datasource.yaml` | Local datasource | reads `LITELLM_MASTER_KEY` from env |
 
 ## Where the production config lives in the cluster

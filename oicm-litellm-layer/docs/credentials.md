@@ -23,20 +23,29 @@ after a rotation, because env vars are snapshotted at pod creation.
 
 | Location | Purpose |
 |----------|---------|
-| `deploy/litellm-proxy.yaml` | Inline `Secret` `litellm-master-key` with `stringData.master-key` |
+| `deploy/litellm-proxy.yaml` | Inline `Secret` `litellm-master-key` with `stringData.master-key` — **the single source of truth** |
 | `deploy/litellm-proxy.yaml` | Proxy container `LITELLM_MASTER_KEY` env (`secretKeyRef`) |
 | `deploy/discovery-controller.yaml` | Controller container `LITELLM_ADMIN_KEY` env (`secretKeyRef`) |
-| `controller/config.py` | **Hardcoded fallback** `os.getenv("LITELLM_ADMIN_KEY", "sk-1234")` — a local dev default, **not** used in-cluster (env overrides it) |
-| `controller/README.md` | Documents the env vars table (says default `sk-1234`) |
-| `config/local_dev.yaml` | Local dev config `master_key: sk-1234` |
-| `config/local_test_voice.yaml` | Local test voice config `master_key: sk-1234` |
+| `controller/config.py` | Local fallback: reads the manifest when `LITELLM_ADMIN_KEY` is unset (env still wins in-cluster) |
+| `controller/README.md` | Documents the env var table |
+| `config/local_dev.yaml` | `master_key: os.environ/LITELLM_MASTER_KEY` — reads from env (set by `make`) |
+| `config/local_test_voice.yaml` | `master_key: os.environ/LITELLM_MASTER_KEY` — reads from env (set by `make`) |
 
-!!! warning "The fallback is a trap"
-    `controller/config.py` falls back to `sk-1234` when `LITELLM_ADMIN_KEY` is
-    unset. In production the Deployment always sets it via `secretKeyRef`, so
-    the fallback never runs there. But if you run the controller locally without
-    the env var, it silently uses `sk-1234` — which will stop matching a rotated
-    secret. Keep this default in sync with the secret whenever you rotate.
+### Everything derives from the one Secret
+
+Rotating the value in `deploy/litellm-proxy.yaml` and restarting both
+Deployments covers all consumers:
+
+- **Proxy** reads `LITELLM_MASTER_KEY` via `secretKeyRef` → `litellm-master-key`.
+- **Discovery controller** reads `LITELLM_ADMIN_KEY` via `secretKeyRef` → the same Secret.
+- **Docs** use `{{ master_key }}`, injected at build time by the MkDocs hook
+  (`scripts/mkdocs_master_key.py`) straight from the manifest — no second copy.
+- **Local tooling** (`make`, `config/*.yaml`, `.env.datasource`, benchmarks)
+  derive the key from the manifest via `scripts/get_master_key.py` or the
+  `os.environ/` mechanism.
+
+So you change exactly **one** file (`deploy/litellm-proxy.yaml`) and everything
+else follows.
 
 ## Admin UI login
 
@@ -65,22 +74,27 @@ secret. If you want them independent, set `UI_PASSWORD` to something else.
 
 ## Rotation runbook (do this, not just change one file)
 
-1. Edit the value in **`deploy/litellm-proxy.yaml`** (the inline `Secret`).
-2. Confirm the **controller fallback** in `controller/config.py` and the
-   `controller/README.md` env table match (or are clearly documented as local-only).
-3. `kubectl apply -f deploy/litellm-proxy.yaml` — this also updates the Secret.
-4. **Restart BOTH Deployments** so pods re-resolve the secret:
+1. Edit the value in **`deploy/litellm-proxy.yaml`** (the inline `Secret`) —
+   this is the single place to change.
+2. `kubectl apply -f deploy/litellm-proxy.yaml` — this also updates the Secret.
+3. **Restart BOTH Deployments** so pods re-resolve the secret:
    ```bash
    kubectl -n mlops rollout restart deployment/litellm-proxy
    kubectl -n mlops rollout restart deployment/oicm-discovery-controller
    ```
-5. Wait for both rollouts and verify health:
+4. Wait for both rollouts and verify health:
    ```bash
    kubectl -n mlops rollout status deployment/litellm-proxy
    kubectl -n mlops rollout status deployment/oicm-discovery-controller
    ```
-6. Verify the controller can still talk to the proxy (check controller logs for
+5. Verify the controller can still talk to the proxy (check controller logs for
    successful `/model/*` calls).
+6. Rebuild the docs (`make docs` / `mkdocs build`) so the injected `{{ master_key }}`
+   value reflects the new secret. Local `make` targets and benchmarks pick up the
+   new value automatically from `deploy/litellm-proxy.yaml`.
+
+No other file needs a manual edit: docs, local configs, the controller fallback,
+and benchmarks all derive from `deploy/litellm-proxy.yaml`.
 
 ## Other secrets
 
@@ -93,9 +107,9 @@ secret. If you want them independent, set `UI_PASSWORD` to something else.
 
 | File | Value | Notes |
 |------|-------|-------|
-| `config/local_dev.yaml` | `sk-1234` | local dev proxy run |
-| `config/local_test_voice.yaml` | `sk-1234` | local voice test |
+| `config/local_dev.yaml` | `os.environ/LITELLM_MASTER_KEY` | reads from env; `make` sets it from the manifest |
+| `config/local_test_voice.yaml` | `os.environ/LITELLM_MASTER_KEY` | reads from env; `make` sets it from the manifest |
 | `config/local_datasource.yaml` | `os.environ/LITELLM_MASTER_KEY` | reads from env |
 
-If you rotate the cluster secret, these local files are **not** affected unless
-you also run the proxy locally and expect the same key to work.
+All of these derive from `deploy/litellm-proxy.yaml` via `scripts/get_master_key.py`,
+so rotating the cluster secret automatically updates local runs too.

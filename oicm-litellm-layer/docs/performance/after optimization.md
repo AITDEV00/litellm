@@ -357,7 +357,7 @@ The `parallel_request_limiter` uses `local_only=True` for cache reads, meaning r
 ### Immediate
 
 - Bump memory request from 2Gi to 6Gi (current idle usage is ~5.5GB, well above the 2Gi request)
-- If the master key (`sk-1234`) is the primary key in use, consider disabling `enable_redis_auth_cache` to eliminate ~1 Redis GET per request (the master key path already skips DB lookup, so the Redis auth cache adds overhead without benefit)
+- If the master key (`{{ master_key }}`) is the primary key in use, consider disabling `enable_redis_auth_cache` to eliminate ~1 Redis GET per request (the master key path already skips DB lookup, so the Redis auth cache adds overhead without benefit)
 
 ### Short-term
 

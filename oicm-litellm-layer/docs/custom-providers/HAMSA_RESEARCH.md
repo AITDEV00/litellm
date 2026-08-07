@@ -808,7 +808,7 @@ WS /tryhamsa/ws?model=tryhamsa-stt
 ```bash
 AUDIO_B64=$(base64 -w0 hello.wav)
 curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/custom/audio/transcriptions \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"tryhamsa-stt\",\"audio\":\"$AUDIO_B64\",\"eos_enabled\":false,\"eos_threshold\":0.3,\"lang\":\"auto\"}"
 ```

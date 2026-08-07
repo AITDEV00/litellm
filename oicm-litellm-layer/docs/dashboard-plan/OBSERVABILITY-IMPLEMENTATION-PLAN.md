@@ -732,7 +732,7 @@ useMemo → chartData arrays
 - Proxy: `litellm/proxy/proxy_cli.py --config litellm/proxy/dev_config.yaml`
 - DB: PostgreSQL 15 via `DATABASE_URL=postgresql://llmproxy:...@localhost:5432/litellm`
 - Schema: `prisma db push --schema=schema.prisma`
-- Auth: master key `sk-1234` (Bearer token)
+- Auth: master key `{{ master_key }}` (Bearer token)
 - Test call: `POST /v1/chat/completions` with `model: "anthropic-haiku-4-5"`
 - 3 spend-log rows generated (1 initial + 2 router retries), all `status="failure"`
 
@@ -741,7 +741,7 @@ useMemo → chartData arrays
 **Request:**
 ```
 GET /model/metrics/per_model?window=1h
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200):**
@@ -763,7 +763,7 @@ It does NOT error. The frontend must handle this graceful degradation.
 **Request:**
 ```
 GET /model/metrics?model_group=anthropic-haiku-4-5&start_date=2026-07-29&end_date=2026-07-31
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200):**
@@ -785,7 +785,7 @@ appears to have zero traffic in this endpoint, even though spend logs exist.
 **Request:**
 ```
 GET /model/streaming_metrics?model_group=anthropic-haiku-4-5&start_date=2026-07-29&end_date=2026-07-31
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200):**
@@ -806,7 +806,7 @@ identical, so the `!=` filter excludes them. Same silent data-loss trap.
 **Request:**
 ```
 GET /model/metrics/slow_responses?model_group=anthropic-haiku-4-5&threshold=0
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200):**
@@ -828,7 +828,7 @@ and 0 > 0 is false.
 **Request:**
 ```
 GET /spend/logs/ui?start_date=2026-07-29%2000:00:00&end_date=2026-07-31%2023:59:59
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200, abbreviated):**
@@ -838,7 +838,7 @@ Authorization: Bearer sk-1234
     {
       "request_id": "d3a2...",
       "call_type": "completion",
-      "api_key": "sk-1234",
+      "api_key": "{{ master_key }}",
       "spend": 0.0,
       "total_tokens": 0,
       "prompt_tokens": 0,
@@ -895,7 +895,7 @@ Authorization: Bearer sk-1234
 **Request:**
 ```
 GET /global/activity/model?start_date=2026-07-29&end_date=2026-07-31
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Response (200):**
@@ -934,7 +934,7 @@ Authorization: Bearer sk-1234
 **Request:**
 ```
 GET /metrics/  (trailing slash required — /metrics redirects with 307)
-Authorization: Bearer sk-1234
+Authorization: Bearer {{ master_key }}
 ```
 
 **Key observations:**
@@ -1342,7 +1342,7 @@ design (E.7) bridges this gap by joining all three data sources.
 
 Every data endpoint in the LiteLLM proxy was inventoried from source code
 across 11 router modules (90 routes total), then called live against
-`http://localhost:4000` with `Authorization: Bearer sk-1234`. The DB was
+`http://localhost:4000` with `Authorization: Bearer {{ master_key }}`. The DB was
 queried directly via `docker exec litellm-db psql` to verify column-level
 data quality. Each endpoint was assessed for:
 

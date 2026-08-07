@@ -18,7 +18,7 @@ https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech        (TTS)
 https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions (STT)
 ```
 
-Auth: `Authorization: Bearer sk-1234`
+Auth: `Authorization: Bearer {{ master_key }}`
 
 ### Pod-direct path
 

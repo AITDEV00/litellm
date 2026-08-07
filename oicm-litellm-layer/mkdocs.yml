@@ -48,6 +48,12 @@ plugins:
       type: date
       enable_git_follow: false
 
+# Injects the master key into docs via the {{ master_key }} placeholder, read
+# from the single source of truth: the `litellm-master-key` Secret in
+# deploy/litellm-proxy.yaml. See scripts/mkdocs_master_key.py.
+hooks:
+  - scripts/mkdocs_master_key.py
+
 validation:
   nav:
     omitted_files: warn

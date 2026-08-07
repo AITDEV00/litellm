@@ -116,7 +116,7 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | Variable | Default | Description |
 |---|---|---|
 | `LITELLM_ADMIN_URL` | `http://localhost:4000` | LiteLLM proxy admin API URL |
-| `LITELLM_ADMIN_KEY` | `sk-1234` | LiteLLM master key |
+| `LITELLM_ADMIN_KEY` | (from `deploy/litellm-proxy.yaml` `litellm-master-key` secret) | LiteLLM master key |
 | `WATCH_NAMESPACE` | `adeo` | Namespace to watch for model deployments and EndpointSlices |
 | `CLUSTER_DOMAIN` | `svc.cluster.local` | Kubernetes cluster domain for local service DNS |
 | `MODEL_PORT` | `8080` | Port that model servers listen on |

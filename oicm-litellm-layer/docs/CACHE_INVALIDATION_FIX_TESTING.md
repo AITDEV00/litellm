@@ -19,7 +19,7 @@ After `_refresh_cached_team` writes the updated team object to cache, enumerate 
 ## Test Environment
 
 - Proxy URL: `https://litellm.adeoaiengine.ecouncil.ae`
-- Admin key: `sk-1234`
+- Admin key: `{{ master_key }}`
 - Test team: LITELLM TEST (ID: `dd76dd4d-95c4-4eef-b497-c3d4318ee7ee`)
 - Test key: `sk-ZVHnvrLkfSAE6GbuWCJssw` (alias: `test-user-key`)
 - Branch: `jya0-v1.92.0`
@@ -42,7 +42,7 @@ After `_refresh_cached_team` writes the updated team object to cache, enumerate 
 ```bash
 # 1. Ensure team has both models
 curl -s https://litellm.adeoaiengine.ecouncil.ae/team/info \
-  -H "Authorization: Bearer sk-1234" | python3 -c "
+  -H "Authorization: Bearer {{ master_key }}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for t in data.get('teams', []):
@@ -59,7 +59,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 # 3. Remove the model from the team
 curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/team/model_delete \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["<MODEL_TO_REMOVE>"]}'
 
@@ -91,7 +91,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 # 2. Add the model to the team
 curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/team/model_add \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["<MODEL_TO_ADD>"]}'
 
@@ -114,7 +114,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 ```bash
 # 1. Update the key's models directly
 curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/key/update \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"key": "sk-ZVHnvrLkfSAE6GbuWCJssw", "models": ["<MODEL_1>", "<MODEL_2>"]}'
 
@@ -207,13 +207,13 @@ After testing, restore the test team and key to their original state:
 ```bash
 # Restore team models
 curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/team/update \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["Qwen/Qwen3-Embedding-0.6B", "Qwen/Qwen3.5-0.8B"]}'
 
 # Restore key models
 curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/key/update \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"key": "sk-ZVHnvrLkfSAE6GbuWCJssw", "models": ["all-team-models"]}'
 ```
@@ -421,13 +421,13 @@ podman run --rm -d --name litellm-local \
   -v $(pwd)/config/local_dev.yaml:/app/config.yaml:Z \
   -v $(pwd)/hooks:/app/litellm_hooks:Z \
   -e STORE_MODEL_IN_DB=true \
-  -e LITELLM_MASTER_KEY=sk-1234 \
+  -e LITELLM_MASTER_KEY={{ master_key }} \
   registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.92.0 \
   --config /app/config.yaml --port 4000
 
 # Wait for startup, then verify
 curl -s http://localhost:4000/health/liveliness
-curl -s http://localhost:4000/v1/models -H "Authorization: Bearer sk-1234"
+curl -s http://localhost:4000/v1/models -H "Authorization: Bearer {{ master_key }}"
 
 # Verify the fix is baked into the image
 podman exec litellm-local grep -c "skip_in_memory" \
@@ -526,7 +526,7 @@ Alternatively, test against the cluster ingress:
 ```bash
 curl -sk https://litellm.adeoaiengine.ecouncil.ae/health/liveliness
 curl -sk https://litellm.adeoaiengine.ecouncil.ae/v1/models \
-  -H "Authorization: Bearer sk-1234"
+  -H "Authorization: Bearer {{ master_key }}"
 ```
 
 ### Quick Reference: All Makefile Targets
