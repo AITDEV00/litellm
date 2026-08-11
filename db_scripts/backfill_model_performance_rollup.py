@@ -118,11 +118,15 @@ def iter_spend_rows(
     order_sql = ' ORDER BY "startTime" ASC, "request_id" ASC LIMIT %s'
 
     anchor_sql = select_sql + order_sql
-    page_sql = (
-        select_sql
-        + ' AND (("startTime" > %s) OR ("startTime" = %s AND "request_id" > %s))'
-        + order_sql
-    )
+    # Keyset clause. When no filters are present ``select_sql`` has no WHERE, so
+    # the pagination predicate must introduce one with ``WHERE`` rather than
+    # ``AND``.
+    pagination_sql = (
+        " WHERE "
+        if not where
+        else " AND "
+    ) + '(("startTime" > %s) OR ("startTime" = %s AND "request_id" > %s))'
+    page_sql = select_sql + pagination_sql + order_sql
 
     with conn.cursor(row_factory=dict_row) as cur:
         last_ts: Optional[datetime] = None
