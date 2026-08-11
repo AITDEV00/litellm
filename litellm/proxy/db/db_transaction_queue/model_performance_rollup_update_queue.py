@@ -13,7 +13,7 @@ small even under high request rates.
 
 import asyncio
 from copy import deepcopy
-from math import floor, log, pow
+from math import floor, log, log10, pow
 from typing import Dict, List, Optional
 
 from litellm._logging import verbose_proxy_logger
@@ -72,30 +72,52 @@ def _bin_for_value(value: float, edges: List[float]) -> int:
 
 def add_histogram_counts(target: List[int], incoming: List[int]) -> List[int]:
     """Element-wise add of two histogram count arrays."""
-    return [t + i for t, i in zip(target, incoming)]
+    return [t + i for t, i in zip(target, incoming, strict=True)]
 
 
-def histogram_percentile(percentile: float, edges: List[float], counts: List[int]) -> Optional[float]:
+def histogram_percentile(
+    percentile: float,
+    edges: Optional[List[float]],
+    counts: Optional[List[int]],
+) -> Optional[float]:
     """Reconstruct a percentile from a log-bucketed histogram.
 
-    Returns the mid-point of the bin where the cumulative count crosses the
-    requested percentile, or ``None`` if the histogram has no observations.
+    Returns the estimated percentile by linear interpolation in log space
+    within the bin whose cumulative count crosses the requested percentile, or
+    ``None`` if the histogram has no observations.
+
+    Bin ``i`` covers ``[edges[i], edges[i+1])``. The edges are log-spaced, so a
+    bin's counts are roughly uniform in log space. Interpolating the target's
+    position within the crossing bin in log space therefore tracks the true
+    distribution far better than the arithmetic mid-point (which pins every
+    percentile to the bin's centre and, in the wide tail bins, misplaces long
+    latencies by up to ~2x). The final bin's upper edge is infinite, so it has
+    no finite interpolant; its lower edge is returned as the representative value.
     """
+    if not edges or not counts:
+        return None
     total = sum(counts)
     if total <= 0:
         return None
     target = percentile * total
     cumulative = 0
     for i, count in enumerate(counts):
+        if count == 0:
+            continue
         cumulative += count
         if cumulative >= target:
-            # Bin i covers [edges[i], edges[i+1]). The final bin's upper edge is
-            # infinite, so there is no finite midpoint; fall back to the last
-            # finite edge as the representative point.
-            if edges[i + 1] == float("inf"):
-                return float(edges[i])
-            mid = (edges[i] + edges[i + 1]) / 2.0
-            return float(mid)
+            lo = edges[i]
+            hi = edges[i + 1] if i + 1 < len(edges) else float("inf")
+            if hi == float("inf"):
+                return float(lo)
+            # Fraction of the way through this bin the target falls, in
+            # cumulative-count space (0 at the low edge, 1 at the high edge).
+            frac = (target - (cumulative - count)) / count
+            frac = min(max(frac, 0.0), 1.0)
+            if lo <= 0 or hi <= 0:
+                return float(lo + frac * (hi - lo))
+            # Linear interpolation in log10 space (the edges are log10-spaced).
+            return float(pow(10, log10(lo) + frac * (log10(hi) - log10(lo))))
     return None
 
 

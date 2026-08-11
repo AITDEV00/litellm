@@ -74,7 +74,7 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
                 "ttft_histogram_edges": [0.1, 1.0, 10.0, 100.0, float("inf")],
                 "ttft_histogram_counts": [0, 10, 0, 0, 0],
                 "starts": 10,
-                "ends": 10,
+                "ends": 0,
             }
         ]
     )
@@ -93,13 +93,65 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
     assert body["models"][0]["model_group"] == "gpt-4"
     assert body["models"][0]["summary"]["total_requests"] == 10
     assert body["models"][0]["summary"]["total_tokens"] == 1000
-    # concurrent_requests is the running-sum peak, which equals the starts.
+    # concurrent_requests is the continuous running-sum peak. With a single
+    # bucket that only has starts (10) and no ends, the peak is 10.
     assert body["models"][0]["time_series"]["concurrent_requests"][0]["value"] == 10.0
+    # Summary p50/p95/p99 must come from the whole-window TTFT histogram, not
+    # the per-bucket mean (0.5). All 10 requests land in bin [1.0, 10.0), so the
+    # log10-interpolated percentiles are p50=10^0.5~3.16, p95~8.91, p99~9.77. If
+    # a regression falls back to the bucket-mean series, these assertions fail.
+    assert body["models"][0]["summary"]["p50_ttft"] == pytest.approx(3.162, abs=0.01)
+    assert body["models"][0]["summary"]["p95_ttft"] == pytest.approx(8.912, abs=0.01)
+    assert body["models"][0]["summary"]["p99_ttft"] == pytest.approx(9.772, abs=0.01)
 
 
 # ---------------------------------------------------------------------------
-# GET /model/performance — entity scoping (team_id)
+# _rollup_minutes_to_model — peak concurrency via continuous running sum
 # ---------------------------------------------------------------------------
+
+
+def _minute_row(mg, ts, starts, ends, req_count):
+    edges = [0.1, 1.0, 10.0, float("inf")]
+    return {
+        "model_group": mg,
+        "bucket_start": ts,
+        "request_count": req_count,
+        "completion_tokens": 0,
+        "throughput_tokens_sum": 0.0,
+        "ttft_seconds_sum": 0.0,
+        "ttft_seconds_sum_sq": 0.0,
+        "ttft_seconds_min": None,
+        "ttft_seconds_max": None,
+        "ttft_histogram_edges": edges,
+        "ttft_histogram_counts": [0] * len(edges),
+        "starts": starts,
+        "ends": ends,
+    }
+
+
+def test_rollup_peak_concurrency_is_continuous_running_sum():
+    """The peak concurrency is a running sum over the whole window that is NOT
+    reset at coarse-bucket boundaries, and within a minute it applies the net
+    (starts - ends) rather than all-starts-first.
+
+    Scenario: 3 requests start in minute 0 (concurrency 3). All 3 end in minute
+    1 (concurrency drops to 0). A coarse bucket covering both minutes must
+    report a peak of 3, not 0 (a per-bucket reset) and not an inflated value.
+    """
+    from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+        _rollup_minutes_to_model,
+    )
+
+    start = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+    minutes = [
+        _minute_row("gpt-4", "2025-01-01T00:00:00+00:00", starts=3, ends=0, req_count=3),
+        _minute_row("gpt-4", "2025-01-01T00:01:00+00:00", starts=0, ends=3, req_count=0),
+    ]
+    model = _rollup_minutes_to_model("gpt-4", minutes, start, start + datetime.timedelta(hours=1), "1 hour")
+    series = model["time_series"]["concurrent_requests"]
+    # The continuous running sum peaks at 3 (in the start minute) and never
+    # resets to 0 because the -1 events arrive a minute later.
+    assert [s["value"] for s in series] == [3.0]
 
 
 def test_model_performance_scoped_by_team(client, auth_as, monkeypatch):

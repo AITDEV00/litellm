@@ -3,9 +3,7 @@ import sys
 
 import pytest
 
-sys.path.insert(
-    0, os.path.abspath("../../..")
-)  # Adds the parent directory to the system path
+sys.path.insert(0, os.path.abspath("../../.."))  # Adds the parent directory to the system path
 
 from litellm.proxy._types import ModelPerformanceRollupTransaction
 from litellm.proxy.db.db_transaction_queue.model_performance_rollup_update_queue import (
@@ -44,9 +42,7 @@ def _tx(
         ttft_seconds_min=ttft_seconds_min,
         ttft_seconds_max=ttft_seconds_max,
         ttft_histogram_edges=EDGES,
-        ttft_histogram_counts=ttft_histogram_counts
-        if ttft_histogram_counts is not None
-        else [0] * len(EDGES),
+        ttft_histogram_counts=ttft_histogram_counts if ttft_histogram_counts is not None else [0] * len(EDGES),
         starts=starts,
         ends=ends,
     )
@@ -87,19 +83,44 @@ class TestHistogramPercentile:
     def test_empty_histogram_returns_none(self):
         assert histogram_percentile(0.5, EDGES, [0] * len(EDGES)) is None
 
-    def test_single_value_returns_its_bin_midpoint(self):
+    def test_single_value_returns_value_in_its_bin(self):
         counts = build_ttft_histogram(1.0, EDGES)
         p50 = histogram_percentile(0.5, EDGES, counts)
         assert p50 is not None
         assert 0.0 < p50 < 10.0
 
+    def test_single_value_at_bin_midpoint_geometric(self):
+        # A single value lands in a bin; log-space interpolation returns a
+        # value inside that bin's bounds (it cannot recover the exact value
+        # since the histogram only stores the bin, not the raw observation).
+        value = 0.15
+        counts = build_ttft_histogram(value, EDGES)
+        idx = counts.index(1)
+        p50 = histogram_percentile(0.5, EDGES, counts)
+        assert p50 is not None
+        assert EDGES[idx] <= p50 <= EDGES[idx + 1]
+
+    def test_p99_and_p50_diff_distribution(self):
+        # Evenly spread values across bins: p99 must be larger than p50.
+        edges = ttft_histogram_edges()
+        counts = [1] * (len(edges) - 1) + [0]
+        p50 = histogram_percentile(0.5, edges, counts)
+        p95 = histogram_percentile(0.95, edges, counts)
+        p99 = histogram_percentile(0.99, edges, counts)
+        assert p50 is not None and p95 is not None and p99 is not None
+        assert p50 < p95 < p99
+
     def test_all_values_in_high_bin(self):
         # A value larger than the last finite edge should land in the final
         # (infinite) bin, and the percentile should clamp to that finite edge.
-        counts = build_ttft_histogram(10 ** 7, EDGES)
+        counts = build_ttft_histogram(10**7, EDGES)
         p50 = histogram_percentile(0.5, EDGES, counts)
         assert p50 is not None
         assert p50 == EDGES[-2]
+
+    def test_none_edges_or_counts_returns_none(self):
+        assert histogram_percentile(0.5, None, [1, 2]) is None
+        assert histogram_percentile(0.5, EDGES, None) is None
 
 
 class TestMergeTransactions:
@@ -143,9 +164,7 @@ class TestMergeTransactions:
         a = _tx(ttft_histogram_counts=build_ttft_histogram(1.0, EDGES))
         b = _tx(ttft_histogram_counts=build_ttft_histogram(1.0, EDGES))
         merged = ModelPerformanceRollupUpdateQueue.merge_transactions(a, b)
-        assert merged["ttft_histogram_counts"] == [
-            2 if c else 0 for c in build_ttft_histogram(1.0, EDGES)
-        ]
+        assert merged["ttft_histogram_counts"] == [2 if c else 0 for c in build_ttft_histogram(1.0, EDGES)]
 
     def test_does_not_mutate_inputs(self):
         a = _tx(request_count=1)
@@ -194,3 +213,115 @@ class TestQueueFlush:
         result = await queue.flush_and_get_aggregated_rollup_transactions()
         assert result[key]["request_count"] == 3
         assert result[key]["completion_tokens"] == 7
+
+
+class TestBuildTransactionTTFT:
+    @pytest.mark.asyncio
+    async def test_ttft_measured_against_exact_start_not_bucket(self):
+        """TTFT must be measured against the exact request start, never the
+        minute-truncated bucket_start. Otherwise a request starting mid-minute
+        has its TTFT inflated by up to 59s, and the datetime vs string
+        startTime branches disagree."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from litellm.proxy.db.db_spend_update_writer import DBSpendUpdateWriter
+
+        writer = DBSpendUpdateWriter()
+        writer.model_performance_rollup_update_queue = MagicMock()
+        writer.model_performance_rollup_update_queue.add_update = AsyncMock()
+
+        payload = {
+            "model_group": "gpt-4o",
+            "startTime": "2026-08-11T10:00:59.500Z",
+            "completionStartTime": "2026-08-11T10:01:01.500Z",
+            "endTime": "2026-08-11T10:01:05.000Z",
+            "completion_tokens": 100,
+            "request_duration_ms": 2000,
+            "cache_hit": "False",
+        }
+        await writer.add_spend_log_transaction_to_model_performance_rollup(payload)
+
+        # Two transactions are emitted: the start bucket (10:00, holds metrics +
+        # +1 start) and the end bucket (10:01, holds the -1 end). Find the one
+        # that carries the request metrics (request_count == 1).
+        calls = writer.model_performance_rollup_update_queue.add_update.await_args_list
+        assert len(calls) == 2
+        start_tx = next(tx for call in calls for tx in call.kwargs["update"].values() if tx["request_count"] == 1)
+        end_tx = next(tx for call in calls for tx in call.kwargs["update"].values() if tx["request_count"] == 0)
+
+        # TTFT = 01:01.5 - 00:59.5 = 2.0s. If the writer used the minute-truncated
+        # bucket_start (10:01:00.000) it would compute 1.5s; using the startTime
+        # minute it would inflate further. 2.0 proves exact-start measurement.
+        assert start_tx["ttft_seconds_sum"] == 2.0
+        assert start_tx["ttft_seconds_min"] == 2.0
+        assert start_tx["ttft_seconds_max"] == 2.0
+        # The +1 lives in the start minute; the -1 lives in the end minute, not
+        # in the same bucket (which would cancel a cross-minute request).
+        assert start_tx["bucket_start"] == "2026-08-11T10:00:00+00:00"
+        assert start_tx["starts"] == 1
+        assert start_tx["ends"] == 0
+        assert end_tx["bucket_start"] == "2026-08-11T10:01:00+00:00"
+        assert end_tx["starts"] == 0
+        assert end_tx["ends"] == 1
+
+    @pytest.mark.asyncio
+    async def test_same_minute_start_end_keeps_ends_in_start_bucket(self):
+        """When start and end fall in the same minute, no separate end bucket is
+        emitted; the -1 stays with the start transaction."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from litellm.proxy.db.db_spend_update_writer import DBSpendUpdateWriter
+
+        writer = DBSpendUpdateWriter()
+        writer.model_performance_rollup_update_queue = MagicMock()
+        writer.model_performance_rollup_update_queue.add_update = AsyncMock()
+
+        payload = {
+            "model_group": "gpt-4o",
+            "startTime": "2026-08-11T10:00:10.000Z",
+            "completionStartTime": "2026-08-11T10:00:11.000Z",
+            "endTime": "2026-08-11T10:00:30.000Z",
+            "completion_tokens": 10,
+            "request_duration_ms": 500,
+            "cache_hit": "False",
+        }
+        await writer.add_spend_log_transaction_to_model_performance_rollup(payload)
+
+        calls = writer.model_performance_rollup_update_queue.add_update.await_args_list
+        # Only one transaction: both start and end are in the 10:00 minute.
+        assert len(calls) == 1
+        tx = next(iter(calls[0].kwargs["update"].values()))
+        assert tx["bucket_start"] == "2026-08-11T10:00:00+00:00"
+        assert tx["starts"] == 1
+        assert tx["ends"] == 1
+
+    @pytest.mark.asyncio
+    async def test_ttft_skips_degenerate_completion_start_equals_end(self):
+        """Mirroring the raw read path, a row where completionStartTime == endTime
+        must contribute no TTFT to the histogram, so the rollup p50/p95 agree
+        with the raw PERCENTILE_CONT (which excludes such rows)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from litellm.proxy.db.db_spend_update_writer import DBSpendUpdateWriter
+
+        writer = DBSpendUpdateWriter()
+        writer.model_performance_rollup_update_queue = MagicMock()
+        writer.model_performance_rollup_update_queue.add_update = AsyncMock()
+
+        payload = {
+            "model_group": "gpt-4o",
+            "startTime": "2026-08-11T10:00:10.000Z",
+            "completionStartTime": "2026-08-11T10:00:30.000Z",
+            "endTime": "2026-08-11T10:00:30.000Z",
+            "completion_tokens": 10,
+            "request_id": "req-degenerate",
+            "cache_hit": "False",
+        }
+        await writer.add_spend_log_transaction_to_model_performance_rollup(payload)
+
+        calls = writer.model_performance_rollup_update_queue.add_update.await_args_list
+        assert len(calls) == 1
+        tx = next(iter(calls[0].kwargs["update"].values()))
+        assert tx["ttft_seconds_sum"] == 0.0
+        assert tx["ttft_seconds_min"] is None
+        assert sum(tx["ttft_histogram_counts"]) == 0

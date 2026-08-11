@@ -2343,32 +2343,44 @@ class DBSpendUpdateWriter:
         if request_duration_ms is not None and request_duration_ms > 0:
             throughput_tokens_sum = float(completion_tokens) / float(request_duration_ms) * 1000.0
 
-        # TTFT = completionStartTime - startTime, in seconds.
+        # TTFT = completionStartTime - startTime, in seconds. Always measured
+        # against the exact start (start_dt), never the minute-truncated
+        # bucket_start, so the two branches agree and TTFT is not inflated by
+        # up to the sub-minute remainder.
+        #
+        # Skip degenerate rows where completionStartTime == endTime, mirroring
+        # the raw read path (model_performance_endpoints.py) which excludes
+        # those from the TTFT aggregation. Without this the rollup histogram
+        # and the raw PERCENTILE_CONT disagree on p50/p95.
+        end_time = payload.get("endTime")
         completion_start_time = payload.get("completionStartTime")
         ttft_seconds = None
-        if isinstance(completion_start_time, datetime):
-            ttft_seconds = (completion_start_time - bucket_start).total_seconds()
-        elif isinstance(completion_start_time, str):
-            cst = datetime.fromisoformat(completion_start_time)
-            if cst.tzinfo is None:
-                cst = cst.replace(tzinfo=timezone.utc)
-            ttft_seconds = (cst - start_dt).total_seconds()
+        if completion_start_time is not None and end_time is not None and completion_start_time != end_time:
+            if isinstance(completion_start_time, datetime):
+                ttft_seconds = (completion_start_time - start_dt).total_seconds()
+            elif isinstance(completion_start_time, str):
+                cst = datetime.fromisoformat(completion_start_time)
+                if cst.tzinfo is None:
+                    cst = cst.replace(tzinfo=timezone.utc)
+                ttft_seconds = (cst - start_dt).total_seconds()
         if ttft_seconds is not None and ttft_seconds < 0:
             ttft_seconds = None
 
-        end_time = payload.get("endTime")
-        ends = 0
+        # The -1 (end) concurrency event belongs in the minute where the request
+        # actually ENDS, not where it starts. Recording both starts and ends in
+        # the start bucket would cancel a cross-minute request's concurrency in
+        # its own minute and never elevate the buckets it spans, under-reporting
+        # the true peak. So the start bucket gets the +1; if the end falls in a
+        # different minute that minute bucket gets a dedicated -1 (a
+        # request_count=0 transaction, since metrics live in the start bucket).
+        end_dt: Optional[datetime] = None
         if end_time is not None:
             if isinstance(end_time, datetime):
                 end_dt = end_time
             elif isinstance(end_time, str):
-                end_dt = datetime.fromisoformat(end_time)
-                if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=timezone.utc)
-            else:
-                end_dt = None
-            if end_dt is not None:
-                ends = 1
+                parsed_end = datetime.fromisoformat(end_time)
+                end_dt = parsed_end.replace(tzinfo=timezone.utc) if parsed_end.tzinfo is None else parsed_end
+        same_minute = end_dt is not None and end_dt.replace(second=0, microsecond=0) == bucket_start
 
         edges = ttft_histogram_edges()
         ttft_sum = ttft_seconds if ttft_seconds is not None else 0.0
@@ -2387,7 +2399,29 @@ class DBSpendUpdateWriter:
             "ttft_histogram_edges": edges,
             "ttft_histogram_counts": build_ttft_histogram(ttft_seconds, edges),
             "starts": 1,
-            "ends": ends,
+            "ends": 1 if same_minute else 0,
         }
         bucket_key = f"{model_group}::{bucket_start.isoformat()}"
         await self.model_performance_rollup_update_queue.add_update(update={bucket_key: transaction})
+
+        # A request that ends in a later minute contributes its -1 to that end
+        # minute's bucket so the running-sum peak reflects how long it was active.
+        if end_dt is not None and not same_minute:
+            end_bucket = end_dt.replace(second=0, microsecond=0)
+            end_transaction: ModelPerformanceRollupTransaction = {
+                "model_group": model_group,
+                "bucket_start": end_bucket.isoformat(),
+                "request_count": 0,
+                "completion_tokens": 0,
+                "throughput_tokens_sum": 0.0,
+                "ttft_seconds_sum": 0.0,
+                "ttft_seconds_sum_sq": 0.0,
+                "ttft_seconds_min": None,
+                "ttft_seconds_max": None,
+                "ttft_histogram_edges": edges,
+                "ttft_histogram_counts": [0] * len(edges),
+                "starts": 0,
+                "ends": 1,
+            }
+            end_key = f"{model_group}::{end_bucket.isoformat()}"
+            await self.model_performance_rollup_update_queue.add_update(update={end_key: end_transaction})

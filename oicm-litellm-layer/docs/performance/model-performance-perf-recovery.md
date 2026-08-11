@@ -245,6 +245,13 @@ per-entity page needs it too.
       below + "Implemented" section). DONE.
 - [x] Implement the write-time concurrency monoid as part of the rollup table. DONE —
       via `(starts, ends)` counters recomputed to a peak at read time (see below).
+- [ ] **Locally validate rollup read vs. live datasources** (2026-08-11): through the
+      port-forwarded Postgres/Prometheus, `24h` returns `"source":"db"` from the rollup
+      successfully; `7d` currently 500s with `httpx.ReadTimeout` on the Prisma query
+      engine. The 7d slice uses `_get_heavy_query_prisma_client()`, and the query
+      exceeds the read timeout over the SSH-tunneled datasource — an environmental
+      (latency) issue on the local forward, not a rollup logic bug. Worth confirming
+      against the in-cluster service where the query latency is lower.
 
 ## Implemented — model performance rollup table (this session)
 
@@ -294,6 +301,22 @@ monoid-merged). The queue is flushed to a Redis buffer
 buffer and batch-upserts via `_execute_rollup_upsert()`. This mirrors the proven
 `DailySpendUpdateQueue` pattern exactly.
 
+Two correctness fixes shipped against the initial write path:
+
+1. **TTFT degenerate filter.** TTFT is only recorded when
+   `completionStartTime != endTime`, mirroring the raw read path's exclusion of those
+   rows from the TTFT aggregation. Without this the rollup histogram and the raw
+   `PERCENTILE_CONT` disagreed on p50/p95. (Rows with a negative TTFT are also dropped
+   as data cleaning; the raw path keeps them, so a tiny residual difference remains.)
+2. **`ends` is recorded in the END minute, not the start minute.** The start bucket
+   gets `starts = 1`; a request ending in a later minute emits a separate
+   `request_count = 0` transaction carrying `ends = 1` for that end bucket. Recording
+   both counters in the start bucket cancelled a cross-minute request's concurrency in
+   its own minute and never elevated the buckets it spanned, so the read-side peak
+   grossly under-counted (a true peak of 34 was read back as 0, or over-counted to 880
+   with the old all-starts-first ordering). The end bucket now correctly receives the
+   `-1`.
+
 ### Read path
 
 In `_fetch_db_performance`, when `scope.is_empty` (global view), the query is routed
@@ -303,13 +326,33 @@ peak from `(starts, ends)`, and derives p50/p95 from the histogram. Entity-scope
 requests and custom ranges still scan the raw spend log (they filter on entity
 columns Prometheus/rollup don't carry).
 
+The peak concurrency is a **continuous** running sum over the whole window, not a
+reset-per-bucket value: per minute `running += starts - ends; peak = max(peak,
+running)`. The running value is carried across coarse-bucket boundaries so a request
+straddling a boundary keeps its concurrency, and the per-minute **net** change is
+applied because sub-minute ordering is lost. Empirically this reads a raw
+second-resolution peak of 34 back as 33 (and 40 as 37); the residual is the inherent
+1-minute quantization, acceptable for monitoring.
+
+The summary p50/p95 come from a **whole-window histogram** merged across all coarse
+buckets (element-wise count add), assigned *after* `_summarize_time_series()` so the
+per-bucket mean TTFT series doesn't overwrite them. This keeps the summary percentiles
+reflecting the true per-request distribution rather than the distribution of bucket
+means.
+
 ### Tests
 
 - `tests/test_litellm/proxy/db/db_transaction_queue/test_model_performance_rollup_update_queue.py`
-  (19 tests): histogram edges/binning/percentile, merge monoid (scalars, min/max,
-  histogram element-add, immutability), cross-dict bucket aggregation, queue flush.
-- `tests/test_litellm/proxy/proxy_server/test_routes_model_performance.py` (12 route
-  tests) updated and passing.
+  (24 tests): histogram edges/binning/percentile, merge monoid (scalars, min/max,
+  histogram element-add, immutability), cross-dict bucket aggregation, queue flush,
+  the TTFT-vs-exact-start regression, the end-in-END-bucket split (start and end
+  buckets emitted separately, or collapsed when same-minute), and the degenerate
+  `completionStartTime == endTime` TTFT skip.
+- `tests/test_litellm/proxy/proxy_server/test_routes_model_performance.py` (13 route
+  tests) updated and passing, including pins that the summary p50/p95 derive from the
+  whole-window histogram (~5.5 for a `[1.0, 10.0)` bin) not the bucket mean (0.5), and
+  that the peak concurrency is a continuous running sum not reset at bucket
+  boundaries.
 
 ### Remaining (not this session)
 

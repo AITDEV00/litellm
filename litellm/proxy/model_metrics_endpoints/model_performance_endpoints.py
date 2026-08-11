@@ -21,6 +21,10 @@ from litellm._logging import verbose_proxy_logger
 from litellm.caching.in_memory_cache import InMemoryCache
 from litellm.proxy._types import CommonProxyErrors, ProxyException, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
+from litellm.proxy.db.db_transaction_queue.model_performance_rollup_update_queue import (
+    add_histogram_counts,
+    histogram_percentile,
+)
 
 router = APIRouter()
 
@@ -722,9 +726,10 @@ async def _fetch_db_performance_from_rollup(
     the raw (multi-GB) spend log the endpoint reads a tiny time-window slice of
     the rollup and aggregates 1-minute rows up to the effective (coarser) bucket.
 
-    Concurrency is recomputed exactly at read time: each 1-minute row carries
-    ``starts`` / ``ends`` counters, and the running-sum peak is derived from the
-    chronological sequence of 1-minute buckets (same monoid the raw path uses).
+    Concurrency is recomputed at read time: each 1-minute row carries
+    ``starts`` / ``ends`` counters (``starts`` in the request's start minute,
+    ``ends`` in its end minute), and the running-sum peak is derived from the
+    chronological sequence of 1-minute buckets.
     """
     from litellm.proxy.proxy_server import prisma_client
 
@@ -826,8 +831,11 @@ def _rollup_minutes_to_model(
 
     Buckets are aligned to ``start_time``. For each coarse bucket we sum the
     counts/tokens/throughput/ttft across its 1-minute sub-buckets, combine the
-    min/max and histogram, and recompute the peak concurrency exactly via the
-    (starts, ends) running-sum monoid over the minute sequence.
+    min/max and histogram, and recompute the peak concurrency via a continuous
+    running sum over the minute sequence. The running sum is NOT reset at coarse
+    bucket boundaries (a request spanning a boundary must keep its concurrency),
+    and within each minute we apply the net change (starts - ends) since the
+    sub-minute ordering is lost.
     """
     import re
 
@@ -861,6 +869,17 @@ def _rollup_minutes_to_model(
     # Sort minutes chronologically to compute the running-sum peak exactly.
     minutes_sorted = sorted(minutes, key=lambda r: _coerce_dt(r["bucket_start"]))
 
+    # Continuous concurrency running-sum across the WHOLE window. The rollup
+    # stores starts/ends per 1-minute bucket; a request that spans multiple
+    # minutes contributes +1 in its start bucket and -1 in its end bucket, so
+    # the running sum must NOT reset at coarse-bucket boundaries or it would
+    # drop the concurrency of in-flight requests that straddle a boundary. The
+    # peak for a coarse bucket is the max running value observed across the
+    # minute sequence it covers. Within a minute we apply the NET (starts minus
+    # ends) rather than all-starts-then-all-ends, since sub-minute ordering is
+    # lost and applying all starts first would over-count the peak.
+    running = 0
+
     for row in minutes_sorted:
         bucket_dt = _align(row["bucket_start"])
         if bucket_dt not in buckets:
@@ -876,7 +895,6 @@ def _rollup_minutes_to_model(
                 "ttft_histogram_edges": list(row.get("ttft_histogram_edges") or []),
                 "starts": 0,
                 "ends": 0,
-                "running": 0,
                 "peak": 0,
             }
         b = buckets[bucket_dt]
@@ -905,17 +923,23 @@ def _rollup_minutes_to_model(
 
         starts = int(row.get("starts", 0) or 0)
         ends = int(row.get("ends", 0) or 0)
-        # Running-sum peak within this coarse bucket. Apply starts then ends
-        # (matches the raw path's ``ORDER BY ev_time, change DESC``), so the
-        # peak after this minute is current + starts.
-        b["running"] += starts
-        b["peak"] = max(b["peak"], b["running"])
-        b["running"] -= ends
+        # Net change within this minute; peak is the max continuous running value.
+        running += starts - ends
+        b["peak"] = max(b["peak"], running)
         b["starts"] += starts
         b["ends"] += ends
 
     model = _empty_model_dict(model_group)
     summary = model["summary"]
+
+    # Merge every coarse bucket's histogram into a single whole-window histogram
+    # so the summary p50/p95 reflect the true per-request TTFT distribution,
+    # not the distribution of bucket means. Without this the stored histogram
+    # would be pointless: _summarize_time_series() below derives the summary
+    # percentiles from the per-bucket ttft_seconds series (which holds bucket
+    # means), discarding the per-request detail we pre-aggregated.
+    window_edges: list[float] = []
+    window_counts: Optional[list[int]] = None
 
     for bucket_dt in sorted(buckets):
         b = buckets[bucket_dt]
@@ -929,8 +953,6 @@ def _rollup_minutes_to_model(
         ttft_mean = None
         if hist_total > 0:
             ttft_mean = b["ttft_seconds_sum"] / hist_total
-        p50 = _percentile_from_histogram(0.50, b["ttft_histogram_edges"], b["ttft_histogram_counts"])
-        p95 = _percentile_from_histogram(0.95, b["ttft_histogram_edges"], b["ttft_histogram_counts"])
 
         ts_bucket = _format_bucket(bucket_dt)
         model["time_series"]["throughput_tokens_per_sec"].append(
@@ -943,40 +965,33 @@ def _rollup_minutes_to_model(
 
         summary["total_requests"] += count
         summary["total_tokens"] += b["completion_tokens"]
+
+        # Fold this bucket's histogram into the whole-window histogram.
+        bucket_counts = b["ttft_histogram_counts"]
+        if bucket_counts:
+            if window_counts is None:
+                window_counts = [int(c) for c in bucket_counts]
+                window_edges = list(b.get("ttft_histogram_edges") or [])
+            else:
+                window_counts = add_histogram_counts(window_counts, bucket_counts)
+
+    # Summary percentiles come from the merged whole-window histogram, not the
+    # per-bucket means. _summarize_time_series fills avg_concurrent/avg_throughput
+    # and would overwrite p50/p95 from the bucket-mean series, so compute the
+    # histogram percentiles and assign them after the call.
+    _summarize_time_series(model)
+    if window_counts is not None:
+        p50 = histogram_percentile(0.50, window_edges, window_counts)
+        p95 = histogram_percentile(0.95, window_edges, window_counts)
+        p99 = histogram_percentile(0.99, window_edges, window_counts)
         if p50 is not None:
             summary["p50_ttft"] = p50
         if p95 is not None:
             summary["p95_ttft"] = p95
+        if p99 is not None:
+            summary["p99_ttft"] = p99
 
-    _summarize_time_series(model)
     return model
-
-
-def _percentile_from_histogram(
-    percentile: float,
-    edges: Optional[list],
-    counts: Optional[list],
-) -> Optional[float]:
-    """Reconstruct a percentile from a log-bucketed histogram (mid-bin value)."""
-    if not edges or not counts:
-        return None
-    total = sum(int(c) for c in counts)
-    if total <= 0:
-        return None
-    target = percentile * total
-    cumulative = 0
-    for i, count in enumerate(counts):
-        cumulative += int(count)
-        if cumulative >= target:
-            if i >= len(edges) - 1:
-                return _safe_float(edges[len(edges) - 2]) if len(edges) >= 2 else None
-            lo = edges[i]
-            hi = edges[i + 1]
-            # The final edge is +inf; clamp hi to a large finite bound.
-            if hi == float("inf") or hi is None:
-                hi = lo * 10
-            return (float(lo) + float(hi)) / 2.0
-    return None
 
 
 def _strip_provider_prefix(model_name: str) -> str:
@@ -1008,6 +1023,7 @@ def _empty_model_dict(model_group: str) -> dict:
             "avg_throughput": 0.0,
             "p50_ttft": None,
             "p95_ttft": None,
+            "p99_ttft": None,
             "total_requests": 0,
             "total_tokens": 0,
         },
@@ -1029,9 +1045,11 @@ def _summarize_time_series(mg_data: dict[str, Any]) -> None:
         ttft_vals.sort()
         mg_data["summary"]["p50_ttft"] = ttft_vals[len(ttft_vals) // 2]
         mg_data["summary"]["p95_ttft"] = ttft_vals[min(len(ttft_vals) - 1, int(math.ceil(len(ttft_vals) * 0.95)) - 1)]
+        mg_data["summary"]["p99_ttft"] = ttft_vals[min(len(ttft_vals) - 1, int(math.ceil(len(ttft_vals) * 0.99)) - 1)]
     else:
         mg_data["summary"]["p50_ttft"] = None
         mg_data["summary"]["p95_ttft"] = None
+        mg_data["summary"]["p99_ttft"] = None
 
 
 def _avg_values(points: list[dict]) -> float:

@@ -101,6 +101,9 @@ nav:
   - Techniques:
       - Logic Mapping: techniques/logic_mapping_technique.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
-  - Performance: performance/executive-summary.md
+  - Performance:
+      - Executive Summary: performance/executive-summary.md
+      - Model Performance Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
+      - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Docs Map: docs-map.md
