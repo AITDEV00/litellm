@@ -47,4 +47,4 @@ reading EndpointSlices. See [Deployment & Cluster](../deployment.md).
 - `docs/discovery-controller/README.md` — what it does + related resources
 - `docs/discovery-controller/logic-map-and-code-smell-audit.md` — trace + audit
 - `docs/model-pricing/PRICING-LOGIC-MAP.md` — pricing resolution logic
-- `docs/IMPLEMENTATION_PLAN.md` — original design (component #1)
+- `docs/architecture/IMPLEMENTATION_PLAN.md` — original design (component #1)

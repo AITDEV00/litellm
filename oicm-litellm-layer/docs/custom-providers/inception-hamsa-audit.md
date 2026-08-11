@@ -1,6 +1,6 @@
 # Inception vs Hamsa: Logic Map & Code Smell Audit
 
-> **Technique**: [Logic Mapping](../logic_mapping_technique.md) + [Code Smell Detection](../code_smell_detection_technique.md)
+> **Technique**: [Logic Mapping](../techniques/logic_mapping_technique.md) + [Code Smell Detection](../techniques/code_smell_detection_technique.md)
 >
 > **Scope**: `litellm/llms/inception/` and `litellm/llms/hamsa/` (all Python files), plus dispatch sites in `litellm/main.py`
 >

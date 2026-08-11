@@ -97,6 +97,9 @@ git apply ../oicm-litellm-layer/patches/embedding-extra-body.patch
     ├── htb-rate-limiting/     HTB priority-based rate limiting design and behaviour
     ├── performance/           gateway performance reports (before/after optimization)
     ├── dashboard-plan/        dashboard extension proposal (concurrency, top consumers)
-    ├── CACHE_INVALIDATION_FIX_TESTING.md
-    └── IMPLEMENTATION_PLAN.md
+    ├── techniques/            reusable analysis techniques (logic mapping, code smells)
+    ├── runbooks/              operational runbooks (datasource validation, mkdocs setup)
+    ├── cache-invalidation/    cache invalidation design + testing
+    ├── architecture/          integration-layer implementation plan
+    └── ...                    full map on docs/docs-map.md
 ```

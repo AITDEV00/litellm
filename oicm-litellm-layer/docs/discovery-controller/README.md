@@ -24,7 +24,7 @@ Both sources are polled on every full sync cycle (default every 300 seconds). Lo
 |---|---|---|
 | Controller source README | `controller/README.md` | Developer docs for the controller package: architecture (VSA), dependency graph, how to add a new source, Submariner import discovery |
 | Deployment manifest | `deploy/discovery-controller.yaml` | K8s Deployment + RBAC + ServiceAccount. Pinned to `adeo-gpu-03` (Submariner gateway node). Includes extensive comments on node pinning, tolerations, and RBAC for EndpointSlices |
-| Implementation plan | `docs/IMPLEMENTATION_PLAN.md` (Component #1) | Original design document for the discovery controller: scope, architecture, data flow, deployment steps |
+| Implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` (Component #1) | Original design document for the discovery controller: scope, architecture, data flow, deployment steps |
 | Pricing logic map | `docs/model-pricing/PRICING-LOGIC-MAP.md` | Function-level trace of pricing resolution, which is triggered by the discovery controller's `_handle_add` event handler |
 | Changelog | `CHANGELOG.md` | Multiple entries covering the VSA rewrite, dedup fix, concurrent batch HTTP, health server fix, and secret reference fix |
 | Admin API dedup guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` (§"OICM Discovery Controller") | How the discovery controller uses `oicm_uuid` for model deduplication via the LiteLLM admin API |

@@ -39,4 +39,4 @@ litellm_settings:
 ## Docs
 
 - `docs/htb-rate-limiting/` — HTB rate limiting + priority bridge
-- `docs/IMPLEMENTATION_PLAN.md` (components #3, #4)
+- `docs/architecture/IMPLEMENTATION_PLAN.md` (components #3, #4)

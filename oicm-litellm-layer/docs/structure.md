@@ -83,7 +83,11 @@ oicm-litellm-layer/
 │   ├── discovery-controller/
 │   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue
 │   ├── model-pricing/      ← pricing logic maps
-│   └── performance/        ← performance before/after
+│   ├── performance/        ← performance before/after + session recovery notes
+│   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
+│   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)
+│   ├── architecture/       ← integration-layer implementation plan
+│   └── cache-invalidation/ ← cache invalidation design + testing
 │
 ├── scripts/                ← helper scripts
 │   ├── get_master_key.py       ← prints the master key from deploy/litellm-proxy.yaml (single source)

@@ -92,5 +92,15 @@ nav:
       - Hooks: components/hooks.md
       - Custom Routes: components/custom-routes.md
       - Patches: components/patches.md
-  - Deployment & Cluster: deployment.md
+  - Architecture & Deployment:
+      - Deployment & Cluster: deployment.md
+      - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
+  - Runbooks:
+      - MkDocs Setup: runbooks/MKDOCS-SETUP.md
+      - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
+  - Techniques:
+      - Logic Mapping: techniques/logic_mapping_technique.md
+      - Code Smell Detection: techniques/code_smell_detection_technique.md
+  - Performance: performance/executive-summary.md
+  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Docs Map: docs-map.md

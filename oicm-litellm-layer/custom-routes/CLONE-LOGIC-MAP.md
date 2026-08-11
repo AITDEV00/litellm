@@ -2,7 +2,7 @@
 
 > **Scope**: Full 7-layer trace of the existing `/v1/audio/speech/clone` route, used as the reference implementation pattern for the missing OmniVoice routes (`/v1/audio/script`, `/v1/voices`, `/v1/voices/profiles`).
 >
-> **Methodology**: [logic_mapping_technique.md](../logic_mapping_technique.md) Phase 1 (Trace)
+> **Methodology**: [logic_mapping_technique.md](../docs/techniques/logic_mapping_technique.md) Phase 1 (Trace)
 
 ## 7-Layer Architecture Overview
 

@@ -63,12 +63,30 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |-----|----------|
 | Executive summary | `docs/performance/executive-summary.md` |
 | Before / after | `docs/performance/before optimization.md`, `after optimization.md` |
+| Perf recovery / session notes | `docs/performance/model-performance-perf-recovery.md` |
 
-## Other
+## Techniques
 
 | Doc | Location |
 |-----|----------|
-| Implementation plan | `docs/IMPLEMENTATION_PLAN.md` |
-| Datasource local validation | `docs/DATASOURCE-LOCAL-VALIDATION.md` |
-| Cache invalidation fix testing | `docs/CACHE_INVALIDATION_FIX_TESTING.md` |
-| Logic mapping technique | `docs/logic_mapping_technique.md`, `docs/code_smell_detection_technique.md` |
+| Logic mapping technique | `docs/techniques/logic_mapping_technique.md` |
+| Code smell detection technique | `docs/techniques/code_smell_detection_technique.md` |
+
+## Runbooks
+
+| Doc | Location |
+|-----|----------|
+| MkDocs setup | `docs/runbooks/MKDOCS-SETUP.md` |
+| Datasource local validation | `docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md` |
+
+## Architecture
+
+| Doc | Location |
+|-----|----------|
+| Integration-layer implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` |
+
+## Cache invalidation
+
+| Doc | Location |
+|-----|----------|
+| Cache invalidation fix testing | `docs/cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md` |

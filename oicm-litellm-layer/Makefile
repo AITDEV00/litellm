@@ -152,7 +152,7 @@ litellm-local-run:
 ##   make port-forward-datasources
 ## then run this (another terminal). Uses config/local_datasource.yaml + the
 ## env values in .env.datasource (copy from .env.datasource.example). See
-## docs/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
+## docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
 litellm-local-datasource:
 	@if [ ! -f "$(CURDIR)/.env.datasource" ]; then \
 		echo "Missing $(CURDIR)/.env.datasource. Copy from .env.datasource.example and fill in secrets."; \
@@ -173,7 +173,7 @@ litellm-local-datasource:
 
 ## Port-forward the cluster datasources for local validation (Postgres/Redis/
 ## Prometheus). Runs in the foreground; Ctrl+C to stop. See
-## docs/DATASOURCE-LOCAL-VALIDATION.md.
+## docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md.
 port-forward-datasources:
 	./scripts/port-forward-datasources.sh --validate
 

@@ -1,6 +1,6 @@
 # Discovery Controller: Logic Map & Code Smell Audit
 
-> **Technique**: [Logic Mapping](../logic_mapping_technique.md) + [Code Smell Detection](../code_smell_detection_technique.md)
+> **Technique**: [Logic Mapping](../techniques/logic_mapping_technique.md) + [Code Smell Detection](../techniques/code_smell_detection_technique.md)
 >
 > **Scope**: `oicm-litellm-layer/controller/` (all 19 Python files across 5 packages)
 >

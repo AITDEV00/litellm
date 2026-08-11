@@ -1,6 +1,6 @@
 # Priority Rate Limiting — Complete Logic Map
 
-> Built with the [Logic Mapping Technique](../logic_mapping_technique.md):
+> Built with the [Logic Mapping Technique](../techniques/logic_mapping_technique.md):
 > trace every function and data flow end-to-end before changing code.
 > Every entry below has a verified `file:line` reference in the current
 > codebase (branch `jya0-v1.92.0`). This map is the single source of truth

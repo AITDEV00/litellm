@@ -5,7 +5,7 @@
 > code, un-wired routes, and expandability gaps.
 >
 > **Method**: Logic mapping technique from
-> `oicm-litellm-layer/docs/logic_mapping_technique.md`. Every function in every
+> `oicm-litellm-layer/docs/techniques/logic_mapping_technique.md`. Every function in every
 > call chain is traced with file:line references. Dead branches are marked.
 
 ## 1. Provider Registration
