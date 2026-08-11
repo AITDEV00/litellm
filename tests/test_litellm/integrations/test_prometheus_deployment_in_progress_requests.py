@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from prometheus_client import CollectorRegistry, Gauge, Histogram, generate_latest
 
-from litellm.integrations.prometheus import PrometheusLogger
+from litellm.integrations.prometheus import PrometheusLogger, _DeploymentInFlightLedger
 from litellm.types.integrations.prometheus import (
     PrometheusMetricLabels,
     UserAPIKeyLabelValues,
@@ -90,6 +90,7 @@ def logger(isolated_registry):
         pl._bounded_prometheus_series_tracker = MagicMock()
         pl._cached_metric_labels: dict = {}
         pl.label_filters: dict = {}
+        pl._deployment_in_flight_ledger = _DeploymentInFlightLedger()
         return pl
 
 
@@ -583,6 +584,122 @@ async def test_inc_dec_model_name_label_match_with_provider_prefix(logger, isola
             "litellm_params": {
                 "api_base": "http://vllm:8080/v1",
                 "custom_llm_provider": "hosted_vllm",
+                "metadata": {"model_info": {"id": "abc-123"}},
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+def _gauge_series_by(registry, model_id):
+    """Return {metric_name_line: value} for every in-progress series of model_id."""
+    output = generate_latest(registry).decode()
+    series = {}
+    for line in output.splitlines():
+        if "litellm_deployment_in_progress_requests" not in line or f'model_id="{model_id}"' not in line:
+            continue
+        metric, _, val = line.rpartition(" ")
+        series[metric] = float(val)
+    return series
+
+
+@pytest.mark.asyncio
+async def test_label_divergence_self_heals_no_phantom_one(logger, isolated_registry):
+    """Regression for the production leak: inc and dec derive labels from
+    different sources, so they can land on *different* series for the same
+    model_id (e.g. inc with api_base set, dec without api_base).
+
+    Before the ledger fix, the +1 series stayed stuck forever (uncalled model
+    showed 1); the -1 series lingered at -1. The ledger keys by model_id and
+    reconciles every stale series back to 0, so the gauge must return to 0
+    and no phantom series may remain.
+    """
+    await logger.async_pre_call_deployment_hook(
+        kwargs={
+            "model": "Qwen3.6-35B",
+            "messages": [],
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+        call_type=None,
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="Qwen3.6-35B",
+        model_id="abc-123",
+        api_base="",
+        api_provider="hosted_vllm",
+    )
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "custom_llm_provider": "hosted_vllm",
+                "api_base": "",
+                "metadata": {"model_info": {"id": "abc-123"}},
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+    # No phantom nonzero series may remain for this model_id. The label series
+    # stays registered (prometheus does not GC labels) but its value must be 0.
+    assert set(_gauge_series_by(isolated_registry, "abc-123").values()) == {0.0}
+
+
+@pytest.mark.asyncio
+async def test_gauge_clamps_at_zero_when_dec_outnumbers_inc(logger, isolated_registry):
+    """The reconciled gauge must never go negative, even if a stray dec fires
+    (e.g. a retry/exception path decs a request whose inc was attributed to a
+    different worker)."""
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="Qwen3.6-35B",
+        model_id="abc-123",
+        api_base="http://vllm:8000",
+        api_provider="hosted_vllm",
+    )
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "custom_llm_provider": "hosted_vllm",
+                "api_base": "http://vllm:8000",
                 "metadata": {"model_info": {"id": "abc-123"}},
             },
         },

@@ -957,6 +957,12 @@ Authorization: Bearer {{ master_key }}
    this metric remained at `1.0` instead of returning to `0.0`. This appears to
    be a bug where the decrement callback doesn't fire on upstream auth failures.
 
+   **RESOLVED (later session):** root cause is a label-mismatch desync between the
+   inc and dec paths plus no write-time floor. Fixed with `_DeploymentInFlightLedger`
+   in `litellm/integrations/prometheus.py` (per-`model_id` ledger, gauge driven by
+   `set()` from the count, stale series reset to 0, clamped `>= 0`). See
+   `docs/performance/model-performance-perf-recovery.md` → "1 instead of 0" section.
+
 ### D.8 Summary of date-format requirements
 
 | Endpoint | Required format | Error if wrong format |

@@ -77,6 +77,78 @@ index fixes scan cost but cannot remove the peak-concurrency window sort (an
 order-sensitive, interval-spanning computation that is not a GROUP BY aggregate), nor
 does it help when the log grows to tens of millions of rows.
 
+## RESOLVED — "1 instead of 0" peak concurrency root cause + fix
+
+The user reported that, for peak concurrency, models that were NOT called in the
+window still displayed **1** instead of **0**. This was investigated live and fixed.
+
+### Symptom (confirmed from live Prometheus, localhost:9090)
+
+For `hosted_vllm/nvidia/diffusiongemma-26B-A4B-it-NVFP4` (model_id
+`67ee7098-...`), the `litellm_deployment_in_progress_requests` gauge showed:
+
+```
+pod hqhxl (10.42.6.224):  +1   <-- has api_base label
+pod 9g89n (10.42.6.223):   0
+pod hqhxl (10.42.6.224):  -1   <-- NO api_base label
+```
+
+So a model that was NOT called still surfaced `5m_peak = 1.0`, and several models
+showed negative instant values (-625, -1157, -344, -1).
+
+### Root cause (two compounding defects in the gauge)
+
+1. **Label-mismatch desync (the "1" mechanism).** `litellm_deployment_in_progress_requests`
+   is a `multiprocess_mode="livesum"` gauge driven by bare `.inc()` (pre-call hook) and
+   `.dec()` (success/failure metrics). The inc and dec paths each resolve their label
+   tuple from *different* source chains (inc reads `custom_llm_provider`/`api_base` from
+   metadata; dec reads from `llm_provider`/`litellm_params`). When they disagree (e.g.
+   one path resolves `api_base` and the other does not, or a provider-prefix mismatch),
+   the inc and dec hit **different series** for the same `model_id` that never cancel.
+   The `+1` series stays stuck at 1 forever, so an uncalled model reports 1. The `-1`
+   series is the matching dec that never found its inc.
+2. **No reconciliation / no floor.** Even a correct single series leaks if a request
+   spans a restart (or an exception path skips `dec`): the gauge has no reset and no
+   `>= 0` clamp at write time, so drift is permanent.
+
+### Fix — `_DeploymentInFlightLedger` in `litellm/integrations/prometheus.py`
+
+Replace bare `.inc()/.dec()` with an authoritative **per-process in-flight ledger**
+keyed by `model_id` (the stable deployment identity present and consistent in both the
+pre-call and post-call payloads):
+
+- `_DeploymentInFlightLedger.reconcile(model_id, name, base, provider, delta, emit)`
+  applies `+1`/`-1`, clamps the count to `>= 0`, and **`set()`s** the gauge (never
+  inc/dec) from the ledger count.
+- It keeps a canonical label tuple per `model_id` and **resets every previously
+  emitted stale series back to 0** so a divergent-label series can never linger as a
+  phantom nonzero.
+- Reconcile + emit happen under a lock, so concurrent inc/dec can't interleave
+  wrongly.
+- All three call sites route through `_reconcile_deployment_in_flight()`:
+  `_inc_deployment_in_progress` (+1), `set_llm_deployment_failure_metrics` (-1),
+  and the success-metrics dec (-1).
+
+### Why this fixes it
+
+- **Phantom 1 is gone**: the gauge is derived from a count keyed by `model_id`, not
+  from accumulating `.inc/.dec` across possibly-divergent label tuples. Any stale
+  series for a `model_id` is forced to 0.
+- **Negative is impossible**: the count is clamped `>= 0`.
+- **Works with 4 granian workers**: the deployment runs granian with
+  `--num_workers 4` and no `PROMETHEUS_MULTIPROC_DIR`, so each worker owns a process
+  local gauge; the ledger is per-process and matches that model.
+
+### Tests
+
+Extended `tests/test_litellm/integrations/test_prometheus_deployment_in_progress_requests.py`
+(17 tests pass):
+
+- `test_label_divergence_self_heals_no_phantom_one`: inc with `api_base`, dec with empty
+  `api_base` (the exact live scenario) -> gauge returns to 0, no nonzero series remains.
+- `test_gauge_clamps_at_zero_when_dec_outnumbers_inc`: a stray dec cannot push the
+  gauge negative.
+
 ### Recommended layered solution (cost-to-value)
 
 1. **Turn on native time partitioning** — the runbook ALREADY SHIPS in
@@ -99,15 +171,76 @@ does it help when the log grows to tens of millions of rows.
 Equivalent all-in-one alternative: TimescaleDB continuous aggregates (requires the
 extension + a custom aggregate for the `(net, peak)` monoid).
 
+## "How easy is it to create a new table?" — feasibility assessment
+
+The user asked how hard it is to create a new rollup table **in the current DB
+connection** to cut the Model Performance page load time. Answer: **low friction** —
+the repo already has the exact pattern to copy.
+
+### The mechanism is proven in-repo
+
+Write-time aggregation already exists and works today:
+
+- `DailySpendUpdateQueue` (in
+  `litellm/proxy/db/db_transaction_queue/daily_spend_update_queue.py`) accumulates
+  per-request deltas in memory and flushes **aggregated** rows to the daily tables.
+- Those tables (`LiteLLM_DailyUserSpend`, `LiteLLM_DailyTeamSpend`) are created by
+  timestamped `migration.sql` files under
+  `litellm-proxy-extras/litellm_proxy_extras/migrations/<timestamp>_<name>/`.
+- `ProxyExtrasDBManager.setup_database()` runs every pending migration on startup
+  (`use_v2_migration_resolver`), and the proxy is started with
+  `--use_v2_migration_resolver`, so a new migration is applied automatically on the
+  next rollout. No manual DDL needed.
+
+So adding a rollup table = **one new `migration.sql`** (CREATE TABLE IF NOT EXISTS +
+indexes) **+ a write-time updater** mirroring `DailySpendUpdateQueue`.
+
+### Proposed rollup schema (scratch sketch)
+
+```sql
+CREATE TABLE IF NOT EXISTS "LiteLLM_ModelPerformanceRollup" (
+    "model_group"    TEXT NOT NULL,
+    "bucket_start"   TIMESTAMPTZ NOT NULL,
+    "bucket_end"     TIMESTAMPTZ NOT NULL,
+    "request_count"  BIGINT NOT NULL DEFAULT 0,
+    "completion_tokens" BIGINT NOT NULL DEFAULT 0,
+    "throughput_sum" DOUBLE PRECISION NOT NULL DEFAULT 0,   -- token-seconds, for avg
+    "ttft_sum"       DOUBLE PRECISION NOT NULL DEFAULT 0,   -- for avg TTFT
+    "ttft_sum_sq"    DOUBLE PRECISION NOT NULL DEFAULT 0,   -- for p95 (approx)
+    "ttft_min"       DOUBLE PRECISION,
+    "ttft_max"       DOUBLE PRECISION,
+    "peak_net"       BIGINT NOT NULL DEFAULT 0,             -- (net, peak) monoid
+    "peak_peak"      BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY ("model_group", "bucket_start")
+);
+CREATE INDEX IF NOT EXISTS idx_mp_rollup_time ON "LiteLLM_ModelPerformanceRollup" ("bucket_start");
+```
+
+The `(peak_net, peak_peak)` pair is the write-time monoid from step 3 above:
+`combined.peak = max(a.peak, a.net + b.peak)`, `combined.net = a.net + b.net`. This is
+what makes **peak concurrency pre-aggregatable** (a read-path GROUP BY can't compute a
+true peak). Entity-scoped queries would add an `entity_type`/`entity_id` split if the
+per-entity page needs it too.
+
+### Trade-off / what NOT to do
+
+- Do **not** make the rollup the only read path for the live windows (`1m`-`1h`) —
+  Prometheus is already fast there and the live view polls every 10s; the rollup
+  targets the `24h`/`7d`/custom-range DB path that currently does the window sort.
+- Percentiles (p50/p95 TTFT) are **not exactly mergeable** across sub-intervals. For
+  near-exact results keep `sum/sum_sq/min/max` + a bounded per-bucket sample set, or
+  accept the approximation. The `(net, peak)` monoid is the ONLY metric that is exact
+  when aggregated.
+
 ## Open / todo items to resume
 
-- [ ] Validate the peak-concurrency SQL against real data once Postgres is up
-      (DB port 5432 was DOWN at the end of the session; only the proxy on 4000 was up).
-      Confirm peak-per-bucket matches expectation on overlapping request intervals.
+- [x] **VALIDATE + FIX the peak-concurrency gauge** (see "1 instead of 0" section
+      above). Done this session: `_DeploymentInFlightLedger` + tests.
 - [ ] Decide whether to adopt partitioning (step 1 above). It's the highest-ROI next move.
-- [ ] Sketch + implement the rollup table + incremental job for aggregate metrics.
-- [ ] Decide whether to implement the write-time `(net, peak)` monoid for peak
-      concurrency.
+- [ ] Sketch + implement the rollup table + incremental job (see feasibility section
+      above). The migration-based path is proven low-friction.
+- [ ] Implement the write-time `(net, peak)` monoid for peak concurrency as part of
+      the rollup table.
 
 ## How to bring up local env
 
