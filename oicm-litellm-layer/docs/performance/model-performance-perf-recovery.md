@@ -197,6 +197,11 @@ indexes) **+ a write-time updater** mirroring `DailySpendUpdateQueue`.
 
 ### Proposed rollup schema (scratch sketch)
 
+> **SUPERSEDED** — the actual shipped schema is in the "Implemented" section below.
+> The scratch below was the feasibility sketch; the shipped design swaps the
+> `(peak_net, peak_peak)` monoid for `starts`/`ends` counters (peak recomputed at read)
+> and `sum/sum_sq/min/max` for a 32-bin log TTFT histogram.
+
 ```sql
 CREATE TABLE IF NOT EXISTS "LiteLLM_ModelPerformanceRollup" (
     "model_group"    TEXT NOT NULL,
@@ -236,11 +241,82 @@ per-entity page needs it too.
 
 - [x] **VALIDATE + FIX the peak-concurrency gauge** (see "1 instead of 0" section
       above). Done this session: `_DeploymentInFlightLedger` + tests.
-- [ ] Decide whether to adopt partitioning (step 1 above). It's the highest-ROI next move.
-- [ ] Sketch + implement the rollup table + incremental job (see feasibility section
-      above). The migration-based path is proven low-friction.
-- [ ] Implement the write-time `(net, peak)` monoid for peak concurrency as part of
-      the rollup table.
+- [x] **Implement the rollup table + incremental job** (see feasibility section
+      below + "Implemented" section). DONE.
+- [x] Implement the write-time concurrency monoid as part of the rollup table. DONE —
+      via `(starts, ends)` counters recomputed to a peak at read time (see below).
+
+## Implemented — model performance rollup table (this session)
+
+The feasibility assessment below sketched a rollup; this session shipped it. The
+final design differs from the sketch in two ways, both user-driven decisions:
+
+1. **Concurrency is recomputed at read time, not pre-aggregated.** Instead of storing
+   a `(net, peak)` monoid pair per bucket, each 1-minute bucket stores raw `starts`
+   and `ends` counters. The peak is derived by a running-sum over the chronological
+   minute sequence at read time. This is exact and needs no merge rule, at the cost of
+   reading ~window/60 rollup rows (tiny vs. the raw log).
+2. **TTFT percentiles use a log-bucketed histogram**, not `sum/sum_sq`. To keep p50/p95
+   anomaly detection working, each 1-minute bucket stores a 32-bin log histogram of
+   TTFT; percentiles are reconstructed at read time as mid-bin estimates. Histograms
+   merge by element-wise array add (exact and cheap), so aggregation up to a coarser
+   bucket is lossless enough for monitoring.
+
+### Schema (shipped)
+
+`LiteLLM_ModelPerformanceRollup`, PK `("model_group", "bucket_start")`, 1-minute
+buckets:
+
+- `model_group TEXT`, `bucket_start TIMESTAMPTZ`
+- `request_count BIGINT`, `completion_tokens BIGINT`, `throughput_tokens_sum DOUBLE PRECISION`
+- `ttft_seconds_sum`, `ttft_seconds_sum_sq`, `ttft_seconds_min`, `ttft_seconds_max`
+- `ttft_histogram_edges DOUBLE PRECISION[]`, `ttft_histogram_counts BIGINT[]`
+- `starts BIGINT`, `ends BIGINT`
+
+A PL/pgSQL `_rollup_array_add_bigint` merges histogram arrays in the `ON CONFLICT`
+upsert. Migration at
+`litellm-proxy-extras/litellm_proxy_extras/migrations/20260807120000_add_model_performance_rollup/`.
+The old covering index and its migration were removed
+(`20260807120001_drop_spend_logs_model_performance_covering_index` + `git rm` of the
+add-index migration).
+
+### Write path
+
+Per request, `add_spend_log_transaction_to_model_performance_rollup()` builds a
+`ModelPerformanceRollupTransaction` (minute-aligned bucket, TTFT from
+`completionStartTime`, `starts`/`ends` counters, skip `cache_hit` and empty
+`model_group`) and enqueues it to `ModelPerformanceRollupUpdateQueue` (in-memory,
+monoid-merged). The queue is flushed to a Redis buffer
+(`litellm_model_performance_rollup_update_buffer`) by
+`store_in_memory_model_performance_rollup_updates_in_redis()`. A scheduler job
+(`update_model_performance_rollup_job`, running every
+`batch_writing_interval * MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER`) drains the
+buffer and batch-upserts via `_execute_rollup_upsert()`. This mirrors the proven
+`DailySpendUpdateQueue` pattern exactly.
+
+### Read path
+
+In `_fetch_db_performance`, when `scope.is_empty` (global view), the query is routed
+to `_fetch_db_performance_from_rollup()`, which reads a 1-minute slice of the rollup
+for the window, aggregates minutes up to the effective coarser bucket, recomputes the
+peak from `(starts, ends)`, and derives p50/p95 from the histogram. Entity-scoped
+requests and custom ranges still scan the raw spend log (they filter on entity
+columns Prometheus/rollup don't carry).
+
+### Tests
+
+- `tests/test_litellm/proxy/db/db_transaction_queue/test_model_performance_rollup_update_queue.py`
+  (19 tests): histogram edges/binning/percentile, merge monoid (scalars, min/max,
+  histogram element-add, immutability), cross-dict bucket aggregation, queue flush.
+- `tests/test_litellm/proxy/proxy_server/test_routes_model_performance.py` (12 route
+  tests) updated and passing.
+
+### Remaining (not this session)
+
+- Turn on native time partitioning (`db_scripts/partition_spend_logs.sql`) for the
+  entity-scoped / custom-range paths that still scan the raw log.
+- The live windows (`1m`-`1h`) still use Prometheus; the rollup only serves the global
+  24h/7d DB path.
 
 ## How to bring up local env
 

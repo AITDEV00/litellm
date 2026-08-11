@@ -54,6 +54,7 @@ from litellm.constants import (
     DAILY_TAG_SPEND_BATCH_MULTIPLIER,
     DEFAULT_MAX_RECURSE_DEPTH,
     DEFAULT_SHARED_HEALTH_CHECK_LOCK_TTL,
+    MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER,
     DEFAULT_SHARED_HEALTH_CHECK_TTL,
     DEFAULT_SLACK_ALERTING_THRESHOLD,
     LITELLM_EMBEDDING_PROVIDERS_SUPPORTING_INPUT_ARRAY_OF_TOKENS,
@@ -8035,6 +8036,26 @@ class ProxyStartupEvent:
         verbose_proxy_logger.info(
             f"Tag spend update job scheduled at {tag_spend_update_interval}s interval "
             f"({tag_spend_update_interval / batch_writing_interval:.1f}x main job interval)"
+        )
+
+        ### UPDATE MODEL PERFORMANCE ROLLUP (separate scheduler job, longer interval) ###
+        ## The rollup is a batched aggregation, not latency-sensitive; a longer
+        ## interval reduces upsert contention on LiteLLM_ModelPerformanceRollup.
+        rollup_update_interval = int(batch_writing_interval * MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER)
+        from litellm.proxy.utils import update_model_performance_rollup
+
+        scheduler.add_job(
+            update_model_performance_rollup,
+            "interval",
+            seconds=rollup_update_interval,
+            args=[prisma_client, proxy_logging_obj],
+            id="update_model_performance_rollup_job",
+            replace_existing=True,
+            misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
+        )
+        verbose_proxy_logger.info(
+            f"Model performance rollup update job scheduled at {rollup_update_interval}s interval "
+            f"({rollup_update_interval / batch_writing_interval:.1f}x main job interval)"
         )
 
         ### MONITOR SPEND LOGS QUEUE (queue-size-based job) ###

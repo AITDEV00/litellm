@@ -18,6 +18,7 @@ from litellm.constants import (
     REDIS_DAILY_SPEND_UPDATE_BUFFER_KEY,
     REDIS_DAILY_TAG_SPEND_UPDATE_BUFFER_KEY,
     REDIS_DAILY_TEAM_SPEND_UPDATE_BUFFER_KEY,
+    REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_BUFFER_KEY,
     REDIS_UPDATE_BUFFER_KEY,
 )
 from litellm.litellm_core_utils.safe_json_dumps import safe_dumps
@@ -31,11 +32,15 @@ from litellm.proxy._types import (
     DailyUserSpendTransaction,
     DBSpendUpdateTransactions,
     Litellm_EntityType,
+    ModelPerformanceRollupTransaction,
     SpendUpdateQueueItem,
 )
 from litellm.proxy.db.db_transaction_queue.base_update_queue import service_logger_obj
 from litellm.proxy.db.db_transaction_queue.daily_spend_update_queue import (
     DailySpendUpdateQueue,
+)
+from litellm.proxy.db.db_transaction_queue.model_performance_rollup_update_queue import (
+    ModelPerformanceRollupUpdateQueue,
 )
 from litellm.proxy.db.db_transaction_queue.spend_update_queue import SpendUpdateQueue
 from litellm.secret_managers.main import str_to_bool
@@ -689,6 +694,37 @@ class RedisUpdateBuffer:
                 list_of_daily_spend_update_transactions
             ),
         )
+
+    async def store_in_memory_model_performance_rollup_updates_in_redis(
+        self,
+        model_performance_rollup_update_queue: ModelPerformanceRollupUpdateQueue,
+    ) -> None:
+        """
+        Flush in-memory model performance rollup updates and append them to Redis.
+        """
+        rollup_transactions = await model_performance_rollup_update_queue.flush_and_get_aggregated_rollup_transactions()
+        await self._store_transactions_in_redis(
+            transactions=rollup_transactions,
+            redis_key=REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_BUFFER_KEY,
+            service_type=ServiceTypes.REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE,
+        )
+
+    async def get_all_model_performance_rollup_transactions_from_redis_buffer(
+        self,
+    ) -> Optional[Dict[str, ModelPerformanceRollupTransaction]]:
+        """
+        Gets all the model performance rollup transactions from Redis.
+        """
+        if self.redis_cache is None:
+            return None
+        list_of_transactions = await self.redis_cache.async_lpop(
+            key=REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_BUFFER_KEY,
+            count=MAX_REDIS_BUFFER_DEQUEUE_COUNT,
+        )
+        if list_of_transactions is None:
+            return None
+        list_of_rollup_transactions = [json.loads(transaction) for transaction in list_of_transactions]
+        return ModelPerformanceRollupUpdateQueue.get_aggregated_rollup_transactions(list_of_rollup_transactions)
 
     @staticmethod
     def _parse_list_of_transactions(

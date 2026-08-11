@@ -31,6 +31,7 @@ from litellm.caching import RedisCache
 from litellm.constants import (
     DB_SPEND_UPDATE_JOB_NAME,
     DB_DAILY_TAG_SPEND_UPDATE_JOB_NAME,
+    DB_MODEL_PERFORMANCE_ROLLUP_UPDATE_JOB_NAME,
 )
 from litellm.litellm_core_utils.safe_json_loads import safe_json_loads
 from litellm.proxy._types import (
@@ -44,6 +45,7 @@ from litellm.proxy._types import (
     DailyUserSpendTransaction,
     DBSpendUpdateTransactions,
     Litellm_EntityType,
+    ModelPerformanceRollupTransaction,
     SpendLogsMetadata,
     SpendLogsPayload,
     SpendUpdateQueueItem,
@@ -51,6 +53,11 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.db.db_transaction_queue.daily_spend_update_queue import (
     DailySpendUpdateQueue,
+)
+from litellm.proxy.db.db_transaction_queue.model_performance_rollup_update_queue import (
+    ModelPerformanceRollupUpdateQueue,
+    build_ttft_histogram,
+    ttft_histogram_edges,
 )
 from litellm.proxy.db.db_transaction_queue.pod_lock_manager import PodLockManager
 from litellm.proxy.db.db_transaction_queue.redis_update_buffer import RedisUpdateBuffer
@@ -97,6 +104,88 @@ def _extract_cache_creation_tokens(usage_obj: dict) -> int:
     return int(details.get("cache_write_tokens", 0) or details.get("cache_creation_tokens", 0) or 0)
 
 
+async def _execute_rollup_upsert(
+    prisma_client: "PrismaClient",
+    transactions: List[ModelPerformanceRollupTransaction],
+) -> None:
+    """Single multi-row INSERT ... ON CONFLICT DO UPDATE for the rollup table.
+
+    The rollup table is not in the Prisma schema, so we use raw SQL. The merge
+    inside ``ON CONFLICT DO UPDATE`` uses the same monoid as the in-memory
+    queue: sums add, min/max combine, histograms add element-wise (via the
+    ``_rollup_array_add_bigint`` SQL function), and the starts/ends concurrency
+    counters add.
+    """
+    if not transactions:
+        return
+
+    rows_sql: list[str] = []
+    args: list = []
+    idx = 1
+    for t in transactions:
+        edges_literal = "{" + ",".join(_fmt_sql_array_float(x) for x in t["ttft_histogram_edges"]) + "}"
+        counts_literal = "{" + ",".join(str(c) for c in t["ttft_histogram_counts"]) + "}"
+        rows_sql.append(
+            f"(${idx}::text, ${idx + 1}::timestamptz, "
+            f"{int(t['request_count'])}, {int(t['completion_tokens'])}, "
+            f"{float(t['throughput_tokens_sum'])}, {float(t['ttft_seconds_sum'])}, "
+            f"{float(t['ttft_seconds_sum_sq'])}, "
+            f"{_fmt_sql_float(t['ttft_seconds_min'])}, {_fmt_sql_float(t['ttft_seconds_max'])}, "
+            f"${idx + 2}::double precision[], ${idx + 3}::bigint[], "
+            f"{int(t['starts'])}, {int(t['ends'])})"
+        )
+        args.append(t["model_group"])
+        args.append(t["bucket_start"])
+        args.append(edges_literal)
+        args.append(counts_literal)
+        idx += 4
+
+    values_sql = ",\n".join(rows_sql)
+    sql = f"""
+        INSERT INTO "LiteLLM_ModelPerformanceRollup" (
+            "model_group", "bucket_start",
+            "request_count", "completion_tokens", "throughput_tokens_sum",
+            "ttft_seconds_sum", "ttft_seconds_sum_sq", "ttft_seconds_min", "ttft_seconds_max",
+            "ttft_histogram_edges", "ttft_histogram_counts",
+            "starts", "ends"
+        ) VALUES
+        {values_sql}
+        ON CONFLICT ("model_group", "bucket_start") DO UPDATE SET
+            "request_count" = "LiteLLM_ModelPerformanceRollup"."request_count" + EXCLUDED."request_count",
+            "completion_tokens" = "LiteLLM_ModelPerformanceRollup"."completion_tokens" + EXCLUDED."completion_tokens",
+            "throughput_tokens_sum" = "LiteLLM_ModelPerformanceRollup"."throughput_tokens_sum" + EXCLUDED."throughput_tokens_sum",
+            "ttft_seconds_sum" = "LiteLLM_ModelPerformanceRollup"."ttft_seconds_sum" + EXCLUDED."ttft_seconds_sum",
+            "ttft_seconds_sum_sq" = "LiteLLM_ModelPerformanceRollup"."ttft_seconds_sum_sq" + EXCLUDED."ttft_seconds_sum_sq",
+            "ttft_seconds_min" = LEAST(
+                COALESCE("LiteLLM_ModelPerformanceRollup"."ttft_seconds_min", EXCLUDED."ttft_seconds_min"),
+                EXCLUDED."ttft_seconds_min"
+            ),
+            "ttft_seconds_max" = GREATEST(
+                COALESCE("LiteLLM_ModelPerformanceRollup"."ttft_seconds_max", EXCLUDED."ttft_seconds_max"),
+                EXCLUDED."ttft_seconds_max"
+            ),
+            "ttft_histogram_counts" = _rollup_array_add_bigint(
+                "LiteLLM_ModelPerformanceRollup"."ttft_histogram_counts",
+                EXCLUDED."ttft_histogram_counts"
+            ),
+            "starts" = "LiteLLM_ModelPerformanceRollup"."starts" + EXCLUDED."starts",
+            "ends" = "LiteLLM_ModelPerformanceRollup"."ends" + EXCLUDED."ends"
+    """
+    await prisma_client.db.execute_raw(sql, *args)
+
+
+def _fmt_sql_float(value: Optional[float]) -> str:
+    if value is None:
+        return "NULL"
+    return repr(float(value))
+
+
+def _fmt_sql_array_float(value: float) -> str:
+    if value == float("inf"):
+        return "'Infinity'"
+    return repr(float(value))
+
+
 class DBSpendUpdateWriter:
     """
     Module responsible for
@@ -120,6 +209,7 @@ class DBSpendUpdateWriter:
         self.daily_agent_spend_update_queue = DailySpendUpdateQueue()
         self.daily_org_spend_update_queue = DailySpendUpdateQueue()
         self.daily_tag_spend_update_queue = DailySpendUpdateQueue()
+        self.model_performance_rollup_update_queue = ModelPerformanceRollupUpdateQueue()
 
     async def update_database(
         # LiteLLM management object fields
@@ -505,6 +595,16 @@ class DBSpendUpdateWriter:
         except Exception:
             verbose_proxy_logger.debug(
                 "_batch_database_updates: add_spend_log_transaction_to_daily_tag_transaction failed: %s",
+                traceback.format_exc(),
+            )
+
+        try:
+            await self.add_spend_log_transaction_to_model_performance_rollup(
+                payload=payload_copy,
+            )
+        except Exception:
+            verbose_proxy_logger.debug(
+                "_batch_database_updates: add_spend_log_transaction_to_model_performance_rollup failed: %s",
                 traceback.format_exc(),
             )
 
@@ -1071,6 +1171,68 @@ class DBSpendUpdateWriter:
             finally:
                 await self.pod_lock_manager.release_lock(
                     cronjob_id=DB_DAILY_TAG_SPEND_UPDATE_JOB_NAME,
+                )
+
+    async def _commit_model_performance_rollup_to_db(
+        self,
+        prisma_client: PrismaClient,
+        n_retry_times: int,
+        proxy_logging_obj: ProxyLogging,
+    ):
+        """
+        Commit model performance rollup updates to the database.
+        Called by a dedicated scheduler job at a longer interval.
+        """
+        rollup_transactions = (
+            await self.model_performance_rollup_update_queue.flush_and_get_aggregated_rollup_transactions()
+        )
+
+        if rollup_transactions:
+            await DBSpendUpdateWriter.update_model_performance_rollup(
+                n_retry_times=n_retry_times,
+                prisma_client=prisma_client,
+                proxy_logging_obj=proxy_logging_obj,
+                rollup_transactions=rollup_transactions,
+            )
+
+    async def _commit_model_performance_rollup_to_db_with_redis(
+        self,
+        prisma_client: PrismaClient,
+        n_retry_times: int,
+        proxy_logging_obj: ProxyLogging,
+    ):
+        """
+        Commit model performance rollup updates using Redis buffering.
+        """
+        await self.redis_update_buffer.store_in_memory_model_performance_rollup_updates_in_redis(
+            model_performance_rollup_update_queue=self.model_performance_rollup_update_queue,
+        )
+
+        if await self.pod_lock_manager.acquire_lock(
+            cronjob_id=DB_MODEL_PERFORMANCE_ROLLUP_UPDATE_JOB_NAME,
+        ):
+            verbose_proxy_logger.debug("acquired lock for model performance rollup updates")
+            try:
+                rollup_transactions = (
+                    await self.redis_update_buffer.get_all_model_performance_rollup_transactions_from_redis_buffer()
+                )
+                if rollup_transactions:
+                    await DBSpendUpdateWriter.update_model_performance_rollup(
+                        n_retry_times=n_retry_times,
+                        prisma_client=prisma_client,
+                        proxy_logging_obj=proxy_logging_obj,
+                        rollup_transactions=rollup_transactions,
+                    )
+            except Exception as e:
+                spend_log_error(
+                    "Spend tracking - failed to commit model performance rollup updates from Redis to DB. "
+                    "Data already popped from Redis may be lost. Error: %s",
+                    str(e),
+                    exc=e,
+                )
+            finally:
+                await self.pod_lock_manager.release_lock(
+                    cronjob_id=DB_MODEL_PERFORMANCE_ROLLUP_UPDATE_JOB_NAME,
                 )
 
     async def _flush_tool_discovery_queue(
@@ -1817,6 +1979,52 @@ class DBSpendUpdateWriter:
             unique_constraint_name="tag_date_api_key_model_custom_llm_provider_mcp_namespaced_tool_name_endpoint",
         )
 
+    @staticmethod
+    async def update_model_performance_rollup(
+        n_retry_times: int,
+        prisma_client: PrismaClient,
+        proxy_logging_obj: ProxyLogging,
+        rollup_transactions: Dict[str, ModelPerformanceRollupTransaction],
+    ) -> None:
+        """
+        Batch upsert model performance rollup transactions into
+        ``LiteLLM_ModelPerformanceRollup``.
+
+        Uses a single multi-row ``INSERT ... ON CONFLICT DO UPDATE`` so the whole
+        batch commits in one round-trip. Retries transient failures up to
+        ``n_retry_times`` times.
+        """
+        if not rollup_transactions:
+            return
+
+        values = list(rollup_transactions.values())
+        BATCH_SIZE = 200
+        for i in range(len(values) // BATCH_SIZE + 1):
+            batch = values[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
+            if not batch:
+                continue
+            for attempt in range(n_retry_times + 1):
+                try:
+                    await _execute_rollup_upsert(
+                        prisma_client=prisma_client,
+                        transactions=batch,
+                    )
+                    break
+                except Exception as e:
+                    if attempt < n_retry_times:
+                        verbose_proxy_logger.debug(
+                            "Model performance rollup upsert attempt %d/%d failed: %s",
+                            attempt + 1,
+                            n_retry_times + 1,
+                            str(e),
+                        )
+                        await asyncio.sleep(0.05 * (attempt + 1))
+                    else:
+                        spend_log_error(
+                            "Model performance rollup upsert failed (non-blocking): %s",
+                            str(e),
+                        )
+
     async def _common_add_spend_log_transaction_to_daily_transaction(
         self,
         payload: Union[dict, SpendLogsPayload],
@@ -2088,3 +2296,98 @@ class DBSpendUpdateWriter:
             )
 
             await self.daily_tag_spend_update_queue.add_update(update={daily_transaction_key: daily_transaction})
+
+    async def add_spend_log_transaction_to_model_performance_rollup(
+        self,
+        payload: SpendLogsPayload,
+    ) -> None:
+        """
+        Enqueue a per-request model performance rollup transaction.
+
+        Runs entirely in-memory (queued), so it adds no per-request DB overhead.
+        The rollup only serves the global (no entity-filter) view, so this is
+        keyed purely by (model_group, bucket_start). Cache hits are excluded to
+        match the read path.
+
+        Concurrency is recorded as (starts, ends) counters; the read path
+        recomputes the exact running-sum peak from these.
+        """
+        if payload.get("cache_hit") == "True":
+            return
+        model_group = payload.get("model_group")
+        if not model_group:
+            verbose_proxy_logger.debug(
+                "add_spend_log_transaction_to_model_performance_rollup: no model_group, skipping"
+            )
+            return
+
+        start_time = payload.get("startTime")
+        if isinstance(start_time, datetime):
+            start_dt = start_time
+        elif isinstance(start_time, str):
+            start_dt = datetime.fromisoformat(start_time)
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+        else:
+            verbose_proxy_logger.debug(
+                "add_spend_log_transaction_to_model_performance_rollup: invalid startTime, skipping"
+            )
+            return
+
+        # 1-minute bucket, aligned to the minute.
+        bucket_start = start_dt.replace(second=0, microsecond=0)
+
+        completion_tokens = payload.get("completion_tokens") or 0
+        request_duration_ms = payload.get("request_duration_ms")
+        throughput_tokens_sum = 0.0
+        if request_duration_ms is not None and request_duration_ms > 0:
+            throughput_tokens_sum = float(completion_tokens) / float(request_duration_ms) * 1000.0
+
+        # TTFT = completionStartTime - startTime, in seconds.
+        completion_start_time = payload.get("completionStartTime")
+        ttft_seconds = None
+        if isinstance(completion_start_time, datetime):
+            ttft_seconds = (completion_start_time - bucket_start).total_seconds()
+        elif isinstance(completion_start_time, str):
+            cst = datetime.fromisoformat(completion_start_time)
+            if cst.tzinfo is None:
+                cst = cst.replace(tzinfo=timezone.utc)
+            ttft_seconds = (cst - start_dt).total_seconds()
+        if ttft_seconds is not None and ttft_seconds < 0:
+            ttft_seconds = None
+
+        end_time = payload.get("endTime")
+        ends = 0
+        if end_time is not None:
+            if isinstance(end_time, datetime):
+                end_dt = end_time
+            elif isinstance(end_time, str):
+                end_dt = datetime.fromisoformat(end_time)
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+            else:
+                end_dt = None
+            if end_dt is not None:
+                ends = 1
+
+        edges = ttft_histogram_edges()
+        ttft_sum = ttft_seconds if ttft_seconds is not None else 0.0
+        ttft_sum_sq = (ttft_seconds**2) if ttft_seconds is not None else 0.0
+
+        transaction: ModelPerformanceRollupTransaction = {
+            "model_group": model_group,
+            "bucket_start": bucket_start.isoformat(),
+            "request_count": 1,
+            "completion_tokens": completion_tokens,
+            "throughput_tokens_sum": throughput_tokens_sum,
+            "ttft_seconds_sum": ttft_sum,
+            "ttft_seconds_sum_sq": ttft_sum_sq,
+            "ttft_seconds_min": ttft_seconds,
+            "ttft_seconds_max": ttft_seconds,
+            "ttft_histogram_edges": edges,
+            "ttft_histogram_counts": build_ttft_histogram(ttft_seconds, edges),
+            "starts": 1,
+            "ends": ends,
+        }
+        bucket_key = f"{model_group}::{bucket_start.isoformat()}"
+        await self.model_performance_rollup_update_queue.add_update(update={bucket_key: transaction})

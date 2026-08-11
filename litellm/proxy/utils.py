@@ -5540,6 +5540,42 @@ async def update_daily_tag_spend(
         verbose_proxy_logger.error(f"Error updating daily tag spend: {e}")
 
 
+async def update_model_performance_rollup(
+    prisma_client: PrismaClient,
+    proxy_logging_obj: ProxyLogging,
+):
+    """
+    Separate scheduler job to commit model performance rollup updates.
+
+    Runs at a longer interval (2.3x the main update_spend job) to reduce query
+    contention on the ``LiteLLM_ModelPerformanceRollup`` table. Buffers
+    in-memory via the same Redis-first pattern as the daily tag spend job.
+
+    Only processes the model performance rollup update queue; does NOT process
+    regular spend updates, spend logs, or tag spend.
+
+    Args:
+        prisma_client: PrismaClient instance
+        proxy_logging_obj: ProxyLogging instance for error handling
+    """
+    n_retry_times = 3
+    try:
+        if proxy_logging_obj.db_spend_update_writer.redis_update_buffer._should_commit_spend_updates_to_redis():
+            await proxy_logging_obj.db_spend_update_writer._commit_model_performance_rollup_to_db_with_redis(
+                prisma_client=prisma_client,
+                n_retry_times=n_retry_times,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+        else:
+            await proxy_logging_obj.db_spend_update_writer._commit_model_performance_rollup_to_db(
+                prisma_client=prisma_client,
+                n_retry_times=n_retry_times,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+    except Exception as e:
+        verbose_proxy_logger.error(f"Error updating model performance rollup: {e}")
+
+
 async def update_spend_logs_job(
     prisma_client: PrismaClient,
     db_writer_client: Optional[AsyncHTTPHandler],

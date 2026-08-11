@@ -44769,6 +44769,10 @@ export interface operations {
                 api_key?: string | null;
                 /** @description Scope to a specific agent */
                 agent_id?: string | null;
+                /** @description Explicit start time (ISO-8601). Overrides the window-relative start when provided. */
+                start_time?: string | null;
+                /** @description Explicit end time (ISO-8601). Overrides the window-relative end when provided. */
+                end_time?: string | null;
             };
             header?: never;
             path?: never;

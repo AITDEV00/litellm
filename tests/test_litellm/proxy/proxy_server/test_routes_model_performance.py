@@ -57,18 +57,24 @@ def test_model_performance_happy_empty(client, auth_as, prisma_with_query_raw):
 
 
 def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
-    """Pins ``GET /model/performance`` (happy: with db rows)."""
+    """Pins ``GET /model/performance`` (happy: with db rollup rows)."""
     pc = MagicMock()
     pc.db.query_raw = AsyncMock(
         return_value=[
             {
                 "model_group": "gpt-4",
-                "bucket": "2025-01-01T00:00:00Z",
+                "bucket_start": "2025-01-01T00:00:00+00:00",
                 "request_count": 10,
-                "total_completion_tokens": 1000,
-                "avg_throughput_tokens_per_sec": 100.0,
-                "avg_ttft_seconds": 0.5,
-                "concurrent_requests": 2.0,
+                "completion_tokens": 1000,
+                "throughput_tokens_sum": 1000.0,
+                "ttft_seconds_sum": 5.0,
+                "ttft_seconds_sum_sq": 0.0,
+                "ttft_seconds_min": 0.4,
+                "ttft_seconds_max": 0.6,
+                "ttft_histogram_edges": [0.1, 1.0, 10.0, 100.0, float("inf")],
+                "ttft_histogram_counts": [0, 10, 0, 0, 0],
+                "starts": 10,
+                "ends": 10,
             }
         ]
     )
@@ -82,13 +88,13 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["window"] == "1h"
+    assert body["source"] == "rollup"
     assert len(body["models"]) == 1
     assert body["models"][0]["model_group"] == "gpt-4"
     assert body["models"][0]["summary"]["total_requests"] == 10
     assert body["models"][0]["summary"]["total_tokens"] == 1000
-    # concurrent_requests must reflect the real value, not a hardcoded 0
-    assert body["models"][0]["summary"]["avg_concurrent"] == 2.0
-    assert body["models"][0]["time_series"]["concurrent_requests"][0]["value"] == 2.0
+    # concurrent_requests is the running-sum peak, which equals the starts.
+    assert body["models"][0]["time_series"]["concurrent_requests"][0]["value"] == 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -314,17 +320,7 @@ def test_model_performance_step_passes_bucket_interval(client, auth_as, monkeypa
     async def fake_query_raw(sql, *args):
         captured["sql"] = sql
         captured["args"] = args
-        return [
-            {
-                "model_group": "gpt-4",
-                "bucket": "2025-01-01T00:00:00Z",
-                "request_count": 10,
-                "total_completion_tokens": 1000,
-                "avg_throughput_tokens_per_sec": 100.0,
-                "avg_ttft_seconds": 0.5,
-                "concurrent_requests": 2.0,
-            }
-        ]
+        return []
 
     pc.db.query_raw = fake_query_raw
     monkeypatch.setattr(proxy_server, "prisma_client", pc)
@@ -335,12 +331,14 @@ def test_model_performance_step_passes_bucket_interval(client, auth_as, monkeypa
     with auth_as():
         response = client.get("/model/performance", params={"window": "24h", "step": "2 hours"})
     assert response.status_code == 200
-    assert response.json()["source"] == "db"
-    # The SQL is built with $3 as the bucket interval; assert the override won.
-    assert "$3::interval" in captured["sql"]
-    # Positional arg 3 is the bucket interval; it must be the user-supplied step,
-    # NOT the window default ("1 hour" for 24h).
-    assert captured["args"][2] == "2 hours"
+    body = response.json()
+    assert body["source"] == "rollup"
+    # The rollup read aggregates 1-minute rows up to the requested step.
+    assert body["step"] == "2 hours"
+    # The rollup SQL reads by bucket_start and binds only start/end/model_group.
+    assert "bucket_start" in captured["sql"]
+    assert "LiteLLM_ModelPerformanceRollup" in captured["sql"]
+    assert len(captured["args"]) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -405,27 +403,21 @@ def test_model_performance_custom_time_range(client, auth_as, monkeypatch):
         )
     assert response.status_code == 200
     body = response.json()
-    assert body["source"] == "db"
-    # The captured range must be clamped to the requested start/end.
+    assert body["source"] == "rollup"
+    # The rollup read clamps the range to the requested start/end.
     sql = captured_params["sql"]
-    assert "startTime" in sql and "endTime" in sql
+    assert "bucket_start" in sql and "LiteLLM_ModelPerformanceRollup" in sql
     assert captured_params["params"][0] == datetime.datetime(2025, 6, 1, tzinfo=datetime.timezone.utc)
     assert captured_params["params"][1] == datetime.datetime(2025, 6, 3, tzinfo=datetime.timezone.utc)
 
 
 def test_model_performance_query_avoids_base_cte_rescan(client, auth_as, monkeypatch):
-    """Large-range performance query must not re-scan a shared ``base`` CTE.
+    """The global view reads the rollup table, not the raw spend log.
 
-    The original query factored the time-range filter into a ``base`` CTE that
-    was referenced multiple times, which made Postgres materialize the row set
-    once and then re-read it per reference. On a YTD range over millions of
-    spend-log rows that re-materialization was the dominant cost. The optimized
-    query aggregates straight from the table in each CTE.
-
-    Concurrency is computed as the PEAK within each bucket: each request emits a
-    +1 at its start and a -1 at its end, a running SUM of those changes yields
-    the simultaneously-active count at every instant, and the max inside a
-    bucket is that bucket's peak concurrency.
+    Previously the endpoint scanned ``LiteLLM_SpendLogs`` over large custom
+    ranges (YTD over millions of rows), which was the dominant cost. The global
+    path now reads the tiny 1-minute rollup slice instead, so the raw-table CTE
+    with ``SUM(change) OVER`` no longer runs for a no-entity-filter request.
     """
     pc = MagicMock()
     captured_params = {}
@@ -449,19 +441,12 @@ def test_model_performance_query_avoids_base_cte_rescan(client, auth_as, monkeyp
     assert response.status_code == 200
     sql = captured_params["sql"]
 
-    # There must be no shared ``base`` CTE: the query must aggregate from the
-    # table directly, otherwise Postgres materializes + re-scans it per ref.
-    assert "WITH base AS" not in sql
-    assert "FROM \"LiteLLM_SpendLogs\"" in sql
-    # Concurrency is the peak per bucket: a running SUM over +/-1 start/end
-    # events (window function), then MAX within each date_bin bucket.
-    assert "SUM(change) OVER" in sql
-    assert "GREATEST(MAX(cumulative), 0)" in sql
-    # Requests that started before the window (whose endTime is inside it) must
-    # contribute their -1, so we clamp the end event to the window edge.
-    assert "LEAST(\"endTime\", $2::timestamptz)" in sql
-    # Every bucketed row still carries the concurrent-requests series.
-    assert "COALESCE(c.concurrent_requests, 0)" in sql
+    # Global view reads the rollup table, not the raw spend log.
+    assert "LiteLLM_ModelPerformanceRollup" in sql
+    assert "LiteLLM_SpendLogs" not in sql
+    # Concurrency is recomputed at read from the rollup's starts/ends, so the
+    # raw spend-log window-function machinery is gone from the global path.
+    assert "SUM(change) OVER" not in sql
 
 
 # GET /model/performance — a large custom range routes through the long-timeout client
@@ -502,6 +487,7 @@ def test_model_performance_large_range_uses_long_timeout_client(client, auth_as,
             params={"window": "7d", "start_time": start, "end_time": end},
         )
     assert response.status_code == 200
-    assert response.json()["source"] == "db"
+    assert response.json()["source"] == "rollup"
     # The heavy client (not the shared proxy client) must have executed the query.
-    assert "startTime" in captured["sql"]
+    assert "bucket_start" in captured["sql"]
+    assert "LiteLLM_ModelPerformanceRollup" in captured["sql"]
