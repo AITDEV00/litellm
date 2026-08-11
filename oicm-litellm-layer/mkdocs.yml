@@ -94,6 +94,7 @@ nav:
       - Patches: components/patches.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
+      - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md

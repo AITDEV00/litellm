@@ -182,7 +182,11 @@ def _fmt_sql_float(value: Optional[float]) -> str:
 
 def _fmt_sql_array_float(value: float) -> str:
     if value == float("inf"):
-        return "'Infinity'"
+        # ``Infinity`` is the element spelling PostgreSQL accepts for +inf
+        # inside a ``{...}`` array literal. Quoting it (e.g. ``'Infinity'``)
+        # makes the array parser treat it as a string literal, which fails to
+        # cast to ``double precision``.
+        return "Infinity"
     return repr(float(value))
 
 
