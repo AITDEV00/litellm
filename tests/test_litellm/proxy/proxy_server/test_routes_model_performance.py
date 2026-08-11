@@ -154,6 +154,43 @@ def test_rollup_peak_concurrency_is_continuous_running_sum():
     assert [s["value"] for s in series] == [3.0]
 
 
+def test_rollup_buckets_align_to_wall_clock_and_format_single_tz():
+    """Regression: rollup timestamps must be clean wall-clock buckets with a
+    single UTC offset.
+
+    Two bugs could slip in:
+      1. ``_format_bucket`` appending ``+00:00`` to an already tz-aware
+         datetime, yielding malformed ``...+00:00+00:00``.
+      2. Buckets aligned to ``start_time`` (which carries microseconds) instead
+         of a fixed wall-clock origin, yielding ragged edges like
+         ``23:21:56.829533``.
+    """
+    from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+        _format_bucket,
+        _rollup_minutes_to_model,
+    )
+
+    # _format_bucket on a tz-aware datetime must NOT append a second offset.
+    aware = datetime.datetime(2025, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    assert _format_bucket(aware) == "2025-01-01T12:00:00+00:00"
+    # Naive datetimes are tagged as UTC (single offset).
+    naive = datetime.datetime(2025, 1, 1, 12, 0, 0)
+    assert _format_bucket(naive) == "2025-01-01T12:00:00+00:00"
+
+    # Alignment: a 1-hour bucket over minutes spanning a ragged start_time must
+    # land on clean hour edges (00:00), not on the microsecond-carrying start.
+    start = datetime.datetime(2025, 1, 1, 0, 0, 23, 829533, tzinfo=datetime.timezone.utc)
+    minutes = [
+        _minute_row("gpt-4", "2025-01-01T00:00:23+00:00", starts=3, ends=0, req_count=3),
+        _minute_row("gpt-4", "2025-01-01T00:59:59+00:00", starts=0, ends=3, req_count=0),
+    ]
+    model = _rollup_minutes_to_model("gpt-4", minutes, start, start + datetime.timedelta(hours=1), "1 hour")
+    for series in model["time_series"].values():
+        for point in series:
+            assert point["timestamp"] == "2025-01-01T00:00:00+00:00"
+            assert point["timestamp"].count("+00:00") == 1
+
+
 def test_model_performance_scoped_by_team(client, auth_as, monkeypatch):
     """Entity-scoped requests must filter by team_id and always use the DB path."""
     pc = MagicMock()

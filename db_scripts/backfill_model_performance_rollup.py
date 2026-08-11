@@ -52,7 +52,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Iterator, Optional
 
 import psycopg
@@ -84,7 +85,7 @@ def parse_dt(value: str) -> datetime:
 
 
 def iter_spend_rows(
-    conn: psycopg.Connection,
+    dsn: str,
     start: Optional[datetime],
     end: Optional[datetime],
     model_group: Optional[str],
@@ -93,6 +94,11 @@ def iter_spend_rows(
 
     Keyset-paginated on (startTime, request_id) so it is stable even if rows are
     appended while the backfill runs.
+
+    Resilient to dropped connections: the underlying Postgres connection (often
+    a kubectl port-forward) can die mid-run. When a page fetch raises a
+    connection-level error, we reconnect and re-issue the exact same keyset page
+    (the last committed page), so no rows are lost and none are re-processed.
     """
     where: list[str] = []
     params: list[object] = []
@@ -128,27 +134,47 @@ def iter_spend_rows(
     ) + '(("startTime" > %s) OR ("startTime" = %s AND "request_id" > %s))'
     page_sql = select_sql + pagination_sql + order_sql
 
-    with conn.cursor(row_factory=dict_row) as cur:
-        last_ts: Optional[datetime] = None
-        last_id: Optional[str] = None
-        while True:
-            if last_ts is None and last_id is None:
-                cur.execute(anchor_sql, [*params, BATCH_SIZE])
-            else:
-                cur.execute(page_sql, [*params, last_ts, last_ts, last_id, BATCH_SIZE])
-
-            rows = cur.fetchall()
-            if not rows:
+    last_ts: Optional[datetime] = None
+    last_id: Optional[str] = None
+    while True:
+        while True:  # retry loop; reconnect + re-issue the same page on failure
+            try:
+                conn = psycopg.connect(dsn)
+                with conn.cursor(row_factory=dict_row) as cur:
+                    if last_ts is None and last_id is None:
+                        cur.execute(anchor_sql, [*params, BATCH_SIZE])
+                    else:
+                        cur.execute(page_sql, [*params, last_ts, last_ts, last_id, BATCH_SIZE])
+                    rows = cur.fetchall()
                 break
+            except psycopg.OperationalError:
+                print(
+                    f"[{datetime.now(timezone.utc).isoformat(timespec='seconds')}] "
+                    f"connection lost at last_ts={last_ts} last_id={last_id}, reconnecting...",
+                    flush=True,
+                )
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                time.sleep(5)
 
-            for row in rows:
-                yield row
+        try:
+            conn.close()
+        except Exception:
+            pass
 
-            last_ts = rows[-1]["startTime"]
-            last_id = rows[-1]["request_id"]
+        if not rows:
+            break
 
-            if len(rows) < BATCH_SIZE:
-                break
+        for row in rows:
+            yield row
+
+        last_ts = rows[-1]["startTime"]
+        last_id = rows[-1]["request_id"]
+
+        if len(rows) < BATCH_SIZE:
+            break
 
 
 def build_start_transaction(row: dict) -> Optional[dict]:
@@ -303,8 +329,13 @@ def merge_into(account: dict[tuple, dict], txn: dict) -> None:
     cur["ends"] += txn["ends"]
 
 
-def upsert_batch(conn: psycopg.Connection, account: dict[tuple, dict]) -> None:
-    """Flush merged buckets with the same ON CONFLICT upsert the writer uses."""
+def upsert_batch(dsn: str, account: dict[tuple, dict]) -> None:
+    """Flush merged buckets with the same ON CONFLICT upsert the writer uses.
+
+    Retries the whole batch on connection failure: reconnects and re-issues the
+    same INSERT ... ON CONFLICT, which is idempotent for the already-inserted
+    portion (ON CONFLICT updates rather than duplicates).
+    """
     if not account:
         return
 
@@ -368,9 +399,23 @@ def upsert_batch(conn: psycopg.Connection, account: dict[tuple, dict]) -> None:
             "starts" = "LiteLLM_ModelPerformanceRollup"."starts" + EXCLUDED."starts",
             "ends" = "LiteLLM_ModelPerformanceRollup"."ends" + EXCLUDED."ends"
     """
-    with conn.cursor() as cur:
-        cur.execute(sql, params)
-    conn.commit()
+    while True:
+        try:
+            conn = psycopg.connect(dsn)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                conn.commit()
+            finally:
+                conn.close()
+            break
+        except psycopg.OperationalError:
+            print(
+                f"[{datetime.now(timezone.utc).isoformat(timespec='seconds')}] "
+                f"write connection lost on batch of {len(account)} buckets, retrying...",
+                flush=True,
+            )
+            time.sleep(5)
 
 
 def main() -> None:
@@ -411,12 +456,15 @@ def main() -> None:
         cur.execute("SELECT to_regprocedure('_rollup_array_add_bigint(bigint[], bigint[])')")
         if cur.fetchone()[0] is None:
             return
+    conn.close()
 
     row_count = 0
     bucket_count = 0
     account: dict[tuple, dict] = {}
+    started = datetime.now(timezone.utc)
+    last_log = started
 
-    for row in iter_spend_rows(conn, start, end, args.model_group):
+    for row in iter_spend_rows(args.database_url, start, end, args.model_group):
         row_count += 1
         start_txn = build_start_transaction(row)
         if start_txn is not None:
@@ -430,15 +478,32 @@ def main() -> None:
             if args.dry_run:
                 pass
             else:
-                upsert_batch(conn, account)
+                upsert_batch(args.database_url, account)
             account.clear()
+
+        now = datetime.now(timezone.utc)
+        if now - last_log >= timedelta(seconds=30):
+            elapsed = (now - started).total_seconds()
+            rate = row_count / elapsed if elapsed > 0 else 0.0
+            print(
+                f"[{now.isoformat(timespec='seconds')}] processed={row_count:,} "
+                f"rows rate={rate:,.0f}/s total_buckets={bucket_count:,}",
+                flush=True,
+            )
+            last_log = now
 
     # Tail batch.
     bucket_count += len(account)
     if args.dry_run:
         pass
     else:
-        upsert_batch(conn, account)
+        upsert_batch(args.database_url, account)
+
+    elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+    print(
+        f"DONE processed={row_count:,} buckets={bucket_count:,} elapsed={elapsed:.1f}s",
+        flush=True,
+    )
 
 
 

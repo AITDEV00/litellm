@@ -857,11 +857,20 @@ def _rollup_minutes_to_model(
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
 
+    # Wall-clock bin origin, matching ``date_bin($3::interval, ev_time,
+    # timestamp '2000-01-01')`` used by the raw (entity-scoped) path so the two
+    # sources render bucket edges on the same grid. Without a fixed origin the
+    # buckets would be aligned to ``start_time`` (a ``now() - delta`` value that
+    # carries microseconds), producing ragged edges like ``23:21:56.829533``.
+    _BIN_ORIGIN = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
     def _align(ts: Any) -> datetime:
-        # Align to bucket edge relative to start_time.
+        # Align to the wall-clock bucket edge using the same origin as the raw
+        # path's ``date_bin``. Both values are tz-aware so the subtraction is
+        # well-defined regardless of timezone.
         dt = _coerce_dt(ts)
-        delta = (dt - start_time).total_seconds()
-        aligned = start_time + timedelta(seconds=int(delta // interval_seconds) * interval_seconds)
+        delta = (dt - _BIN_ORIGIN).total_seconds()
+        aligned = _BIN_ORIGIN + timedelta(seconds=int(delta // interval_seconds) * interval_seconds)
         return aligned
 
     buckets: dict[datetime, dict[str, Any]] = {}
@@ -1072,8 +1081,17 @@ def _safe_float(val: Any) -> Optional[float]:
 
 
 def _format_bucket(bucket: Any) -> str:
+    """Render a bucket timestamp as an ISO-8601 string with a UTC offset.
+
+    Prisma returns tz-aware datetimes whose ``isoformat()`` already carries the
+    offset (e.g. ``+00:00``). Naive datetimes are assumed to be UTC and are
+    tagged as such. Appending a second offset unconditionally would produce a
+    malformed ``...+00:00+00:00`` timestamp, so only tag when the tz is missing.
+    """
     if bucket is None:
         return ""
     if isinstance(bucket, datetime):
-        return bucket.isoformat() + "+00:00"
+        if bucket.tzinfo is None:
+            return bucket.replace(tzinfo=timezone.utc).isoformat()
+        return bucket.isoformat()
     return str(bucket)
