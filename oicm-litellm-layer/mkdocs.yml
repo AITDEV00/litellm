@@ -102,6 +102,7 @@ nav:
   - Techniques:
       - Logic Mapping: techniques/logic_mapping_technique.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
+      - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
   - Performance:
       - Executive Summary: performance/executive-summary.md
       - Model Performance Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
