@@ -763,48 +763,109 @@ async def _fetch_db_performance_from_rollup(
     end_time = computed_end
     start_time = computed_start
 
-    # Read the 1-minute rollup slice. Only the global view hits the rollup, so
-    # there is no entity scope to apply.
+    # Aggregate the 1-minute rollup rows into the effective (coarser) buckets
+    # in SQL. The rollup holds one row per model_group per minute, so a large
+    # window like 30d/YTD would otherwise return tens of thousands of rows for
+    # Prisma to serialize over its Rust-engine HTTP transport (measured ~16s
+    # for 96k rows). Collapsing to coarse buckets first cuts that to a few
+    # hundred rows and makes the endpoint fast. The histogram is collected with
+    # json_agg (a JSON array of arrays) because Prisma's raw query cannot
+    # deserialize a native 2D Postgres array.
+    #
+    # Concurrent requests is the PEAK concurrency observed within each bucket.
+    # Each 1-minute rollup row records ``starts`` (requests that began in that
+    # minute) and ``ends`` (requests that ended in it); a running SUM of
+    # (starts - ends) over the minute sequence is the number of simultaneously
+    # active requests, so the max of that running sum inside a bucket is its
+    # peak concurrency. The running sum is NOT reset at coarse-bucket
+    # boundaries (a request spanning a boundary must keep its concurrency), so
+    # it is computed over the whole window and then binned.
     sql_query = """
+        WITH agg AS (
+            SELECT
+                model_group,
+                date_bin($1::interval, bucket_start, timestamp '2000-01-01') AS bucket,
+                SUM(request_count)::bigint AS request_count,
+                SUM(completion_tokens)::bigint AS completion_tokens,
+                SUM(throughput_tokens_sum) AS throughput_tokens,
+                SUM(ttft_seconds_sum) AS ttft_seconds_sum,
+                MAX(ttft_histogram_edges) AS ttft_histogram_edges,
+                json_agg(ttft_histogram_counts) AS ttft_histogram_counts
+            FROM "LiteLLM_ModelPerformanceRollup"
+            WHERE
+                bucket_start >= $2::timestamptz
+                AND bucket_start < $3::timestamptz
+                AND ($4::text IS NULL OR model_group = $4::text)
+            GROUP BY model_group, bucket
+        ),
+        minute_changes AS (
+            SELECT
+                model_group,
+                bucket_start AS ev_time,
+                starts - ends AS change
+            FROM "LiteLLM_ModelPerformanceRollup"
+            WHERE
+                bucket_start >= $2::timestamptz
+                AND bucket_start < $3::timestamptz
+                AND ($4::text IS NULL OR model_group = $4::text)
+        ),
+        running AS (
+            SELECT
+                model_group,
+                ev_time,
+                SUM(change) OVER (PARTITION BY model_group ORDER BY ev_time) AS cumulative
+            FROM minute_changes
+        ),
+        concurrency AS (
+            SELECT
+                model_group,
+                date_bin($1::interval, ev_time, timestamp '2000-01-01') AS bucket,
+                GREATEST(MAX(cumulative), 0) AS concurrent_requests
+            FROM running
+            GROUP BY model_group, bucket
+        )
         SELECT
-            model_group,
-            bucket_start,
-            request_count,
-            completion_tokens,
-            throughput_tokens_sum,
-            ttft_seconds_sum,
-            ttft_seconds_sum_sq,
-            ttft_seconds_min,
-            ttft_seconds_max,
-            ttft_histogram_counts,
-            starts,
-            ends
-        FROM "LiteLLM_ModelPerformanceRollup"
-        WHERE
-            bucket_start >= $1::timestamptz
-            AND bucket_start < $2::timestamptz
-            AND ($3::text IS NULL OR model_group = $3::text)
-        ORDER BY model_group, bucket_start
+            a.model_group AS model_group,
+            a.bucket AS bucket,
+            a.request_count AS request_count,
+            a.completion_tokens AS completion_tokens,
+            a.throughput_tokens AS throughput_tokens,
+            a.ttft_seconds_sum AS ttft_seconds_sum,
+            a.ttft_histogram_edges AS ttft_histogram_edges,
+            a.ttft_histogram_counts AS ttft_histogram_counts,
+            COALESCE(c.concurrent_requests, 0) AS concurrent_requests
+        FROM agg a
+        LEFT JOIN concurrency c
+            ON c.model_group = a.model_group AND c.bucket = a.bucket
+        ORDER BY a.model_group, a.bucket
     """
 
     range_duration = (end_time - start_time).total_seconds()
     query_client = (
         await _get_heavy_query_prisma_client() if range_duration >= _HEAVY_RANGE_THRESHOLD_SECONDS else prisma_client
     )
-    rows = await query_client.db.query_raw(sql_query, start_time, end_time, model_group)
+    rows = await query_client.db.query_raw(
+        sql_query,
+        effective_bucket,
+        start_time,
+        end_time,
+        model_group,
+    )
 
     models: dict[str, dict[str, Any]] = {}
-    # model_group -> list of (minute_bucket, transaction-ish dict) in order
+    # Each row is one coarse bucket for its model_group. Group them so the
+    # summary percentiles can fold every bucket's histogram into a single
+    # whole-window histogram (percentiles over the per-request TTFT
+    # distribution, not over per-bucket means).
     grouped: dict[str, list[dict[str, Any]]] = {}
-
     for row in rows:
         mg = row.get("model_group") or ""
         if not mg:
             continue
         grouped.setdefault(mg, []).append(row)
 
-    for mg, minutes in grouped.items():
-        models[mg] = _rollup_minutes_to_model(mg, minutes, start_time, end_time, effective_bucket)
+    for mg, coarse_rows in grouped.items():
+        models[mg] = _rollup_coarse_buckets_to_model(mg, coarse_rows)
 
     source = "rollup"
     result = {
@@ -820,167 +881,82 @@ async def _fetch_db_performance_from_rollup(
     return result
 
 
-def _rollup_minutes_to_model(
+def _rollup_coarse_buckets_to_model(
     model_group: str,
-    minutes: list[dict[str, Any]],
-    start_time: datetime,
-    end_time: datetime,
-    bucket_interval: str,
+    coarse_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Aggregate 1-minute rollup rows into the effective coarser buckets.
+    """Build a model entry from pre-aggregated coarse-bucket rows.
 
-    Buckets are aligned to ``start_time``. For each coarse bucket we sum the
-    counts/tokens/throughput/ttft across its 1-minute sub-buckets, combine the
-    min/max and histogram, and recompute the peak concurrency via a continuous
-    running sum over the minute sequence. The running sum is NOT reset at coarse
-    bucket boundaries (a request spanning a boundary must keep its concurrency),
-    and within each minute we apply the net change (starts - ends) since the
-    sub-minute ordering is lost.
+    The SQL read already collapsed the 1-minute rollup rows into the effective
+    (coarser) buckets and computed each bucket's peak concurrency via a
+    whole-window running sum of (starts - ends). Each ``coarse_rows`` entry is
+    therefore one bucket: the summed counts/tokens/throughput/TTFT, the
+    ``json_agg``'d histogram (a JSON array of per-1-minute count arrays), the
+    shared edges, and the peak concurrency.
+
+    This builder only renders the time series and folds every bucket's
+    histogram into a single whole-window histogram for the summary percentiles,
+    so p50/p95 reflect the true per-request TTFT distribution rather than the
+    distribution of bucket means.
     """
-    import re
-
-    m = re.match(r"(\d+) (minute|hour|day)s?", bucket_interval)
-    if not m:
-        interval_seconds = 60
-    else:
-        unit = m.group(2)
-        mult = {"minute": 60, "hour": 3600, "day": 86400}[unit]
-        interval_seconds = int(m.group(1)) * mult
-
-    def _coerce_dt(ts: Any) -> datetime:
-        """Parse a Prisma-returned timestamp (datetime or ISO string) to tz-aware datetime."""
-        if isinstance(ts, datetime):
-            dt = ts
-        else:
-            dt = datetime.fromisoformat(str(ts))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-
-    # Wall-clock bin origin, matching ``date_bin($3::interval, ev_time,
-    # timestamp '2000-01-01')`` used by the raw (entity-scoped) path so the two
-    # sources render bucket edges on the same grid. Without a fixed origin the
-    # buckets would be aligned to ``start_time`` (a ``now() - delta`` value that
-    # carries microseconds), producing ragged edges like ``23:21:56.829533``.
-    _BIN_ORIGIN = datetime(2000, 1, 1, tzinfo=timezone.utc)
-
-    def _align(ts: Any) -> datetime:
-        # Align to the wall-clock bucket edge using the same origin as the raw
-        # path's ``date_bin``. Both values are tz-aware so the subtraction is
-        # well-defined regardless of timezone.
-        dt = _coerce_dt(ts)
-        delta = (dt - _BIN_ORIGIN).total_seconds()
-        aligned = _BIN_ORIGIN + timedelta(seconds=int(delta // interval_seconds) * interval_seconds)
-        return aligned
-
-    buckets: dict[datetime, dict[str, Any]] = {}
-
-    # Sort minutes chronologically to compute the running-sum peak exactly.
-    minutes_sorted = sorted(minutes, key=lambda r: _coerce_dt(r["bucket_start"]))
-
-    # Continuous concurrency running-sum across the WHOLE window. The rollup
-    # stores starts/ends per 1-minute bucket; a request that spans multiple
-    # minutes contributes +1 in its start bucket and -1 in its end bucket, so
-    # the running sum must NOT reset at coarse-bucket boundaries or it would
-    # drop the concurrency of in-flight requests that straddle a boundary. The
-    # peak for a coarse bucket is the max running value observed across the
-    # minute sequence it covers. Within a minute we apply the NET (starts minus
-    # ends) rather than all-starts-then-all-ends, since sub-minute ordering is
-    # lost and applying all starts first would over-count the peak.
-    running = 0
-
-    for row in minutes_sorted:
-        bucket_dt = _align(row["bucket_start"])
-        if bucket_dt not in buckets:
-            buckets[bucket_dt] = {
-                "request_count": 0,
-                "completion_tokens": 0,
-                "throughput_tokens_sum": 0.0,
-                "ttft_seconds_sum": 0.0,
-                "ttft_seconds_sum_sq": 0.0,
-                "ttft_seconds_min": None,
-                "ttft_seconds_max": None,
-                "ttft_histogram_counts": None,
-                "ttft_histogram_edges": list(row.get("ttft_histogram_edges") or []),
-                "starts": 0,
-                "ends": 0,
-                "peak": 0,
-            }
-        b = buckets[bucket_dt]
-        b["request_count"] += int(row.get("request_count", 0) or 0)
-        b["completion_tokens"] += int(row.get("completion_tokens", 0) or 0)
-        b["throughput_tokens_sum"] += float(row.get("throughput_tokens_sum", 0.0) or 0.0)
-        b["ttft_seconds_sum"] += float(row.get("ttft_seconds_sum", 0.0) or 0.0)
-        b["ttft_seconds_sum_sq"] += float(row.get("ttft_seconds_sum_sq", 0.0) or 0.0)
-
-        rmin = row.get("ttft_seconds_min")
-        rmax = row.get("ttft_seconds_max")
-        if rmin is not None:
-            if b["ttft_seconds_min"] is None or rmin < b["ttft_seconds_min"]:
-                b["ttft_seconds_min"] = rmin
-        if rmax is not None:
-            if b["ttft_seconds_max"] is None or rmax > b["ttft_seconds_max"]:
-                b["ttft_seconds_max"] = rmax
-
-        # Histogram: element-wise add counts across the sub-buckets.
-        counts = row.get("ttft_histogram_counts")
-        if counts is not None:
-            if b["ttft_histogram_counts"] is None:
-                b["ttft_histogram_counts"] = [int(c) for c in counts]
-            else:
-                b["ttft_histogram_counts"] = [a + int(c) for a, c in zip(b["ttft_histogram_counts"], counts)]
-
-        starts = int(row.get("starts", 0) or 0)
-        ends = int(row.get("ends", 0) or 0)
-        # Net change within this minute; peak is the max continuous running value.
-        running += starts - ends
-        b["peak"] = max(b["peak"], running)
-        b["starts"] += starts
-        b["ends"] += ends
-
     model = _empty_model_dict(model_group)
     summary = model["summary"]
 
-    # Merge every coarse bucket's histogram into a single whole-window histogram
-    # so the summary p50/p95 reflect the true per-request TTFT distribution,
-    # not the distribution of bucket means. Without this the stored histogram
-    # would be pointless: _summarize_time_series() below derives the summary
-    # percentiles from the per-bucket ttft_seconds series (which holds bucket
-    # means), discarding the per-request detail we pre-aggregated.
     window_edges: list[float] = []
     window_counts: Optional[list[int]] = None
 
-    for bucket_dt in sorted(buckets):
-        b = buckets[bucket_dt]
-        count = b["request_count"]
+    for row in coarse_rows:
+        count = int(row.get("request_count", 0) or 0)
         if count == 0:
             continue
 
+        # The histogram is json_agg'd as a list of per-1-minute count arrays;
+        # fold them element-wise into this bucket's counts.
+        bucket_counts: Optional[list[int]] = None
+        hist_json = row.get("ttft_histogram_counts")
+        if hist_json:
+            for inner in hist_json:
+                inner_counts = [int(c) for c in inner]
+                if bucket_counts is None:
+                    bucket_counts = inner_counts
+                else:
+                    bucket_counts = add_histogram_counts(bucket_counts, inner_counts)
+
+        edges = row.get("ttft_histogram_edges") or []
+        # The final histogram edge is stored as ``infinity`` in Postgres, which
+        # comes back as NULL through ``MAX``; restore it so
+        # ``histogram_percentile`` sees the expected open upper bound.
+        edges = [float("inf") if e is None else float(e) for e in edges]
+
         # Mean TTFT per request (seconds). ttft_seconds_sum only accumulates
         # for requests with a valid TTFT; the histogram total gives that count.
-        hist_total = sum(b["ttft_histogram_counts"]) if b["ttft_histogram_counts"] else 0
+        hist_total = sum(bucket_counts) if bucket_counts else 0
         ttft_mean = None
         if hist_total > 0:
-            ttft_mean = b["ttft_seconds_sum"] / hist_total
+            ttft_mean = float(row.get("ttft_seconds_sum", 0.0) or 0.0) / hist_total
 
-        ts_bucket = _format_bucket(bucket_dt)
+        ts_bucket = _format_bucket(row.get("bucket"))
         model["time_series"]["throughput_tokens_per_sec"].append(
-            {"timestamp": ts_bucket, "value": (b["throughput_tokens_sum"] / count) if count else 0.0}
+            {
+                "timestamp": ts_bucket,
+                "value": (float(row.get("throughput_tokens", 0.0) or 0.0) / count) if count else 0.0,
+            }
         )
-        model["time_series"]["concurrent_requests"].append({"timestamp": ts_bucket, "value": float(b["peak"])})
+        model["time_series"]["concurrent_requests"].append(
+            {"timestamp": ts_bucket, "value": float(row.get("concurrent_requests", 0) or 0)}
+        )
         model["time_series"]["ttft_seconds"].append(
             {"timestamp": ts_bucket, "value": ttft_mean if ttft_mean is not None else None}
         )
 
         summary["total_requests"] += count
-        summary["total_tokens"] += b["completion_tokens"]
+        summary["total_tokens"] += int(row.get("completion_tokens", 0) or 0)
 
         # Fold this bucket's histogram into the whole-window histogram.
-        bucket_counts = b["ttft_histogram_counts"]
         if bucket_counts:
             if window_counts is None:
-                window_counts = [int(c) for c in bucket_counts]
-                window_edges = list(b.get("ttft_histogram_edges") or [])
+                window_counts = bucket_counts
+                window_edges = edges
             else:
                 window_counts = add_histogram_counts(window_counts, bucket_counts)
 

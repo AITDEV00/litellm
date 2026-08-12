@@ -63,18 +63,15 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
         return_value=[
             {
                 "model_group": "gpt-4",
-                "bucket_start": "2025-01-01T00:00:00+00:00",
+                "bucket": "2025-01-01T00:00:00+00:00",
                 "request_count": 10,
                 "completion_tokens": 1000,
-                "throughput_tokens_sum": 1000.0,
+                "throughput_tokens": 1000.0,
                 "ttft_seconds_sum": 5.0,
-                "ttft_seconds_sum_sq": 0.0,
-                "ttft_seconds_min": 0.4,
-                "ttft_seconds_max": 0.6,
                 "ttft_histogram_edges": [0.1, 1.0, 10.0, 100.0, float("inf")],
-                "ttft_histogram_counts": [0, 10, 0, 0, 0],
-                "starts": 10,
-                "ends": 0,
+                # json_agg of the 1-minute count arrays
+                "ttft_histogram_counts": [[0, 10, 0, 0, 0]],
+                "concurrent_requests": 10.0,
             }
         ]
     )
@@ -93,8 +90,7 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
     assert body["models"][0]["model_group"] == "gpt-4"
     assert body["models"][0]["summary"]["total_requests"] == 10
     assert body["models"][0]["summary"]["total_tokens"] == 1000
-    # concurrent_requests is the continuous running-sum peak. With a single
-    # bucket that only has starts (10) and no ends, the peak is 10.
+    # concurrent_requests comes straight from the SQL-computed peak.
     assert body["models"][0]["time_series"]["concurrent_requests"][0]["value"] == 10.0
     # Summary p50/p95/p99 must come from the whole-window TTFT histogram, not
     # the per-bucket mean (0.5). All 10 requests land in bin [1.0, 10.0), so the
@@ -106,89 +102,134 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _rollup_minutes_to_model — peak concurrency via continuous running sum
+# _rollup_coarse_buckets_to_model — renders coarse buckets, folds histogram
 # ---------------------------------------------------------------------------
 
 
-def _minute_row(mg, ts, starts, ends, req_count):
+def _coarse_row(mg, ts, req_count, concurrent=0.0, throughput=0.0, ttft_sum=0.0, hist=None):
     edges = [0.1, 1.0, 10.0, float("inf")]
     return {
         "model_group": mg,
-        "bucket_start": ts,
+        "bucket": ts,
         "request_count": req_count,
-        "completion_tokens": 0,
-        "throughput_tokens_sum": 0.0,
-        "ttft_seconds_sum": 0.0,
-        "ttft_seconds_sum_sq": 0.0,
-        "ttft_seconds_min": None,
-        "ttft_seconds_max": None,
+        "completion_tokens": req_count * 100,
+        "throughput_tokens": throughput,
+        "ttft_seconds_sum": ttft_sum,
         "ttft_histogram_edges": edges,
-        "ttft_histogram_counts": [0] * len(edges),
-        "starts": starts,
-        "ends": ends,
+        # json_agg yields a list of per-1-minute count arrays
+        "ttft_histogram_counts": hist if hist is not None else [[0, 0, 0, 0]],
+        "concurrent_requests": concurrent,
     }
 
 
-def test_rollup_peak_concurrency_is_continuous_running_sum():
-    """The peak concurrency is a running sum over the whole window that is NOT
-    reset at coarse-bucket boundaries, and within a minute it applies the net
-    (starts - ends) rather than all-starts-first.
+def test_rollup_coarse_buckets_to_model_renders_series_and_folds_histogram():
+    """The coarse-bucket builder renders one time-series point per coarse row
+    and folds every row's histogram into a single whole-window histogram for
+    the summary percentiles.
 
-    Scenario: 3 requests start in minute 0 (concurrency 3). All 3 end in minute
-    1 (concurrency drops to 0). A coarse bucket covering both minutes must
-    report a peak of 3, not 0 (a per-bucket reset) and not an inflated value.
+    The concurrency peak is passed in already computed (by the SQL running
+    sum), so the builder must preserve it verbatim.
     """
     from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
-        _rollup_minutes_to_model,
+        _rollup_coarse_buckets_to_model,
     )
 
-    start = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
-    minutes = [
-        _minute_row("gpt-4", "2025-01-01T00:00:00+00:00", starts=3, ends=0, req_count=3),
-        _minute_row("gpt-4", "2025-01-01T00:01:00+00:00", starts=0, ends=3, req_count=0),
+    # One request with TTFT 0.5s lands in bin [0.1, 1.0). A second request with
+    # TTFT 5s lands in bin [1.0, 10.0). The whole-window histogram percentiles
+    # are log10-interpolated: p50 ~1.0 (10^0), p95/p99 skew toward the upper bin.
+    rows = [
+        _coarse_row(
+            "gpt-4",
+            "2025-01-01T00:00:00+00:00",
+            req_count=1,
+            concurrent=3.0,
+            ttft_sum=0.5,
+            hist=[[0, 1, 0, 0]],
+        ),
+        _coarse_row(
+            "gpt-4",
+            "2025-01-01T06:00:00+00:00",
+            req_count=1,
+            concurrent=0.0,
+            ttft_sum=5.0,
+            hist=[[0, 0, 1, 0]],
+        ),
     ]
-    model = _rollup_minutes_to_model("gpt-4", minutes, start, start + datetime.timedelta(hours=1), "1 hour")
-    series = model["time_series"]["concurrent_requests"]
-    # The continuous running sum peaks at 3 (in the start minute) and never
-    # resets to 0 because the -1 events arrive a minute later.
-    assert [s["value"] for s in series] == [3.0]
+    model = _rollup_coarse_buckets_to_model("gpt-4", rows)
+    assert model["summary"]["total_requests"] == 2
+    assert model["summary"]["total_tokens"] == 200
+    # Each coarse row becomes one time-series point, in input order.
+    assert [s["value"] for s in model["time_series"]["concurrent_requests"]] == [3.0, 0.0]
+    assert [p["timestamp"] for p in model["time_series"]["throughput_tokens_per_sec"]] == [
+        "2025-01-01T00:00:00+00:00",
+        "2025-01-01T06:00:00+00:00",
+    ]
+    # Percentiles come from the merged histogram over both rows.
+    p50 = model["summary"]["p50_ttft"]
+    p95 = model["summary"]["p95_ttft"]
+    assert p50 is not None and p95 is not None
+    assert p50 <= p95
 
 
-def test_rollup_buckets_align_to_wall_clock_and_format_single_tz():
-    """Regression: rollup timestamps must be clean wall-clock buckets with a
-    single UTC offset.
-
-    Two bugs could slip in:
-      1. ``_format_bucket`` appending ``+00:00`` to an already tz-aware
-         datetime, yielding malformed ``...+00:00+00:00``.
-      2. Buckets aligned to ``start_time`` (which carries microseconds) instead
-         of a fixed wall-clock origin, yielding ragged edges like
-         ``23:21:56.829533``.
-    """
+def test_rollup_coarse_buckets_skip_empty_and_allow_naive_bucket_timestamp():
+    """Empty coarse rows (request_count == 0) must be skipped, and a naive
+    (tz-less) bucket timestamp must be formatted with a single UTC offset."""
     from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
-        _format_bucket,
-        _rollup_minutes_to_model,
+        _rollup_coarse_buckets_to_model,
     )
 
-    # _format_bucket on a tz-aware datetime must NOT append a second offset.
-    aware = datetime.datetime(2025, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
-    assert _format_bucket(aware) == "2025-01-01T12:00:00+00:00"
-    # Naive datetimes are tagged as UTC (single offset).
-    naive = datetime.datetime(2025, 1, 1, 12, 0, 0)
-    assert _format_bucket(naive) == "2025-01-01T12:00:00+00:00"
-
-    # Alignment: a 1-hour bucket over minutes spanning a ragged start_time must
-    # land on clean hour edges (00:00), not on the microsecond-carrying start.
-    start = datetime.datetime(2025, 1, 1, 0, 0, 23, 829533, tzinfo=datetime.timezone.utc)
-    minutes = [
-        _minute_row("gpt-4", "2025-01-01T00:00:23+00:00", starts=3, ends=0, req_count=3),
-        _minute_row("gpt-4", "2025-01-01T00:59:59+00:00", starts=0, ends=3, req_count=0),
+    rows = [
+        _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=0, hist=[[0, 0, 0, 0]]),
+        _coarse_row("gpt-4", datetime.datetime(2025, 1, 1), req_count=5, hist=[[0, 5, 0, 0]]),
     ]
-    model = _rollup_minutes_to_model("gpt-4", minutes, start, start + datetime.timedelta(hours=1), "1 hour")
+    model = _rollup_coarse_buckets_to_model("gpt-4", rows)
+    assert model["summary"]["total_requests"] == 5
+    assert len(model["time_series"]["throughput_tokens_per_sec"]) == 1
     for series in model["time_series"].values():
         for point in series:
             assert point["timestamp"] == "2025-01-01T00:00:00+00:00"
             assert point["timestamp"].count("+00:00") == 1
+
+
+def test_rollup_coarse_buckets_restore_null_infinity_edge():
+    """The final histogram edge is stored as ``infinity`` in Postgres and comes
+    back as NULL through the SQL ``MAX``; the builder must restore it so the
+    upper bin is treated as open (otherwise the percentile reconstruction
+    crashes on ``float(None)``)."""
+    from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+        _rollup_coarse_buckets_to_model,
+    )
+
+    row = _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=5, ttft_sum=5.0, hist=[[0, 5, 0, 0]])
+    # Simulate the real DB: the open upper edge arrives as NULL.
+    row["ttft_histogram_edges"] = [0.1, 1.0, 10.0, None]
+    model = _rollup_coarse_buckets_to_model("gpt-4", [row])
+    # p50 must be computed (no float(None) crash) and lie in the [1,10) bin.
+    assert model["summary"]["p50_ttft"] is not None
+    assert 1.0 <= model["summary"]["p50_ttft"] < 10.0
+    assert model["summary"]["p99_ttft"] is not None
+
+
+def test_rollup_coarse_buckets_folds_2d_json_histogram():
+    """The SQL ``json_agg`` yields a list of per-1-minute count arrays; the
+    builder must fold them element-wise into a single bucket histogram."""
+    from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+        _rollup_coarse_buckets_to_model,
+    )
+
+    # Two 1-minute arrays within one coarse bucket.
+    row = _coarse_row(
+        "gpt-4",
+        "2025-01-01T00:00:00+00:00",
+        req_count=2,
+        ttft_sum=1.0,
+        hist=[[0, 1, 0, 0], [0, 0, 1, 0]],
+    )
+    model = _rollup_coarse_buckets_to_model("gpt-4", [row])
+    # Both folded counts are in the merged histogram -> p50 between bins 1 and 2.
+    assert model["summary"]["total_requests"] == 2
+    assert model["summary"]["p50_ttft"] is not None
+    assert model["summary"]["p95_ttft"] is not None
 
 
 def test_model_performance_scoped_by_team(client, auth_as, monkeypatch):
@@ -424,10 +465,12 @@ def test_model_performance_step_passes_bucket_interval(client, auth_as, monkeypa
     assert body["source"] == "rollup"
     # The rollup read aggregates 1-minute rows up to the requested step.
     assert body["step"] == "2 hours"
-    # The rollup SQL reads by bucket_start and binds only start/end/model_group.
+    # The rollup SQL reads by bucket_start and binds the interval/start/end/model.
     assert "bucket_start" in captured["sql"]
     assert "LiteLLM_ModelPerformanceRollup" in captured["sql"]
-    assert len(captured["args"]) == 3
+    assert len(captured["args"]) == 4
+    # The effective bucket interval is bound as the first parameter.
+    assert captured["args"][0] == "2 hours"
 
 
 # ---------------------------------------------------------------------------
@@ -493,11 +536,12 @@ def test_model_performance_custom_time_range(client, auth_as, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "rollup"
-    # The rollup read clamps the range to the requested start/end.
+    # The rollup read clamps the range to the requested start/end. The SQL
+    # binds (interval, start, end, model_group), so start/end are params 1,2.
     sql = captured_params["sql"]
     assert "bucket_start" in sql and "LiteLLM_ModelPerformanceRollup" in sql
-    assert captured_params["params"][0] == datetime.datetime(2025, 6, 1, tzinfo=datetime.timezone.utc)
-    assert captured_params["params"][1] == datetime.datetime(2025, 6, 3, tzinfo=datetime.timezone.utc)
+    assert captured_params["params"][1] == datetime.datetime(2025, 6, 1, tzinfo=datetime.timezone.utc)
+    assert captured_params["params"][2] == datetime.datetime(2025, 6, 3, tzinfo=datetime.timezone.utc)
 
 
 def test_model_performance_query_avoids_base_cte_rescan(client, auth_as, monkeypatch):
@@ -533,9 +577,13 @@ def test_model_performance_query_avoids_base_cte_rescan(client, auth_as, monkeyp
     # Global view reads the rollup table, not the raw spend log.
     assert "LiteLLM_ModelPerformanceRollup" in sql
     assert "LiteLLM_SpendLogs" not in sql
-    # Concurrency is recomputed at read from the rollup's starts/ends, so the
-    # raw spend-log window-function machinery is gone from the global path.
-    assert "SUM(change) OVER" not in sql
+    # The rollup path aggregates the 1-minute rows into coarse buckets in SQL
+    # and computes the concurrency peak via a running sum over the rollup's
+    # starts/ends, keeping the returned row count tiny for large windows.
+    assert "SUM(request_count)" in sql
+    assert "starts - ends" in sql
+    # The raw spend-log table must never appear in the global path.
+    assert "LiteLLM_SpendLogs" not in sql
 
 
 # GET /model/performance — a large custom range routes through the long-timeout client
