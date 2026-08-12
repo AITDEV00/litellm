@@ -117,6 +117,7 @@ _custom_logger_compatible_callbacks_literal = Literal[
     "litellm_agent",
     "dynamic_rate_limiter",
     "dynamic_rate_limiter_v3",
+    "dynamic_rate_limiter_v3_htb",
     "langsmith",
     "prometheus",
     "otel",

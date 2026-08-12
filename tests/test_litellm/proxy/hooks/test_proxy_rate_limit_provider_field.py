@@ -47,8 +47,8 @@ from litellm.proxy.hooks.batch_rate_limiter import (
     _PROXY_BatchRateLimiter,
 )
 from litellm.proxy.hooks.dynamic_rate_limiter import _PROXY_DynamicRateLimitHandler
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
-    _PROXY_DynamicRateLimitHandlerV3,
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+    _PROXY_DynamicRateLimitHandlerV3Htb,
 )
 from litellm.proxy.hooks.max_budget_limiter import _PROXY_MaxBudgetLimiter
 from litellm.proxy.hooks.max_budget_per_session_limiter import (
@@ -634,7 +634,7 @@ async def test_dynamic_rate_limiter_v3_model_capacity_path_populates_provider():
     """
     from litellm.types.router import ModelGroupInfo
 
-    handler = _PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache())
+    handler = _PROXY_DynamicRateLimitHandlerV3Htb(internal_usage_cache=DualCache())
 
     model_info = ModelGroupInfo(model_group="gpt-4o-mini", providers=["openai"])
 
@@ -668,7 +668,7 @@ async def test_dynamic_rate_limiter_v3_unknown_descriptor_path_populates_provide
     """Fail-closed on unknown descriptor must still attribute provider."""
     from litellm.types.router import ModelGroupInfo
 
-    handler = _PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache())
+    handler = _PROXY_DynamicRateLimitHandlerV3Htb(internal_usage_cache=DualCache())
 
     model_info = ModelGroupInfo(model_group="gpt-4o-mini", providers=["openai"])
 

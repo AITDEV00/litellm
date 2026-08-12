@@ -35,8 +35,8 @@ import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.utils import InternalUsageCache
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
-    _PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+    _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
 )
 from litellm.types.utils import PriorityReservationSettings
 
@@ -203,7 +203,7 @@ def _make_deployment(model_name: str = MODEL) -> dict:
 
 def _set_priority(handler, priority: str | None):
     """Set htb_priority ContextVar as async_pre_call_hook would."""
-    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
     htb_priority.set(priority)
 
@@ -295,7 +295,7 @@ class TestHTBPreCallCheck:
     @pytest.mark.asyncio
     async def test_pre_call_hook_sets_priority_contextvar(self, handler):
         """async_pre_call_hook should extract priority and set the htb_priority ContextVar."""
-        from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+        from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
         user = _make_user("prior1", "u1")
         await handler.async_pre_call_hook(

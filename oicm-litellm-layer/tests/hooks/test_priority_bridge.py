@@ -1,7 +1,7 @@
 import pytest
 
 import litellm
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
 from litellm_hooks.priority_bridge import PriorityBridge
 

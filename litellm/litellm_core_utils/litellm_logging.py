@@ -3941,6 +3941,26 @@ def _init_custom_logger_compatible_class(
                 dynamic_rate_limiter_obj_v3.update_variables(llm_router=llm_router)
             _in_memory_loggers.append(dynamic_rate_limiter_obj_v3)
             return dynamic_rate_limiter_obj_v3  # type: ignore
+        elif logging_integration == "dynamic_rate_limiter_v3_htb":
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+                _PROXY_DynamicRateLimitHandlerV3Htb,
+            )
+
+            for callback in _in_memory_loggers:
+                if isinstance(callback, _PROXY_DynamicRateLimitHandlerV3Htb):
+                    return callback
+
+            if internal_usage_cache is None:
+                raise Exception(f"Internal Error: Cache cannot be empty - internal_usage_cache={internal_usage_cache}")
+
+            dynamic_rate_limiter_obj_v3_htb = _PROXY_DynamicRateLimitHandlerV3Htb(
+                internal_usage_cache=internal_usage_cache
+            )
+
+            if llm_router is not None and isinstance(llm_router, litellm.Router):
+                dynamic_rate_limiter_obj_v3_htb.update_variables(llm_router=llm_router)
+            _in_memory_loggers.append(dynamic_rate_limiter_obj_v3_htb)
+            return dynamic_rate_limiter_obj_v3_htb
         elif logging_integration == "langtrace":
             if "LANGTRACE_API_KEY" not in os.environ:
                 raise ValueError("LANGTRACE_API_KEY not found in environment variables")
@@ -4364,6 +4384,15 @@ def get_custom_logger_compatible_class(
             for callback in _in_memory_loggers:
                 if isinstance(callback, _PROXY_DynamicRateLimitHandlerV3):
                     return callback  # type: ignore
+
+        elif logging_integration == "dynamic_rate_limiter_v3_htb":
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+                _PROXY_DynamicRateLimitHandlerV3Htb,
+            )
+
+            for callback in _in_memory_loggers:
+                if isinstance(callback, _PROXY_DynamicRateLimitHandlerV3Htb):
+                    return callback
 
         elif logging_integration == "langtrace":
             from litellm.integrations.opentelemetry import OpenTelemetry

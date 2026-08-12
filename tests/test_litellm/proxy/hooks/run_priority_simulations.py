@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.abspath("../../../.."))
 import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
-    _PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+    _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
     htb_priority,
 )
 from litellm.types.utils import PriorityReservationSettings

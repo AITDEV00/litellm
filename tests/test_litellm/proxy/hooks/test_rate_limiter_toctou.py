@@ -29,8 +29,8 @@ import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.hooks.batch_rate_limiter import BatchFileUsage
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
-    _PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
+    _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
 )
 from litellm.proxy.hooks.parallel_request_limiter_v3 import (
     _PROXY_MaxParallelRequestsHandler_v3,
@@ -193,7 +193,7 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
     Lua script must not let more than RPM+1 through (strict > comparison
     allows counter==RPM to pass before the next sees counter > RPM).
     """
-    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
     NUM_CONCURRENT = 10
     MODEL_RPM = 2
@@ -254,7 +254,7 @@ async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment():
     read_only=True check followed by a separate read_only=False increment
     that was vulnerable to TOCTOU races.
     """
-    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
     os.environ["LITELLM_LICENSE"] = "test-license-key"
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
@@ -373,7 +373,7 @@ async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor():
     """
     from unittest.mock import AsyncMock
 
-    from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
     os.environ["LITELLM_LICENSE"] = "test-license-key"
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}

@@ -31,7 +31,7 @@ import litellm
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.caching import DualCache
 from litellm.proxy._types import UserAPIKeyAuth
-from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 from litellm.types.utils import CallTypesLiteral
 
 logger = logging.getLogger("oicm-priority-bridge")

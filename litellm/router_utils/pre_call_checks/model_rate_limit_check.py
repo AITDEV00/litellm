@@ -158,7 +158,7 @@ class ModelRateLimitingCheck(CustomLogger):
             if tpm_limit is None and rpm_limit is None:
                 return deployment
 
-            from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
             if htb_priority.get() is not None:
                 return deployment
@@ -244,7 +244,7 @@ class ModelRateLimitingCheck(CustomLogger):
             if tpm_limit is None and rpm_limit is None:
                 return deployment
 
-            from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
             if htb_priority.get() is not None:
                 return deployment
