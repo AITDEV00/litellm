@@ -557,6 +557,8 @@ class ProxyLogging:
             if "prisma_client" in expected_args:
                 passed_in_args["prisma_client"] = prisma_client
             proxy_hook_obj = cast(CustomLogger, proxy_hook(**passed_in_args))
+            if hasattr(proxy_hook_obj, "update_variables") and llm_router is not None:
+                proxy_hook_obj.update_variables(llm_router=llm_router)
             litellm.logging_callback_manager.add_litellm_callback(proxy_hook_obj)
 
             self.proxy_hook_mapping[hook] = proxy_hook_obj
@@ -5614,6 +5616,42 @@ async def update_daily_tag_spend(
         verbose_proxy_logger.error(f"Error updating daily tag spend: {e}")
 
 
+async def update_model_performance_rollup(
+    prisma_client: PrismaClient,
+    proxy_logging_obj: ProxyLogging,
+):
+    """
+    Separate scheduler job to commit model performance rollup updates.
+
+    Runs at a longer interval (2.3x the main update_spend job) to reduce query
+    contention on the ``LiteLLM_ModelPerformanceRollup`` table. Buffers
+    in-memory via the same Redis-first pattern as the daily tag spend job.
+
+    Only processes the model performance rollup update queue; does NOT process
+    regular spend updates, spend logs, or tag spend.
+
+    Args:
+        prisma_client: PrismaClient instance
+        proxy_logging_obj: ProxyLogging instance for error handling
+    """
+    n_retry_times = 3
+    try:
+        if proxy_logging_obj.db_spend_update_writer.redis_update_buffer._should_commit_spend_updates_to_redis():
+            await proxy_logging_obj.db_spend_update_writer._commit_model_performance_rollup_to_db_with_redis(
+                prisma_client=prisma_client,
+                n_retry_times=n_retry_times,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+        else:
+            await proxy_logging_obj.db_spend_update_writer._commit_model_performance_rollup_to_db(
+                prisma_client=prisma_client,
+                n_retry_times=n_retry_times,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+    except Exception as e:
+        verbose_proxy_logger.error(f"Error updating model performance rollup: {e}")
+
+
 async def update_spend_logs_job(
     prisma_client: PrismaClient,
     db_writer_client: AsyncHTTPHandler | None,
@@ -6445,6 +6483,8 @@ def create_model_info_response(
         "created": DEFAULT_MODEL_CREATED_AT_TIME,
         "owned_by": provider,
     }
+    if not include_metadata:
+        return base
 
     try:
         model_cost_info: ModelInfo | None = get_model_info(model_id)
@@ -6481,12 +6521,11 @@ def create_model_info_response(
         return base
 
     effective_fallback_type = fallback_type if fallback_type is not None else "general"
-
-    valid_fallback_types = ["general", "context_window", "content_policy"]
+    valid_fallback_types = ("general", "context_window", "content_policy")
     if effective_fallback_type not in valid_fallback_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid fallback_type. Must be one of: {valid_fallback_types}",
+            detail=f"Invalid fallback_type. Must be one of: {list(valid_fallback_types)}",
         )
 
     fallbacks = get_all_fallbacks(

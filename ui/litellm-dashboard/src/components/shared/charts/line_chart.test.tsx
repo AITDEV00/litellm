@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LineChart } from "./line_chart";
 
 const data = [
@@ -113,5 +113,29 @@ describe("LineChart", () => {
       <LineChart data={data} index="date" categories={["/chat/completions"]} colors={["blue"]} />,
     );
     expect(container.querySelector("style")).toBeNull();
+  });
+
+  it("invokes onPointClick with the datum row and category when a line is clicked", () => {
+    const onPointClick = vi.fn();
+    const { container } = render(
+      <LineChart
+        data={data}
+        index="date"
+        categories={["/chat/completions"]}
+        colors={["blue"]}
+        onPointClick={onPointClick}
+      />,
+    );
+
+    const curve = container.querySelector("path.recharts-line-curve");
+    expect(curve).not.toBeNull();
+    // Recharts resolves the hovered datum from pointer coordinates on the chart.
+    fireEvent.click(curve as Element, { clientX: 200, clientY: 100 });
+
+    expect(onPointClick).toHaveBeenCalledTimes(1);
+    expect(onPointClick).toHaveBeenCalledWith(
+      expect.objectContaining({ "/chat/completions": 10 }),
+      "/chat/completions",
+    );
   });
 });

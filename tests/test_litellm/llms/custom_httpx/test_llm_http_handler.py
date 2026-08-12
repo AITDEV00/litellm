@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 import sys
@@ -1825,6 +1826,90 @@ async def test_async_audio_transcriptions_sends_dict_data_as_json_body():
 
     assert captured["content_type"] == "application/json"
     assert captured["body"] == {"config": {"model": "test-model"}, "content": "YXVkaW8="}
+    assert response.text == "transcribed"
+
+
+class _FileInDataAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
+    """Simulates a provider (e.g. an OpenAI whisper base class reused by an
+    httpx-routed provider like hosted_vllm) that leaves the raw file object
+    nested in ``data["file"]`` with ``files=None``. This is the bug class that
+    previously caused "Object of type BytesIO is not JSON serializable"."""
+
+    def get_supported_openai_params(self, model):
+        return []
+
+    def map_openai_params(self, non_default_params, optional_params, model, drop_params):
+        return optional_params
+
+    def validate_environment(self, headers, model, messages, optional_params, litellm_params, api_key=None, api_base=None):
+        return {**headers, "Authorization": "Bearer test-token"}
+
+    def get_complete_url(self, api_base, api_key, model, optional_params, litellm_params, stream=None):
+        return "https://transcription.example/multipart"
+
+    def transform_audio_transcription_request(self, model, audio_file, optional_params, litellm_params):
+        return AudioTranscriptionRequestData(data={"model": model, "file": audio_file, "temperature": 0.0})
+
+    def transform_audio_transcription_response(self, raw_response):
+        return TranscriptionResponse(text=raw_response.json()["text"])
+
+    def get_error_class(self, error_message, status_code, headers):
+        return BaseLLMException(message=error_message, status_code=status_code, headers=headers)
+
+
+def _capture_multipart_transcription_request(captured):
+    def respond(request):
+        captured["content_type"] = request.headers.get("content-type")
+        captured["is_multipart"] = captured["content_type"].startswith("multipart/form-data") if captured["content_type"] else False
+        captured["body"] = request.content
+        return httpx.Response(200, json={"text": "transcribed"})
+
+    return respond
+
+
+def _file_in_data_transcription_call_kwargs(provider_config, audio_file):
+    kwargs = _json_transcription_call_kwargs(provider_config)
+    kwargs["audio_file"] = audio_file
+    return kwargs
+
+
+def test_audio_transcriptions_promotes_file_from_data_to_multipart():
+    """Regression: a provider that leaves the raw file object inside ``data``
+    with ``files=None`` must not hit "BytesIO is not JSON serializable". The
+    shared handler must promote the file into the multipart ``files=`` dict and
+    keep ``data`` as JSON-safe form fields."""
+    captured = {}
+    client = HTTPHandler(client=httpx.Client(transport=httpx.MockTransport(_capture_multipart_transcription_request(captured))))
+
+    audio = io.BytesIO(b"fake audio bytes")
+    audio.name = "clip.wav"
+
+    response = BaseLLMHTTPHandler().audio_transcriptions(
+        client=client,
+        atranscription=False,
+        **_file_in_data_transcription_call_kwargs(_FileInDataAudioTranscriptionConfig(), audio),
+    )
+
+    assert captured["is_multipart"], captured["content_type"]
+    assert response.text == "transcribed"
+
+
+@pytest.mark.asyncio
+async def test_async_audio_transcriptions_promotes_file_from_data_to_multipart():
+    """Async variant of the shared-handler guard."""
+    captured = {}
+    client = AsyncHTTPHandler()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(_capture_multipart_transcription_request(captured)))
+
+    audio = io.BytesIO(b"audio bytes")
+    audio.name = "clip.wav"
+
+    response = await BaseLLMHTTPHandler().async_audio_transcriptions(
+        client=client,
+        **_file_in_data_transcription_call_kwargs(_FileInDataAudioTranscriptionConfig(), audio),
+    )
+
+    assert captured["is_multipart"], captured["content_type"]
     assert response.text == "transcribed"
 
 

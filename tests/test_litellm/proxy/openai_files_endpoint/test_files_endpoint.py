@@ -2286,6 +2286,7 @@ def test_require_managed_files_accepts_repeated_target_model_names_bracket_form(
     assert received_target_model_names == ["azure-gpt-3-5-turbo", "gpt-3.5-turbo"]
 
 
+>>>>>>> v1.91.1
 def test_list_files_resolves_wildcard_deployment_credentials(
     mocker: MockerFixture, monkeypatch
 ):

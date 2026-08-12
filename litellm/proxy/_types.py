@@ -3,7 +3,7 @@ import json
 import os
 from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Union
 
 import httpx
 from pydantic import (
@@ -319,6 +319,9 @@ class LiteLLMRoutes(enum.Enum):
         # audio Speech
         "/audio/speech",
         "/v1/audio/speech",
+        # audio voices
+        "/audio/voices",
+        "/v1/audio/voices",
         # moderations
         "/moderations",
         "/v1/moderations",
@@ -4595,6 +4598,36 @@ class DailyTagSpendTransaction(BaseDailySpendTransaction):
 
 class DailyAgentSpendTransaction(BaseDailySpendTransaction):
     agent_id: str
+
+
+class ModelPerformanceRollupTransaction(TypedDict):
+    """Per-(model_group, 1-minute bucket) aggregate for the performance page.
+
+    Each payload row for the same bucket is merged with this monoid:
+
+    - request_count, completion_tokens, throughput_tokens_sum add.
+    - ttft_seconds_sum / ttft_seconds_sum_sq accumulate the sum and sum-of-squares
+      (used to compute the mean and variance for a bucket).
+    - ttft_seconds_histogram is a fixed-width log-bucketed array of counts.
+      ``ttft_histogram_edges`` gives the bucket boundaries, so percentiles
+      (p50/p95) can be reconstructed exactly by walking cumulative counts.
+    - starts / ends count the +1 / -1 concurrency events inside the bucket; the
+      read path recomputes the exact running-sum peak from these.
+    """
+
+    model_group: str
+    bucket_start: str  # ISO-8601, the minute-aligned bucket edge
+    request_count: int
+    completion_tokens: int
+    throughput_tokens_sum: float
+    ttft_seconds_sum: float
+    ttft_seconds_sum_sq: float
+    ttft_seconds_min: Optional[float]
+    ttft_seconds_max: Optional[float]
+    ttft_histogram_edges: list[float]
+    ttft_histogram_counts: list[int]
+    starts: int
+    ends: int
 
 
 class DBSpendUpdateTransactions(TypedDict):

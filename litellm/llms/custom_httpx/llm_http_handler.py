@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
     Any,
+    Dict,
     Literal,
     Optional,
     TypeVar,
@@ -63,6 +64,7 @@ from litellm.llms.base_llm.responses.transformation import BaseResponsesAPIConfi
 from litellm.llms.base_llm.search.transformation import BaseSearchConfig, SearchResponse
 from litellm.llms.base_llm.skills.transformation import BaseSkillsAPIConfig
 from litellm.llms.base_llm.text_to_speech.transformation import BaseTextToSpeechConfig
+from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
 from litellm.llms.base_llm.vector_store.transformation import BaseVectorStoreConfig
 from litellm.llms.base_llm.vector_store_files.transformation import (
     BaseVectorStoreFilesConfig,
@@ -244,6 +246,76 @@ def _has_pre_call_deployment_hook(logging_obj: LiteLLMLoggingObj) -> bool:
         if getattr(cb_func, "__func__", cb_func) is not getattr(base_func, "__func__", base_func):
             return True
     return False
+
+
+_VOICE_BODY_TYPE_ERROR = "No body found in voice request_data. Must provide one of: dict_body, form_data"
+
+
+def _voice_http_method(request_data: Dict[str, Any]) -> str:
+    return request_data.get("method", "POST").upper()
+
+
+def _send_voice_request_sync(
+    client: HTTPHandler,
+    url: str,
+    headers: dict,
+    request_data: Dict[str, Any],
+    timeout: float | httpx.Timeout,
+) -> httpx.Response:
+    method = _voice_http_method(request_data)
+
+    if "dict_body" in request_data:
+        return client.post(url=url, headers=headers, json=request_data["dict_body"], timeout=timeout)
+    if "form_data" in request_data:
+        data = request_data["form_data"]
+        files = request_data.get("files")
+        if method == "PATCH":
+            return client.patch(url=url, headers=headers, data=data, files=files, timeout=timeout)
+        return client.post(url=url, headers=headers, data=data, files=files, timeout=timeout)
+    if method == "GET":
+        return client.get(url=url, headers=headers, timeout=timeout)
+    if method == "DELETE":
+        return client.delete(url=url, headers=headers, timeout=timeout)
+    raise ValueError(_VOICE_BODY_TYPE_ERROR)
+
+
+async def _send_voice_request_async(
+    client: AsyncHTTPHandler,
+    url: str,
+    headers: dict,
+    request_data: Dict[str, Any],
+    timeout: float | httpx.Timeout,
+) -> httpx.Response:
+    method = _voice_http_method(request_data)
+
+    if "dict_body" in request_data:
+        return await client.post(url=url, headers=headers, json=request_data["dict_body"], timeout=timeout)
+    if "form_data" in request_data:
+        data = request_data["form_data"]
+        files = request_data.get("files")
+        if method == "PATCH":
+            return await client.patch(url=url, headers=headers, data=data, files=files, timeout=timeout)
+        return await client.post(url=url, headers=headers, data=data, files=files, timeout=timeout)
+    if method == "GET":
+        return await client.get(url=url, headers=headers, timeout=timeout)
+    if method == "DELETE":
+        return await client.delete(url=url, headers=headers, timeout=timeout)
+    raise ValueError(_VOICE_BODY_TYPE_ERROR)
+
+
+def _is_file_like(value: Any) -> bool:
+    """Return True if ``value`` is a binary file object (BytesIO / open handle).
+
+    Used to detect an audio file accidentally left inside a JSON payload dict.
+    File-like objects expose a ``read()`` method; plain JSON-serializable values
+    (str/bytes/bytearray/dict/list/int/float/bool/None) do not. `process_audio_file`
+    normalises file-like objects into a ``(filename, content, content_type)``
+    multipart tuple, so this is the definitive signal that a value belongs in
+    ``files=`` rather than ``data=``.
+    """
+    if value is None or isinstance(value, (str, bytes, bytearray, dict, list, int, float, bool)):
+        return False
+    return hasattr(value, "read")
 
 
 class BaseLLMHTTPHandler:
@@ -1224,6 +1296,31 @@ class BaseLLMHTTPHandler:
         files = transformed_result.files
         if transformed_result.content_type is not None:
             headers["Content-Type"] = transformed_result.content_type
+
+        # Defensive guard against a whole class of audio-transcription bugs:
+        # a provider transform (e.g. an OpenAI whisper base class reused by an
+        # httpx-routed provider like hosted_vllm) can leave the raw file object
+        # inside ``data`` (e.g. ``data["file"] = <BytesIO>``) with ``files=None``.
+        # This handler then sends ``json=`` for a dict ``data`` and httpx fails
+        # with "Object of type BytesIO is not JSON serializable". Detect a file
+        # object trapped in the payload and promote it to the ``files``
+        # multipart dict, which is what the upstream endpoint expects. This
+        # keeps the fix in the shared chokepoint so no future provider can
+        # silently regress.
+        if files is None and isinstance(data, dict):
+            file_value = next((v for v in data.values() if _is_file_like(v)), None)
+            if file_value is not None:
+                from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
+
+                processed = process_audio_file(file_value)
+                data = {k: v for k, v in data.items() if not _is_file_like(v)}
+                files = {
+                    "file": (
+                        processed.filename,
+                        processed.file_content,
+                        processed.content_type,
+                    )
+                }
 
         ## LOGGING
         logging_obj.pre_call(
@@ -5708,6 +5805,7 @@ class BaseLLMHTTPHandler:
             BaseVideoConfig,
             BaseSearchConfig,
             BaseTextToSpeechConfig,
+            BaseVoiceConfig,
             BaseSkillsAPIConfig,
             "BasePassthroughConfig",
             "BaseContainerConfig",
@@ -11397,10 +11495,16 @@ class BaseLLMHTTPHandler:
                     data=request_data["ssml_body"],
                     timeout=timeout,
                 )
-            else:
-                raise ValueError(
-                    "No body found in request_data. Must provide one of: dict_body, ssml_body, text_body, binary_body"
+            elif "form_data" in request_data:
+                response = sync_httpx_client.post(
+                    url=api_base,
+                    headers=headers,
+                    data=request_data["form_data"],
+                    files=request_data.get("files"),
+                    timeout=timeout,
                 )
+            else:
+                raise ValueError("No body found in request_data. Must provide one of: dict_body, ssml_body, form_data")
 
         except Exception as e:
             raise self._handle_error(
@@ -11496,10 +11600,16 @@ class BaseLLMHTTPHandler:
                     data=request_data["ssml_body"],
                     timeout=timeout,
                 )
-            else:
-                raise ValueError(
-                    "No body found in request_data. Must provide one of: dict_body, ssml_body, text_body, binary_body"
+            elif "form_data" in request_data:
+                response = await async_httpx_client.post(
+                    url=api_base,
+                    headers=headers,
+                    data=request_data["form_data"],
+                    files=request_data.get("files"),
+                    timeout=timeout,
                 )
+            else:
+                raise ValueError("No body found in request_data. Must provide one of: dict_body, ssml_body, form_data")
 
         except Exception as e:
             raise self._handle_error(
@@ -11508,6 +11618,171 @@ class BaseLLMHTTPHandler:
             )
 
         return text_to_speech_provider_config.transform_text_to_speech_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    def voice_handler(
+        self,
+        model: str,
+        voice_data: Dict[str, Any],
+        voice_provider_config: BaseVoiceConfig,
+        optional_params: Any,
+        litellm_params: Dict,
+        logging_obj: LiteLLMLoggingObj,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        _is_async: bool = False,
+    ) -> dict[str, Any] | Coroutine[Any, Any, dict[str, Any]]:
+        if _is_async:
+            return self.async_voice_handler(
+                model=model,
+                voice_data=voice_data,
+                voice_provider_config=voice_provider_config,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logging_obj=logging_obj,
+                extra_headers=extra_headers,
+                timeout=timeout,
+                client=client if isinstance(client, AsyncHTTPHandler) else None,
+            )
+
+        if client is None or not isinstance(client, HTTPHandler):
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+        else:
+            sync_httpx_client = client
+
+        headers = voice_provider_config.validate_environment(
+            api_key=litellm_params.get("api_key"),
+            headers=extra_headers or {},
+            model=model,
+            api_base=litellm_params.get("api_base"),
+        )
+
+        if extra_headers:
+            headers.update(extra_headers)
+
+        api_base = voice_provider_config.get_complete_url(
+            model=model,
+            api_base=litellm_params.get("api_base"),
+            litellm_params=litellm_params,
+        )
+
+        request_data = voice_provider_config.transform_create_voice_request(
+            model=model,
+            voice_data=voice_data,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+            headers=headers,
+        )
+
+        if "headers" in request_data:
+            headers.update(request_data["headers"])
+
+        logging_obj.pre_call(
+            input=voice_data,
+            api_key="",
+            additional_args={
+                "complete_input_dict": request_data,
+                "api_base": api_base,
+                "headers": headers,
+            },
+        )
+
+        try:
+            response = _send_voice_request_sync(
+                client=sync_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(
+                e=e,
+                provider_config=voice_provider_config,
+            )
+
+        return voice_provider_config.transform_create_voice_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    async def async_voice_handler(
+        self,
+        model: str,
+        voice_data: Dict[str, Any],
+        voice_provider_config: BaseVoiceConfig,
+        optional_params: Any,
+        litellm_params: Dict,
+        logging_obj: LiteLLMLoggingObj,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+    ) -> Dict[str, Any]:
+        if client is None or not isinstance(client, AsyncHTTPHandler):
+            async_httpx_client = get_async_httpx_client(
+                llm_provider=litellm.LlmProviders(litellm_params.get("custom_llm_provider", "")),
+                params={"ssl_verify": litellm_params.get("ssl_verify", None)},
+            )
+        else:
+            async_httpx_client = client
+
+        headers = voice_provider_config.validate_environment(
+            api_key=litellm_params.get("api_key"),
+            headers=extra_headers or {},
+            model=model,
+            api_base=litellm_params.get("api_base"),
+        )
+
+        if extra_headers:
+            headers.update(extra_headers)
+
+        api_base = voice_provider_config.get_complete_url(
+            model=model,
+            api_base=litellm_params.get("api_base"),
+            litellm_params=litellm_params,
+        )
+
+        request_data = voice_provider_config.transform_create_voice_request(
+            model=model,
+            voice_data=voice_data,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+            headers=headers,
+        )
+
+        if "headers" in request_data:
+            headers.update(request_data["headers"])
+
+        logging_obj.pre_call(
+            input=voice_data,
+            api_key="",
+            additional_args={
+                "complete_input_dict": request_data,
+                "api_base": api_base,
+                "headers": headers,
+            },
+        )
+
+        try:
+            response = await _send_voice_request_async(
+                client=async_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(
+                e=e,
+                provider_config=voice_provider_config,
+            )
+
+        return voice_provider_config.transform_create_voice_response(
             model=model,
             raw_response=response,
             logging_obj=logging_obj,

@@ -1,12 +1,16 @@
 .python-version
 .venv
+.venv-docs
 .venv_policy_test
 .env
+.env.datasource
 .claude
 .newenv
 newenv/*
 litellm/proxy/myenv/*
 litellm_uuid.txt
+# MkDocs build output
+oicm-litellm-layer/site/
 __pycache__/
 *.pyc
 
@@ -142,3 +146,4 @@ crash.*.log
 
 ui/litellm-dashboard/out/
 litellm.log
+litellm/proxy/_experimental/out/

@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Transcription WebSocket Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .config-section {
+            margin-bottom: 30px;
+        }
+
+        .config-section h2 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .input-group.full {
+            grid-template-columns: 1fr;
+        }
+
+        .input-wrapper {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="url"] {
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: border-color 0.3s;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="url"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .option-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .option-item label {
+            font-size: 12px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+        }
+
+        .range-value {
+            min-width: 35px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #667eea;
+            text-align: right;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .checkbox-item label {
+            margin: 0;
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: normal;
+            cursor: pointer;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-connect {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-connect:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-connect:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(244, 67, 54, 0.3);
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status.show {
+            display: flex;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+
+        .status.info .status-dot {
+            background: #1976d2;
+        }
+
+        .status.success .status-dot {
+            background: #388e3c;
+        }
+
+        .status.error .status-dot {
+            background: #d32f2f;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .results-section {
+            margin-top: 30px;
+            border-top: 2px solid #f0f0f0;
+            padding-top: 20px;
+        }
+
+        .results-section h2 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .results-container {
+            background: #f9f9f9;
+            border-radius: 6px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            min-height: 100px;
+        }
+
+        .result-item {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-time {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 6px;
+        }
+
+        .result-text {
+            font-size: 14px;
+            color: #333;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .result-empty {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+            font-size: 13px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .stat-item {
+            background: #f9f9f9;
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .input-group {
+                grid-template-columns: 1fr;
+            }
+
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+        }
+
+        /* Scrollbar styling */
+        .results-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .results-container::-webkit-scrollbar-track {
+            background: #f0f0f0;
+            border-radius: 3px;
+        }
+
+        .results-container::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 3px;
+        }
+
+        .results-container::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
+        }
+
+        /* Tab styles */
+        .tabs-container {
+            display: flex;
+            border-bottom: 2px solid #e0e0e0;
+            margin-bottom: 15px;
+        }
+
+        .tab-button {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .tab-button:hover {
+            color: #667eea;
+        }
+
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .continuous-text {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Hamsa STT Realtime Websocket</h1>
+            <p>Stream audio from your microphone for real-time transcription</p>
+        </div>
+
+        <div class="content">
+            <!-- Status Messages -->
+            <div id="status" class="status"></div>
+
+            <!-- Configuration Section -->
+            <div class="config-section">
+                <h2>Connection Settings</h2>
+                
+                <div class="input-group full">
+                    <div class="input-wrapper">
+                        <label for="wsUrl">WebSocket URL</label>
+                        <input type="url" id="wsUrl" placeholder="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt" value="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <div class="input-wrapper">
+                        <label for="apiKey">Encrypted API Key</label>
+                        <input type="text" id="apiKey" placeholder="gAAAAAB..." value="gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=" required>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
+                        <input type="text" id="bearerToken" placeholder="sk-..." value="sk-omQbswRlepuTISV-1wgsDg">
+                    </div>
+                </div>
+            </div>
+
+            <!-- WebSocket Options Section -->
+            <div class="config-section">
+                <h2>WebSocket Options</h2>
+                
+                <div class="options-grid">
+                    <div class="option-item">
+                        <label for="silenceTimeout">Silence Timeout (s)</label>
+                        <input type="number" id="silenceTimeout" min="5" max="120" value="30" step="5">
+                    </div>
+
+                    <div class="option-item">
+                        <label for="minSilenceDuration">Min Silence (ms)</label>
+                        <input type="number" id="minSilenceDuration" min="100" max="1000" value="300" step="50">
+                    </div>
+
+                    <div class="option-item">
+                        <label for="minSpeech">Min Speech (ms)</label>
+                        <input type="number" id="minSpeech" min="50" max="2000" value="600" step="50">
+                    </div>
+
+                    <div class="option-item">
+                        <label for="vadThreshold">VAD Threshold</label>
+                        <div class="slider-container">
+                            <input type="range" id="vadThreshold" min="0.1" max="0.99" value="0.6" step="0.05">
+                            <span class="range-value" id="vadValue">0.60</span>
+                        </div>
+                    </div>
+
+                    <div class="option-item">
+                        <label for="eosThreshold">EOS Threshold</label>
+                        <div class="slider-container">
+                            <input type="range" id="eosThreshold" min="0.1" max="0.99" value="0.6" step="0.05">
+                            <span class="range-value" id="eosValue">0.60</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group" style="margin-top: 15px;">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="eosEnabled" checked>
+                        <label for="eosEnabled">Enable EOS Detection</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="clientLogging" checked>
+                        <label for="clientLogging">Server Logging</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="noiseCancellation">
+                        <label for="noiseCancellation">Noise Cancellation</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Controls -->
+            <div class="button-group">
+                <button class="btn-connect" id="connectBtn" onclick="connect()">Connect & Start Recording</button>
+                <button class="btn-stop" id="stopBtn" onclick="stop()" disabled>Stop Recording</button>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value" id="connectionStatus">Disconnected</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Audio Chunks</div>
+                    <div class="stat-value" id="chunksCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Results</div>
+                    <div class="stat-value" id="resultsCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Recording Time</div>
+                    <div class="stat-value" id="recordingTime">0s</div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="results-section">
+                <h2>Transcription Results</h2>
+
+                <!-- Tabs -->
+                <div class="tabs-container">
+                    <button class="tab-button active" onclick="switchTab('detailed')">Detailed View</button>
+                    <button class="tab-button" onclick="switchTab('continuous')">Continuous Text</button>
+                </div>
+
+                <!-- Detailed View Tab Content -->
+                <div class="tab-content active" id="detailedTab">
+                    <div class="results-container" id="resultsContainer">
+                        <div class="result-empty">Results will appear here...</div>
+                    </div>
+                </div>
+
+                <!-- Continuous Text Tab Content -->
+                <div class="tab-content" id="continuousTab">
+                    <div class="results-container">
+                        <div class="continuous-text" id="continuousText">Continuous text will appear here...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- REST API Example -->
+            <div class="config-section" style="margin-top: 30px;">
+                <h2>REST API (curl)</h2>
+                <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
+curl -sk -X POST \
+  "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions" \
+  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -F "model=hamsa-stt" \
+  -F "file=@/path/to/audio.wav" \
+  -F "language=auto"</div>
+                <p style="font-size: 12px; color: #999; margin-top: 8px;">
+                    Replace <code>/path/to/audio.wav</code> with your audio file (PCM 16kHz 16-bit WAV). The endpoint returns JSON with <code>text</code>, <code>gender</code>, <code>duration</code>, and other Hamsa fields.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // BEARER TOKEN IMPLEMENTATION NOTES
+        // ============================================================================
+        // This client supports Bearer token authorization in multiple ways:
+        //
+        // 1. HANDSHAKE MESSAGE (Primary):
+        //    The bearer token is included in the WebSocket handshake message as:
+        //    { type: 'handshake', authorization: 'Bearer <token>', ... }
+        //
+        // 2. URL PARAMETER (Fallback):
+        //    If the server doesn't support headers, the token can be passed as:
+        //    ws://server:port/path?authorization=Bearer%20<token>
+        //
+        // 3. SERVER-SIDE HEADERS:
+        //    If using Node.js/Express or similar, configure your server to:
+        //    - Accept 'Authorization' header with value 'Bearer <token>'
+        //    - Validate the token before accepting WebSocket connections
+        //
+        // For node-ws (Node.js WebSocket library):
+        // const wss = new WebSocket.Server({ noServer: true });
+        // server.on('upgrade', (request, socket, head) => {
+        //   const token = request.headers.authorization?.replace('Bearer ', '');
+        //   if (isValidToken(token)) {
+        //     wss.handleUpgrade(request, socket, head, (ws) => {
+        //       wss.emit('connection', ws, request);
+        //     });
+        //   }
+        // });
+        // ============================================================================
+
+        // ============================================================================
+        // LOGGING & DIAGNOSTICS SYSTEM
+        // ============================================================================
+        const DEBUG = true;
+        
+        function logInfo(category, message, data = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = `[${timestamp}] [${category}]`;
+            if (data) {
+                console.log(`${prefix} ${message}`, data);
+            } else {
+                console.log(`${prefix} ${message}`);
+            }
+        }
+
+        function logError(category, message, error = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = `[${timestamp}] [${category}] ❌`;
+            if (error) {
+                console.error(`${prefix} ${message}`, error);
+                if (error.stack) {
+                    console.error('Stack trace:', error.stack);
+                }
+            } else {
+                console.error(`${prefix} ${message}`);
+            }
+        }
+
+        function logWarning(category, message, data = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = `[${timestamp}] [${category}] ⚠️`;
+            if (data) {
+                console.warn(`${prefix} ${message}`, data);
+            } else {
+                console.warn(`${prefix} ${message}`);
+            }
+        }
+
+        function logSuccess(category, message, data = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = `[${timestamp}] [${category}] ✓`;
+            if (data) {
+                console.log(`${prefix} ${message}`, data);
+            } else {
+                console.log(`${prefix} ${message}`);
+            }
+        }
+
+        // Browser and feature detection
+        function detectBrowser() {
+            const ua = navigator.userAgent;
+            let browserInfo = {
+                userAgent: ua,
+                isEdge: /Edg/.test(ua),
+                isChrome: /Chrome/.test(ua) && !/Edg/.test(ua),
+                isFirefox: /Firefox/.test(ua),
+                isSafari: /Safari/.test(ua) && !/Chrome/.test(ua),
+                isMobile: /Mobile|Android|iPhone|iPad|iPod/.test(ua)
+            };
+            return browserInfo;
+        }
+
+        function detectFeatures() {
+            return {
+                webSocket: typeof WebSocket !== 'undefined',
+                audioContext: !!(window.AudioContext || window.webkitAudioContext),
+                mediaDevices: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                arrayBuffer: typeof ArrayBuffer !== 'undefined',
+                int16Array: typeof Int16Array !== 'undefined'
+            };
+        }
+
+        // Log initial diagnostics
+        window.addEventListener('load', () => {
+            logInfo('INIT', '=== WebSocket Audio Client Initialized ===');
+            const browser = detectBrowser();
+            logInfo('BROWSER', `Detected: ${browser.isEdge ? 'Edge' : browser.isChrome ? 'Chrome' : browser.isFirefox ? 'Firefox' : browser.isSafari ? 'Safari' : 'Unknown'}`, browser);
+            
+            const features = detectFeatures();
+            logInfo('FEATURES', 'Browser Capabilities', features);
+            
+            if (!features.webSocket) {
+                logError('FEATURES', 'WebSocket not supported!');
+            }
+            if (!features.audioContext) {
+                logError('FEATURES', 'AudioContext not supported!');
+            }
+            if (!features.mediaDevices) {
+                logError('FEATURES', 'MediaDevices API not supported!');
+            }
+        });
+
+        let ws = null;
+        let audioContext = null;
+        let mediaStream = null;
+        let scriptProcessor = null;
+        let isRecording = false;
+        let resultCount = 0;
+        let chunkCount = 0;
+        let startTime = 0;
+        let recordingInterval = null;
+        let audioChunkStats = { sent: 0, failed: 0, totalBytes: 0 };
+
+        const SAMPLE_RATE = 16000;
+        const CHUNK_SIZE = 512;
+
+        // Update range slider display
+        document.getElementById('vadThreshold').addEventListener('input', (e) => {
+            document.getElementById('vadValue').textContent = parseFloat(e.target.value).toFixed(2);
+            logInfo('UI', 'VAD Threshold changed', { value: e.target.value });
+        });
+
+        document.getElementById('eosThreshold').addEventListener('input', (e) => {
+            document.getElementById('eosValue').textContent = parseFloat(e.target.value).toFixed(2);
+            logInfo('UI', 'EOS Threshold changed', { value: e.target.value });
+        });
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status show ${type}`;
+            statusEl.innerHTML = `<span class="status-dot"></span><span>${message}</span>`;
+        }
+
+        function hideStatus() {
+            document.getElementById('status').classList.remove('show');
+        }
+
+        async function connect() {
+            logInfo('CONNECT', 'Starting connection process...');
+            
+            const wsUrl = document.getElementById('wsUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const bearerToken = document.getElementById('bearerToken').value;
+
+            logInfo('CONFIG', 'Connection settings', { 
+                wsUrl: wsUrl,
+                hasApiKey: !!apiKey,
+                hasBearerToken: !!bearerToken
+            });
+
+            if (!wsUrl || !apiKey) {
+                logError('VALIDATION', 'Missing WebSocket URL or API Key');
+                showStatus('Please enter WebSocket URL and API Key', 'error');
+                return;
+            }
+
+            if (!bearerToken) {
+                logError('VALIDATION', 'Missing Bearer Token');
+                showStatus('Please enter Bearer Token', 'error');
+                return;
+            }
+
+            try {
+                showStatus('Connecting...', 'info');
+                logInfo('CONNECT', 'Validation passed, attempting WebSocket connection...');
+
+                logInfo('CONNECT', 'Connection URL:', wsUrl);
+
+                // Connect WebSocket using subprotocol for auth (browser cannot set headers)
+                // LiteLLM reads the API key from sec-websocket-protocol: openai-insecure-api-key.<token>
+                logInfo('WEBSOCKET', 'Creating WebSocket connection with subprotocol auth...');
+                ws = new WebSocket(wsUrl, ['openai-insecure-api-key.' + bearerToken]);
+                ws.binaryType = 'arraybuffer';
+
+                logInfo('WEBSOCKET', 'WebSocket object created', { 
+                    readyState: ws.readyState,
+                    binaryType: ws.binaryType
+                });
+
+                ws.onopen = async () => {
+                    logSuccess('WEBSOCKET', 'WebSocket connection established!', { 
+                        readyState: ws.readyState,
+                        url: ws.url.replace(bearerToken, '***')
+                    });
+
+                    // Send handshake with both encrypted key and bearer token
+                    const handshake = {
+                        type: 'handshake',
+                        api_key: apiKey,
+                        authorization: 'Bearer ' + bearerToken,
+                        options: {
+                            silence_timeout: parseFloat(document.getElementById('silenceTimeout').value),
+                            sample_rate: SAMPLE_RATE,
+                            min_silence_duration_ms: parseInt(document.getElementById('minSilenceDuration').value),
+                            min_speech_ms: parseInt(document.getElementById('minSpeech').value),
+                            client_logging: document.getElementById('clientLogging').checked,
+                            vad_threshold: parseFloat(document.getElementById('vadThreshold').value),
+                            eos_enabled: document.getElementById('eosEnabled').checked,
+                            eos_threshold: parseFloat(document.getElementById('eosThreshold').value),
+                            audio_type: 'PCM',
+                            noise_cancellation: document.getElementById('noiseCancellation').checked
+                        }
+                    };
+
+                    logInfo('HANDSHAKE', 'Sending handshake message...', {
+                        type: handshake.type,
+                        hasApiKey: !!handshake.api_key,
+                        hasAuthorization: !!handshake.authorization,
+                        options: {
+                            ...handshake.options,
+                            noise_cancellation: handshake.options.noise_cancellation
+                        }
+                    });
+
+                    try {
+                        ws.send(JSON.stringify(handshake));
+                        logSuccess('HANDSHAKE', 'Handshake message sent successfully');
+                    } catch (e) {
+                        logError('HANDSHAKE', 'Failed to send handshake', e);
+                        throw e;
+                    }
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        logInfo('MESSAGE', 'Received message from server', { 
+                            dataType: typeof event.data,
+                            dataLength: event.data.length
+                        });
+
+                        const data = JSON.parse(event.data);
+                        logInfo('MESSAGE', 'Parsed message type:', { type: data.type });
+
+                        if (data.type === 'handshake_ack') {
+                            logSuccess('HANDSHAKE', 'Handshake acknowledged by server');
+                            showStatus('Connected! Starting microphone...', 'success');
+                            document.getElementById('connectionStatus').textContent = 'Connected';
+                            startMicrophone();
+                        } else if (data.type === 'transcription') {
+                            logInfo('TRANSCRIPTION', 'Received transcription result', {
+                                duration_ms: data.duration_ms,
+                                hasData: !!data.data
+                            });
+                            addResult(data.data, data.duration_ms);
+                        } else if (data.type === 'log') {
+                            logInfo('SERVER-LOG', data.data);
+                        } else if (data.type === 'error') {
+                            logError('SERVER-ERROR', `Server error: ${data.error}`);
+                            showStatus(`Error: ${data.error}`, 'error');
+                            stop();
+                        } else {
+                            logWarning('MESSAGE', 'Unknown message type received', { type: data.type });
+                        }
+                    } catch (e) {
+                        logError('MESSAGE', 'Error parsing message', e);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    logError('WEBSOCKET', 'WebSocket error occurred', error);
+                    showStatus('WebSocket error - check console for details', 'error');
+                };
+
+                ws.onclose = (event) => {
+                    logWarning('WEBSOCKET', 'WebSocket connection closed', {
+                        code: event.code,
+                        reason: event.reason,
+                        wasClean: event.wasClean
+                    });
+                    showStatus('Disconnected', 'error');
+                    document.getElementById('connectionStatus').textContent = 'Disconnected';
+                    isRecording = false;
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    logInfo('AUDIO-STATS', 'Final audio chunk statistics', audioChunkStats);
+                };
+            } catch (error) {
+                logError('CONNECT', 'Connection error', error);
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function startMicrophone() {
+            logInfo('MICROPHONE', 'Requesting microphone access...');
+            
+            try {
+                logInfo('AUDIO', 'Audio constraints:', {
+                    sampleRate: SAMPLE_RATE,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                });
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: SAMPLE_RATE,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                logSuccess('MICROPHONE', 'Microphone access granted', {
+                    streamId: mediaStream.id,
+                    audioTracks: mediaStream.getAudioTracks().length
+                });
+
+                const audioTracks = mediaStream.getAudioTracks();
+                if (audioTracks.length > 0) {
+                    const settings = audioTracks[0].getSettings();
+                    logInfo('AUDIO-TRACK', 'Audio track settings', settings);
+                }
+
+                // Create AudioContext with fallback for different browsers
+                logInfo('AUDIO-CONTEXT', 'Creating AudioContext...');
+                
+                try {
+                    audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+                    logSuccess('AUDIO-CONTEXT', 'AudioContext created (standard)', { 
+                        sampleRate: audioContext.sampleRate,
+                        state: audioContext.state
+                    });
+                } catch (e) {
+                    logWarning('AUDIO-CONTEXT', 'Standard AudioContext failed, trying webkit fallback', e);
+                    audioContext = new webkitAudioContext({ sampleRate: SAMPLE_RATE });
+                    logSuccess('AUDIO-CONTEXT', 'AudioContext created (webkit)', { 
+                        sampleRate: audioContext.sampleRate,
+                        state: audioContext.state
+                    });
+                }
+
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                logSuccess('AUDIO', 'MediaStreamSource created');
+
+                // Create script processor with Edge compatibility warning
+                logInfo('AUDIO', 'Creating ScriptProcessor (note: deprecated but necessary for real-time audio)');
+                scriptProcessor = audioContext.createScriptProcessor(CHUNK_SIZE, 1, 1);
+                logSuccess('AUDIO', 'ScriptProcessor created', { 
+                    bufferSize: CHUNK_SIZE,
+                    channels: 1
+                });
+
+                let chunksSinceLog = 0;
+                
+                scriptProcessor.onaudioprocess = (e) => {
+                    const audioData = e.inputBuffer.getChannelData(0);
+                    const pcmData = floatToPCM(audioData);
+                    
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        try {
+                            ws.send(pcmData);
+                            audioChunkStats.sent++;
+                            audioChunkStats.totalBytes += pcmData.byteLength;
+                            chunkCount++;
+                            
+                            // Log every 100 chunks to avoid console spam
+                            chunksSinceLog++;
+                            if (chunksSinceLog >= 100) {
+                                logInfo('AUDIO-SEND', `Audio chunks sent: ${audioChunkStats.sent}, Total bytes: ${audioChunkStats.totalBytes}`);
+                                chunksSinceLog = 0;
+                            }
+                            
+                            document.getElementById('chunksCount').textContent = chunkCount;
+                        } catch (err) {
+                            audioChunkStats.failed++;
+                            logError('AUDIO-SEND', `Failed to send audio chunk #${chunkCount}`, err);
+                        }
+                    } else {
+                        if (chunksSinceLog === 0) {
+                            logWarning('AUDIO', 'WebSocket not ready for sending audio', {
+                                wsState: ws ? ws.readyState : 'null',
+                                readyStates: 'CONNECTING=0, OPEN=1, CLOSING=2, CLOSED=3'
+                            });
+                        }
+                    }
+                };
+
+                source.connect(scriptProcessor);
+                scriptProcessor.connect(audioContext.destination);
+                logSuccess('AUDIO', 'Audio graph connected');
+
+                isRecording = true;
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                resultCount = 0;
+                chunkCount = 0;
+                audioChunkStats = { sent: 0, failed: 0, totalBytes: 0 };
+                startTime = Date.now();
+
+                // Clear continuous text view
+                document.getElementById('continuousText').textContent = 'Continuous text will appear here...';
+
+                logSuccess('RECORDING', 'Recording started', { 
+                    startTime: new Date(startTime).toLocaleTimeString()
+                });
+
+                // Update recording time
+                recordingInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    document.getElementById('recordingTime').textContent = elapsed + 's';
+                }, 1000);
+
+                showStatus('Recording... Speak now', 'success');
+            } catch (error) {
+                logError('MICROPHONE', 'Microphone error', error);
+                
+                // Provide helpful error messages
+                let errorMsg = error.message;
+                if (error.name === 'NotAllowedError') {
+                    errorMsg = 'Microphone access denied. Please check browser permissions.';
+                    logWarning('MICROPHONE', 'User denied microphone access');
+                } else if (error.name === 'NotFoundError') {
+                    errorMsg = 'No microphone found. Please check your device.';
+                    logError('MICROPHONE', 'No microphone device found');
+                } else if (error.name === 'NotSupportedError') {
+                    errorMsg = 'getUserMedia not supported in this browser/context (must use HTTPS or localhost)';
+                    logError('MICROPHONE', 'getUserMedia not supported');
+                }
+                
+                showStatus('Microphone access denied: ' + errorMsg, 'error');
+            }
+        }
+
+        function floatToPCM(floatArray) {
+            try {
+                const buffer = new ArrayBuffer(floatArray.length * 2);
+                const view = new Int16Array(buffer);
+                
+                for (let i = 0; i < floatArray.length; i++) {
+                    const s = Math.max(-1, Math.min(1, floatArray[i]));
+                    view[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+                }
+                
+                return buffer;
+            } catch (e) {
+                logError('PCM-CONVERSION', 'Error converting float to PCM', e);
+                throw e;
+            }
+        }
+
+        function switchTab(tabName) {
+            // Remove active class from all tabs and contents
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            // Add active class to selected tab
+            if (tabName === 'detailed') {
+                document.querySelectorAll('.tab-button')[0].classList.add('active');
+                document.getElementById('detailedTab').classList.add('active');
+            } else if (tabName === 'continuous') {
+                document.querySelectorAll('.tab-button')[1].classList.add('active');
+                document.getElementById('continuousTab').classList.add('active');
+            }
+
+            logInfo('UI', 'Switched to tab:', { tabName });
+        }
+
+        function addResult(text, duration) {
+            try {
+                logInfo('RESULT', 'Adding transcription result', {
+                    duration: duration,
+                    transcription: text.transcription?.substring(0, 50) + '...',
+                    gender: text.gender,
+                    eos: text.eos?.prediction
+                });
+
+                // Update Detailed View
+                const container = document.getElementById('resultsContainer');
+
+                if (container.querySelector('.result-empty')) {
+                    container.innerHTML = '';
+                }
+
+                resultCount++;
+                document.getElementById('resultsCount').textContent = resultCount;
+
+                const time = new Date().toLocaleTimeString();
+                const resultEl = document.createElement('div');
+                resultEl.className = 'result-item';
+                resultEl.innerHTML = `
+                    <div class="result-time">${time} (${duration.toFixed(0)}ms)</div>
+                    <div class="result-text">${text.transcription}</div>
+                    <div class="result-text">Gender: ${text.gender}</div>
+                    <div class="result-text">End of turn: ${text.eos.prediction}</div>
+                `;
+
+                container.appendChild(resultEl);
+                container.scrollTop = container.scrollHeight;
+
+                // Update Continuous Text View
+                const continuousTextEl = document.getElementById('continuousText');
+
+                // Clear placeholder if this is the first result
+                if (continuousTextEl.textContent === 'Continuous text will appear here...') {
+                    continuousTextEl.textContent = '';
+                }
+
+                // Add transcription text
+                continuousTextEl.textContent += text.transcription;
+
+                // Add new line if eos is 1
+                if (text.eos && text.eos.prediction === 1) {
+                    continuousTextEl.textContent += '\n';
+                    logInfo('CONTINUOUS', 'Added new line (EOS detected)');
+                }
+
+                // Auto-scroll continuous text container
+                const continuousContainer = continuousTextEl.parentElement;
+                continuousContainer.scrollTop = continuousContainer.scrollHeight;
+
+                logSuccess('RESULT', `Result #${resultCount} added to both views`);
+            } catch (e) {
+                logError('RESULT', 'Error adding result to UI', e);
+            }
+        }
+
+        function stop() {
+            logInfo('STOP', 'Stopping recording...');
+            
+            try {
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(track => {
+                        logInfo('CLEANUP', `Stopping ${track.kind} track`);
+                        track.stop();
+                    });
+                    logSuccess('CLEANUP', 'All media tracks stopped');
+                }
+
+                if (scriptProcessor) {
+                    scriptProcessor.disconnect();
+                    logInfo('CLEANUP', 'ScriptProcessor disconnected');
+                }
+
+                if (audioContext) {
+                    audioContext.close();
+                    logInfo('CLEANUP', 'AudioContext closed', { 
+                        state: audioContext.state
+                    });
+                }
+
+                if (ws) {
+                    logInfo('CLEANUP', 'Closing WebSocket', { 
+                        readyState: ws.readyState,
+                        url: ws.url ? ws.url.substring(0, 50) + '...' : 'unknown'
+                    });
+                    ws.close();
+                }
+
+                if (recordingInterval) {
+                    clearInterval(recordingInterval);
+                    logInfo('CLEANUP', 'Recording interval cleared');
+                }
+
+                isRecording = false;
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                
+                const duration = Math.floor((Date.now() - startTime) / 1000);
+                logSuccess('STOP', 'Recording stopped', {
+                    duration: duration + 's',
+                    resultCount: resultCount,
+                    chunkCount: chunkCount,
+                    audioStats: audioChunkStats
+                });
+                
+                showStatus('Recording stopped', 'info');
+            } catch (e) {
+                logError('STOP', 'Error during cleanup', e);
+            }
+        }
+    </script>
+</body>
+</html>

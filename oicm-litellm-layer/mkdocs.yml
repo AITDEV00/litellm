@@ -1,0 +1,112 @@
+site_name: OICM LiteLLM Layer
+site_description: Quick navigator for the OICM → LiteLLM integration layer. Maps where every component, config, deployment manifest, and doc lives so you know exactly where to edit things.
+site_url: https://litellm.adeoaiengine.ecouncil.ae/docs/
+site_author: openinnovationai contributors
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-2
+        name: Switch to system preference
+  features:
+    - content.action.edit
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: date
+      enable_git_follow: false
+
+# Injects the master key into docs via the {{ master_key }} placeholder, read
+# from the single source of truth: the `litellm-master-key` Secret in
+# deploy/litellm-proxy.yaml. See scripts/mkdocs_master_key.py.
+hooks:
+  - scripts/mkdocs_master_key.py
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Structure: structure.md
+  - Credentials & Secrets: credentials.md
+  - Components:
+      - Discovery Controller: components/controller.md
+      - Config: components/config.md
+      - Hooks: components/hooks.md
+      - Custom Routes: components/custom-routes.md
+      - Patches: components/patches.md
+  - Architecture & Deployment:
+      - Deployment & Cluster: deployment.md
+      - Makefile Reference: Makefile-reference.md
+      - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
+  - Runbooks:
+      - MkDocs Setup: runbooks/MKDOCS-SETUP.md
+      - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
+  - Techniques:
+      - Logic Mapping: techniques/logic_mapping_technique.md
+      - Code Smell Detection: techniques/code_smell_detection_technique.md
+  - Performance:
+      - Executive Summary: performance/executive-summary.md
+      - Model Performance Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
+      - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
+      - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
+      - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
+  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
+  - Docs Map: docs-map.md

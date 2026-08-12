@@ -26,12 +26,15 @@ class TextToSpeechRequestData(TypedDict, total=False):
     Structured return type for text-to-speech transformations.
 
     This ensures a consistent interface across all TTS providers.
-    Providers should set ONE of: dict_body, ssml_body, or text_body.
+    Providers should set ONE of: dict_body, ssml_body, or form_data+files.
     """
 
     dict_body: dict[str, Any]  # JSON request body (e.g., OpenAI TTS)
     ssml_body: str  # SSML/XML string body (e.g., Azure AVA TTS)
+    form_data: dict[str, Any]  # Multipart form fields (e.g., voice clone with ref_audio)
+    files: dict[str, Any]  # Multipart file fields (e.g., {"ref_audio": (filename, content, content_type)})
     headers: dict[str, str]  # Provider-specific headers to merge with base headers
+    method: str  # HTTP method override (default: POST). Used by voice management configs for GET/PATCH/DELETE.
 
 
 class BaseTextToSpeechConfig(ABC):

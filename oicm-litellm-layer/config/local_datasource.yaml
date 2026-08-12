@@ -1,0 +1,45 @@
+# local_datasources.yaml
+#
+# LiteLLM config for running a LOCAL instance against the deployed metrics
+# datasources (Postgres / Redis / Prometheus) via `kubectl port-forward`.
+#
+# Before running, start the port-forwards (one terminal):
+#   oicm-litellm-layer/scripts/port-forward-datasources.sh
+#
+# Then run the proxy (another terminal) with the DATABASE_URL / REDIS / 
+# PROMETHEUS_URL env vars pointing at the forwarded local ports. See
+# oicm-litellm-layer/docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
+
+# No models in config: with store_model_in_db, models are loaded from Postgres,
+# exactly like the deployed proxy. No LLM service is port-forwarded, so model
+# calls will fail -- this is for validating the METRICS / UI / spend surfaces.
+model_list: []
+
+litellm_settings:
+  store_model_in_db: true
+  drop_params: true
+  cache: true
+  cache_params:
+    type: redis
+    ttl: 3600
+    default_in_memory_ttl: 60
+    max_connections: 500
+    socket_timeout: 10.0
+  enable_redis_auth_cache: true
+  callbacks:
+    - prometheus
+  require_auth_for_metrics_endpoint: false
+
+router_settings:
+  routing_strategy: usage-based-routing-v2
+  optional_pre_call_checks:
+    - enforce_model_rate_limits
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  store_model_in_db: true
+
+# The DATABASE_URL / REDIS_* / PROMETHEUS_URL / LITELLM_MASTER_KEY values are
+# injected as environment variables (see docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md),
+# exactly like the deployed proxy pod. Prisma connects to the forwarded Postgres
+# on 127.0.0.1:5432 and /model/performance reads Prometheus via PROMETHEUS_URL.

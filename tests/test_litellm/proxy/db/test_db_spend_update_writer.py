@@ -17,7 +17,12 @@ from redis.exceptions import DataError
 
 import litellm
 from litellm.proxy._types import Litellm_EntityType
-from litellm.proxy.db.db_spend_update_writer import DBSpendUpdateWriter
+from litellm.proxy.db.db_spend_update_writer import (
+    DBSpendUpdateWriter,
+    _execute_rollup_upsert,
+    _fmt_sql_array_float,
+    _fmt_sql_float,
+)
 
 
 @pytest.mark.asyncio
@@ -2236,3 +2241,79 @@ async def test_daily_transaction_compression_saved_tokens_zero_when_absent():
     assert transaction["compression_saved_tokens"] == 0
     assert transaction["compression_savings_spend"] == 0
     assert transaction["prompt_caching_savings_spend"] == 0
+
+
+class TestFmtSqlArrayFloat:
+    def test_finite_value_is_unquoted_repr(self):
+        assert _fmt_sql_array_float(0.5) == "0.5"
+        assert _fmt_sql_array_float(1.0) == "1.0"
+
+    def test_infinity_is_unquoted(self):
+        # Regression: the previous impl returned "'Infinity'" (single-quoted),
+        # which Postgres's array-literal parser treats as a string literal and
+        # cannot cast to double precision, so EVERY rollup upsert failed.
+        assert _fmt_sql_array_float(float("inf")) == "Infinity"
+
+    def test_infinity_element_parses_as_valid_array(self):
+        # Build the exact edges literal the writer produces for a transaction
+        # and confirm it is a syntactically valid double-precision array. The
+        # quoted form "'Infinity'" would raise a cast error.
+        literal = "{" + ",".join(_fmt_sql_array_float(x) for x in [1.0, float("inf")]) + "}"
+        assert literal == "{1.0,Infinity}"
+
+
+class TestFmtSqlFloat:
+    def test_none_is_null(self):
+        assert _fmt_sql_float(None) == "NULL"
+
+    def test_value_is_repr(self):
+        assert _fmt_sql_float(1.5) == "1.5"
+
+
+@pytest.mark.asyncio
+async def test_execute_rollup_upsert_emits_infinity_without_quotes():
+    """
+    Regression test for the Infinity array-literal bug.
+
+    A transaction's ttft_histogram_edges always ends with +inf (the final bin
+    edge). The generated SQL must spell that edge as ``Infinity`` (unquoted)
+    inside the ``{...}::double precision[]`` literal, otherwise Postgres rejects
+    the upsert with "invalid input syntax for type double precision".
+    """
+    from litellm.proxy.db.db_transaction_queue.model_performance_rollup_update_queue import (
+        ttft_histogram_edges,
+    )
+
+    edges = ttft_histogram_edges()
+    transaction = {
+        "model_group": "test-model",
+        "bucket_start": "2026-08-20T00:00:00",
+        "request_count": 1,
+        "completion_tokens": 10,
+        "throughput_tokens_sum": 5.0,
+        "ttft_seconds_sum": 1.0,
+        "ttft_seconds_sum_sq": 1.0,
+        "ttft_seconds_min": 1.0,
+        "ttft_seconds_max": 1.0,
+        "ttft_histogram_edges": edges,
+        "ttft_histogram_counts": [0] * len(edges),
+        "starts": 1,
+        "ends": 1,
+    }
+
+    mock_prisma = MagicMock()
+    mock_prisma.db.execute_raw = AsyncMock()
+
+    await _execute_rollup_upsert(prisma_client=mock_prisma, transactions=[transaction])
+
+    mock_prisma.db.execute_raw.assert_awaited_once()
+    sql = mock_prisma.db.execute_raw.call_args.args[0]
+    args = mock_prisma.db.execute_raw.call_args.args[1:]
+    assert "'Infinity'" not in sql
+    # edges_literal is passed as a bind parameter (args[2] for the first row:
+    # model_group, bucket_start, then edges_literal).
+    edges_literal = args[2]
+    assert edges_literal == "{" + ",".join(_fmt_sql_array_float(x) for x in edges) + "}"
+    # The final edge must be the unquoted Infinity spelling, not "'Infinity'".
+    assert edges_literal.endswith(",Infinity}")
+    assert "'Infinity'" not in edges_literal

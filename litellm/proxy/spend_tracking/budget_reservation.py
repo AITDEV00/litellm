@@ -154,7 +154,7 @@ async def reserve_budget_for_request(
     prisma_client: PrismaClient | None,
     user_api_key_cache: DualCache,
     proxy_logging_obj: ProxyLogging,
-    end_user_id: str | None = None,
+end_user_id: str | None = None,
     end_user_object: Any | None = None,
     fail_closed_budget_enforcement: bool = False,
 ) -> dict | None:
@@ -330,7 +330,7 @@ async def _get_budget_counters(
     prisma_client: PrismaClient | None,
     user_api_key_cache: DualCache,
     proxy_logging_obj: ProxyLogging,
-    end_user_id: str | None = None,
+end_user_id: str | None = None,
     end_user_object: Any | None = None,
 ) -> list[_BudgetCounter]:
     counters: list[_BudgetCounter] = []

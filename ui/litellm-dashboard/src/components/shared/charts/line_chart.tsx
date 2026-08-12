@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CartesianGrid, Line, LineChart as RechartsLineChart, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart as RechartsLineChart,
+  XAxis,
+  YAxis,
+  type MouseHandlerDataParam,
+} from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/cva.config";
 import { ValueTooltip, type ChartTooltipComponent } from "./chart_tooltip";
@@ -26,6 +33,8 @@ export type LineChartProps<TDatum extends Record<string, unknown>> = {
   curveType?: LineChartCurveType;
   className?: string;
   style?: React.CSSProperties;
+  /** Invoked when a point on a line is clicked, with the datum row and the category. */
+  onPointClick?: (datum: TDatum, category: string) => void;
 };
 
 export function LineChart<TDatum extends Record<string, unknown>>({
@@ -45,6 +54,7 @@ export function LineChart<TDatum extends Record<string, unknown>>({
   curveType = "linear",
   className,
   style,
+  onPointClick,
 }: LineChartProps<TDatum>) {
   const fills = categoryFills(categories.length, colors);
   const config: ChartConfig = Object.fromEntries(categories.map((category) => [category, { label: category }]));
@@ -52,7 +62,19 @@ export function LineChart<TDatum extends Record<string, unknown>>({
 
   return (
     <ChartContainer config={config} className={cn("aspect-auto h-80 w-full", className)} style={style}>
-      <RechartsLineChart data={[...data]}>
+      <RechartsLineChart
+        data={[...data]}
+        onClick={
+          onPointClick
+            ? (state: MouseHandlerDataParam) => {
+                const index = state.activeIndex;
+                const row = typeof index === "number" ? data[index] : undefined;
+                const dataKey = state.activeDataKey;
+                if (row && dataKey) onPointClick(row, String(dataKey));
+              }
+            : undefined
+        }
+      >
         {showGridLines && <CartesianGrid vertical={false} />}
         <XAxis
           dataKey={index}
