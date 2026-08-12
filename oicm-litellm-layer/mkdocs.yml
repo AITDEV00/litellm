@@ -105,6 +105,7 @@ nav:
   - Performance:
       - Executive Summary: performance/executive-summary.md
       - Model Performance Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
+      - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
       - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Docs Map: docs-map.md
