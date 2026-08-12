@@ -145,3 +145,4 @@ crash.*.log
 .coverage
 
 ui/litellm-dashboard/out/
+litellm/proxy/_experimental/out/

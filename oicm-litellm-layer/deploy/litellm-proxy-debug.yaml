@@ -1,0 +1,187 @@
+---
+# Debug-only Deployment: litellm-proxy-debug
+#
+# PURPOSE
+#   A throwaway replica of the production `litellm-proxy` Deployment used to
+#   debug slow / failing requests (e.g. 30d / MTD / YTD model performance)
+#   WITHOUT touching the live traffic path. It runs the exact same image, env,
+#   config, secrets and volumes as the real replicas, so it reproduces the
+#   production code path bit-for-bit. The only difference is its label
+#   (`app: litellm-proxy-debug`), which keeps it OUT of the production
+#   `litellm-proxy` Service selector so it never receives live traffic.
+#
+# WHY THIS IS NEEDED
+#   The production replicas run `granian --num_workers 4`. Granian forks 4
+#   workers, so `kubectl exec` + a profiling run lands on an arbitrary worker
+#   and you cannot attach a debugger / cProfile / trace to a specific worker,
+#   nor can you restart one worker to pick up an instrumented code path.
+#   A single-replica (workers=1) debug deployment gives you a stable PID to
+#   attach to, log to, and restart at will.
+#
+# HOW TO USE
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/litellm-proxy-debug.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/litellm-proxy-debug
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops get pods -l app=litellm-proxy-debug
+#   # exec into it and run a Python probe against the real DB/config:
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops exec deploy/litellm-proxy-debug -- \
+#       python3 /app/probe_performance.py
+#   # port-forward the debug pod if you want to hit it over HTTP in isolation:
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops port-forward deploy/litellm-proxy-debug 14001:4000
+#   curl -s -H "Authorization: Bearer sk-1234" \
+#       "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
+#
+# CLEANUP
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/litellm-proxy-debug
+#
+# NOTE: This intentionally has NO PodDisruptionBudget and NO Service selector
+#       matching production, so scaling it up/down or deleting it cannot affect
+#       live traffic.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy-debug
+  namespace: mlops
+  labels:
+    app: litellm-proxy-debug
+spec:
+  # Single replica, single worker: gives a stable PID to exec/attach/probe.
+  # Override to 0 when not debugging to release the node resources.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-proxy-debug
+  template:
+    metadata:
+      labels:
+        app: litellm-proxy-debug
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: litellm
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.95.0
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials
+                  key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "litellm-redis.redis.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-redis-password
+                  key: password
+            - name: REDIS_CONNECTION_POOL_TIMEOUT
+              value: "10"
+            - name: UI_LOGO_PATH
+              value: /app/assets/adeo-ai-gateway.jpg
+            - name: LITELLM_FAVICON_URL
+              value: /app/assets/favicon.png
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
+          command:
+            - "litellm"
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            # SINGLE worker on the debug pod so we have ONE stable PID. The
+            # production Deployment uses --run_granian --num_workers 4.
+            - "--run_granian"
+            - "--num_workers"
+            - "1"
+            - "--use_v2_migration_resolver"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: hooks
+              mountPath: /app/litellm_hooks
+              readOnly: true
+            - name: logo
+              mountPath: /app/assets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+        - name: hooks
+          configMap:
+            name: litellm-hooks
+        - name: logo
+          configMap:
+            name: litellm-logo
+---
+# Debug Service on a DIFFERENT port (14001) and selector (litellm-proxy-debug).
+# This never receives production traffic; it exists so you can port-forward to
+# it and hit the debug pod over HTTP in isolation.
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy-debug
+  namespace: mlops
+  labels:
+    app: litellm-proxy-debug
+spec:
+  selector:
+    app: litellm-proxy-debug
+  ports:
+    - port: 4000
+      targetPort: http
+      name: http
