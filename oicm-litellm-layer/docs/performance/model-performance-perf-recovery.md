@@ -6,7 +6,7 @@
 
 ## Branch / State
 
-- Branch: `jya0-v1.95.0`
+- Branch: `jya0-v1.96.2`
 - All changes are committed and pushed (commit and push happened at the end of this
   session).
 

@@ -2,7 +2,7 @@
 
 > Built with the [Logic Mapping Technique](../techniques/logic_mapping_technique.md).
 > This document is Phase 1 (Trace) output. Every claim has a verified
-> `file:line` reference in the current codebase (branch `jya0-v1.92.0`).
+> `file:line` reference in the current codebase (branch `jya0-v1.96.2`).
 
 ---
 

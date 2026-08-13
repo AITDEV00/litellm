@@ -3,7 +3,7 @@
 > Built with the [Logic Mapping Technique](../techniques/logic_mapping_technique.md):
 > trace every function and data flow end-to-end before changing code.
 > Every entry below has a verified `file:line` reference in the current
-> codebase (branch `jya0-v1.92.0`). This map is the single source of truth
+> codebase (branch `jya0-v1.96.2`). This map is the single source of truth
 > for understanding priority enforcement.
 
 ---
@@ -500,7 +500,7 @@ Denied requests still count toward the demand counter (incremented before the Lu
 
 ## How This Map Was Verified
 
-Per the logic mapping technique's Phase 2, each step above was checked against the real source on branch `jya0-v1.92.0`:
+Per the logic mapping technique's Phase 2, each step above was checked against the real source on branch `jya0-v1.96.2`:
 
 1. **Lua script** read in full (`parallel_request_limiter_v3.py:183-311`) — decision logic, borrow ceiling, key/argv layout confirmed verbatim.
 2. **Demand counter path** read in full (`parallel_request_limiter_v3.py:1060-1300`) — original `local_only=True` writes identified as the multi-instance bug; fixed to `local_only=False` with atomic `async_increment_cache`. Redis write-back confirmed via `DualCache.async_set_cache` / `async_increment_cache` (`dual_cache.py:351`, `dual_cache.py:380`).

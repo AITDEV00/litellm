@@ -22,8 +22,8 @@ After `_refresh_cached_team` writes the updated team object to cache, enumerate 
 - Admin key: `{{ master_key }}`
 - Test team: LITELLM TEST (ID: `dd76dd4d-95c4-4eef-b497-c3d4318ee7ee`)
 - Test key: `sk-ZVHnvrLkfSAE6GbuWCJssw` (alias: `test-user-key`)
-- Branch: `jya0-v1.92.0`
-- Docker image: `litellm-src:jya0-v1.92.0`
+- Branch: `jya0-v1.96.2`
+- Docker image: `litellm-src:jya0-v1.96.2`
 
 ## Test Prerequisites
 
@@ -388,6 +388,16 @@ This ensures the `internal_usage_cache` in-memory entries expire after 1 second 
 | Team model restore → both pods return 200 | Both pods stuck on 403 for ~6 min | **Both pods 200 immediately** ✓ |
 | Key model update → both pods return correct | Already worked | Still works ✓ |
 
+## Fix Verification on v1.96.2
+
+On 2026-07-22 all three fix commits were confirmed present on branch `jya0-v1.96.2`:
+
+- `fe96c96dac` — `fix(proxy): default UserApiKeyCache to skip in-memory for multi-pod consistency`
+- `40f28b0fa0` — `fix(proxy): keep internal_usage_cache in-memory-first and JWT/OIDC reads in-memory`
+- `617e913588` — `fix(caching): DualCache Redis write-back must honor default_in_memory_ttl`
+
+The Phase 4 write-back TTL guard is intact in `litellm/caching/dual_cache.py` (`write_back_kwargs` + `default_in_memory_ttl` injection), and the `skip_in_memory` plumbing is intact in `litellm/proxy/common_utils/user_api_key_cache.py`. The upstream merge to v1.96.2 did not alter any of the Phase 2-4 changes.
+
 ## Deployment Guide
 
 ### Prerequisites
@@ -395,7 +405,7 @@ This ensures the `internal_usage_cache` in-memory entries expire after 1 second 
 - podman (or docker) installed locally
 - Access to the Harbor registry at `registry.adeoaiengine.ecouncil.ae`
 - kubectl configured with a kubeconfig that can reach the mlops namespace
-- The LiteLLM source repo at `/home/jyao/ADEO/service/litellm` on branch `jya0-v1.92.0`
+- The LiteLLM source repo at `/home/jyao/ADEO/service/litellm` on branch `jya0-v1.96.2`
 - The OICM litellm layer at `/home/jyao/ADEO/service/litellm/oicm-litellm-layer`
 
 ### Step 1: Build and Test Locally
@@ -407,7 +417,7 @@ cd /home/jyao/ADEO/service/litellm/oicm-litellm-layer
 make litellm-src-build
 ```
 
-This produces `registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.92.0`.
+This produces `registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.96.2`.
 
 Run the image locally with the no-DB/no-Redis config to verify it boots cleanly:
 
@@ -422,7 +432,7 @@ podman run --rm -d --name litellm-local \
   -v $(pwd)/hooks:/app/litellm_hooks:Z \
   -e STORE_MODEL_IN_DB=true \
   -e LITELLM_MASTER_KEY={{ master_key }} \
-  registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.92.0 \
+  registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.96.2 \
   --config /app/config.yaml --port 4000
 
 # Wait for startup, then verify
@@ -478,7 +488,7 @@ The deployment manifest (`deploy/litellm-proxy.yaml`) already references the cor
 # Verify the manifest image tag matches what you pushed
 kubectl get deploy litellm-proxy -n mlops \
   -o jsonpath='{.spec.template.spec.containers[0].image}'
-# Expected: .../litellm-src:jya0-v1.92.0
+# Expected: .../litellm-src:jya0-v1.96.2
 
 # Trigger a rolling restart (maxUnavailable: 0, so one pod at a time)
 kubectl rollout restart deploy/litellm-proxy -n mlops

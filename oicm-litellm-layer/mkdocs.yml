@@ -103,11 +103,52 @@ nav:
       - Logic Mapping: techniques/logic_mapping_technique.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
       - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
+      - Debug Pod: techniques/debug_pod_technique.md
+  - HTB Rate Limiting:
+      - Executive Summary: htb-rate-limiting/HTB-EXECUTIVE-SUMMARY.md
+      - README: htb-rate-limiting/HTB-README.md
+      - Priority Bridge Feasibility: htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
+      - Priority Logic Map: htb-rate-limiting/PRIORITY-LOGIC-MAP.md
+      - Priority Queue Evidence: htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
+      - Priority Queue Results Summary: htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
+      - Priority Behaviour: htb-rate-limiting/priority_behaviour.md
   - Performance:
       - Executive Summary: performance/executive-summary.md
-      - Model Performance Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
+      - Model Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
       - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
+      - Before Optimization: performance/before optimization.md
+      - After Optimization: performance/after optimization.md
+      - Before/After Correct Configuration: performance/before + after correct configuration for litellm .md
+  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
+  - Admin API:
+      - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
+      - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
+  - Custom Providers:
+      - Gateway Guide: custom-providers/GATEWAY_GUIDE.md
+      - HAMSA Research: custom-providers/HAMSA_RESEARCH.md
+      - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md
+      - Inception TTS/STT Guide: custom-providers/INCEPTION_TTS_STT_GUIDE.md
+      - LiteLLM Endpoint Architecture: custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
+      - OmniVoice Logic Mapping: custom-providers/OMNIVOICE_LOGIC_MAPPING.md
+      - OmniVoice Post-Build Logic Map: custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
+      - OmniVoice TTS Guide: custom-providers/OMNIVOICE_TTS_GUIDE.md
+      - README: custom-providers/README.md
+      - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
+      - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
+  - Dashboard & Planning:
+      - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
+      - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md
+      - Logic Mapping Technique: dashboard-plan/LOGIC-MAPPING-TECHNIQUE.md
+      - Model Performance Discovery: dashboard-plan/MODEL-PERFORMANCE-DISCOVERY.md
+      - Observability Implementation Plan: dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md
+      - UI Lint & Change Process: dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md
+  - Discovery Controller:
+      - README: discovery-controller/README.md
+      - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
+  - Model Pricing:
+      - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
+      - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Docs Map: docs-map.md
