@@ -151,4 +151,7 @@ nav:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
       - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
+  - OpenRouter:
+      - Models Design: openrouter/litellm_openrouter_models_design.md
+      - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md
   - Docs Map: docs-map.md

@@ -17307,6 +17307,11 @@ app.include_router(ui_discovery_endpoints_router)
 # Eager: /models/{name}:method overlaps with the OpenAI /models endpoint.
 app.include_router(google_router)
 
+# OpenRouter-compatible model discovery (/api/v1/models).
+from litellm.proxy.openrouter_compat.routes import router as openrouter_compat_router
+
+app.include_router(openrouter_compat_router)
+
 attach_lazy_features(app)
 app.add_middleware(
     RequestSizeLimitMiddleware,

@@ -1,0 +1,72 @@
+# Docker Compose for LiteLLM OpenRouter-compat local development with hot reload.
+#
+# Provides:
+#   - litellm   : the proxy with source mounted from the repo so --reload applies
+#                 edits to litellm/ without rebuilding.
+#   - db        : Postgres for dynamic model registration (store_model_in_db).
+#
+# Usage (from repo root):
+#   docker compose -f oicm-litellm-layer/docker-compose.dev.yml up --build
+#
+# The proxy listens on http://localhost:4000. Master key defaults to sk-1234
+# (matches deploy/litellm-proxy.yaml Secret), override with LITELLM_MASTER_KEY.
+#
+# To test with the real cluster models, keep the SSH tunnel + port-forwards up
+# and point local_dev.yaml api_base values at the forwarded upstreams, or use
+# the bundled mock-data fixtures via a mock server.
+
+services:
+  litellm:
+    build:
+      context: ..
+      dockerfile: oicm-litellm-layer/Dockerfile.dev
+    image: litellm-dev:local
+    container_name: litellm-dev
+    ports:
+      - "4000:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-1234}
+      STORE_MODEL_IN_DB: "True"
+      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
+    volumes:
+      - ../litellm:/app/litellm
+      - ./config/local_dev.yaml:/app/config.yaml
+      - ../model_prices_and_context_window.json:/app/model_prices_and_context_window.json
+    command:
+      - --config
+      - /app/config.yaml
+      - --port
+      - "4000"
+      - --detailed_debug
+      - --reload
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:16
+    container_name: litellm-dev-db
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: dbpassword9090
+    ports:
+      - "5433:5432"
+    volumes:
+      - litellm_dev_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  litellm_dev_postgres:

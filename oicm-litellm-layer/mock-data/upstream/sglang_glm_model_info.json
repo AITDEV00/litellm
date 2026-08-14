@@ -1,0 +1,1 @@
+{"model_path":"/pvc-home/app/download/base_model/models/zai-org/GLM-5.2-FP8-REAL","tokenizer_path":"/pvc-home/app/download/base_model/models/zai-org/GLM-5.2-FP8-REAL","is_generation":true,"preferred_sampling_params":null,"weight_version":"default","has_image_understanding":false,"has_audio_understanding":false,"model_type":"glm_moe_dsa","architectures":["GlmMoeDsaForCausalLM"]}
