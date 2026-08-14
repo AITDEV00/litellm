@@ -33,3 +33,9 @@ class DiscoverySchemaError(DiscoveryError):
 
 class UnsupportedRuntime(DiscoveryError):
     category = "UnsupportedRuntime"
+
+
+class MissingRequiredOpenRouterField(DiscoveryError):
+    """A required OpenRouter contract field could not be resolved for a model."""
+
+    category = "MissingRequiredOpenRouterField"

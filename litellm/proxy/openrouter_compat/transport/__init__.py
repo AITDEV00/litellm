@@ -18,6 +18,7 @@ from litellm.proxy.openrouter_compat.transport.errors import (
     DiscoveryInvalidJSON,
     DiscoverySchemaError,
     DiscoveryTimeout,
+    MissingRequiredOpenRouterField,
     UnsupportedRuntime,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "DiscoverySchemaError",
     "DiscoveryTarget",
     "DiscoveryTimeout",
+    "MissingRequiredOpenRouterField",
     "OpenAICompatibleModelCard",
     "RuntimeModelCard",
     "SGLangModelInfo",

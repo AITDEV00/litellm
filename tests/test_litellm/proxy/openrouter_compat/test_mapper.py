@@ -88,9 +88,7 @@ def test_canonical_slug_keeps_author_qualified():
 
 
 def test_mapper_uses_resolved_pricing():
-    mapper = OpenRouterModelMapper(
-        details_base_url="http://proxy:4000", pricing_resolver=_FakePricingResolver()
-    )
+    mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000", pricing_resolver=_FakePricingResolver())
     model = mapper.map_model(_aggregated())
     assert model.pricing.prompt == "0.30"
     assert model.pricing.completion == "1.20"
@@ -103,11 +101,26 @@ def test_mapper_defaults_pricing_to_zero_when_unknown():
     assert model.pricing.completion == "0"
 
 
-def test_mapper_default_modalities_to_text():
+def test_mapper_maps_known_text_modalities():
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     model = mapper.map_model(_aggregated())
     assert [str(m) for m in model.architecture.input_modalities] == ["text"]
     assert model.architecture.modality == "text"
+
+
+def test_mapper_unknown_modalities_are_empty_not_text():
+    # No runtime/registry evidence -> honest unknown: empty arrays, None modality.
+    model = _aggregated()
+    no_modalities = model.model_copy(
+        update={
+            "capabilities": model.capabilities.model_copy(update={"input_modalities": None, "output_modalities": None})
+        }
+    )
+    mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
+    mapped = mapper.map_model(no_modalities)
+    assert mapped.architecture.input_modalities == []
+    assert mapped.architecture.output_modalities == []
+    assert mapped.architecture.modality is None
 
 
 def test_mapper_no_unset_sentinel_leak_in_json():

@@ -1,0 +1,157 @@
+"""Tests for discovery adapters (design §9-10, §37.3).
+
+Covers vLLM (max_model_len -> context_length, internal root, OpenAPI API
+capability merge) and SGLang (/model_info modality/architecture enrichment).
+"""
+
+from __future__ import annotations
+
+from litellm.proxy.openrouter_compat.discovery.adapters.sglang import (
+    SGLangDiscoveryAdapter,
+)
+from litellm.proxy.openrouter_compat.discovery.adapters.vllm import VLLMDiscoveryAdapter
+from litellm.proxy.openrouter_compat.discovery.probes.openai_models import (
+    OpenAIModelsProbe,
+)
+from litellm.proxy.openrouter_compat.discovery.probes.openapi import (
+    OpenAPISchemaProbe,
+)
+from litellm.proxy.openrouter_compat.discovery.probes.sglang_model_info import (
+    SGLangModelInfoProbe,
+)
+from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
+from litellm.proxy.openrouter_compat.transport.errors import DiscoveryHTTPError
+
+TARGET = DiscoveryTarget(deployment_id="dep-1", api_base="http://runtime:8000", auth_headers={})
+
+
+class FakeClient:
+    def __init__(self, routes: dict[str, object]) -> None:
+        self._routes = dict(routes)
+
+    async def get_json(self, target: DiscoveryTarget, path: str) -> dict[str, object]:
+        value = self._routes.get(path)
+        if isinstance(value, Exception):
+            raise value
+        if value is None:
+            raise DiscoveryHTTPError(404, f"no route {path}")
+        return dict(value)  # type: ignore[arg-type]
+
+
+def _vllm_models_payload() -> dict[str, object]:
+    return {
+        "data": [
+            {
+                "id": "qwen3.5-122b",
+                "root": "models-fs-root",
+                "parent": None,
+                "created": 1720000001,
+                "max_model_len": 131072,
+            }
+        ]
+    }
+
+
+def _sglang_models_payload() -> dict[str, object]:
+    return {"data": [{"id": "deepseek-v4", "max_model_len": 262144}]}
+
+
+def _vllm_adapter(client: FakeClient) -> VLLMDiscoveryAdapter:
+    return VLLMDiscoveryAdapter(OpenAIModelsProbe(client), OpenAPISchemaProbe(client))
+
+
+def _sglang_adapter(client: FakeClient) -> SGLangDiscoveryAdapter:
+    return SGLangDiscoveryAdapter(
+        OpenAIModelsProbe(client),
+        SGLangModelInfoProbe(client),
+        OpenAPISchemaProbe(client),
+    )
+
+
+async def test_vllm_adapter_maps_context_length():
+    client = FakeClient({"/v1/models": _vllm_models_payload()})
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    assert len(models) == 1
+    m = models[0]
+    assert m.identity.upstream_model_id == "qwen3.5-122b"
+    assert m.limits.context_length == 131072
+    assert m.runtime.kind == "vllm"
+    assert m.runtime.deployment_id == "dep-1"
+
+
+async def test_vllm_adapter_root_remains_internal():
+    client = FakeClient({"/v1/models": _vllm_models_payload()})
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    assert models[0].identity.root == "models-fs-root"
+
+
+async def test_vllm_adapter_openapi_merge():
+    openapi_doc = {
+        "paths": {
+            "/v1/chat/completions": {"post": {}},
+            "/v1/embeddings": {"post": {}},
+        },
+        "components": {"schemas": {}},
+    }
+    client = FakeClient({"/v1/models": _vllm_models_payload(), "/openapi.json": openapi_doc})
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    api = models[0].api_capabilities
+    assert api.chat_completions is True
+    assert api.embeddings is True
+    assert api.completions is False
+
+
+async def test_vllm_adapter_openapi_disabled_leaves_unknown():
+    client = FakeClient(
+        {
+            "/v1/models": _vllm_models_payload(),
+            "/openapi.json": DiscoveryHTTPError(404, "disabled"),
+        }
+    )
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    assert models[0].api_capabilities.chat_completions is None
+
+
+async def test_sglang_adapter_image_audio_architecture():
+    model_info = {
+        "is_generation": True,
+        "has_image_understanding": True,
+        "has_audio_understanding": False,
+        "model_type": "deepseek_v4",
+        "architectures": ["DeepseekV4ForCausalLM"],
+    }
+    client = FakeClient({"/v1/models": _sglang_models_payload(), "/model_info": model_info})
+    models = await _sglang_adapter(client).discover(TARGET, "deepseek-v4")
+    m = models[0]
+    assert m.limits.context_length == 262144
+    assert m.capabilities.input_modalities == {"image"}
+    assert m.capabilities.output_modalities == {"text"}
+    assert m.architecture.model_type == "deepseek_v4"
+    assert m.architecture.architectures == ["DeepseekV4ForCausalLM"]
+
+
+async def test_sglang_adapter_false_image_is_meaningful_negative():
+    model_info = {
+        "is_generation": True,
+        "has_image_understanding": False,
+        "has_audio_understanding": False,
+    }
+    client = FakeClient({"/v1/models": _sglang_models_payload(), "/model_info": model_info})
+    models = await _sglang_adapter(client).discover(TARGET, "deepseek-v4")
+    m = models[0]
+    # Both explicitly false -> no input modalities advertised, not "image".
+    assert m.capabilities.input_modalities is None
+    assert m.capabilities.output_modalities == {"text"}
+
+
+async def test_sglang_adapter_without_model_info_continues():
+    client = FakeClient(
+        {
+            "/v1/models": _sglang_models_payload(),
+            "/model_info": DiscoveryHTTPError(404, "no"),
+            "/get_model_info": DiscoveryHTTPError(404, "no"),
+        }
+    )
+    models = await _sglang_adapter(client).discover(TARGET, "deepseek-v4")
+    assert len(models) == 1
+    assert models[0].capabilities.input_modalities is None

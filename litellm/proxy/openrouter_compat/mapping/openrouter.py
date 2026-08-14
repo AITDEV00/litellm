@@ -104,7 +104,7 @@ class OpenRouterModelMapper:
         ] = (
             [UnrecognizedStr(m) for m in sorted(caps.input_modalities)]
             if caps.input_modalities
-            else [UnrecognizedStr("text")]
+            else []
         )
         output_mods: list[
             UnrecognizedStr
@@ -112,7 +112,7 @@ class OpenRouterModelMapper:
         ] = (
             [UnrecognizedStr(m) for m in sorted(caps.output_modalities)]
             if caps.output_modalities
-            else [UnrecognizedStr("text")]
+            else []
         )
         has_text = any(str(m) == "text" for m in input_mods)
         modality = "text" if has_text else None

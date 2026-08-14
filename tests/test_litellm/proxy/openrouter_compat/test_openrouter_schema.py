@@ -1,11 +1,14 @@
-"""Tests for the vendored OpenRouter schema (design §24 fallback).
+"""Tests for the OpenRouter public-contract schema (design §24).
 
 Regression focus: serialized output matches the official OpenRouter contract.
 No UNSET sentinel may leak into JSON, and unset optional/nullable fields must
-not appear as null.
+not appear as null. Types must resolve to the official installed SDK.
 """
 
 from __future__ import annotations
+
+import openrouter.components.model as sdk_model
+import openrouter.types.basemodel as sdk_base
 
 from litellm.proxy.openrouter_compat.openrouter_schema.base import (
     UNSET,
@@ -81,9 +84,7 @@ def test_full_model_serializes_without_sentinel_or_null_leak():
             modality="text",
         ),
         top_provider=TopProviderInfo(is_moderated=False),
-        per_request_limits=PerRequestLimits(
-            prompt_tokens=8192.0, completion_tokens=4096.0
-        ),
+        per_request_limits=PerRequestLimits(prompt_tokens=8192.0, completion_tokens=4096.0),
         supported_parameters=["temperature"],
         supported_voices=None,
         default_parameters=None,
@@ -102,3 +103,11 @@ def test_full_model_serializes_without_sentinel_or_null_leak():
     assert "instruct_type" not in data["architecture"]
     assert "tokenizer" not in data["architecture"]
     assert UNSET_SENTINEL not in model.model_dump_json()
+
+
+def test_facade_exports_real_sdk_types():
+    # Guard: the facade must resolve to the official installed SDK, not a
+    # hand-maintained vendored copy (design §24).
+    assert Model is sdk_model.Model
+    assert ModelArchitecture is sdk_model.ModelArchitecture
+    assert UnrecognizedStr is sdk_base.UnrecognizedStr
