@@ -155,3 +155,34 @@ async def test_sglang_adapter_without_model_info_continues():
     models = await _sglang_adapter(client).discover(TARGET, "deepseek-v4")
     assert len(models) == 1
     assert models[0].capabilities.input_modalities is None
+
+
+async def test_sglang_openapi_merge_matches_vllm_capability_set():
+    # Regression: _apply_openapi is shared with the base adapter, so SGLang
+    # must advertise the same API capability surface as vLLM (including
+    # transcription/speech/rerank), not a reduced subset.
+    openapi_doc = {
+        "paths": {
+            "/v1/chat/completions": {"post": {}},
+            "/v1/embeddings": {"post": {}},
+            "/v1/audio/transcriptions": {"post": {}},
+            "/v1/audio/speech": {"post": {}},
+            "/v1/rerank": {"post": {}},
+        },
+        "components": {"schemas": {}},
+    }
+    client = FakeClient(
+        {
+            "/v1/models": _sglang_models_payload(),
+            "/model_info": {"is_generation": True},
+            "/openapi.json": openapi_doc,
+        }
+    )
+    models = await _sglang_adapter(client).discover(TARGET, "deepseek-v4")
+    api = models[0].api_capabilities
+    assert api.chat_completions is True
+    assert api.embeddings is True
+    assert api.transcription is True
+    assert api.speech is True
+    assert api.rerank is True
+    assert api.routes == set(openapi_doc["paths"])

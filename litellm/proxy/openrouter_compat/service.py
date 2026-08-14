@@ -85,7 +85,7 @@ class DiscoveryService:
         )
         flat: list[DiscoveredDeploymentModel] = []
         by_logical: dict[str, list[list[DiscoveredDeploymentModel]]] = defaultdict(list)
-        for descriptor, result in zip(targets, results):
+        for descriptor, result in zip(targets, results, strict=True):
             if isinstance(result, tuple):
                 logical_name, discovered = result
                 by_logical[logical_name].append(discovered)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from pydantic import TypeAdapter, ValidationError
 
 from litellm.proxy.openrouter_compat.discovery.probes.base import (

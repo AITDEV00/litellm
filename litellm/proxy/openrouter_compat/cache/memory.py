@@ -16,14 +16,6 @@ from litellm.proxy.openrouter_compat.transport.client import fingerprint
 
 
 @dataclass(frozen=True, slots=True)
-class CacheKey:
-    deployment_id: str
-    runtime_kind: str
-    api_base_fingerprint: str
-    auth_fingerprint: str
-
-
-@dataclass(frozen=True, slots=True)
 class _Entry:
     value: list[DiscoveredDeploymentModel]
     expires_at: float
@@ -78,9 +70,7 @@ class InMemoryDiscoveryCache:
         value: list[DiscoveredDeploymentModel],
     ) -> None:
         key = self.key(deployment_id, runtime_kind, api_base, auth_identity)
-        self._data[key] = _Entry(
-            value=value, expires_at=time.monotonic() + self._ttl
-        )
+        self._data[key] = _Entry(value=value, expires_at=time.monotonic() + self._ttl)
         self._data.move_to_end(key)
         while len(self._data) > self._max_entries:
             self._data.popitem(last=False)

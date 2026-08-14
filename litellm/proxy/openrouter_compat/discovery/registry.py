@@ -15,13 +15,20 @@ from litellm.proxy.openrouter_compat.discovery.adapters.sglang import (
     SGLangDiscoveryAdapter,
 )
 from litellm.proxy.openrouter_compat.discovery.adapters.vllm import VLLMDiscoveryAdapter
+from litellm.proxy.openrouter_compat.discovery.probes.openai_models import (
+    OpenAIModelsProbe,
+)
+from litellm.proxy.openrouter_compat.discovery.probes.openapi import (
+    OpenAPISchemaProbe,
+)
+from litellm.proxy.openrouter_compat.discovery.probes.sglang_model_info import (
+    SGLangModelInfoProbe,
+)
 from litellm.proxy.openrouter_compat.discovery.resolver import DeploymentDescriptor
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryHTTPClient
 from litellm.proxy.openrouter_compat.transport.errors import UnsupportedRuntime
 
-_SUPPORTED_RUNTIMES: frozenset[str] = frozenset(
-    {"openai-compatible", "vllm", "sglang"}
-)
+_SUPPORTED_RUNTIMES: frozenset[str] = frozenset({"openai-compatible", "vllm", "sglang"})
 
 
 class DiscoveryAdapterRegistry:
@@ -32,9 +39,7 @@ class DiscoveryAdapterRegistry:
         # Runtime-kind -> adapter instance cache keyed by kind so probes reuse one client.
         self._adapters: dict[str, OpenAICompatibleRuntimeAdapter] = {}
 
-    def resolve(
-        self, descriptor: DeploymentDescriptor
-    ) -> OpenAICompatibleRuntimeAdapter:
+    def resolve(self, descriptor: DeploymentDescriptor) -> OpenAICompatibleRuntimeAdapter:
         runtime_kind = self._detect_runtime_kind(descriptor)
         if runtime_kind not in _SUPPORTED_RUNTIMES:
             raise UnsupportedRuntime(f"unsupported discovery runtime: {runtime_kind}")
@@ -58,16 +63,6 @@ class DiscoveryAdapterRegistry:
         return "openai-compatible"
 
     def _build(self, runtime_kind: str) -> OpenAICompatibleRuntimeAdapter:
-        from litellm.proxy.openrouter_compat.discovery.probes.openai_models import (
-            OpenAIModelsProbe,
-        )
-        from litellm.proxy.openrouter_compat.discovery.probes.openapi import (
-            OpenAPISchemaProbe,
-        )
-        from litellm.proxy.openrouter_compat.discovery.probes.sglang_model_info import (
-            SGLangModelInfoProbe,
-        )
-
         models_probe = OpenAIModelsProbe(self._http_client)
         if runtime_kind == "vllm":
             return VLLMDiscoveryAdapter(

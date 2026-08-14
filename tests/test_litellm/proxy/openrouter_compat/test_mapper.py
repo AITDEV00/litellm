@@ -7,8 +7,6 @@ fields for unset optionals).
 
 from __future__ import annotations
 
-import json
-
 from litellm.proxy.openrouter_compat.domain.architecture import ModelArchitecture
 from litellm.proxy.openrouter_compat.domain.capabilities import (
     ApiCapabilities,

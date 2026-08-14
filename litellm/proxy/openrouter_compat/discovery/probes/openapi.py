@@ -88,16 +88,12 @@ class OpenAPIInspector:
                     target = self._resolve_ref(value)
                     if target is not None and self._mentions(target, symbol, seen):
                         return True
-                elif key == symbol:
+                elif key == symbol or self._mentions(value, symbol, seen):
                     return True
-                elif isinstance(value, (dict, list)):
-                    if self._mentions(cast(object, value), symbol, seen):
-                        return True
         elif isinstance(node, list):
             for item in cast(list[object], node):
-                if isinstance(item, (dict, list)):
-                    if self._mentions(cast(object, item), symbol, seen):
-                        return True
+                if isinstance(item, (dict, list)) and self._mentions(cast(object, item), symbol, seen):
+                    return True
         return False
 
     def _resolve_ref(self, ref: str) -> object | None:
@@ -118,8 +114,6 @@ class OpenAPISchemaProbe(BaseProbe[OpenAPIInspector]):
             payload = await self._client.get_json(target, "/openapi.json")
         except DiscoveryHTTPError as exc:
             if exc.status_code in (404, 405):
-                raise DiscoveryHTTPError(
-                    exc.status_code, "openapi unavailable"
-                ) from exc
+                raise DiscoveryHTTPError(exc.status_code, "openapi unavailable") from exc
             raise
         return OpenAPIInspector(payload)

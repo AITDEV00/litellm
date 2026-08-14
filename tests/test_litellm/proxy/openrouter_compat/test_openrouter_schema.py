@@ -11,7 +11,6 @@ import openrouter.components.model as sdk_model
 import openrouter.types.basemodel as sdk_base
 
 from litellm.proxy.openrouter_compat.openrouter_schema.base import (
-    UNSET,
     UNSET_SENTINEL,
     UnrecognizedStr,
 )

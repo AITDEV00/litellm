@@ -52,7 +52,8 @@ class DeploymentResolver:
         user_api_key_cache: UserApiKeyCache | None,
         team_id: str | None = None,
     ) -> list[DeploymentDescriptor]:
-        from litellm.proxy.utils import get_available_models_for_user  # pyright: ignore[reportUnknownVariableType]  # litellm.proxy.utils.get_available_models_for_user has unparameterized dict signature
+        # heavy module; lazy import avoids a load cycle with the proxy package
+        from litellm.proxy.utils import get_available_models_for_user  # noqa: PLC0415  # pyright: ignore[reportUnknownVariableType]  # litellm.proxy.utils has unparameterized dict signature
 
         available: list[str] = await get_available_models_for_user(
             user_api_key_dict=user_api_key_dict,
@@ -96,9 +97,7 @@ class DeploymentResolver:
             )
         return deployments
 
-    def _build_descriptor(
-        self, deployment: Deployment, logical_model_name: str
-    ) -> DeploymentDescriptor | None:
+    def _build_descriptor(self, deployment: Deployment, logical_model_name: str) -> DeploymentDescriptor | None:
         litellm_params = deployment.litellm_params
         api_base = litellm_params.api_base
         if not api_base:

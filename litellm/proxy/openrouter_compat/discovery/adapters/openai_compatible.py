@@ -6,6 +6,7 @@ from litellm.proxy.openrouter_compat.discovery.base import BaseDiscoveryAdapter
 from litellm.proxy.openrouter_compat.discovery.probes.openai_models import (
     OpenAIModelsProbe,
 )
+from litellm.proxy.openrouter_compat.discovery.probes.openapi import OpenAPIInspector
 from litellm.proxy.openrouter_compat.domain.architecture import ModelArchitecture
 from litellm.proxy.openrouter_compat.domain.capabilities import (
     ApiCapabilities,
@@ -35,9 +36,7 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
     async def discover_models(self, target: DiscoveryTarget) -> list[RuntimeModelCard]:
         result = await self._models_probe.run(target)
         if not result.success or result.data is None:
-            raise RuntimeError(
-                f"openai_models probe failed: {result.error_category}"
-            )
+            raise RuntimeError(f"openai_models probe failed: {result.error_category}")
         return result.data
 
     def normalize_model(
@@ -56,12 +55,8 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
         limits = ModelLimits(context_length=raw.max_model_len)
         provenance = ModelProvenance(
             facts={
-                "identity.upstream_model_id": FactSource(
-                    probe="openai_models", field="id"
-                ),
-                "limits.context_length": FactSource(
-                    probe="openai_models", field="max_model_len"
-                ),
+                "identity.upstream_model_id": FactSource(probe="openai_models", field="id"),
+                "limits.context_length": FactSource(probe="openai_models", field="max_model_len"),
             }
         )
         runtime = RuntimeInfo(
@@ -78,3 +73,27 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
             runtime=runtime,
             provenance=provenance,
         )
+
+    def _apply_openapi(
+        self,
+        model: DiscoveredDeploymentModel,
+        inspector: OpenAPIInspector,
+    ) -> DiscoveredDeploymentModel:
+        """Fill API capabilities from the OpenAPI route surface (shared by runtimes)."""
+        api = model.api_capabilities.model_copy(update={})
+        api.chat_completions = inspector.has_operation("/v1/chat/completions", "post")
+        api.completions = inspector.has_operation("/v1/completions", "post")
+        api.embeddings = inspector.has_operation("/v1/embeddings", "post")
+        api.transcription = inspector.has_operation("/v1/audio/transcriptions", "post")
+        api.speech = inspector.has_operation("/v1/audio/speech", "post")
+        api.rerank = inspector.has_operation("/v1/rerank", "post")
+        api.routes = inspector.route_paths()
+        provenance = model.provenance.model_copy(
+            update={
+                "facts": {
+                    **model.provenance.facts,
+                    "api_capabilities.chat_completions": FactSource(probe="openapi", field="/v1/chat/completions"),
+                }
+            }
+        )
+        return model.model_copy(update={"api_capabilities": api, "provenance": provenance})

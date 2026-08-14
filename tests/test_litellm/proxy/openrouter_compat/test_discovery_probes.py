@@ -6,8 +6,6 @@ behaviour (available / disabled / ref resolution).
 
 from __future__ import annotations
 
-import pytest
-
 from litellm.proxy.openrouter_compat.discovery.probes.openai_models import (
     OpenAIModelsProbe,
 )
@@ -21,8 +19,6 @@ from litellm.proxy.openrouter_compat.discovery.probes.sglang_model_info import (
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
 from litellm.proxy.openrouter_compat.transport.errors import (
     DiscoveryHTTPError,
-    DiscoveryInvalidJSON,
-    DiscoverySchemaError,
     DiscoveryTimeout,
 )
 

@@ -21,8 +21,7 @@ router = APIRouter(tags=["openrouter-compatible"])
 
 def _get_service(request: Request) -> OpenRouterModelsService:
     """Return the lazily-initialised OpenRouter service bound to the app."""
-    from litellm.proxy.openrouter_compat.models_service import OpenRouterModelsService
-    from litellm.proxy.proxy_server import llm_router
+    from litellm.proxy.proxy_server import llm_router  # noqa: PLC0415  # proxy_server imports these routes, so defer
 
     if llm_router is None:
         raise HTTPException(status_code=500, detail="Router not initialized")
@@ -46,13 +45,11 @@ async def list_models(
     team_id: str | None = None,
 ):
     """OpenRouter-compatible model listing (kept separate from litellm /v1/models)."""
-    import litellm.proxy.proxy_server as proxy_server_mod
+    import litellm.proxy.proxy_server as proxy_server_mod  # noqa: PLC0415  # proxy_server imports this router, so lazy-import
 
     service = _get_service(request)
-    settings: dict[str, object] = cast(
-        dict[str, object], cast(object, proxy_server_mod.general_settings)
-    )
-    result = await service.list_models(
+    settings: dict[str, object] = cast(dict[str, object], cast(object, proxy_server_mod.general_settings))
+    return await service.list_models(
         user_api_key_dict=user_api_key_dict,
         general_settings=settings,
         prisma_client=proxy_server_mod.prisma_client,
@@ -62,7 +59,6 @@ async def list_models(
         offset=offset,
         limit=limit,
     )
-    return result
 
 
 @router.get("/api/v1/models/{author}/{slug}/endpoints")
