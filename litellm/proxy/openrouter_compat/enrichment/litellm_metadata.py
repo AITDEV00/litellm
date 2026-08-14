@@ -7,32 +7,46 @@ theoretical registry limits (design §13 invariant).
 
 from __future__ import annotations
 
-from litellm.types.utils import ModelInfo
-
 from litellm.proxy.openrouter_compat.domain.identity import ModelIdentity
 from litellm.proxy.openrouter_compat.domain.logical_model import AggregatedModel
 from litellm.proxy.openrouter_compat.enrichment.registry import find_registry_model
+from litellm.types.utils import ModelInfo
 
 # litellm supported_openai_params -> OpenRouter parameter names (subset we map).
 # Ordering is significant: it defines the canonical order params appear in the
 # OpenRouter response. Keys and values are identical (litellm already uses the
 # OpenRouter name), so this is really an ordered allow-list, not an alias map.
+# This mirrors OpenRouter's full allowed `supported_parameters` set (see the
+# openrouter SDK `Parameter` union) so the mapper always has a placeholder for
+# every capability OpenRouter can advertise, even if litellm's registry does
+# not populate a given one.
 _OPENROUTER_PARAMS: tuple[str, ...] = (
     "temperature",
     "top_p",
     "top_k",
     "min_p",
+    "top_a",
+    "frequency_penalty",
+    "presence_penalty",
+    "repetition_penalty",
     "max_tokens",
     "max_completion_tokens",
+    "logit_bias",
     "logprobs",
-    "response_format",
+    "top_logprobs",
+    "prediction",
     "seed",
+    "response_format",
+    "structured_outputs",
     "stop",
     "tools",
     "tool_choice",
     "parallel_tool_calls",
+    "include_reasoning",
     "reasoning",
     "reasoning_effort",
+    "web_search_options",
+    "verbosity",
 )
 
 

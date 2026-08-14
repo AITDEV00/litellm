@@ -186,3 +186,37 @@ async def test_sglang_openapi_merge_matches_vllm_capability_set():
     assert api.speech is True
     assert api.rerank is True
     assert api.routes == set(openapi_doc["paths"])
+
+
+async def test_openapi_extendable_capability_mapping():
+    # The route-to-capability mapping is declarative and extendable: custom
+    # /v1 routes (image generation, voice cloning/TTS, video, moderation, etc.)
+    # must be discovered from the OpenAPI surface without per-route code.
+    openapi_doc = {
+        "paths": {
+            "/v1/chat/completions": {"post": {}},
+            "/v1/images/generations": {"post": {}},
+            "/v1/audio/voices": {"get": {}},
+            "/v1/audio/speech": {"post": {}},
+            "/v1/audio/transcriptions": {"post": {}},
+            "/v1/videos": {"post": {}},
+            "/v1/moderations": {"post": {}},
+            "/v1/rerank": {"post": {}},
+        },
+        "components": {"schemas": {}},
+    }
+    client = FakeClient({"/v1/models": _vllm_models_payload(), "/openapi.json": openapi_doc})
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    api = models[0].api_capabilities
+    assert api.chat_completions is True
+    assert api.image_generation is True
+    assert api.image_edits is False
+    assert api.voices is True
+    assert api.speech is True
+    assert api.transcription is True
+    assert api.video_generation is True
+    assert api.moderation is True
+    assert api.rerank is True
+    assert api.classification is False
+    assert api.responses is False
+    assert api.embeddings is False

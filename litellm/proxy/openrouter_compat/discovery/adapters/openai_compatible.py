@@ -26,6 +26,29 @@ from litellm.proxy.openrouter_compat.transport.client import (
 )
 from litellm.proxy.openrouter_compat.transport.dto import RuntimeModelCard
 
+# Declarative OpenAPI route-to-capability mapping. Each entry maps an
+# ``ApiCapabilities`` field to the (path, method) that proves the runtime
+# serves that capability. Adding a new custom /v1 route (image generation,
+# voice cloning, speech, video, rerank, classification, etc.) is a one-line
+# addition here; no per-route code. Entries are tuples of (field, path, method).
+ROUTE_TO_API_CAPABILITY: tuple[tuple[str, str, str], ...] = (
+    ("chat_completions", "/v1/chat/completions", "post"),
+    ("completions", "/v1/completions", "post"),
+    ("responses", "/v1/responses", "post"),
+    ("embeddings", "/v1/embeddings", "post"),
+    ("transcription", "/v1/audio/transcriptions", "post"),
+    ("speech", "/v1/audio/speech", "post"),
+    ("voices", "/v1/audio/voices", "get"),
+    ("rerank", "/v1/rerank", "post"),
+    ("classification", "/v1/classifications", "post"),
+    ("image_generation", "/v1/images/generations", "post"),
+    ("image_edits", "/v1/images/edits", "post"),
+    ("video_generation", "/v1/videos", "post"),
+    ("moderation", "/v1/moderations", "post"),
+    ("batches", "/v1/batches", "post"),
+    ("files", "/v1/files", "get"),
+)
+
 
 class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
     runtime_kind = "openai-compatible"
@@ -79,14 +102,15 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
         model: DiscoveredDeploymentModel,
         inspector: OpenAPIInspector,
     ) -> DiscoveredDeploymentModel:
-        """Fill API capabilities from the OpenAPI route surface (shared by runtimes)."""
+        """Fill API capabilities from the OpenAPI route surface (shared by runtimes).
+
+        Route-to-capability mapping is a single declarative table so new custom
+        /v1 routes (image generation, voice cloning, speech, etc.) only require
+        adding an entry rather than new per-route code.
+        """
         api = model.api_capabilities.model_copy(update={})
-        api.chat_completions = inspector.has_operation("/v1/chat/completions", "post")
-        api.completions = inspector.has_operation("/v1/completions", "post")
-        api.embeddings = inspector.has_operation("/v1/embeddings", "post")
-        api.transcription = inspector.has_operation("/v1/audio/transcriptions", "post")
-        api.speech = inspector.has_operation("/v1/audio/speech", "post")
-        api.rerank = inspector.has_operation("/v1/rerank", "post")
+        for attr, path, method in ROUTE_TO_API_CAPABILITY:
+            setattr(api, attr, inspector.has_operation(path, method))
         api.routes = inspector.route_paths()
         provenance = model.provenance.model_copy(
             update={

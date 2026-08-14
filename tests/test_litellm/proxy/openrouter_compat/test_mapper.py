@@ -159,6 +159,44 @@ def test_mapper_serialization_roundtrip_matches_openrouter_shape():
     assert data["architecture"]["input_modalities"] == ["text"]
 
 
+def test_supported_parameters_placeholder_covers_full_openrouter_set(monkeypatch):
+    # Regression: the ordered allow-list must hold a placeholder for every
+    # capability/parameter OpenRouter can advertise, so extending the registry
+    # with a new supported param never silently drops it from the public
+    # response. top_a / top_logprobs / structured_outputs etc. are part of the
+    # OpenRouter Parameter union and must be map-pable.
+    import litellm.proxy.openrouter_compat.enrichment.litellm_metadata as meta_mod
+    from litellm.proxy.openrouter_compat.enrichment.litellm_metadata import (
+        LiteLLMMetadataEnricher,
+    )
+
+    registry = {
+        "model_name": "gpt-x",
+        "supported_openai_params": [
+            "temperature",
+            "top_a",
+            "top_logprobs",
+            "structured_outputs",
+            "frequency_penalty",
+            "web_search_options",
+            "verbosity",
+        ],
+    }
+
+    monkeypatch.setattr(meta_mod, "find_registry_model", lambda deployments: registry)
+
+    params = LiteLLMMetadataEnricher().supported_parameters(_aggregated())
+    assert params == [
+        "temperature",
+        "top_a",
+        "frequency_penalty",
+        "top_logprobs",
+        "structured_outputs",
+        "web_search_options",
+        "verbosity",
+    ]
+
+
 def test_mapper_omits_nullable_optionals_when_unset():
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     model = mapper.map_model(_aggregated(max_completion=None))

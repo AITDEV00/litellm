@@ -19,8 +19,17 @@ class ModelCapabilities(BaseModel):
 class ApiCapabilities(BaseModel):
     chat_completions: bool | None = None
     completions: bool | None = None
+    responses: bool | None = None
     embeddings: bool | None = None
     transcription: bool | None = None
     speech: bool | None = None
     rerank: bool | None = None
+    classification: bool | None = None
+    image_generation: bool | None = None
+    image_edits: bool | None = None
+    video_generation: bool | None = None
+    voices: bool | None = None
+    moderation: bool | None = None
+    batches: bool | None = None
+    files: bool | None = None
     routes: set[str] = Field(default_factory=set)

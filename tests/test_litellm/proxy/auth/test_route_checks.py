@@ -1466,6 +1466,20 @@ def test_videos_route_is_llm_api_route(route):
 @pytest.mark.parametrize(
     "route",
     [
+        "/api/v1/models",
+        "/api/v1/models/anthropic/claude-3/endpoints",
+    ],
+)
+def test_openrouter_models_routes_are_llm_api_route(route):
+    """OpenRouter-compatible model listing/endpoint routes are data-plane,
+    non-admin LLM API routes (same class as /v1/models), so virtual keys with
+    allowed_routes=["llm_api_routes"] can call them."""
+    assert RouteChecks.is_llm_api_route(route) is True
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
         "/containers",
         "/v1/containers",
         "/containers/container_123",
