@@ -118,6 +118,8 @@ class OpenAPISchemaProbe(BaseProbe[OpenAPIInspector]):
             payload = await self._client.get_json(target, "/openapi.json")
         except DiscoveryHTTPError as exc:
             if exc.status_code in (404, 405):
-                raise DiscoveryHTTPError(exc.status_code, "openapi unavailable")
+                raise DiscoveryHTTPError(
+                    exc.status_code, "openapi unavailable"
+                ) from exc
             raise
         return OpenAPIInspector(payload)

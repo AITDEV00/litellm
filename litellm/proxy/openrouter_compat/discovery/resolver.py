@@ -107,7 +107,7 @@ class DeploymentResolver:
         api_key = litellm_params.api_key
         if isinstance(api_key, str) and api_key:
             auth_headers["Authorization"] = f"Bearer {api_key}"
-        deployment_id = deployment.model_info.id or str(deployment.model_info.id)
+        deployment_id = deployment.model_info.id or logical_model_name
         model_info = deployment.model_info.model_dump(exclude_none=True)
         return DeploymentDescriptor(
             deployment_id=deployment_id,

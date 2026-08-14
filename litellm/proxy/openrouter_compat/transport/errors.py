@@ -33,16 +33,3 @@ class DiscoverySchemaError(DiscoveryError):
 
 class UnsupportedRuntime(DiscoveryError):
     category = "UnsupportedRuntime"
-
-
-class MissingRequiredOpenRouterField(DiscoveryError):
-    category = "MissingRequiredOpenRouterField"
-
-
-class DiscoveryProbeError(DiscoveryError):
-    """Carries an underlying error category for a single probe failure."""
-
-    def __init__(self, probe: str, category: str, detail: str = "") -> None:
-        self.probe = probe
-        self.category = category
-        super().__init__(f"{probe} {category}: {detail}".strip())
