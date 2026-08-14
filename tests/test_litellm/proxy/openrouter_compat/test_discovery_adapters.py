@@ -220,3 +220,31 @@ async def test_openapi_extendable_capability_mapping():
     assert api.classification is False
     assert api.responses is False
     assert api.embeddings is False
+
+
+async def test_openapi_provenance_covers_all_mapped_capabilities():
+    # Regression: provenance must record a fact for every capability in the
+    # declarative route-to-capability table, not just chat_completions. Otherwise
+    # the table can drift from the recorded evidence without any signal.
+    openapi_doc = {
+        "paths": {
+            "/v1/chat/completions": {"post": {}},
+            "/v1/images/generations": {"post": {}},
+            "/v1/audio/voices": {"get": {}},
+            "/v1/moderations": {"post": {}},
+        },
+        "components": {"schemas": {}},
+    }
+    client = FakeClient({"/v1/models": _vllm_models_payload(), "/openapi.json": openapi_doc})
+    models = await _vllm_adapter(client).discover(TARGET, "qwen3.5-122b")
+    facts = models[0].provenance.facts
+    assert facts["api_capabilities.chat_completions"].field == "/v1/chat/completions"
+    assert facts["api_capabilities.image_generation"].field == "/v1/images/generations"
+    assert facts["api_capabilities.voices"].field == "/v1/audio/voices"
+    assert facts["api_capabilities.moderation"].field == "/v1/moderations"
+    # Every route in the declarative table must have a matching provenance fact.
+    from litellm.proxy.openrouter_compat.discovery.adapters.openai_compatible import (
+        ROUTE_TO_API_CAPABILITY,
+    )
+
+    assert {f"api_capabilities.{attr}" for attr, _, _ in ROUTE_TO_API_CAPABILITY} <= set(facts)

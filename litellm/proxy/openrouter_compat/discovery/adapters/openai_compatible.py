@@ -109,15 +109,10 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
         adding an entry rather than new per-route code.
         """
         api = model.api_capabilities.model_copy(update={})
+        facts = dict(model.provenance.facts)
         for attr, path, method in ROUTE_TO_API_CAPABILITY:
             setattr(api, attr, inspector.has_operation(path, method))
+            facts[f"api_capabilities.{attr}"] = FactSource(probe="openapi", field=path)
         api.routes = inspector.route_paths()
-        provenance = model.provenance.model_copy(
-            update={
-                "facts": {
-                    **model.provenance.facts,
-                    "api_capabilities.chat_completions": FactSource(probe="openapi", field="/v1/chat/completions"),
-                }
-            }
-        )
+        provenance = model.provenance.model_copy(update={"facts": facts})
         return model.model_copy(update={"api_capabilities": api, "provenance": provenance})

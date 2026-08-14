@@ -112,6 +112,7 @@ class OpenRouterModelsService:
                             "max_input_tokens": d.limits.max_input_tokens,
                             "max_completion_tokens": d.limits.max_completion_tokens,
                             "capabilities": d.capabilities.model_dump(exclude_none=True),
+                            "api_capabilities": d.api_capabilities.model_dump(exclude_none=True),
                         }
                         for d in page
                     ],
