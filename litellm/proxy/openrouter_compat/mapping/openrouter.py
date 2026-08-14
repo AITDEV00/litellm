@@ -45,9 +45,7 @@ class OpenRouterModelMapper:
         identity = enriched.identity
         public_id = identity.logical_model_name
         slug = self._canonical_slug(public_id)
-        pricing = self._pricing_resolver.resolve(enriched) or Pricing(
-            prompt="0", completion="0"
-        )
+        pricing = self._pricing_resolver.resolve(enriched) or Pricing(prompt="0", completion="0")
         limits = enriched.limits
         caps = enriched.capabilities
         input_modalities, output_modalities, modality = self._map_modalities(caps)
@@ -61,9 +59,7 @@ class OpenRouterModelMapper:
             canonical_slug=slug,
             name=identity.display_name or identity.upstream_model_id or public_id,
             created=self._created(enriched),
-            pricing=PublicPricing(
-                prompt=pricing.prompt, completion=pricing.completion
-            ),
+            pricing=PublicPricing(prompt=pricing.prompt, completion=pricing.completion),
             context_length=limits.context_length,
             architecture=ModelArchitecture(
                 modality=modality,
@@ -83,6 +79,44 @@ class OpenRouterModelMapper:
             hugging_face_id=identity.hugging_face_id,
         )
 
+    def map_placeholder(self, logical_model_name: str) -> Model:
+        """Emit a conformant Model for a model that failed discovery.
+
+        Keeps the OpenRouter shape so the ``data`` array stays uniform, but
+        uses honest zeros/None for unknown semantics and an informative
+        description instead of silently dropping the model.
+        """
+        slug = self._canonical_slug(logical_model_name)
+        return Model(
+            id=logical_model_name,
+            canonical_slug=slug,
+            name=logical_model_name,
+            created=0,
+            pricing=PublicPricing(prompt="0", completion="0"),
+            context_length=0,
+            architecture=ModelArchitecture(
+                modality=None,
+                input_modalities=[],
+                output_modalities=[],
+            ),
+            top_provider=TopProviderInfo(
+                is_moderated=self._is_moderated_default,
+                context_length=None,
+                max_completion_tokens=None,
+            ),
+            per_request_limits=None,
+            supported_parameters=[],
+            default_parameters=None,
+            supported_voices=None,
+            links=ModelLinks(details=self._details_url(slug)),
+            hugging_face_id=None,
+            description=(
+                f"{logical_model_name} is not properly configured or deployed to "
+                "follow OpenRouter / OpenAI conventions; discovery produced no "
+                "usable endpoint."
+            ),
+        )
+
     def _canonical_slug(self, public_id: str) -> str:
         if "/" in public_id:
             return public_id
@@ -96,24 +130,19 @@ class OpenRouterModelMapper:
         caps: ModelCapabilities,
     ) -> tuple[
         list[UnrecognizedStr | Literal["text", "image", "file", "audio", "video"]],
-        list[UnrecognizedStr | Literal["text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"]],
+        list[
+            UnrecognizedStr
+            | Literal["text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"]
+        ],
         str | None,
     ]:
-        input_mods: list[
-            UnrecognizedStr | Literal["text", "image", "file", "audio", "video"]
-        ] = (
-            [UnrecognizedStr(m) for m in sorted(caps.input_modalities)]
-            if caps.input_modalities
-            else []
+        input_mods: list[UnrecognizedStr | Literal["text", "image", "file", "audio", "video"]] = (
+            [UnrecognizedStr(m) for m in sorted(caps.input_modalities)] if caps.input_modalities else []
         )
         output_mods: list[
             UnrecognizedStr
             | Literal["text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"]
-        ] = (
-            [UnrecognizedStr(m) for m in sorted(caps.output_modalities)]
-            if caps.output_modalities
-            else []
-        )
+        ] = [UnrecognizedStr(m) for m in sorted(caps.output_modalities)] if caps.output_modalities else []
         has_text = any(str(m) == "text" for m in input_mods)
         modality = "text" if has_text else None
         return input_mods, output_mods, modality

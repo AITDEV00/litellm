@@ -62,7 +62,7 @@ class OpenRouterModelsService:
         offset: int = 0,
         limit: int = 500,
     ) -> dict[str, object]:
-        aggregated = await self._resolve_and_discover(
+        aggregated, failed = await self._resolve_and_discover(
             user_api_key_dict=user_api_key_dict,
             general_settings=general_settings,
             prisma_client=prisma_client,
@@ -70,11 +70,9 @@ class OpenRouterModelsService:
             user_api_key_cache=user_api_key_cache,
             team_id=team_id,
         )
-        enriched = [
-            self._metadata_enricher.enrich(self._capability_enricher.enrich(m))
-            for m in aggregated
-        ]
+        enriched = [self._metadata_enricher.enrich(self._capability_enricher.enrich(m)) for m in aggregated]
         output: list[Model] = [self._mapper.map_model(m) for m in enriched]
+        output.extend(self._mapper.map_placeholder(logical_model_name) for logical_model_name in sorted(failed))
         total_count = len(output)
         page = output[offset : offset + limit]
         return {
@@ -92,7 +90,7 @@ class OpenRouterModelsService:
         offset: int = 0,
         limit: int = 50,
     ) -> dict[str, object] | None:
-        aggregated = await self._resolve_and_discover(
+        aggregated, _failed = await self._resolve_and_discover(
             user_api_key_dict=user_api_key_dict,
             general_settings={},
             prisma_client=None,
@@ -129,24 +127,21 @@ class OpenRouterModelsService:
         proxy_logging_obj: ProxyLogging | None,
         user_api_key_cache: UserApiKeyCache | None,
         team_id: str | None,
-    ) -> list[AggregatedModel]:
-        deployments: list[DeploymentDescriptor] = (
-            await self._resolver.resolve_for_request(
-                user_api_key_dict=user_api_key_dict,
-                general_settings=general_settings,
-                prisma_client=prisma_client,
-                proxy_logging_obj=proxy_logging_obj,
-                user_api_key_cache=user_api_key_cache,
-                team_id=team_id,
-            )
+    ) -> tuple[list[AggregatedModel], set[str]]:
+        deployments: list[DeploymentDescriptor] = await self._resolver.resolve_for_request(
+            user_api_key_dict=user_api_key_dict,
+            general_settings=general_settings,
+            prisma_client=prisma_client,
+            proxy_logging_obj=proxy_logging_obj,
+            user_api_key_cache=user_api_key_cache,
+            team_id=team_id,
         )
-        discoveries = await self._discovery.discover_many(deployments)
-        return self._aggregator.aggregate_all(discoveries)
+        result = await self._discovery.discover_many(deployments)
+        aggregated = self._aggregator.aggregate_all(result.discoveries)
+        return aggregated, result.failed_logical_models
 
     @staticmethod
-    def _build_next_link(
-        offset: int, limit: int, total_count: int
-    ) -> str | None:
+    def _build_next_link(offset: int, limit: int, total_count: int) -> str | None:
         next_offset = offset + limit
         if next_offset >= total_count:
             return None

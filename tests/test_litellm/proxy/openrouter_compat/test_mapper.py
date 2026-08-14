@@ -170,3 +170,22 @@ def test_mapper_omits_nullable_optionals_when_unset():
     assert data["per_request_limits"]["prompt_tokens"] == 8192.0
     # hugging_face_id provided -> present
     assert data["hugging_face_id"] == "org/gpt-x"
+
+
+def test_mapper_placeholder_is_conformant_and_informative():
+    mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
+    placeholder = mapper.map_placeholder("broken-model")
+    data = placeholder.model_dump()
+    assert data["id"] == "broken-model"
+    assert data["canonical_slug"] == "litellm/broken-model"
+    assert data["context_length"] == 0
+    assert data["architecture"]["input_modalities"] == []
+    assert data["architecture"]["output_modalities"] == []
+    assert data["architecture"]["modality"] is None
+    assert data["per_request_limits"] is None
+    assert placeholder.description is not None
+    assert "not properly configured or deployed" in placeholder.description
+    # Placeholder still round-trips as a plain dict without sentinels.
+    serialized = placeholder.model_dump_json()
+    assert UNSET_SENTINEL not in serialized
+    assert "broken-model" in serialized

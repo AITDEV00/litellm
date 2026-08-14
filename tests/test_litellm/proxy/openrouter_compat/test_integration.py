@@ -102,8 +102,10 @@ async def test_full_pipeline_maps_both_runtimes():
     client = FakeClient(_merge(_sglang_routes(), _vllm_routes()))
     registry = DiscoveryAdapterRegistry(client)
     service = DiscoveryService(registry)
-    discoveries = await service.discover_many([_sglang_descriptor(), _vllm_descriptor()])
-    assert len(discoveries) == 2
+    result = await service.discover_many([_sglang_descriptor(), _vllm_descriptor()])
+    assert len(result.discoveries) == 2
+    assert result.failed_logical_models == set()
+    discoveries = result.discoveries
 
     aggregated = ModelAggregator().aggregate_all(discoveries)
     assert {m.logical_model_name for m in aggregated} == {
@@ -131,15 +133,40 @@ async def test_partial_failure_keeps_healthy_models():
     client = FakeClient(routes)
     registry = DiscoveryAdapterRegistry(client)
     service = DiscoveryService(registry)
-    discoveries = await service.discover_many([_sglang_descriptor(), _vllm_descriptor()])
-    assert [d.runtime.kind for d in discoveries] == ["sglang"]
+    result = await service.discover_many([_sglang_descriptor(), _vllm_descriptor()])
+    assert [d.runtime.kind for d in result.discoveries] == ["sglang"]
+    assert result.failed_logical_models == {"qwen3.5-122b"}
+
+
+async def test_failed_model_emits_informative_placeholder():
+    routes = _merge(_sglang_routes(), _vllm_routes())
+    routes["http://vllm:8000"]["/v1/models"] = DiscoveryHTTPError(500, "boom")
+    client = FakeClient(routes)
+    registry = DiscoveryAdapterRegistry(client)
+    result = await DiscoveryService(registry).discover_many([_sglang_descriptor(), _vllm_descriptor()])
+    mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
+    placeholder = mapper.map_placeholder(next(iter(result.failed_logical_models)))
+
+    assert placeholder.id == "qwen3.5-122b"
+    assert placeholder.canonical_slug == "litellm/qwen3.5-122b"
+    assert placeholder.description is not None
+    assert "qwen3.5-122b" in placeholder.description
+    assert "not properly configured or deployed" in placeholder.description
+    # Honest unknowns rather than fabricated semantics.
+    assert placeholder.context_length == 0
+    assert placeholder.architecture.input_modalities == []
+    assert placeholder.architecture.output_modalities == []
+    assert placeholder.architecture.modality is None
+    # Still serializes through the real OpenRouter contract.
+    serialized = placeholder.model_dump_json()
+    assert "not properly configured or deployed" in serialized
 
 
 async def test_internal_paths_not_exposed_in_output():
     client = FakeClient(_merge(_sglang_routes(), _vllm_routes()))
     registry = DiscoveryAdapterRegistry(client)
-    discoveries = await DiscoveryService(registry).discover_many([_sglang_descriptor(), _vllm_descriptor()])
-    aggregated = ModelAggregator().aggregate_all(discoveries)
+    result = await DiscoveryService(registry).discover_many([_sglang_descriptor(), _vllm_descriptor()])
+    aggregated = ModelAggregator().aggregate_all(result.discoveries)
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     output = mapper.map_model(next(m for m in aggregated if m.logical_model_name == "qwen3.5-122b"))
     serialized = output.model_dump_json()
@@ -167,8 +194,8 @@ async def test_sglang_modality_unknown_is_empty_not_text():
         model_info={"discovery_runtime": "sglang"},
     )
     registry = DiscoveryAdapterRegistry(client)
-    discoveries = await DiscoveryService(registry).discover_many([descriptor])
-    aggregated = ModelAggregator().aggregate_all(discoveries)
+    result = await DiscoveryService(registry).discover_many([descriptor])
+    aggregated = ModelAggregator().aggregate_all(result.discoveries)
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     model = mapper.map_model(aggregated[0])
     # Honest "unknown" representation: empty arrays, None modality.
