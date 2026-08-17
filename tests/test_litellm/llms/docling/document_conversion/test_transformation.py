@@ -135,6 +135,31 @@ class TestTransformRequest:
         )
         assert result.data["options"] == {"full": True, "to_formats": ["markdown"]}
 
+    def test_should_map_export_formats_alias_to_to_formats(self):
+        # ``export_formats`` is a supported param; it must be wired into the
+        # Docling options as ``to_formats`` (regression: it was advertised as
+        # supported but silently dropped).
+        config = DoclingDocumentConversionConfig()
+        sources = [DocumentConversionSource(content="https://example.com/a.pdf")]
+        result = config.transform_document_conversion_request(
+            model="m",
+            sources=sources,
+            optional_params={"export_formats": ["json"]},
+            headers={},
+        )
+        assert result.data["options"] == {"to_formats": ["json"]}
+
+    def test_should_prefer_to_formats_over_export_formats(self):
+        config = DoclingDocumentConversionConfig()
+        sources = [DocumentConversionSource(content="https://example.com/a.pdf")]
+        result = config.transform_document_conversion_request(
+            model="m",
+            sources=sources,
+            optional_params={"to_formats": ["markdown"], "export_formats": ["json"]},
+            headers={},
+        )
+        assert result.data["options"] == {"to_formats": ["markdown"]}
+
     def test_should_omit_options_when_empty(self):
         config = DoclingDocumentConversionConfig()
         sources = [DocumentConversionSource(content="https://example.com/a.pdf")]

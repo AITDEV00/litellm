@@ -40,6 +40,23 @@ class TestConvertSources:
         sources = _convert_sources([src])
         assert sources == [src]
 
+    def test_should_accept_camelcase_mimetype_from_proxy(self):
+        # The proxy route / Docling upstream use camelCase ``mimeType``; it must
+        # map onto the snake_case ``mime_type`` field instead of being dropped.
+        sources = _convert_sources(
+            [{"content": "https://example.com/a.pdf", "mimeType": "application/pdf"}]
+        )
+        assert len(sources) == 1
+        assert sources[0].mime_type == "application/pdf"
+
+    def test_should_still_accept_snakecase_mime_type(self):
+        # The SDK contract uses ``mime_type``; both spellings must work.
+        sources = _convert_sources(
+            [{"content": "https://example.com/a.pdf", "mime_type": "application/pdf"}]
+        )
+        assert len(sources) == 1
+        assert sources[0].mime_type == "application/pdf"
+
     def test_should_reject_empty_list(self):
         with pytest.raises(ValueError, match="must not be empty"):
             _convert_sources([])

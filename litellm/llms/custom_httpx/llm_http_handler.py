@@ -61,6 +61,7 @@ from litellm.llms.base_llm.ocr.transformation import BaseOCRConfig, OCRResponse
 from litellm.llms.base_llm.document_conversion.transformation import (
     BaseDocumentConversionConfig,
     ConvertDocumentResponse,
+    DocumentConversionRequestData,
     DocumentConversionSource,
 )
 from litellm.llms.base_llm.realtime.transformation import BaseRealtimeConfig
@@ -1812,10 +1813,6 @@ class BaseLLMHTTPHandler:
         Shared logic for preparing document conversion requests.
         Returns: (headers, complete_url, data, files)
         """
-        from litellm.llms.base_llm.document_conversion.transformation import (
-            DocumentConversionRequestData,
-        )
-
         headers = provider_config.validate_environment(
             api_key=api_key,
             api_base=api_base,
@@ -1947,7 +1944,7 @@ class BaseLLMHTTPHandler:
         if litellm_params is None:
             litellm_params = {}
 
-        headers, complete_url, data, files = self._async_prepare_document_conversion_request(
+        headers, complete_url, data, files = self._prepare_document_conversion_request(
             model=model,
             sources=sources,
             optional_params=optional_params,
@@ -1980,34 +1977,6 @@ class BaseLLMHTTPHandler:
             model=model,
             raw_response=response,
             logging_obj=logging_obj,
-        )
-
-    def _async_prepare_document_conversion_request(
-        self,
-        model: str,
-        sources: list[DocumentConversionSource],
-        optional_params: dict,
-        logging_obj: LiteLLMLoggingObj,
-        api_key: str | None,
-        api_base: str | None,
-        headers: dict[str, object] | None,
-        provider_config: BaseDocumentConversionConfig,
-        litellm_params: dict,
-    ) -> tuple[dict[str, Any], str, dict[str, Any], None]:
-        """
-        Async version of _prepare_document_conversion_request. Docling's request
-        transform is synchronous, so this reuses the sync preparation.
-        """
-        return self._prepare_document_conversion_request(
-            model=model,
-            sources=sources,
-            optional_params=optional_params,
-            logging_obj=logging_obj,
-            api_key=api_key,
-            api_base=api_base,
-            headers=headers,
-            provider_config=provider_config,
-            litellm_params=litellm_params,
         )
 
     def search(

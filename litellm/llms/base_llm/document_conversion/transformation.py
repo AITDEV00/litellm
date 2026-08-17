@@ -21,7 +21,7 @@ request/response shapes into/out of this canonical contract.
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from pydantic import PrivateAttr
+from pydantic import Field, PrivateAttr
 
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.types.llms.base import LiteLLMPydanticObjectBase
@@ -95,9 +95,14 @@ class DocumentConversionSource(LiteLLMPydanticObjectBase):
     """
 
     content: str
-    mime_type: str | None = None
+    mime_type: str | None = Field(
+        default=None,
+        # The proxy route and the Docling upstream contract use camelCase
+        # ``mimeType``; accept it as an alias so it isn't silently dropped.
+        alias="mimeType",
+    )
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "allow", "populate_by_name": True}
 
 
 class BaseDocumentConversionConfig:

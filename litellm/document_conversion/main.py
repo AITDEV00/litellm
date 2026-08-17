@@ -2,6 +2,7 @@
 Main document_conversion function for LiteLLM.
 """
 
+import asyncio
 from typing import Any, cast
 
 import httpx
@@ -31,7 +32,7 @@ def _convert_sources(sources: list | dict | str) -> list[DocumentConversionSourc
     ``DocumentConversionSource``. Accepts a single source dict, a bare source
     URL/base64 string, or a list of either.
     """
-    if isinstance(sources, str) or isinstance(sources, dict):
+    if isinstance(sources, (str, dict)):
         sources = [sources]
     if not isinstance(sources, list):
         raise ValueError(f"sources must be a list, dict, or str; got {type(sources)}")
@@ -53,12 +54,10 @@ def _convert_sources(sources: list | dict | str) -> list[DocumentConversionSourc
 
 def _prepare_document_conversion_request(
     model: str,
-    sources: list[DocumentConversionSource],
     api_key: str | None,
     api_base: str | None,
     timeout: float | httpx.Timeout | None,
     custom_llm_provider: str | None,
-    extra_headers: dict[str, object] | None,
     kwargs: dict[str, object],
 ) -> tuple[
     dict[str, object],
@@ -77,7 +76,7 @@ def _prepare_document_conversion_request(
     provider_config, optional_params, effective_timeout, logging_obj).
     """
     litellm_logging_obj = cast(LiteLLMLoggingObj, kwargs.pop("litellm_logging_obj"))
-    litellm_call_id = cast(str | None, kwargs.get("litellm_call_id", None))
+    litellm_call_id = cast(str | None, kwargs.get("litellm_call_id"))
 
     (
         model,
@@ -202,12 +201,10 @@ async def aconvert(
             litellm_logging_obj,
         ) = _prepare_document_conversion_request(
             model=model,
-            sources=normalized_sources,
             api_key=api_key,
             api_base=api_base,
             timeout=timeout,
             custom_llm_provider=custom_llm_provider,
-            extra_headers=extra_headers,
             kwargs=kwargs,
         )
         custom_llm_provider = cast(str, completion_kwargs.get("custom_llm_provider"))
@@ -249,8 +246,6 @@ def convert(
 
     See :func:`aconvert` for parameter documentation.
     """
-    import asyncio
-
     completion_kwargs: dict[str, object] = {
         "model": model,
         "custom_llm_provider": custom_llm_provider or "",
@@ -282,12 +277,10 @@ def convert(
             litellm_logging_obj,
         ) = _prepare_document_conversion_request(
             model=model,
-            sources=normalized_sources,
             api_key=api_key,
             api_base=api_base,
             timeout=timeout,
             custom_llm_provider=custom_llm_provider,
-            extra_headers=extra_headers,
             kwargs=kwargs,
         )
         custom_llm_provider = cast(str, completion_kwargs.get("custom_llm_provider"))

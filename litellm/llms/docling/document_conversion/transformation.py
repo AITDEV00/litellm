@@ -124,10 +124,11 @@ class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
         ).rstrip("/")
         # The controller registers the docling pod's api_base as
         # "<host>:8080/v1". If it already ends with /v1, append directly.
-        if base.endswith("/v1"):
-            url = f"{base}/convert/source"
-        else:
-            url = f"{base}/v1/convert/source"
+        url = (
+            f"{base}/convert/source"
+            if base.endswith("/v1")
+            else f"{base}/v1/convert/source"
+        )
         # Arbitrary query parameters (e.g. ``debug``) are passed through
         # generically rather than hardcoded. The proxy captures all incoming
         # query params into ``optional_params["query_params"]`` and we append
@@ -153,7 +154,9 @@ class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
     def _build_options(self, optional_params: dict[str, Any]) -> dict[str, Any]:
         """Build the Docling ``options`` object from optional params."""
         options: dict[str, Any] = {}
-        to_formats = optional_params.get("to_formats")
+        # ``export_formats`` is the broader-interface alias for ``to_formats``;
+        # treat either as the Docling options ``to_formats`` value.
+        to_formats = optional_params.get("to_formats") or optional_params.get("export_formats")
         if to_formats is not None:
             options["to_formats"] = to_formats
         explicit_options = optional_params.get("options")
