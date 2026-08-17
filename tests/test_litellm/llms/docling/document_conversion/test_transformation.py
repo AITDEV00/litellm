@@ -20,7 +20,8 @@ from litellm.llms.base_llm.document_conversion.transformation import (
 from litellm.llms.docling.document_conversion.transformation import (
     DEFAULT_DOCLING_API_BASE,
     DOCLING_API_BASE_ENV_VAR,
-    SOURCE_MIME_FIELD,
+    SOURCE_KIND_FILE,
+    SOURCE_KIND_HTTP,
     DoclingDocumentConversionConfig,
 )
 
@@ -108,8 +109,50 @@ class TestTransformRequest:
         )
         assert result.data == {
             "sources": [
-                {"content": "https://example.com/doc.pdf", SOURCE_MIME_FIELD: "application/pdf"},
-                {"content": "data:image/png;base64,abc"},
+                {"kind": SOURCE_KIND_HTTP, "url": "https://example.com/doc.pdf"},
+                {
+                    "kind": SOURCE_KIND_FILE,
+                    "base64_string": "abc",
+                    "filename": "document.png",
+                },
+            ]
+        }
+
+    def test_should_map_data_uri_base64_to_file_source(self):
+        config = DoclingDocumentConversionConfig()
+        sources = [
+            DocumentConversionSource(content="data:application/pdf;base64,QUJD"),
+        ]
+        result = config.transform_document_conversion_request(
+            model="m",
+            sources=sources,
+            optional_params={},
+            headers={},
+        )
+        assert result.data == {
+            "sources": [
+                {
+                    "kind": SOURCE_KIND_FILE,
+                    "base64_string": "QUJD",
+                    "filename": "document.pdf",
+                }
+            ]
+        }
+
+    def test_should_map_http_url_to_http_source(self):
+        config = DoclingDocumentConversionConfig()
+        sources = [
+            DocumentConversionSource(content="https://example.com/a.pdf", mime_type="application/pdf"),
+        ]
+        result = config.transform_document_conversion_request(
+            model="m",
+            sources=sources,
+            optional_params={},
+            headers={},
+        )
+        assert result.data == {
+            "sources": [
+                {"kind": SOURCE_KIND_HTTP, "url": "https://example.com/a.pdf"},
             ]
         }
 

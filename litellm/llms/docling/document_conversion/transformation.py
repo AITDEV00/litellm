@@ -1,17 +1,27 @@
 """
 Docling document conversion transformation implementation.
 
-Docling (docling-serve / PaddleX HPS) exposes a Docling-compatible HTTP API:
+Docling (docling-serve / PaddleOCR / PaddleX HPS) exposes a Docling-compatible
+HTTP API. The upstream ``ConvertSourcesRequest`` models each source as a
+discriminated union on ``kind``:
 
     POST /v1/convert/source
     Content-Type: application/json
     {
         "sources": [
-            {"content": "https://...", "mimeType": "image/png"},
-            {"content": "data:image/png;base64,...", "mimeType": "image/png"}
+            {"kind": "http", "url": "https://example.com/doc.pdf"},
+            {"kind": "file", "base64_string": "...", "filename": "report.png"}
         ],
         "options": {"from_formats": ["image"], "to_formats": ["markdown"]}
     }
+
+``kind: "http"`` sources carry a ``url`` (+ optional ``headers``); ``kind:
+"file"`` sources carry a ``base64_string`` + ``filename``.
+
+The LiteLLM document-conversion interface uses a canonical
+``DocumentConversionSource`` (``content`` + ``mime_type``), so this provider
+maps each source into the upstream discriminated union: an HTTP(S) URL becomes
+``kind: "http"``, a data-URI / base64 payload becomes ``kind: "file"``.
 
 Response is the Docling ``ConvertDocumentResponse``:
     {
@@ -20,10 +30,6 @@ Response is the Docling ``ConvertDocumentResponse``:
         "errors": [],
         "processing_time": 0.42
     }
-
-The LiteLLM document-conversion interface uses the Docling
-``ConvertDocumentResponse`` as its canonical shape, so this provider maps
-directly with almost no transformation.
 """
 
 from typing import Any
@@ -45,8 +51,61 @@ DOCLING_API_BASE_ENV_VAR = "DOCLING_API_BASE"
 
 DEFAULT_DOCLING_API_BASE = "http://localhost:8080"
 
-# Docling mimeType field name used in the source item payload.
-SOURCE_MIME_FIELD = "mimeType"
+# ``kind`` discriminator values used by the upstream Docling
+# ``ConvertSourcesRequest`` source union.
+SOURCE_KIND_FILE = "file"
+SOURCE_KIND_HTTP = "http"
+
+# MIME type -> filename extension used when turning a file source into an
+# upstream ``filename`` (Docling's ``FileSourceRequest`` requires it).
+_MIME_TO_EXT: dict[str, str] = {
+    "application/pdf": ".pdf",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/tiff": ".tiff",
+    "text/plain": ".txt",
+    "text/markdown": ".md",
+    "text/csv": ".csv",
+    "text/html": ".html",
+}
+
+
+def _data_uri_to_base64(content: str) -> str:
+    """
+    Extract the base64 payload from a ``data:<mime>;base64,<data>`` URI.
+
+    If the string is not a data URI, return it unchanged (assumed to already
+    be a raw base64 string).
+    """
+    marker = ";base64,"
+    if content.startswith("data:") and marker in content:
+        return content.split(marker, 1)[1]
+    return content
+
+
+def _data_uri_mime(content: str) -> str | None:
+    """Return the MIME type embedded in a ``data:<mime>;base64,...`` URI."""
+    if not content.startswith("data:"):
+        return None
+    mime, _, _rest = content[5:].partition(";")
+    return mime or None
+
+
+def _filename_from_mime(mime_type: str | None) -> str | None:
+    """
+    Map a MIME type to a Docling ``filename``.
+
+    Returns ``None`` when no MIME type is known, leaving the ``filename``
+    field off the payload (Docling defaults it).
+    """
+    if mime_type is None:
+        return None
+    ext = _MIME_TO_EXT.get(mime_type.lower())
+    if ext is None:
+        return None
+    return f"document{ext}"
 
 
 class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
@@ -142,12 +201,37 @@ class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
         self,
         sources: list[DocumentConversionSource],
     ) -> list[dict[str, Any]]:
-        """Map canonical sources to Docling source items."""
+        """
+        Map canonical sources to Docling source items.
+
+        Docling models each source as a discriminated union on ``kind``:
+
+        - ``kind: "http"`` -> an HTTP(S) ``url`` (+ optional ``headers``)
+        - ``kind: "file"`` -> inline ``base64_string`` + ``filename``
+
+        A canonical ``content`` that is an HTTP(S) URL maps to the ``http``
+        branch; a data-URI (``data:...;base64,...``) or raw base64 maps to the
+        ``file`` branch.
+        """
         out: list[dict[str, Any]] = []
         for source in sources:
-            item: dict[str, Any] = {"content": source.content}
-            if source.mime_type is not None:
-                item[SOURCE_MIME_FIELD] = source.mime_type
+            content = source.content
+            if content.startswith(("http://", "https://")):
+                out.append({"kind": SOURCE_KIND_HTTP, "url": content})
+                continue
+            if content.startswith("data:"):
+                base64_string = _data_uri_to_base64(content)
+                mime = source.mime_type or _data_uri_mime(content)
+            else:
+                base64_string = content
+                mime = source.mime_type
+            item: dict[str, Any] = {
+                "kind": SOURCE_KIND_FILE,
+                "base64_string": base64_string,
+            }
+            filename = _filename_from_mime(mime)
+            if filename is not None:
+                item["filename"] = filename
             out.append(item)
         return out
 
