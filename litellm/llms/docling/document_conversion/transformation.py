@@ -108,6 +108,32 @@ def _filename_from_mime(mime_type: str | None) -> str | None:
     return f"document{ext}"
 
 
+# Broader-interface format names -> Docling ``to_formats`` enum values.
+# Docling only accepts: md, json, yaml, html, html_split_page, text, doctags,
+# vtt, doclang, dclx, chunks. Map the common aliases so callers don't have to
+# know the exact enum.
+_TO_FORMATS_ALIAS: dict[str, str] = {
+    "markdown": "md",
+    "txt": "text",
+    "plain": "text",
+    "plaintext": "text",
+}
+
+
+def _normalize_to_formats(to_formats: Any) -> Any:
+    """
+    Map broad-interface format names to Docling's ``to_formats`` enum values.
+
+    Accepts a string or a list of strings. Unrecognized names pass through
+    unchanged so the upstream still returns its own validation error.
+    """
+    if isinstance(to_formats, str):
+        return _TO_FORMATS_ALIAS.get(to_formats.lower(), to_formats)
+    if isinstance(to_formats, list):
+        return [_TO_FORMATS_ALIAS.get(str(f).lower(), f) for f in to_formats]
+    return to_formats
+
+
 class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
     """
     Docling document conversion transformation configuration.
@@ -242,7 +268,7 @@ class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
         # treat either as the Docling options ``to_formats`` value.
         to_formats = optional_params.get("to_formats") or optional_params.get("export_formats")
         if to_formats is not None:
-            options["to_formats"] = to_formats
+            options["to_formats"] = _normalize_to_formats(to_formats)
         explicit_options = optional_params.get("options")
         if isinstance(explicit_options, dict):
             options.update(explicit_options)

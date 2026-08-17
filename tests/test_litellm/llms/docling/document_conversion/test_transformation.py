@@ -165,7 +165,7 @@ class TestTransformRequest:
             optional_params={"to_formats": ["markdown", "json"]},
             headers={},
         )
-        assert result.data["options"] == {"to_formats": ["markdown", "json"]}
+        assert result.data["options"] == {"to_formats": ["md", "json"]}
 
     def test_should_merge_explicit_options(self):
         sources = [DocumentConversionSource(content="https://example.com/a.pdf")]
@@ -201,7 +201,7 @@ class TestTransformRequest:
             optional_params={"to_formats": ["markdown"], "export_formats": ["json"]},
             headers={},
         )
-        assert result.data["options"] == {"to_formats": ["markdown"]}
+        assert result.data["options"] == {"to_formats": ["md"]}
 
     def test_should_omit_options_when_empty(self):
         config = DoclingDocumentConversionConfig()
