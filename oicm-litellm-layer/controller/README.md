@@ -41,12 +41,9 @@ controller/
   reconciler.py            SyncReconciler. Pure compute_plan + execute. Dedup logic.
   controller.py            DiscoveryController. Orchestration: start/stop, full_sync,
                            watch loop, event handlers, health endpoint.
-  health.py                Standalone health check server (not used by controller.py,
-                           which has its own inline health endpoint).
   fallbacks/
     __init__.py            Exports FallbackReconciler.
-    client.py              FallbackClient. Reads/writes LiteLLM fallback config.
-    models.py              (Reserved for future data classes.)
+    client.py              FallbackClient. Reads LiteLLM fallback config.
     service.py             FallbackReconciler. Validates existing fallbacks.
   sources/
     __init__.py            Exports ModelSource.

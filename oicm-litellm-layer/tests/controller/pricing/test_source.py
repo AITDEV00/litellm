@@ -73,7 +73,7 @@ class TestBuildEntry:
         assert entry is not None
         assert entry.has_pricing is True
         assert entry.output_cost_per_token == 0.0
-        assert entry.mode == "embedding"
+        assert entry.input_cost_per_token == 1e-07
 
     def test_extracts_tiered_pricing_first_tier(self):
         entry = _build_entry(

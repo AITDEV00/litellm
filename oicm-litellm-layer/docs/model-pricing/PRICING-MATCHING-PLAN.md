@@ -184,12 +184,9 @@ from dataclasses import dataclass
 class PricingEntry:
     """One indexed model from the pricing JSON. Only fields we read."""
     key: str                           # the JSON key (e.g. "deepseek-chat")
-    litellm_provider: str              # e.g. "deepseek", "openrouter"
-    mode: str                          # "chat", "embedding", "completion"
     input_cost_per_token: float        # USD per token (0.0 if absent)
     output_cost_per_token: float       # USD per token (0.0 if absent)
     has_pricing: bool                  # True if flat rates or tiered_pricing present
-    source_url: str                    # optional documentation URL for logging
 
 @dataclass(frozen=True, slots=True)
 class MatcherCandidate:
@@ -262,12 +259,9 @@ def _build_entry(key: str, raw: dict) -> PricingEntry | None:
 
     return PricingEntry(
         key=key,
-        litellm_provider=raw.get("litellm_provider", ""),
-        mode=mode,
         input_cost_per_token=float(input_cost) if input_cost is not None else 0.0,
         output_cost_per_token=float(output_cost) if output_cost is not None else 0.0,
         has_pricing=has_pricing,
-        source_url=raw.get("source", ""),
     )
 ```
 

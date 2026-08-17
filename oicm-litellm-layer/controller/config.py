@@ -44,6 +44,16 @@ WATCH_TIMEOUT = int(os.getenv("WATCH_TIMEOUT", "300"))
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8090"))
 HTTP_CONCURRENCY = int(os.getenv("HTTP_CONCURRENCY", "50"))
 
+# When true, the controller discovers models and computes the reconciliation
+# plan but NEVER writes to the LiteLLM gateway. Writes become logged no-ops.
+# Used by the debug controller so it can observe / reproduce discovery without
+# mutating the production gateway.
+CONTROLLER_READ_ONLY = os.getenv("CONTROLLER_READ_ONLY", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
 WORKLOAD_TYPE_LABEL = "oip/workload-type"
 WORKLOAD_ID_LABEL = "oip/workload-id"
 MODEL_DEPLOYMENT_TYPE = "model_deployment"

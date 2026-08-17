@@ -45,12 +45,9 @@ def _build_entry(key: str, raw: dict) -> Optional[PricingEntry]:
 
     return PricingEntry(
         key=key,
-        litellm_provider=raw.get("litellm_provider", ""),
-        mode=mode,
         input_cost_per_token=float(input_cost) if input_cost is not None else 0.0,
         output_cost_per_token=float(output_cost) if output_cost is not None else 0.0,
         has_pricing=has_pricing,
-        source_url=raw.get("source", ""),
     )
 
 
@@ -71,9 +68,6 @@ async def _load_from_proxy(base_url: str, headers: dict) -> dict:
             input_cost = info.get("input_cost_per_token")
             if input_cost is not None:
                 entry: dict = {
-                    "litellm_provider": m.get("litellm_params", {}).get(
-                        "custom_llm_provider", "hosted_vllm"
-                    ),
                     "mode": info.get("mode", "chat"),
                     "input_cost_per_token": input_cost,
                 }
@@ -85,7 +79,7 @@ async def _load_from_proxy(base_url: str, headers: dict) -> dict:
 
 
 class PricingIndex:
-    __slots__ = ("entries", "by_normalized_key", "skipped_no_pricing")
+    __slots__ = ("by_normalized_key", "entries", "skipped_no_pricing")
 
     def __init__(
         self,

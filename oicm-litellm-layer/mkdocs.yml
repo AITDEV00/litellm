@@ -101,6 +101,7 @@ nav:
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
   - Techniques:
       - Logic Mapping: techniques/logic_mapping_technique.md
+      - First-Class Endpoint Guide: techniques/FIRST_CLASS_ENDPOINT_GUIDE.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
       - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
       - Debug Pod: techniques/debug_pod_technique.md
@@ -137,6 +138,7 @@ nav:
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
       - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
+      - Docling Gateway Feasibility: custom-providers/DOCLING_GATEWAY_FEASIBILITY.md
   - Dashboard & Planning:
       - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
       - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md

@@ -18,12 +18,7 @@ from .config import (
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
-from .models import (
-    OicmModel,
-    detect_mode_from_paths,
-    detect_provider,
-    sanitize_model_id,
-)
+from .models import COMPOSITE_KEY_SEP, OicmModel
 from .pricing import PricingResolver, PricingSource, pricing_to_params
 from .reconciler import SyncReconciler
 from .sources import ModelSource
@@ -110,9 +105,9 @@ class DiscoveryController:
                     f"Source {source.__class__.__name__} failed: {e}"
                 )
 
-        litellm_by_uuid = await self.litellm.list_all_models_by_uuid()
+        litellm_by_key = await self.litellm.list_all_models_by_key()
 
-        plan = await self.reconciler.compute_plan(discovered, litellm_by_uuid)
+        plan = await self.reconciler.compute_plan(discovered, litellm_by_key)
         await self.reconciler.execute(plan)
 
         self._state = plan.new_state
@@ -169,7 +164,7 @@ class DiscoveryController:
     async def _handle_add(self, uuid: str, dep):
         if not self._running:
             return
-        if uuid in self._state:
+        if any(_uuid_of(key) == uuid for key in self._state):
             logger.debug(f"Deployment j-{uuid[:8]} already tracked, skipping")
             return
 
@@ -178,59 +173,48 @@ class DiscoveryController:
             logger.info(f"Deployment j-{uuid[:8]} not ready yet, skipping")
             return
 
-        model_id = await self.local_source.discover_model_id(uuid)
-        extra_args = await self.local_source.get_configmap_field(uuid, "EXTRA_ARGS") or ""
+        models = await self.local_source.discover_for_deployment(dep)
+        if not models:
+            logger.warning(f"No models discovered for j-{uuid[:8]}")
+            return
 
-        if not model_id:
-            model_id = uuid
-            logger.warning(f"No MODEL_ID for {uuid[:8]}, using UUID as fallback")
-
-        model_name = sanitize_model_id(model_id)
-
-        paths = await self.local_source.probe_openapi_paths(uuid)
-        owned_by = await self.local_source.discover_owned_by(uuid)
-        mode = detect_mode_from_paths(paths, model_id, extra_args)
-        provider = detect_provider(owned_by or "", model_id)
-
-        model = OicmModel(
-            uuid=uuid,
-            model_id=model_id,
-            model_name=model_name,
-            namespace=NAMESPACE,
-            ready_replicas=ready,
-            total_replicas=dep.status.replicas or 0,
-            mode=mode,
-            provider=provider,
-            extra_args=extra_args,
-            source="local",
-        )
-
-        pricing = await self.pricing_resolver.resolve(model.model_id)
-        inherited = pricing_to_params(pricing)
-        litellm_id = await self.litellm.register_model(model, inherited)
-        if litellm_id:
-            self._litellm_id_map[uuid] = litellm_id
-            self._state[uuid] = model
+        for key, model in models.items():
+            pricing = await self.pricing_resolver.resolve(model.model_id)
+            inherited = pricing_to_params(pricing)
+            litellm_id = await self.litellm.register_model(model, inherited)
+            if litellm_id:
+                self._litellm_id_map[key] = litellm_id
+                self._state[key] = model
 
     async def _handle_delete(self, uuid: str):
-        litellm_id = self._litellm_id_map.pop(uuid, None)
-        if litellm_id:
-            await self.litellm.deregister_model(litellm_id)
-            self._state.pop(uuid, None)
-            await self.fallback_reconciler.reconcile()
-        else:
+        # A deployment owns multiple composite keys ({uuid}::{model_id}). Remove
+        # every model whose uuid prefix matches this deployment.
+        stale_keys = [
+            key for key in self._state if _uuid_of(key) == uuid
+        ]
+        if not stale_keys:
             logger.warning(
-                f"Delete event for j-{uuid[:8]} but no litellm_id in map; "
+                f"Delete event for j-{uuid[:8]} but no model in map; "
                 f"full_sync will clean up on next cycle"
             )
+            return
+
+        for key in stale_keys:
+            litellm_id = self._litellm_id_map.pop(key, None)
+            if litellm_id:
+                await self.litellm.deregister_model(litellm_id)
+            self._state.pop(key, None)
+        await self.fallback_reconciler.reconcile()
 
     async def _handle_modify(self, uuid: str, dep):
         ready = dep.status.ready_replicas or 0
-        old_model = self._state.get(uuid)
+        old_keys = [key for key in self._state if _uuid_of(key) == uuid]
 
-        if old_model:
-            old_model.ready_replicas = ready
-            old_model.total_replicas = dep.status.replicas or 0
+        if old_keys:
+            for key in old_keys:
+                old_model = self._state[key]
+                old_model.ready_replicas = ready
+                old_model.total_replicas = dep.status.replicas or 0
         elif ready > 0:
             await self._handle_add(uuid, dep)
 
@@ -242,3 +226,8 @@ class DiscoveryController:
                     await self.full_sync()
                 except Exception as e:
                     logger.error(f"Periodic resync failed: {e}")
+
+
+def _uuid_of(key: str) -> str:
+    """Return the deployment-uuid portion of a composite key."""
+    return key.split(COMPOSITE_KEY_SEP, 1)[0]

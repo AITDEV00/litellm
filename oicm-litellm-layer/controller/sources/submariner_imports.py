@@ -12,7 +12,7 @@ from ..config import (
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
-from ..models import OicmModel, detect_mode, sanitize_model_id
+from ..models import OicmModel, detect_mode, parse_model_list, sanitize_model_id
 from .base import ModelSource
 
 logger = logging.getLogger("oicm-discovery")
@@ -75,45 +75,47 @@ class SubmarinerImportSource(ModelSource):
 
             composite_uuid = f"submariner:{source_cluster}:{uuid}"
 
-            model_id = await self._query_v1_models(globalnet_ip, port)
-            if not model_id:
-                model_id = uuid
+            model_ids = await self._query_v1_models(globalnet_ip, port)
+            if not model_ids:
+                model_ids = [uuid]
                 logger.warning(
                     f"Could not discover model_id for {composite_uuid}, "
                     f"using UUID as fallback"
                 )
 
-            # The model_name is the raw model_id from the upstream /v1/models endpoint
-            # (e.g. "zai-org/GLM-5.2-FP8"). We deliberately do NOT prefix it with the
-            # source cluster name. The model_id is already globally unique across clusters
-            # (it comes from the HuggingFace model registry), and adding a cluster prefix
-            # (e.g. "abudhabi-zai-org/GLM-5.2-FP8") would make the model name differ from
-            # what clients expect, breaking compatibility with any code that references
-            # models by their canonical HuggingFace IDs.
-            #
-            # If two clusters ever serve the same model_id, the controller will register
-            # them under the same LiteLLM model name with different api_base overrides,
-            # and LiteLLM's router will load-balance across them. That is the desired
-            # behavior, not a collision to avoid with a prefix.
-            model_name = sanitize_model_id(model_id)
-            mode = detect_mode(model_id, "")
             api_base_override = f"http://{globalnet_ip}:{port}/v1"
 
-            models[composite_uuid] = OicmModel(
-                uuid=composite_uuid,
-                model_id=model_id,
-                model_name=model_name,
-                namespace=NAMESPACE,
-                ready_replicas=1,
-                total_replicas=1,
-                mode=mode,
-                source=f"submariner:{source_cluster}",
-                api_base_override=api_base_override,
-            )
-            logger.info(
-                f"Discovered Submariner import: {model_name} "
-                f"(cluster={source_cluster}, ip={globalnet_ip})"
-            )
+            for model_id in model_ids:
+                # The model_name is the raw model_id from the upstream /v1/models endpoint
+                # (e.g. "zai-org/GLM-5.2-FP8"). We deliberately do NOT prefix it with the
+                # source cluster name. The model_id is already globally unique across clusters
+                # (it comes from the HuggingFace model registry), and adding a cluster prefix
+                # (e.g. "abudhabi-zai-org/GLM-5.2-FP8") would make the model name differ from
+                # what clients expect, breaking compatibility with any code that references
+                # models by their canonical HuggingFace IDs.
+                #
+                # If two clusters ever serve the same model_id, the controller will register
+                # them under the same LiteLLM model name with different api_base overrides,
+                # and LiteLLM's router will load-balance across them. That is the desired
+                # behavior, not a collision to avoid with a prefix.
+                model_name = sanitize_model_id(model_id)
+                mode = detect_mode(model_id, "")
+                model = OicmModel(
+                    uuid=composite_uuid,
+                    model_id=model_id,
+                    model_name=model_name,
+                    namespace=NAMESPACE,
+                    ready_replicas=1,
+                    total_replicas=1,
+                    mode=mode,
+                    source=f"submariner:{source_cluster}",
+                    api_base_override=api_base_override,
+                )
+                models[model.composite_key] = model
+                logger.info(
+                    f"Discovered Submariner import: {model_name} "
+                    f"(cluster={source_cluster}, ip={globalnet_ip})"
+                )
 
         return models
 
@@ -132,7 +134,7 @@ class SubmarinerImportSource(ModelSource):
 
     async def _query_v1_models(
         self, globalnet_ip: str, port: int
-    ) -> Optional[str]:
+    ) -> list[str]:
         url = f"http://{globalnet_ip}:{port}/v1/models"
         try:
             async with httpx.AsyncClient(timeout=10.0) as http_client:
@@ -142,12 +144,9 @@ class SubmarinerImportSource(ModelSource):
                         f"Model at {globalnet_ip}:{port} returned 405 on "
                         f"/v1/models, non-OpenAI, skipping"
                     )
-                    return None
+                    return []
                 resp.raise_for_status()
-                data = resp.json()
-                models = data.get("data", [])
-                if models:
-                    return models[0]["id"]
+                return parse_model_list(resp.json())
         except Exception as e:
             logger.debug(f"Failed to query /v1/models at {globalnet_ip}:{port}: {e}")
-        return None
+        return []

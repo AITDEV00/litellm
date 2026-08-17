@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from .litellm_client import LiteLLMClient
-from .models import OicmModel
+from .models import OicmModel, to_litellm_mode
 from .pricing import PricingResolver, pricing_to_params
 
 logger = logging.getLogger("oicm-discovery")
@@ -57,16 +57,16 @@ class SyncReconciler:
     async def compute_plan(
         self,
         k8s_models: Dict[str, OicmModel],
-        litellm_by_uuid: Dict[str, List[dict]],
+        litellm_by_key: Dict[str, List[dict]],
     ) -> SyncPlan:
-        k8s_uuids = set(k8s_models.keys())
-        litellm_uuids = set(litellm_by_uuid.keys())
+        k8s_keys = set(k8s_models.keys())
+        litellm_keys = set(litellm_by_key.keys())
         plan = SyncPlan()
 
-        for uuid in litellm_uuids:
-            entries = litellm_by_uuid[uuid]
+        for key in litellm_keys:
+            entries = litellm_by_key[key]
 
-            if uuid not in k8s_uuids:
+            if key not in k8s_keys:
                 for e in entries:
                     mid = e.get("model_id")
                     if mid:
@@ -75,21 +75,21 @@ class SyncReconciler:
 
             best_entry, loser_ids = _pick_richest_entry(entries)
             plan.deletes.extend(loser_ids)
-            plan.new_id_map[uuid] = best_entry.get("model_id")
-            litellm_by_uuid[uuid] = [best_entry]
+            plan.new_id_map[key] = best_entry.get("model_id")
+            litellm_by_key[key] = [best_entry]
 
-        for uuid in k8s_uuids - litellm_uuids:
-            model = k8s_models[uuid]
+        for key in k8s_keys - litellm_keys:
+            model = k8s_models[key]
             if not model.is_ready:
                 continue
             pricing = await self.pricing.resolve(model.model_id)
             plan.registers.append((model, pricing_to_params(pricing)))
 
-        for uuid in k8s_uuids & litellm_uuids:
-            model = k8s_models[uuid]
-            existing_id = plan.new_id_map.get(uuid)
+        for key in k8s_keys & litellm_keys:
+            model = k8s_models[key]
+            existing_id = plan.new_id_map.get(key)
 
-            existing_entry = litellm_by_uuid[uuid][0]
+            existing_entry = litellm_by_key[key][0]
             existing_model_name = existing_entry.get("model_name", "")
 
             if existing_model_name != model.model_name:
@@ -107,12 +107,9 @@ class SyncReconciler:
                     inherited = pricing_to_params(pricing)
                     if inherited:
                         patch_params.update(inherited)
-                    litellm_mode = model.mode
-                    if litellm_mode == "text_to_speech":
-                        litellm_mode = "audio_speech"
-                    patch_model_info: dict = {"mode": litellm_mode}
+                    patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
                     plan.patches.append((existing_id, patch_params, patch_model_info))
-                plan.new_state[uuid] = model
+                plan.new_state[key] = model
 
         return plan
 
@@ -127,8 +124,8 @@ class SyncReconciler:
         for model, _ in plan.registers:
             litellm_id = next(reg_iter, None)
             if litellm_id:
-                plan.new_id_map[model.uuid] = litellm_id
-                plan.new_state[model.uuid] = model
+                plan.new_id_map[model.composite_key] = litellm_id
+                plan.new_state[model.composite_key] = model
 
         if plan.patches:
             logger.info(f"Patched {patched}/{len(plan.patches)} models")

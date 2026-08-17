@@ -1,0 +1,125 @@
+---
+# Debug-only Deployment: oicm-discovery-controller-debug
+#
+# PURPOSE
+#   A throwaway replica of the production `oicm-discovery-controller` used to
+#   debug / reproduce discovery and reconciliation WITHOUT touching the live
+#   production gateway. It runs the exact same image, k8s RBAC, node pinning and
+#   env as the real controller, so it reproduces the production discovery path
+#   (reading Deployments, ConfigMaps, EndpointSlices, probing openapi.json and
+#   /v1/models) bit-for-bit.
+#
+# CRITICAL SAFETY GUARANTEE
+#   This debug controller is READ-ONLY. It NEVER mutates the production LiteLLM
+#   gateway. Enforcement is in CODE, not just config:
+#     - `CONTROLLER_READ_ONLY=true` makes LiteLLMClient.batch() /
+#       register_model() / deregister_model() logged no-ops. Discovery and plan
+#       computation still run, but every write is logged as "[READ-ONLY] would
+#       ..." and the HTTP write calls (/model/new, /model/delete,
+#       /model/{id}/update) are never issued.
+#   So even though it shares the production master key and can READ the gateway,
+#   it can never change the gateway's model config.
+#
+# WHY READ-ONLY IS ENFORCED IN CODE (not just YAML)
+#   Relying on YAML to "just point it elsewhere" or "just not use the write
+#   endpoints" is fragile. The read_only flag is wired through the LiteLLMClient
+#   constructor from the CONTROLLER_READ_ONLY env var, so the same binary run
+#   with this flag set CANNOT write, regardless of its k8s env or admin creds.
+#
+# HOW TO USE
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/discovery-controller-debug.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/oicm-discovery-controller-debug
+#   # Watch the logs: every would-be write is logged as [READ-ONLY]:
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops logs deploy/oicm-discovery-controller-debug -f
+#   # The logs show exactly what the production controller WOULD register/delete/patch
+#   # WITHOUT doing it. Compare with prod logs to validate a new discovery change.
+#
+# CLEANUP
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/oicm-discovery-controller-debug
+#
+# NOTE: This has NO Service, NO PDB, and a distinct name/labels, so it cannot
+#       affect the production controller or receive any production traffic.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oicm-discovery-controller-debug
+  namespace: mlops
+  labels:
+    app: oicm-discovery-controller-debug
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oicm-discovery-controller-debug
+  template:
+    metadata:
+      labels:
+        app: oicm-discovery-controller-debug
+    spec:
+      serviceAccountName: oicm-discovery-controller
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: controller
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:latest
+          # Force a re-pull even though the tag (branch name) doesn't change
+          # between pushes, so a redeploy always picks up the freshly built
+          # image instead of a node-cached one with the same tag.
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              value: "adeo"
+            - name: LITELLM_ADMIN_URL
+              value: "http://litellm-proxy.mlops.svc.cluster.local:4000"
+            - name: LITELLM_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: CLUSTER_DOMAIN
+              value: "svc.cluster.local"
+            - name: MODEL_PORT
+              value: "8080"
+            - name: SYNC_INTERVAL
+              value: "300"
+            - name: ENABLE_SUBMARINER_IMPORTS
+              value: "true"
+            # READ-ONLY: this is the entire point of the debug controller. All
+            # LiteLLM writes become logged no-ops; nothing mutates the gateway.
+            - name: CONTROLLER_READ_ONLY
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -48,29 +48,10 @@ class FallbackClient:
         result: Dict[str, List[str]] = {}
         for entry in raw_fallbacks:
             if isinstance(entry, dict) and len(entry) == 1:
-                model = list(entry.keys())[0]
-                targets = list(entry.values())[0]
+                model = next(iter(entry))
+                targets = next(iter(entry.values()))
                 if isinstance(targets, list):
                     result[model] = targets
         return result
 
-    async def set_fallback(self, model: str, fallback_models: List[str]) -> bool:
-        async with httpx.AsyncClient(timeout=10.0) as http_client:
-            try:
-                resp = await http_client.post(
-                    f"{self.base_url}/fallback",
-                    headers=self.headers,
-                    json={
-                        "model": model,
-                        "fallback_models": fallback_models,
-                        "fallback_type": "general",
-                    },
-                )
-                resp.raise_for_status()
-                logger.info(f"Set fallback: {model} -> {fallback_models}")
-                return True
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    f"Failed to set fallback for {model}: {e.response.text}"
-                )
-                return False
+

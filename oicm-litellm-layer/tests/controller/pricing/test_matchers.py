@@ -10,12 +10,9 @@ from controller.pricing.models import PricingEntry
 def _make_entry(key: str, input_cost: float = 1e-07, output_cost: float = 2e-07) -> PricingEntry:
     return PricingEntry(
         key=key,
-        litellm_provider="test",
-        mode="chat",
         input_cost_per_token=input_cost,
         output_cost_per_token=output_cost,
         has_pricing=True,
-        source_url="",
     )
 
 

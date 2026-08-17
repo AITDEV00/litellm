@@ -17,10 +17,15 @@ def run_once():
 def run():
     controller = DiscoveryController()
     loop = asyncio.new_event_loop()
+    # Held so ruff RUF006 (unreferenced create_task) stays silent AND so the
+    # task isn't garbage-collected before it finishes shutting the controller
+    # down; the event loop alone does not guarantee the reference survives.
+    _stop_task: asyncio.Task | None = None
 
     def _shutdown(signum, _frame):
+        nonlocal _stop_task
         logger.info(f"Received signal {signum}, shutting down...")
-        loop.create_task(controller.stop())
+        _stop_task = loop.create_task(controller.stop())
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)

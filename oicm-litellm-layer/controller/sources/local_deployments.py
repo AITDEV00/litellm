@@ -18,6 +18,7 @@ from ..models import (
     OicmModel,
     detect_mode_from_paths,
     detect_provider,
+    parse_model_list,
     sanitize_model_id,
 )
 from .base import ModelSource
@@ -58,29 +59,41 @@ class LocalDeploymentSource(ModelSource):
             uuid = dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
             if not uuid:
                 continue
+            models.update(await self.discover_for_deployment(dep))
+        return models
 
-            ready = dep.status.ready_replicas or 0
-            total = dep.status.replicas or 0
+    async def discover_for_deployment(self, dep) -> Dict[str, OicmModel]:
+        """Build the (possibly multiple) OicmModel records for one deployment.
 
-            model_id = await self._discover_model_id(uuid)
-            if not model_id:
-                model_id = uuid
-                logger.warning(
-                    f"Could not discover MODEL_ID for {uuid}, using fallback"
-                )
+        A deployment can host several models behind the same ClusterIP service
+        (e.g. a Triton-style /v1/models advertising multiple ids). Each model id
+        becomes its own record, keyed by composite `{uuid}::{model_name}`.
+        """
+        uuid = dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
+        ready = dep.status.ready_replicas or 0
+        total = dep.status.replicas or 0
 
-            model_name = sanitize_model_id(model_id)
-            extra_args = await self._get_configmap_field(uuid, "EXTRA_ARGS") or ""
+        extra_args = await self._get_configmap_field(uuid, "EXTRA_ARGS") or ""
+        paths = await self._probe_openapi_paths(uuid)
 
-            paths = await self._probe_openapi_paths(uuid)
-            owned_by = await self._discover_owned_by(uuid)
-            mode = detect_mode_from_paths(paths, model_id, extra_args)
-            provider = detect_provider(owned_by or "", model_id)
+        model_ids, owned_by = await self._discover_model_ids(uuid)
+        if not model_ids:
+            model_ids = [uuid]
+            logger.warning(
+                f"Could not discover MODEL_ID for {uuid}, using fallback"
+            )
 
-            models[uuid] = OicmModel(
+        # Mode and provider are deployment-level (they depend on the OpenAPI
+        # surface, not the individual model id), so compute them once.
+        mode = detect_mode_from_paths(paths, model_ids[0], extra_args)
+        provider = detect_provider(owned_by or "", model_ids[0], paths)
+
+        models: Dict[str, OicmModel] = {}
+        for model_id in model_ids:
+            model = OicmModel(
                 uuid=uuid,
                 model_id=model_id,
-                model_name=model_name,
+                model_name=sanitize_model_id(model_id),
                 namespace=NAMESPACE,
                 ready_replicas=ready,
                 total_replicas=total,
@@ -89,34 +102,26 @@ class LocalDeploymentSource(ModelSource):
                 extra_args=extra_args,
                 source="local",
             )
-
+            models[model.composite_key] = model
         return models
 
-    async def discover_model_id(self, uuid: str) -> Optional[str]:
-        return await self._discover_model_id(uuid)
+    async def _discover_model_ids(self, uuid: str) -> tuple[list[str], Optional[str]]:
+        """Return (model_ids, owned_by) for a deployment.
 
-    async def get_configmap_field(self, uuid: str, field: str) -> Optional[str]:
-        return await self._get_configmap_field(uuid, field)
-
-    async def probe_openapi_paths(self, uuid: str) -> frozenset[str]:
-        return await self._probe_openapi_paths(uuid)
-
-    async def discover_owned_by(self, uuid: str) -> Optional[str]:
-        return await self._discover_owned_by(uuid)
-
-    async def _discover_model_id(self, uuid: str) -> Optional[str]:
+        Precedence: an explicit ConfigMap MODEL_ID (single, backward compat)
+        wins; otherwise the model ids advertised by the backend's `/v1/models`.
+        Returns empty list if neither is available.
+        """
         cm_model_id = await self._get_configmap_field(uuid, "MODEL_ID")
         if cm_model_id and cm_model_id.strip():
-            return cm_model_id.strip()
+            return [cm_model_id.strip()], None
 
         try:
-            model_id = await self._query_v1_models(uuid)
-            if model_id:
-                return model_id
+            return await self._query_v1_models(uuid)
         except Exception as e:
             logger.debug(f"Failed to query /v1/models for {uuid}: {e}")
 
-        return None
+        return [], None
 
     async def _get_configmap_field(self, uuid: str, field: str) -> Optional[str]:
         cm_name = f"configmap-{uuid}-main"
@@ -133,7 +138,7 @@ class LocalDeploymentSource(ModelSource):
             logger.debug(f"Failed to read ConfigMap {cm_name}: {e}")
             return None
 
-    async def _query_v1_models(self, uuid: str) -> Optional[str]:
+    async def _query_v1_models(self, uuid: str) -> tuple[list[str], Optional[str]]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1/models"
         async with httpx.AsyncClient(timeout=5.0) as http_client:
             resp = await http_client.get(url)
@@ -141,13 +146,15 @@ class LocalDeploymentSource(ModelSource):
                 logger.info(
                     f"Model {uuid} returned 405 on /v1/models, non-OpenAI, skipping"
                 )
-                return None
+                return [], None
             resp.raise_for_status()
             data = resp.json()
-            models = data.get("data", [])
-            if models:
-                return models[0]["id"]
-        return None
+            model_ids = parse_model_list(data)
+            owned_by = None
+            openai_data = data.get("data") if isinstance(data, dict) else None
+            if isinstance(openai_data, list) and openai_data and isinstance(openai_data[0], dict):
+                owned_by = openai_data[0].get("owned_by", "")
+            return model_ids, owned_by
 
     async def _probe_openapi_paths(self, uuid: str) -> frozenset[str]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/openapi.json"
@@ -161,18 +168,3 @@ class LocalDeploymentSource(ModelSource):
         except Exception as e:
             logger.debug(f"Failed to probe /openapi.json for {uuid}: {e}")
             return frozenset()
-
-    async def _discover_owned_by(self, uuid: str) -> Optional[str]:
-        url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1/models"
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as http_client:
-                resp = await http_client.get(url)
-                if resp.status_code != 200:
-                    return None
-                data = resp.json()
-                models = data.get("data", [])
-                if models:
-                    return models[0].get("owned_by", "")
-        except Exception as e:
-            logger.debug(f"Failed to query /v1/models for owned_by {uuid}: {e}")
-            return None

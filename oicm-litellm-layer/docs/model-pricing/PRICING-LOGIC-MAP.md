@@ -81,7 +81,7 @@ PricingResolver.resolve(model_id) (resolver.py:24)
     |       |       +-- extract input_cost/output_cost (flat or tiered_pricing first tier)
     |       |       +-- has_pricing = input_cost is not None or output_cost is not None
     |       |       +-- if chat and both costs == 0.0: has_pricing = False
-    |       |       +-- return PricingEntry(key, provider, mode, costs, has_pricing, source)
+    |       |       +-- return PricingEntry(key, input_cost, output_cost, has_pricing)
     |       |
     |       +-- skip entries where not has_pricing
     |       +-- entries[key] = entry
@@ -137,12 +137,9 @@ PricingResult(input_cost, output_cost, matched_keys, aggregate_score, strategy)
 ### PricingEntry (models.py:5)
 ```python
 key: str                     # original JSON key
-litellm_provider: str        # e.g. "deepseek", "bedrock_converse"
-mode: str                    # "chat", "embedding", "completion"
 input_cost_per_token: float  # USD per token
 output_cost_per_token: float # USD per token
 has_pricing: bool            # False if no pricing fields or zero-cost chat
-source_url: str              # from "source" field in JSON
 ```
 
 ### PricingResult (models.py:25)
