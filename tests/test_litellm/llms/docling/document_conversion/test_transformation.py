@@ -176,7 +176,9 @@ class TestTransformRequest:
             optional_params={"options": {"full": True, "to_formats": ["markdown"]}},
             headers={},
         )
-        assert result.data["options"] == {"full": True, "to_formats": ["markdown"]}
+        # explicit options merge in, but ``to_formats`` is still normalized to
+        # Docling's enum value (``markdown`` -> ``md``).
+        assert result.data["options"] == {"full": True, "to_formats": ["md"]}
 
     def test_should_map_export_formats_alias_to_to_formats(self):
         # ``export_formats`` is a supported param; it must be wired into the

@@ -271,7 +271,13 @@ class DoclingDocumentConversionConfig(BaseDocumentConversionConfig):
             options["to_formats"] = _normalize_to_formats(to_formats)
         explicit_options = optional_params.get("options")
         if isinstance(explicit_options, dict):
-            options.update(explicit_options)
+            # Normalize ``to_formats`` inside an explicit options object too
+            # (the proxy route passes the request body's ``options`` through
+            # here), so broad names like ``markdown`` still map to ``md``.
+            explicit = dict(explicit_options)
+            if "to_formats" in explicit:
+                explicit["to_formats"] = _normalize_to_formats(explicit["to_formats"])
+            options.update(explicit)
         return options
 
     def transform_document_conversion_request(
