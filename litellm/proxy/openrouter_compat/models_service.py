@@ -87,19 +87,29 @@ class OpenRouterModelsService:
         author: str,
         slug: str,
         user_api_key_dict: UserAPIKeyAuth,
+        general_settings: dict[str, object],
+        prisma_client: PrismaClient | None,
+        proxy_logging_obj: ProxyLogging | None,
+        user_api_key_cache: UserApiKeyCache | None,
+        team_id: str | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> dict[str, object] | None:
         aggregated, _failed = await self._resolve_and_discover(
             user_api_key_dict=user_api_key_dict,
-            general_settings={},
-            prisma_client=None,
-            proxy_logging_obj=None,
-            user_api_key_cache=None,
-            team_id=None,
+            general_settings=general_settings,
+            prisma_client=prisma_client,
+            proxy_logging_obj=proxy_logging_obj,
+            user_api_key_cache=user_api_key_cache,
+            team_id=team_id,
         )
+        full_slug = f"{author}/{slug}"
         for model in aggregated:
-            if model.identity.logical_model_name == slug:
+            name = model.identity.logical_model_name
+            # Match the canonical slug ("author/slug") for ids that contain a
+            # slash, or the bare slug for ids that are namespaced by the mapper
+            # (e.g. litellm/hamsa-tts -> logical name "hamsa-tts").
+            if name in (full_slug, slug):
                 deployments = model.deployments
                 page = deployments[offset : offset + limit]
                 return {

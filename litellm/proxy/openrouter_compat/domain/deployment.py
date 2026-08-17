@@ -1,6 +1,6 @@
 """Canonical discovered deployment object combining all domain facts."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from litellm.proxy.openrouter_compat.domain.architecture import ModelArchitecture
 from litellm.proxy.openrouter_compat.domain.capabilities import (
@@ -23,3 +23,4 @@ class DiscoveredDeploymentModel(BaseModel):
     api_capabilities: ApiCapabilities
     runtime: RuntimeInfo
     provenance: ModelProvenance
+    model_info: dict[str, object] = Field(default_factory=dict)

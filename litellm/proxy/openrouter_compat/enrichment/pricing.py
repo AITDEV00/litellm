@@ -1,4 +1,4 @@
-"""Pricing enrichment. Reuses litellm's existing pricing registry (design §14)."""
+"""Pricing enrichment. Prefers deployment model_info, falls back to litellm registry (design §14)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,12 @@ class Pricing:
 
 
 class PricingResolver:
-    """Resolve pricing from litellm's cost registry, never a second pricing DB."""
+    """Resolve pricing from deployment model_info first, then litellm's registry.
+
+    Never introduces a second pricing DB: deployment-explicit cost overrides
+    (carried through discovery) take precedence, and the litellm cost registry
+    is the fallback.
+    """
 
     def __init__(
         self,
@@ -37,9 +42,14 @@ class PricingResolver:
         self, deployments: list[DiscoveredDeploymentModel]
     ) -> Pricing | None:
         for deployment in deployments:
-            # Prefer explicit deployment model_info pricing already carried in the
-            # discovery object. We do not have a direct pricing field, so resolve
-            # via litellm registry keyed on the upstream model id.
+            # Prefer explicit per-deployment model_info pricing carried through
+            # discovery. These override the registry because they reflect the
+            # actual gateway billing config for that deployment (design §14).
+            pricing = self._resolve_from_model_info(deployment.model_info)
+            if pricing is not None:
+                return pricing
+            # Fall back to litellm's built-in cost registry keyed on the upstream
+            # model id.
             model_name = deployment.identity.upstream_model_id
             if not model_name:
                 continue
@@ -47,15 +57,25 @@ class PricingResolver:
                 model_info = litellm.get_model_info(model_name)
             except Exception:
                 continue
-            in_cost = model_info.get("input_cost_per_token")
-            out_cost = model_info.get("output_cost_per_token")
-            if in_cost is None or out_cost is None:
-                continue
-            return Pricing(
-                prompt=self._format_cost(in_cost),
-                completion=self._format_cost(out_cost),
-            )
+            pricing = self._resolve_from_model_info(model_info)
+            if pricing is not None:
+                return pricing
         return None
+
+    @staticmethod
+    def _resolve_from_model_info(model_info: dict[str, object]) -> Pricing | None:
+        in_cost = model_info.get("input_cost_per_token")
+        out_cost = model_info.get("output_cost_per_token")
+        if not isinstance(in_cost, (int, float)) or not isinstance(
+            out_cost, (int, float)
+        ):
+            return None
+        if in_cost < 0 or out_cost < 0:
+            return None
+        return Pricing(
+            prompt=PricingResolver._format_cost(in_cost),
+            completion=PricingResolver._format_cost(out_cost),
+        )
 
     def _resolve_unknown(self) -> Pricing | None:
         if self._unknown_policy == "free":

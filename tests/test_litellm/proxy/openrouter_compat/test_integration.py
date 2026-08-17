@@ -7,10 +7,15 @@ OpenRouter SDK into the expected public shape.
 
 from __future__ import annotations
 
+from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.openrouter_compat.aggregation.aggregator import ModelAggregator
 from litellm.proxy.openrouter_compat.discovery.registry import DiscoveryAdapterRegistry
-from litellm.proxy.openrouter_compat.discovery.resolver import DeploymentDescriptor
+from litellm.proxy.openrouter_compat.discovery.resolver import (
+    DeploymentDescriptor,
+    DeploymentResolver,
+)
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
+from litellm.proxy.openrouter_compat.models_service import OpenRouterModelsService
 from litellm.proxy.openrouter_compat.service import DiscoveryService
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
 from litellm.proxy.openrouter_compat.transport.errors import DiscoveryHTTPError
@@ -202,3 +207,102 @@ async def test_sglang_modality_unknown_is_empty_not_text():
     assert model.architecture.input_modalities == []
     assert model.architecture.output_modalities == []
     assert model.architecture.modality is None
+
+
+class _FakeResolver(DeploymentResolver):
+    """Resolver stub returning a fixed descriptor list (no router needed)."""
+
+    def __init__(self, descriptors: list[DeploymentDescriptor]) -> None:
+        self._descriptors = descriptors
+
+    async def resolve_for_request(self, **kwargs) -> list[DeploymentDescriptor]:
+        return self._descriptors
+
+
+async def test_get_model_endpoints_matches_namespaced_slug():
+    """/api/v1/models/{author}/{slug}/endpoints must match ids containing '/'.
+
+    The route splits the canonical slug into author + slug. A model id like
+    ``deepseek-ai/DeepSeek-V4-Flash-0731`` yields author="deepseek-ai" and
+    slug="DeepSeek-V4-Flash-0731"; the service must compare against the joined
+    ``author/slug`` (not the bare slug) or every request 404s.
+    """
+    client = FakeClient(
+        {
+            "http://sglang:8000": {
+                "/v1/models": {"data": [{"id": "deepseek-v4", "max_model_len": 262144}]},
+                "/model_info": {"is_generation": True, "model_type": "deepseek_v4"},
+            }
+        }
+    )
+    descriptor = DeploymentDescriptor(
+        deployment_id="dep-1",
+        logical_model_name="deepseek-ai/DeepSeek-V4-Flash-0111",
+        provider="sglang",
+        model="deepseek-v4",
+        api_base="http://sglang:8000",
+        model_info={"discovery_runtime": "sglang"},
+    )
+    service = OpenRouterModelsService(
+        llm_router=None,
+        details_base_url="http://proxy:4000",
+        http_client=client,  # type: ignore[arg-type]  # duck-typed
+    )
+    service._resolver = _FakeResolver([descriptor])  # type: ignore[assignment]  # test-only override
+    user = UserAPIKeyAuth(user_id="u", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    result = await service.get_model_endpoints(
+        author="deepseek-ai",
+        slug="DeepSeek-V4-Flash-0111",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+    assert result is not None
+    assert result["id"] == "deepseek-ai/DeepSeek-V4-Flash-0111"
+    assert result["total_count"] == 1
+
+
+async def test_get_model_endpoints_matches_namespaced_bare_slug():
+    """Bare ids (e.g. hamsa-tts) are namespaced by the mapper as litellm/<slug>."""
+    client = FakeClient(
+        {
+            "http://sglang:8000": {
+                "/v1/models": {"data": [{"id": "hamsa-tts", "max_model_len": 4096}]},
+                "/model_info": {"is_generation": False, "model_type": "tts"},
+            }
+        }
+    )
+    descriptor = DeploymentDescriptor(
+        deployment_id="de-2",
+        logical_model_name="hamsa-tts",
+        provider="sglang",
+        model="hamsa-tts",
+        api_base="http://sglang:8000",
+        model_info={"discovery_runtime": "sglang"},
+    )
+    service = OpenRouterModelsService(
+        llm_router=None,
+        details_base_url="http://proxy:4000",
+        http_client=client,  # type: ignore[arg-type]  # fake-typed
+    )
+    service._resolver = _FakeResolver([descriptor])  # type: ignore[assignment]  # test-only override
+    user = UserAPIKeyAuth(user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    result = await service.get_model_endpoints(
+        author="litellm",
+        slug="hamsa-tts",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+    assert result is not None
+    assert result["id"] == "litellm/hamsa-tts"

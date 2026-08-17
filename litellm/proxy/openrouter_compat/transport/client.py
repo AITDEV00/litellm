@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 import httpx
@@ -24,11 +24,28 @@ class DiscoveryTarget:
     deployment_id: str
     api_base: str
     auth_headers: dict[str, str]
+    model_info: dict[str, object] = field(default_factory=dict)
 
 
 def fingerprint(value: str) -> str:
     """Deterministic short hash used for dedup/cache keys (never secrets)."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _join_url(api_base: str, path: str) -> str:
+    """Join an api_base and a runtime path, deduplicating a trailing ``/v1``.
+
+    Runtime API bases frequently already end with the version segment
+    (``http://host:8080/v1``), while probe paths also start with ``/v1/...``.
+    A naive join would produce ``.../v1/v1/models`` and 404, so when the base
+    already ends with ``/v1`` and the path begins with ``v1/``, the base's
+    trailing segment is dropped.
+    """
+    base = api_base.rstrip("/")
+    path = path if path.startswith("/") else f"/{path}"
+    if base.endswith("/v1") and path.startswith("/v1/"):
+        base = base[:-3]
+    return f"{base}{path}"
 
 
 class DiscoveryHTTPClient:
@@ -51,7 +68,7 @@ class DiscoveryHTTPClient:
         )
 
     async def get_json(self, target: DiscoveryTarget, path: str) -> dict[str, object]:
-        url = target.api_base.rstrip("/") + path
+        url = _join_url(target.api_base, path)
         timeout = httpx.Timeout(self._read_timeout, connect=self._connect_timeout)
         try:
             async with self._semaphore:

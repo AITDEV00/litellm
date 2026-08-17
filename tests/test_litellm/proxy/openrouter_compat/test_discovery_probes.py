@@ -16,7 +16,10 @@ from litellm.proxy.openrouter_compat.discovery.probes.openapi import (
 from litellm.proxy.openrouter_compat.discovery.probes.sglang_model_info import (
     SGLangModelInfoProbe,
 )
-from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
+from litellm.proxy.openrouter_compat.transport.client import (
+    DiscoveryTarget,
+    _join_url,
+)
 from litellm.proxy.openrouter_compat.transport.errors import (
     DiscoveryHTTPError,
     DiscoveryTimeout,
@@ -48,6 +51,32 @@ def _valid_models_payload() -> dict[str, object]:
             {"id": "m2"},
         ],
     }
+
+
+def test_join_url_deduplicates_trailing_v1():
+    # api_base already ends with /v1 and path starts with /v1 -> no duplicate
+    assert (
+        _join_url("http://runtime:8000/v1", "/v1/models")
+        == "http://runtime:8000/v1/models"
+    )
+    # api_base with trailing slash, path without leading slash
+    assert (
+        _join_url("http://runtime:8000/v1/", "v1/models")
+        == "http://runtime:8000/v1/models"
+    )
+    # api_base without /v1 -> path used as-is
+    assert (
+        _join_url("http://runtime:8000", "/v1/models")
+        == "http://runtime:8000/v1/models"
+    )
+    # non /v1 segment on base is preserved (e.g. /model_info)
+    assert (
+        _join_url("http://runtime:8000/v1", "/model_info")
+        == "http://runtime:8000/v1/model_info"
+    )
+    assert _join_url("http://runtime:8000/v1", "/openapi.json") == (
+        "http://runtime:8000/v1/openapi.json"
+    )
 
 
 async def test_openai_models_probe_success():

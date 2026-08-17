@@ -48,7 +48,7 @@ async def list_models(
     import litellm.proxy.proxy_server as proxy_server_mod  # noqa: PLC0415  # proxy_server imports this router, so lazy-import
 
     service = _get_service(request)
-    settings: dict[str, object] = cast(dict[str, object], cast(object, proxy_server_mod.general_settings))
+    settings: dict[str, object] = cast(dict[str, object], proxy_server_mod.general_settings)
     return await service.list_models(
         user_api_key_dict=user_api_key_dict,
         general_settings=settings,
@@ -71,12 +71,20 @@ async def model_endpoints(
     limit: int = Query(50, ge=1, le=500),
 ):
     """OpenRouter-compatible per-model endpoint details (design §31)."""
+    import litellm.proxy.proxy_server as proxy_server_mod  # noqa: PLC0415  # proxy_server imports this router, so lazy-import
+
     service = _get_service(request)
+    settings: dict[str, object] = cast(dict[str, object], proxy_server_mod.general_settings)
 
     result = await service.get_model_endpoints(
         author=author,
         slug=slug,
         user_api_key_dict=user_api_key_dict,
+        general_settings=settings,
+        prisma_client=proxy_server_mod.prisma_client,
+        proxy_logging_obj=proxy_server_mod.proxy_logging_obj,
+        user_api_key_cache=proxy_server_mod.user_api_key_cache,
+        team_id=None,
         offset=offset,
         limit=limit,
     )

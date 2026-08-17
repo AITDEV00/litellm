@@ -95,6 +95,7 @@ class OpenAICompatibleRuntimeAdapter(BaseDiscoveryAdapter[RuntimeModelCard]):
             api_capabilities=ApiCapabilities(),
             runtime=runtime,
             provenance=provenance,
+            model_info=target.model_info,
         )
 
     def _apply_openapi(

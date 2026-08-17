@@ -33,6 +33,7 @@ class DeploymentDescriptor(BaseModel):
             deployment_id=self.deployment_id,
             api_base=self.api_base,
             auth_headers=self.auth_headers or {},
+            model_info=self.model_info,
         )
 
 
