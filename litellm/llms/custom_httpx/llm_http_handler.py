@@ -58,6 +58,11 @@ from litellm.llms.base_llm.image_generation.transformation import (
     BaseImageGenerationConfig,
 )
 from litellm.llms.base_llm.ocr.transformation import BaseOCRConfig, OCRResponse
+from litellm.llms.base_llm.document_conversion.transformation import (
+    BaseDocumentConversionConfig,
+    ConvertDocumentResponse,
+    DocumentConversionSource,
+)
 from litellm.llms.base_llm.realtime.transformation import BaseRealtimeConfig
 from litellm.llms.base_llm.rerank.transformation import BaseRerankConfig
 from litellm.llms.base_llm.responses.transformation import BaseResponsesAPIConfig
@@ -1789,6 +1794,220 @@ class BaseLLMHTTPHandler:
             model=model,
             raw_response=response,
             logging_obj=logging_obj,
+        )
+
+    def _prepare_document_conversion_request(
+        self,
+        model: str,
+        sources: list[DocumentConversionSource],
+        optional_params: dict,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        headers: dict[str, object] | None,
+        provider_config: BaseDocumentConversionConfig,
+        litellm_params: dict,
+    ) -> tuple[dict[str, Any], str, dict[str, Any], None]:
+        """
+        Shared logic for preparing document conversion requests.
+        Returns: (headers, complete_url, data, files)
+        """
+        from litellm.llms.base_llm.document_conversion.transformation import (
+            DocumentConversionRequestData,
+        )
+
+        headers = provider_config.validate_environment(
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers or {},
+            model=model,
+            litellm_params=litellm_params,
+        )
+
+        complete_url = provider_config.get_complete_url(
+            api_base=api_base,
+            model=model,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        transformed_result = provider_config.transform_document_conversion_request(
+            model=model,
+            sources=sources,
+            optional_params=optional_params,
+            headers=headers,
+            api_key=api_key,
+            api_base=api_base,
+        )
+
+        if not isinstance(transformed_result, DocumentConversionRequestData):
+            raise ValueError(
+                f"Provider {provider_config.__class__.__name__} must return DocumentConversionRequestData"
+            )
+
+        if not isinstance(transformed_result.data, dict):
+            raise ValueError(
+                f"Expected dict data for document conversion request, got {type(transformed_result.data)}"
+            )
+
+        data = transformed_result.data
+
+        logging_obj.pre_call(
+            input="document conversion",
+            api_key=api_key,
+            additional_args={
+                "complete_input_dict": data,
+                "api_base": complete_url,
+                "headers": headers,
+            },
+        )
+
+        return headers, complete_url, data, None
+
+    def document_conversion(
+        self,
+        model: str,
+        sources: list[DocumentConversionSource],
+        optional_params: dict,
+        timeout: float | httpx.Timeout,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        custom_llm_provider: str,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        headers: dict[str, object] | None = None,
+        provider_config: BaseDocumentConversionConfig | None = None,
+        litellm_params: dict | None = None,
+    ) -> ConvertDocumentResponse | Coroutine[object, object, ConvertDocumentResponse]:
+        """
+        Sync document conversion handler.
+        """
+        if provider_config is None:
+            raise ValueError(
+                f"No provider config found for model: {model} and provider: {custom_llm_provider}"
+            )
+
+        if litellm_params is None:
+            litellm_params = {}
+
+        headers, complete_url, data, files = self._prepare_document_conversion_request(
+            model=model,
+            sources=sources,
+            optional_params=optional_params,
+            logging_obj=logging_obj,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            provider_config=provider_config,
+            litellm_params=litellm_params,
+        )
+
+        if client is None or not isinstance(client, HTTPHandler):
+            client = _get_httpx_client()
+
+        try:
+            response = client.post(
+                url=complete_url,
+                headers=headers,
+                json=data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        return provider_config.transform_document_conversion_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    async def async_document_conversion(
+        self,
+        model: str,
+        sources: list[DocumentConversionSource],
+        optional_params: dict,
+        timeout: float | httpx.Timeout,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        custom_llm_provider: str,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        headers: dict[str, object] | None = None,
+        provider_config: BaseDocumentConversionConfig | None = None,
+        litellm_params: dict | None = None,
+    ) -> ConvertDocumentResponse:
+        """
+        Async document conversion handler.
+        """
+        if provider_config is None:
+            raise ValueError(
+                f"No provider config found for model: {model} and provider: {custom_llm_provider}"
+            )
+
+        if litellm_params is None:
+            litellm_params = {}
+
+        headers, complete_url, data, files = self._async_prepare_document_conversion_request(
+            model=model,
+            sources=sources,
+            optional_params=optional_params,
+            logging_obj=logging_obj,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            provider_config=provider_config,
+            litellm_params=litellm_params,
+        )
+
+        if client is None or not isinstance(client, AsyncHTTPHandler):
+            async_httpx_client = get_async_httpx_client(
+                llm_provider=litellm.LlmProviders(custom_llm_provider),
+            )
+        else:
+            async_httpx_client = client
+
+        try:
+            response = await async_httpx_client.post(
+                url=complete_url,
+                headers=headers,
+                json=data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        return provider_config.transform_document_conversion_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    def _async_prepare_document_conversion_request(
+        self,
+        model: str,
+        sources: list[DocumentConversionSource],
+        optional_params: dict,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        headers: dict[str, object] | None,
+        provider_config: BaseDocumentConversionConfig,
+        litellm_params: dict,
+    ) -> tuple[dict[str, Any], str, dict[str, Any], None]:
+        """
+        Async version of _prepare_document_conversion_request. Docling's request
+        transform is synchronous, so this reuses the sync preparation.
+        """
+        return self._prepare_document_conversion_request(
+            model=model,
+            sources=sources,
+            optional_params=optional_params,
+            logging_obj=logging_obj,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            provider_config=provider_config,
+            litellm_params=litellm_params,
         )
 
     def search(

@@ -8872,6 +8872,23 @@ class ProviderConfigManager:
         return config_class()
 
     @staticmethod
+    def get_provider_document_conversion_config(
+        model: str,
+        provider: LlmProviders,
+    ) -> BaseDocumentConversionConfig | None:
+        """
+        Get document conversion configuration for a given provider.
+        """
+        if provider == litellm.LlmProviders.DOCLING:
+            from litellm.llms.docling.document_conversion.transformation import (
+                DoclingDocumentConversionConfig,
+            )
+
+            return DoclingDocumentConversionConfig()
+
+        return None
+
+    @staticmethod
     def get_provider_search_config(
         provider: SearchProviders,
     ) -> BaseSearchConfig | None:

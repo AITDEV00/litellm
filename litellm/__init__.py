@@ -1374,6 +1374,7 @@ from .skills.main import (
 )
 from .containers.main import *
 from .ocr.main import *
+from .document_conversion.main import *
 from .rust_bridge.ocr import use_litellm_rust
 from .rag.main import *
 from .sandbox.main import *

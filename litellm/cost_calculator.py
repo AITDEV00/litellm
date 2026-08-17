@@ -573,6 +573,22 @@ def cost_per_token(
             number_of_queries=number_of_queries or 1,
             optional_params=(response._hidden_params if response and hasattr(response, "_hidden_params") else None),
         )
+    elif call_type == "convert" or call_type == "aconvert":
+        # Document conversion providers (e.g. Docling) are billed per conversion.
+        # Cost comes from the model's configured cost-per-conversion field, if any.
+        try:
+            model_info = _cached_get_model_info_helper(model=model, custom_llm_provider=custom_llm_provider)
+        except Exception:
+            model_info = {}
+        cost_per_conversion = model_info.get("cost_per_conversion")
+        if cost_per_conversion is None:
+            verbose_logger.debug(
+                "Document conversion cost: model=%s custom_llm_provider=%s has no cost_per_conversion configured; billing 0",
+                model,
+                custom_llm_provider,
+            )
+            return 0.0, 0.0
+        return float(cost_per_conversion), 0.0
     elif custom_llm_provider == "vertex_ai":
         cost_router = google_cost_router(
             model=model_without_prefix,
@@ -1722,6 +1738,8 @@ def response_cost_calculator(
         "arerank",
         "search",
         "asearch",
+        "convert",
+        "aconvert",
     ],
     optional_params: dict,
     cache_hit: bool | None = None,

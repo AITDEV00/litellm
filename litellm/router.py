@@ -1411,6 +1411,13 @@ class Router:
         self.asearch = self.factory_function(asearch, call_type="asearch")
         self.search = self.factory_function(search, call_type="search")
 
+    def _initialize_document_conversion_endpoints(self):
+        """Initialize document conversion endpoints."""
+        from litellm.document_conversion import aconvert, convert
+
+        self.aconvert = self.factory_function(aconvert, call_type="aconvert")
+        self.convert = self.factory_function(convert, call_type="convert")
+
     def _initialize_video_endpoints(self):
         """Initialize video endpoints."""
         from litellm.videos import (
@@ -1541,6 +1548,7 @@ class Router:
         self._initialize_vector_store_file_endpoints()
         self._initialize_google_genai_endpoints()
         self._initialize_ocr_search_endpoints()
+        self._initialize_document_conversion_endpoints()
         # Override vector store methods with router-aware implementations
         self._override_vector_store_methods_for_router()
         self._initialize_video_endpoints()
@@ -5689,6 +5697,8 @@ class Router:
             "vector_store_file_delete",
             "aocr",
             "ocr",
+            "aconvert",
+            "convert",
             "asearch",
             "search",
             "aadapter_generate_content",
@@ -5765,6 +5775,7 @@ class Router:
             "vector_store_search",
             "vector_store_create",
             "ocr",
+            "convert",
             "search",
             "video_generation",
             "video_list",
@@ -5913,6 +5924,8 @@ class Router:
                 "agenerate_content_stream",
                 "aocr",
                 "ocr",
+                "aconvert",
+                "convert",
                 "avideo_generation",
                 "avideo_list",
                 "avideo_status",

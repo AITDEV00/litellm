@@ -483,6 +483,12 @@ class CallTypes(str, Enum):
     aocr = "aocr"
 
     #########################################################
+    # Document Conversion Call Types
+    #########################################################
+    convert = "convert"
+    aconvert = "aconvert"
+
+    #########################################################
     # MCP Call Types
     #########################################################
     call_mcp_tool = "call_mcp_tool"
@@ -538,6 +544,8 @@ CallTypesLiteral = Literal[
     "agenerate_content_stream",
     "ocr",
     "aocr",
+    "convert",
+    "aconvert",
     "vector_store_create",
     "avector_store_create",
     "vector_store_search",
@@ -917,6 +925,9 @@ API_ROUTE_TO_CALL_TYPES = {
     # OCR
     "/ocr": [CallTypes.aocr, CallTypes.ocr],
     "/v1/ocr": [CallTypes.aocr, CallTypes.ocr],
+    # Document Conversion
+    "/convert/source": [CallTypes.aconvert, CallTypes.convert],
+    "/v1/convert/source": [CallTypes.aconvert, CallTypes.convert],
 }
 
 
@@ -3610,6 +3621,7 @@ class LlmProviders(str, Enum):
     GDC = "gdc"
     HAMSA = "hamsa"
     OMNIVOICE = "omnivoice"
+    DOCLING = "docling"
 
 
 # Create a set of all provider values for quick lookup
