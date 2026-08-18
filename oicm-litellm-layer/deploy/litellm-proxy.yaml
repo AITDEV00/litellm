@@ -277,6 +277,9 @@ spec:
       containers:
         - name: litellm
           image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.96.2
+          # Non-latest tag defaults to IfNotPresent; force Always so a rollout
+          # restart pulls the freshly built image instead of a stale cache.
+          imagePullPolicy: Always
           ports:
             - containerPort: 4000
               name: http
