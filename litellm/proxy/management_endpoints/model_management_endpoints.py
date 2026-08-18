@@ -45,8 +45,10 @@ from litellm.proxy.common_utils.config_sync_pubsub import (
 from litellm.proxy.common_utils.encrypt_decrypt_utils import encrypt_value_helper
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.management_endpoints.common_utils import _is_user_team_admin
-from litellm.proxy.management_endpoints.team_endpoints import (
+from litellm.proxy.management_helpers.team_cache_invalidation import (
     _invalidate_team_key_caches,
+)
+from litellm.proxy.management_endpoints.team_endpoints import (
     _refresh_cached_team,
     team_model_add,
     team_model_delete,

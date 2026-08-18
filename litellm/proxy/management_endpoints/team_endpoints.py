@@ -17,7 +17,6 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import (
     Annotated,
-    Optional,
     Protocol,
     TypeVar,
     cast,
@@ -78,7 +77,6 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.auth.auth_checks import (
     _cache_team_object,
-    _delete_cache_key_object,
     allowed_route_check_inside_route,
     can_org_access_model,
     get_org_object,
@@ -114,11 +112,14 @@ from litellm.proxy.management_helpers.object_permission_utils import (
 from litellm.proxy.management_helpers.team_member_permission_checks import (
     TeamMemberPermissionChecks,
 )
+from litellm.proxy.management_helpers.team_cache_invalidation import (
+    _invalidate_team_key_caches,
+)
 from litellm.proxy.management_helpers.utils import (
     add_new_member,
     management_endpoint_wrapper,
 )
-from litellm.proxy.utils import PrismaClient, ProxyLogging, _hash_token_if_needed, handle_exception_on_proxy
+from litellm.proxy.utils import PrismaClient, ProxyLogging, handle_exception_on_proxy
 from litellm.repositories.budget_repository import BudgetRepository
 from litellm.repositories.organization_repository import OrganizationRepository
 from litellm.repositories.table_repositories import (
@@ -309,38 +310,6 @@ async def _refresh_cached_team(
         user_api_key_cache=user_api_key_cache,
         proxy_logging_obj=proxy_logging_obj,
     )
-
-
-async def _invalidate_team_key_caches(
-    team_id: str,
-    user_api_key_cache: UserApiKeyCache,
-    proxy_logging_obj: Optional[ProxyLogging],
-) -> None:
-    from litellm.proxy.proxy_server import prisma_client as _prisma_client
-
-    if _prisma_client is None:
-        return
-
-    try:
-        team_keys = await VerificationTokenRepository(_prisma_client).find_by_team_id(team_id=team_id)
-    except Exception as e:
-        verbose_proxy_logger.warning(
-            "_invalidate_team_key_caches: failed to enumerate keys for team_id=%s: %s. "
-            "Cached key objects may serve stale team_models until their TTL expires.",
-            _sanitize_for_log(team_id),
-            e,
-        )
-        return
-
-    for key_row in team_keys:
-        if key_row.token is None:
-            continue
-        hashed_token = _hash_token_if_needed(key_row.token)
-        await _delete_cache_key_object(
-            hashed_token=hashed_token,
-            user_api_key_cache=user_api_key_cache,
-            proxy_logging_obj=proxy_logging_obj,
-        )
 
 
 async def _verify_team_access(
