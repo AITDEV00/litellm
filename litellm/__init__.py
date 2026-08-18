@@ -2270,6 +2270,17 @@ def __getattr__(name: str) -> Any:
             _globals["_service_logger"] = litellm._service_logger
         return _globals["_service_logger"]
 
+    # Lazy load OICM voice/script SDK functions (co-located slice in endpoints/voice)
+    if name in ["acreate_voice", "create_voice", "ascript", "script"]:
+        from litellm.endpoints.voice.main import (
+            acreate_voice,
+            ascript,
+            create_voice,
+            script,
+        )
+
+        return locals()[name]
+
     # Lazy load evals module functions
     if name in [
         "acreate_eval",
