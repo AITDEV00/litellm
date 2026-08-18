@@ -8170,19 +8170,13 @@ class ProviderConfigManager:
             )
 
             return VertexAIAudioTranscriptionConfig()
-        elif litellm.LlmProviders.HAMSA == provider:
-            from litellm.llms.hamsa.transcription.transformation import (
-                HamsaAudioTranscriptionConfig,
-            )
+        # OICM-custom providers (Hamsa, Inception) are dispatched in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_audio_transcription_config as _oicm_get_provider_audio_transcription_config,
+        )
 
-            return HamsaAudioTranscriptionConfig()
-        elif litellm.LlmProviders.INCEPTION == provider:
-            from litellm.llms.inception.transcription.transformation import (
-                InceptionAudioTranscriptionConfig,
-            )
-
-            return InceptionAudioTranscriptionConfig()
-        return None
+        return _oicm_get_provider_audio_transcription_config(provider)
 
     @staticmethod
     def get_provider_responses_api_config(
@@ -8999,31 +8993,13 @@ class ProviderConfigManager:
             )
 
             return AWSPollyTextToSpeechConfig()
-        elif litellm.LlmProviders.HAMSA == provider:
-            from litellm.llms.hamsa.text_to_speech.transformation import (
-                HamsaTextToSpeechConfig,
-            )
+        # OICM-custom providers (Hamsa, Inception, OmniVoice) are handled in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_text_to_speech_config as _oicm_get_provider_text_to_speech_config,
+        )
 
-            return HamsaTextToSpeechConfig()
-        elif litellm.LlmProviders.INCEPTION == provider:
-            from litellm.llms.inception.text_to_speech.transformation import (
-                InceptionTextToSpeechConfig,
-            )
-
-            return InceptionTextToSpeechConfig()
-        elif litellm.LlmProviders.OMNIVOICE == provider:
-            if kwargs is not None and kwargs.get("ref_audio") is not None:
-                from litellm.llms.omnivoice.voice.transformation import (
-                    OmniVoiceVoiceCloneConfig,
-                )
-
-                return OmniVoiceVoiceCloneConfig()
-            from litellm.llms.omnivoice.text_to_speech.transformation import (
-                OmniVoiceTextToSpeechConfig,
-            )
-
-            return OmniVoiceTextToSpeechConfig()
-        return None
+        return _oicm_get_provider_text_to_speech_config(provider=provider, kwargs=kwargs)
 
     @staticmethod
     def get_provider_google_genai_generate_content_config(
@@ -9063,29 +9039,25 @@ class ProviderConfigManager:
     def get_provider_voice_config(
         provider: LlmProviders,
     ) -> Optional[BaseVoiceConfig]:
-        from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
+        # OICM-custom providers (Hamsa, OmniVoice) are handled in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_voice_config as _oicm_get_provider_voice_config,
+        )
 
-        if litellm.LlmProviders.HAMSA == provider:
-            from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
-
-            return HamsaVoiceConfig()
-        if litellm.LlmProviders.OMNIVOICE == provider:
-            from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceConfig
-
-            return OmniVoiceVoiceConfig()
-        return None
+        return _oicm_get_provider_voice_config(provider)
 
     @staticmethod
     def get_provider_script_config(
         provider: LlmProviders,
     ) -> Optional[BaseTextToSpeechConfig]:
-        if litellm.LlmProviders.OMNIVOICE == provider:
-            from litellm.llms.omnivoice.script.transformation import (
-                OmniVoiceScriptConfig,
-            )
+        # OICM-custom provider (OmniVoice) is handled in the co-located
+        # oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_script_config as _oicm_get_provider_script_config,
+        )
 
-            return OmniVoiceScriptConfig()
-        return None
+        return _oicm_get_provider_script_config(provider)
 
 
 def get_end_user_id_for_cost_tracking(
