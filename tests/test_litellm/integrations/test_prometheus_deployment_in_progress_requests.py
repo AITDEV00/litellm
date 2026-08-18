@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from prometheus_client import CollectorRegistry, Gauge, Histogram, generate_latest
 
-from litellm.integrations.prometheus import PrometheusLogger, _DeploymentInFlightLedger
+from litellm.integrations.prometheus import PrometheusLogger
+from litellm.integrations.prometheus_helpers.deployment_in_flight import (
+    DeploymentInFlightLedger,
+    normalize_api_base_for_gauge,
+)
 from litellm.types.integrations.prometheus import (
     PrometheusMetricLabels,
     UserAPIKeyLabelValues,
@@ -90,7 +94,9 @@ def logger(isolated_registry):
         pl._bounded_prometheus_series_tracker = MagicMock()
         pl._cached_metric_labels: dict = {}
         pl.label_filters: dict = {}
-        pl._deployment_in_flight_ledger = _DeploymentInFlightLedger()
+        pl.exclude_metrics: frozenset = frozenset()
+        pl.exclude_labels: frozenset = frozenset()
+        pl._deployment_in_flight_ledger = DeploymentInFlightLedger()
         return pl
 
 
@@ -518,15 +524,13 @@ async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry
 
 
 def test_normalize_api_base_strips_known_suffixes():
-    from litellm.integrations.prometheus import _normalize_api_base_for_gauge
-
-    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/chat/completions") == "http://vllm:8080/v1"
-    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/embeddings") == "http://vllm:8080/v1"
-    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/responses") == "http://vllm:8080/v1"
-    assert _normalize_api_base_for_gauge("http://vllm:8080/v1/") == "http://vllm:8080/v1"
-    assert _normalize_api_base_for_gauge("http://vllm:8080/v1") == "http://vllm:8080/v1"
-    assert _normalize_api_base_for_gauge("") == ""
-    assert _normalize_api_base_for_gauge("http://vllm:8080/custom/path") == "http://vllm:8080/custom/path"
+    assert normalize_api_base_for_gauge("http://vllm:8080/v1/chat/completions") == "http://vllm:8080/v1"
+    assert normalize_api_base_for_gauge("http://vllm:8080/v1/embeddings") == "http://vllm:8080/v1"
+    assert normalize_api_base_for_gauge("http://vllm:8080/v1/responses") == "http://vllm:8080/v1"
+    assert normalize_api_base_for_gauge("http://vllm:8080/v1/") == "http://vllm:8080/v1"
+    assert normalize_api_base_for_gauge("http://vllm:8080/v1") == "http://vllm:8080/v1"
+    assert normalize_api_base_for_gauge("") == ""
+    assert normalize_api_base_for_gauge("http://vllm:8080/custom/path") == "http://vllm:8080/custom/path"
 
 
 @pytest.mark.asyncio
