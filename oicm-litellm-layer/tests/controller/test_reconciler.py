@@ -82,7 +82,7 @@ async def test_register_uses_corrected_mode_for_tts_model():
     assert registered_model.mode == "text_to_speech"
 
 
-def _make_multi_model(uuid, model_id, provider="docling", mode="document_conversion"):
+def _make_multi_model(uuid, model_id, provider="hosted_vllm", mode="chat"):
     return OicmModel(
         uuid=uuid,
         model_id=model_id,

@@ -33,7 +33,7 @@ async def test_single_model_deployment_uses_composite_key():
 
 
 @pytest.mark.asyncio
-async def test_docling_deployment_fans_out_to_multiple_models():
+async def test_convert_path_deployment_fans_out_to_multiple_models():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(
@@ -51,8 +51,9 @@ async def test_docling_deployment_fans_out_to_multiple_models():
         "doc-uuid::PP-StructureV3",
     }
     for model in models.values():
-        assert model.mode == "document_conversion"
-        assert model.provider == "docling"
+        # /v1/convert/* no longer implies a docling provider; falls back to
+        # the default hosted_vllm classification.
+        assert model.provider == "hosted_vllm"
         # both share the same api_base (same deployment)
         assert model.api_base == "http://s-doc-uuid.adeo.svc.cluster.local:8080/v1"
 

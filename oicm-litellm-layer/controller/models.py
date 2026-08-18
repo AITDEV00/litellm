@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import FrozenSet, List, Optional, Sequence
+from typing import FrozenSet, List, Optional
 
 from .config import CLUSTER_DOMAIN, MODEL_PORT
 
@@ -77,14 +77,6 @@ TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 TTS_PATH = "/v1/audio/speech"
 EMBEDDING_PATH = "/v1/embeddings"
 RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
-# Any route under /v1/convert/* (file, source, async, batch) marks a Docling
-# document-conversion deployment.
-DOCUMENT_CONVERSION_PREFIX = "/v1/convert"
-DOCLING_PROVIDER = "docling"
-
-
-def _has_convert_path(paths: Sequence[str]) -> bool:
-    return any(p == DOCUMENT_CONVERSION_PREFIX or p.startswith(f"{DOCUMENT_CONVERSION_PREFIX}/") for p in paths)
 
 
 def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str) -> str:
@@ -105,9 +97,6 @@ def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str
 
     if TTS_PATH in paths and CHAT_PATH not in paths:
         return "text_to_speech"
-
-    if _has_convert_path(paths):
-        return "document_conversion"
 
     if "whisper" in mid_lower or "asr" in mid_lower:
         return "audio_transcription"
@@ -138,8 +127,5 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
 
     if "k2-fsa" in owner_lower or "k2fsa" in mid_lower:
         return "omnivoice"
-
-    if _has_convert_path(paths):
-        return DOCLING_PROVIDER
 
     return "hosted_vllm"

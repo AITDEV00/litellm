@@ -66,32 +66,26 @@ class TestSanitizeModelId:
 
 
 class TestDoclingDetection:
-    def test_detect_mode_document_conversion_from_convert_path(self):
-        paths = frozenset({"/v1/convert/source", "/health", "/v1/models"})
-        assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "document_conversion"
-
-    def test_detect_mode_document_conversion_from_convert_file(self):
-        paths = frozenset({"/v1/convert/file"})
-        assert detect_mode_from_paths(paths, "anything", "") == "document_conversion"
-
     def test_detect_mode_chat_without_convert_path(self):
         paths = frozenset({"/v1/chat/completions"})
         assert detect_mode_from_paths(paths, "llama-3", "") == "chat"
 
-    def test_detect_provider_docling_from_convert_path(self):
-        paths = frozenset({"/v1/convert/source"})
-        assert detect_provider("", "PP-DocLayoutV3", paths) == "docling"
-
     def test_detect_provider_hosted_vllm_without_convert_path(self):
         assert detect_provider("", "llama-3-8b") == "hosted_vllm"
 
-    def test_detect_provider_known_provider_wins_over_paths(self):
-        # inception/hamsa/omnivoice detection takes precedence over docling paths
+    def test_detect_provider_known_provider_wins(self):
+        # inception/hamsa/omnivoice detection takes precedence over other paths
         paths = frozenset({"/v1/convert/source"})
         assert detect_provider("hamsa", "PP-DocLayoutV3", paths) == "hamsa"
 
+    def test_detect_provider_convert_path_falls_back_to_hosted_vllm(self):
+        # /v1/convert/* paths no longer imply a docling provider; they fall
+        # back to the default hosted_vllm classification.
+        paths = frozenset({"/v1/convert/source"})
+        assert detect_provider("", "PP-DocLayoutV3", paths) == "hosted_vllm"
+
     def test_detect_mode_wrapper_without_paths(self):
-        # detect_mode passes no paths -> docling not detected via name alone
+        # detect_mode passes no paths -> mode falls back to chat by name alone
         assert detect_mode("PP-DocLayoutV3", "") == "chat"
 
 
@@ -102,7 +96,6 @@ class TestToLitellmMode:
     def test_other_modes_passthrough(self):
         assert to_litellm_mode("chat") == "chat"
         assert to_litellm_mode("embedding") == "embedding"
-        assert to_litellm_mode("document_conversion") == "document_conversion"
 
 
 class TestCompositeKey:
