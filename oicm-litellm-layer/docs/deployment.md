@@ -12,6 +12,9 @@ rollout changes safely.
 | `deploy/litellm-redis.yaml` | Redis StatefulSet | `mlops` |
 | `deploy/litellm-ingress.yaml` | Ingress | `mlops` |
 | `deploy/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `mlops` |
+| `deploy/litellm-proxy-debug.yaml` | Debug variant of the proxy (extended logs, `--reload`) | `mlops` |
+| `deploy/discovery-controller-debug.yaml` | Debug variant of the controller | `mlops` |
+| `deploy/litellm-proxy-rollback-jya0-v1.95.0.yaml` | Rollback manifest pinned to image `v1.95.0` | `mlops` |
 
 ## Apply
 
@@ -54,4 +57,5 @@ and the `~/.kube/oicm-alain.conf` kubeconfig.
 ## Monitoring
 
 - Prometheus metrics at `/metrics` (proxy), scraped by a ServiceMonitor.
-- The controller exposes `/health` on port 8090 (liveness/readiness probes).
+- The controller exposes `/health` on `HEALTH_PORT` (default 8090), served
+  inline from `controller/controller.py` (liveness/readiness probes).

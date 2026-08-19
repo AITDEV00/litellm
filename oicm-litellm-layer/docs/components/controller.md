@@ -14,7 +14,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 | `controller/reconciler.py` | Model reconciliation |
 | `controller/models.py` | `OicmModel` dataclass, `sanitize_model_id`, `detect_mode` |
 | `controller/litellm_client.py` | LiteLLM REST client — **sends `LITELLM_ADMIN_KEY`** |
-| `controller/health.py` | Health server (`/health` on port 8090) |
+| `controller/controller.py` | **also hosts the inline health server** (`/health` on `HEALTH_PORT`, default 8090) — there is no separate `health.py` |
 | `controller/sources/base.py` | `ModelSource` ABC |
 | `controller/sources/local_deployments.py` | Watches `adeo` namespace Deployments |
 | `controller/sources/submariner_imports.py` | Watches Submariner EndpointSlices |
@@ -33,9 +33,11 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 
 ## Deployment
 
-The controller is deployed via `deploy/discovery-controller.yaml`. It is pinned
-to `adeo-gpu-03` (the Submariner gateway node) with tolerations and RBAC for
-reading EndpointSlices. See [Deployment & Cluster](../deployment.md).
+Deployed via `deploy/discovery-controller.yaml`, pinned to `adeo-gpu-03` (the
+Submariner gateway node) with tolerations and RBAC for reading EndpointSlices.
+The full env var table, build/push steps, and dependency graph live in
+[Discovery Controller](../discovery-controller/README.md); cluster apply /
+rollout steps live in [Deployment & Cluster](../deployment.md).
 
 ## Tests
 
@@ -44,7 +46,7 @@ reading EndpointSlices. See [Deployment & Cluster](../deployment.md).
 
 ## Docs
 
-- `docs/discovery-controller/README.md` — what it does + related resources
+- `docs/discovery-controller/README.md` — what it does, architecture, env vars, deployment
 - `docs/discovery-controller/logic-map-and-code-smell-audit.md` — trace + audit
 - `docs/model-pricing/PRICING-LOGIC-MAP.md` — pricing resolution logic
 - `docs/architecture/IMPLEMENTATION_PLAN.md` — original design (component #1)

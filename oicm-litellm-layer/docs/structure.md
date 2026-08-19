@@ -20,11 +20,10 @@ oicm-litellm-layer/
 ├── controller/             ← DISCOVERY CONTROLLER (component #1)
 │   ├── __main__.py         ← entry point
 │   ├── config.py           ← env vars, constants (incl. LITELLM_ADMIN_KEY default)
-│   ├── controller.py       ← orchestration, reconcile loop
+│   ├── controller.py       ← orchestration, reconcile loop, inline health server
 │   ├── reconciler.py       ← model reconciliation
 │   ├── models.py           ← OicmModel dataclass
 │   ├── litellm_client.py   ← LiteLLM REST API client (uses LITELLM_ADMIN_KEY)
-│   ├── health.py           ← health server
 │   ├── Dockerfile
 │   ├── README.md           ← controller dev docs (env var table here)
 │   ├── sources/            ← model sources (ABC + impls)
@@ -32,7 +31,7 @@ oicm-litellm-layer/
 │   │   ├── local_deployments.py
 │   │   └── submariner_imports.py
 │   ├── fallbacks/          ← fallback service
-│   │   ├── client.py  models.py  service.py
+│   │   ├── client.py  service.py
 │   └── pricing/            ← model pricing resolution
 │       ├── aggregator.py  matchers.py  models.py  normalizer.py
 │       ├── resolver.py  source.py  utils.py
@@ -59,11 +58,14 @@ oicm-litellm-layer/
 ├── decor/                  ← images/assets (logo, favicon)
 │
 ├── deploy/                 ← KUBERNETES MANIFESTS (apply these)
-│   ├── litellm-proxy.yaml        ← proxy Deployment + Secret + ConfigMap + Service + PDB
-│   ├── discovery-controller.yaml ← controller Deployment + RBAC + ServiceAccount
-│   ├── litellm-redis.yaml        ← Redis StatefulSet
-│   ├── litellm-ingress.yaml      ← ingress
-│   └── litellm-servicemonitor.yaml ← Prometheus ServiceMonitor
+│   ├── litellm-proxy.yaml              ← proxy Deployment + Secret + ConfigMap + Service + PDB
+│   ├── discovery-controller.yaml       ← controller Deployment + RBAC + ServiceAccount
+│   ├── litellm-redis.yaml              ← Redis StatefulSet
+│   ├── litellm-ingress.yaml            ← ingress
+│   ├── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
+│   ├── litellm-proxy-debug.yaml        ← debug proxy variant (see debug_pod technique)
+│   ├── discovery-controller-debug.yaml ← debug controller variant
+│   └── litellm-proxy-rollback-jya0-v1.95.0.yaml ← rollback manifest pinned to v1.95.0
 │
 ├── docs/                   ← human/agent documentation (this site + existing)
 │   ├── index.md            ← THIS page (mkdocs home)
@@ -107,8 +109,15 @@ oicm-litellm-layer/
 │   └── port-forward-datasources.sh
 │
 ├── benchmarks/             ← benchmark scripts
+│   ├── bench_after.py  bench_final.py  bench_2replicas.py  bench_minimax_vision.py
+│
+├── mock-data/              ← OpenRouter / model-info mock data for local dev + tests
+│   ├── build_master_mock.py  litellm_model_info.json  openrouter-models.json
+│   └── upstream/             ← raw runtime probes (sglang/vllm)
 │
 ├── examples/               ← example files
+│   ├── custom/tryhamsastt/  ← HAMSA STT WebSocket test page
+│   └── openrouter/          ← /api/v1/models demo
 │
 ├── tests/                  ← tests (controller, hooks)
 │   ├── controller/
@@ -116,8 +125,6 @@ oicm-litellm-layer/
 │   │   └── pricing/        ← pricing tests
 │   └── hooks/
 │       └── test_priority_bridge.py
-│
-└── decor/                  ← image assets (logo, favicon)
 ```
 
 ## What maps to what task
@@ -133,4 +140,6 @@ oicm-litellm-layer/
 | Deploy / apply / rollout | `deploy/*.yaml` (see `docs/deployment.md`) |
 | Apply an upstream patch | `patches/embedding-extra-body.patch` |
 | Run local proxy | `config/local_dev.yaml` via `Makefile` |
+| Generate / serve mock model data | `mock-data/` |
+| Apply the wildcard TLS cert | `docs/SSL/` runbooks + scripts |
 | Find a doc | `docs/docs-map.md` |

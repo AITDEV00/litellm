@@ -88,6 +88,14 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | MkDocs setup | `docs/runbooks/MKDOCS-SETUP.md` |
 | Datasource local validation | `docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md` |
 
+## TLS / Certificates
+
+| Doc | Location |
+|-----|----------|
+| Apply wildcard cert guideline | `docs/SSL/CERT-GUIDELINE.md` |
+| Serve litellm.ecouncil.ae runbook | `docs/SSL/LITELLM-ECOUNCIL-RUNBOOK.md` |
+| TLS secret scripts | `docs/SSL/create-tls-secret*.sh` |
+
 ## Architecture
 
 | Doc | Location |

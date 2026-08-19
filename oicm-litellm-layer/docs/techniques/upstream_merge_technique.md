@@ -55,6 +55,7 @@ git merge-base HEAD <old-head>           # should == <old-head> (our side is lin
 | Multi-line edit lost leading indentation | `Final:` annotation re-edit dropped 8/12 spaces | Step 4: `py_compile` every resolved file |
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 5: `test_oicm_drop_detection.py` |
 | Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted | Step 5: `make lint-budget-update` |
+| **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
 ---
 
@@ -78,6 +79,24 @@ conflicts.
 > Rule of thumb: if a conflict is a **regenerable artifact** (build output,
 > generated code, lockfiles the tool manages), take ours and move on. If it is
 > **real source**, it needs a real resolution.
+>
+> **⚠️ Lockfile exception — `uv.lock` is NOT safe to revert.** Unlike `out/`, the
+> OICM branch's `uv.lock` deliberately **adds** dependencies that upstream does
+> not ship (`openrouter>=1.1.0,<2.0`, `jsonpath-python`) and pins `pydantic<2.13`
+> because `openrouter` requires it. The merge can show `uv.lock` as a conflict or
+> an "unintended local artifact". **Do NOT revert it.** Taking the upstream
+> version (or deleting it) silently drops the OICM deps; the Docker
+> `uv sync --frozen` build then fails or produces an image that crashes with
+> `ModuleNotFoundError: No module named 'openrouter'`. Keep the OICM lockfile, or
+> if it must be regenerated, pin the exact cutoff that was committed:
+>
+> ```bash
+> uv lock --exclude-newer 2026-08-04T19:23:00.077310687Z
+> ```
+>
+> and confirm the known-good combo is present before committing:
+> `openrouter ~= 1.1.28`, `jsonpath-python ~= 1.1.6`, `pydantic == 2.12.5`
+> (see `oicm-slices.md` → Deployments for the current pins).
 
 ### Step 1 — Refresh `litellm_internal_staging` from upstream
 
@@ -268,3 +287,16 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   merge that drops a mount/re-export/callback fails a test instead of production.
 - **Production stays on the last known-good tag.** Merge and validate the debug
   gateway on the new image; never deploy the merged image to production.
+- **Never revert a lockfile that adds an OICM dependency.** `uv.lock` is a
+  first-class part of the OICM diff, not a local artifact. Reverting it in a
+  merge drops `openrouter`/`jsonpath-python` and unpins `pydantic`, so the image
+  fails to import `openrouter_compat` at startup. If the lockfile looks
+  "wrong" after a merge, diff it against the pre-merge branch
+  (`git diff <old-branch> -- uv.lock`) before touching it; the extra packages
+  are intentional OICM additions.
+- **Smoke-test the image, not just the tree.** `python -c "import litellm"` and
+  the drop-detection tests prove the Python tree, but they do not prove the
+  **container** has the right deps. After building, verify the merged image
+  actually boots the debug gateway and serves a model request with `sk-1234`
+  before considering the merge done. The `openrouter` crash only surfaced at
+  gateway startup, not in any import test.
