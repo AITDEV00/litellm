@@ -16,7 +16,6 @@ import pytest
 
 from litellm.proxy import proxy_server
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -290,22 +289,24 @@ def test_model_performance_prometheus_resolves_names(client, auth_as, monkeypatc
         lambda: True,
     )
 
-    # Two deployments (UUIDs) for the same model, plus a separate one.
-    label_metadata = {
-        "uuid-a": {"litellm_model_name": "gpt-4", "api_base": "a", "api_provider": "openai"},
-        "uuid-b": {"litellm_model_name": "gpt-4", "api_base": "b", "api_provider": "openai"},
-        "uuid-c": {"litellm_model_name": "claude-3", "api_base": "c", "api_provider": "anthropic"},
-    }
-
-    async def fake_get_deployment_label_metadata(label_filter):
-        return label_metadata, {}
-
+    # Two deployments (UUIDs) for the same model, plus a separate one. The
+    # readable name is carried on the range series' own ``litellm_model_name``
+    # label.
     async def fake_query_prometheus_range(promql, start, end, step):
         if "in_progress_requests" in promql:
             return [
-                {"metric": {"model_id": "uuid-a"}, "values": [["1700000000", "2"], ["1700000060", "3"]]},
-                {"metric": {"model_id": "uuid-b"}, "values": [["1700000000", "4"], ["1700000060", "5"]]},
-                {"metric": {"model_id": "uuid-c"}, "values": [["1700000000", "1"], ["1700000060", "1"]]},
+                {
+                    "metric": {"model_id": "uuid-a", "litellm_model_name": "gpt-4"},
+                    "values": [["1700000000", "2"], ["1700000060", "3"]],
+                },
+                {
+                    "metric": {"model_id": "uuid-b", "litellm_model_name": "gpt-4"},
+                    "values": [["1700000000", "4"], ["1700000060", "5"]],
+                },
+                {
+                    "metric": {"model_id": "uuid-c", "litellm_model_name": "claude-3"},
+                    "values": [["1700000000", "1"], ["1700000060", "1"]],
+                },
             ]
         # throughput + ttft return empty to keep the test focused
         return []
@@ -313,10 +314,6 @@ def test_model_performance_prometheus_resolves_names(client, auth_as, monkeypatc
     monkeypatch.setattr(
         "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
         fake_query_prometheus_range,
-    )
-    monkeypatch.setattr(
-        "litellm.integrations.prometheus_helpers.prometheus_api._get_deployment_label_metadata",
-        fake_get_deployment_label_metadata,
     )
 
     with auth_as():
@@ -332,6 +329,61 @@ def test_model_performance_prometheus_resolves_names(client, auth_as, monkeypatc
     assert list(by_ts.values()) == [6.0, 8.0]
     # No raw UUID leaks into model_group keys.
     assert "uuid-a" not in groups and "uuid-b" not in groups and "uuid-c" not in groups
+
+
+# ---------------------------------------------------------------------------
+# GET /model/performance — Prometheus path recovers the name of a removed/idle
+# deployment from its historical series labels
+# ---------------------------------------------------------------------------
+
+
+def test_model_performance_prometheus_recovers_name_for_removed_deployment(client, auth_as, monkeypatch):
+    """A deployment whose series is no longer live (idle / scaled to zero /
+    removed by the discovery controller) must still resolve to its readable
+    model name from its historical range series, never surfacing as a raw UUID.
+
+    The name is recovered from each series' own ``litellm_model_name`` label
+    (concurrent / TTFT) or ``requested_model`` (throughput), so it no longer
+    depends on an instant label-metadata query that misses removed deployments.
+    """
+    pc = MagicMock()
+    pc.db.query_raw = AsyncMock(return_value=[])
+    monkeypatch.setattr(proxy_server, "prisma_client", pc)
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.is_prometheus_connected",
+        lambda: True,
+    )
+
+    async def fake_query(promql, start, end, step):
+        if "in_progress_requests" in promql:
+            # uuid-a is still live; uuid-b's gauge has dropped out (its series
+            # is only present in the historical window). Both carry their own
+            # litellm_model_name label, so both resolve to readable names.
+            return [
+                {
+                    "metric": {"model_id": "uuid-a", "litellm_model_name": "Qwen/Qwen3.5-122B"},
+                    "values": [["1700000000", "2"]],
+                },
+                {
+                    "metric": {"model_id": "uuid-b", "litellm_model_name": "inception-stt"},
+                    "values": [["1700000000", "5"]],
+                },
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
+        fake_query,
+    )
+
+    with auth_as():
+        response = client.get("/model/performance", params={"window": "15m"})
+    assert response.status_code == 200
+    body = response.json()
+    groups = {m["model_group"]: m for m in body["models"]}
+    assert set(groups) == {"Qwen/Qwen3.5-122B", "inception-stt"}
+    # The removed deployment's UUID must never surface as a model_group.
+    assert "uuid-b" not in groups
 
 
 # ---------------------------------------------------------------------------
@@ -355,29 +407,22 @@ def test_model_performance_prometheus_strips_provider_prefix(client, auth_as, mo
         lambda: True,
     )
 
-    label_metadata = {
-        "uuid-a": {
-            "litellm_model_name": "hosted_vllm/Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
-            "api_base": "a",
-            "api_provider": "hosted_vllm",
-        },
-    }
-
-    async def fake_get_deployment_label_metadata(label_filter):
-        return label_metadata, {}
-
-    async def fake_query_prometheus_range(promql, start, end, step):
+    async def fake_query(promql, start, end, step):
         if "in_progress_requests" in promql:
-            return [{"metric": {"model_id": "uuid-a"}, "values": [["1700000000", "2"]]}]
+            return [
+                {
+                    "metric": {
+                        "model_id": "uuid-a",
+                        "litellm_model_name": "hosted_vllm/Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+                    },
+                    "values": [["1700000000", "2"]],
+                }
+            ]
         return []
 
     monkeypatch.setattr(
         "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
-        fake_query_prometheus_range,
-    )
-    monkeypatch.setattr(
-        "litellm.integrations.prometheus_helpers.prometheus_api._get_deployment_label_metadata",
-        fake_get_deployment_label_metadata,
+        fake_query,
     )
 
     with auth_as():
@@ -396,29 +441,25 @@ def test_model_performance_prometheus_strips_provider_prefix(client, auth_as, mo
 def test_model_performance_concurrency_clamps_negatives(client, auth_as, monkeypatch):
     """Negative in-progress gauge values (from inc/dec desync across restarts)
     must never surface as negative concurrent requests in the response."""
-    label_metadata = {
-        "uuid-a": {"litellm_model_name": "gpt-4", "api_base": "a", "api_provider": "openai"},
-    }
 
-    async def fake_get_deployment_label_metadata(label_filter):
-        return label_metadata, {}
-
-    async def fake_query_prometheus_range(promql, start, end, step):
+    async def fake_query(promql, start, end, step):
         if "in_progress_requests" in promql:
             # One deployment stuck negative (desynced), one healthily positive.
             return [
-                {"metric": {"model_id": "uuid-a"}, "values": [["1700000000", "-1500"], ["1700000060", "-1498"]]},
-                {"metric": {"model_id": "uuid-b"}, "values": [["1700000000", "3"], ["1700000060", "4"]]},
+                {
+                    "metric": {"model_id": "uuid-a", "litellm_model_name": "gpt-4"},
+                    "values": [["1700000000", "-1500"], ["1700000060", "-1498"]],
+                },
+                {
+                    "metric": {"model_id": "uuid-b", "litellm_model_name": "claude-3"},
+                    "values": [["1700000000", "3"], ["1700000060", "4"]],
+                },
             ]
         return []
 
     monkeypatch.setattr(
         "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
-        fake_query_prometheus_range,
-    )
-    monkeypatch.setattr(
-        "litellm.integrations.prometheus_helpers.prometheus_api._get_deployment_label_metadata",
-        fake_get_deployment_label_metadata,
+        fake_query,
     )
     monkeypatch.setattr(
         "litellm.integrations.prometheus_helpers.prometheus_api.is_prometheus_connected",

@@ -16,6 +16,13 @@ import { categoryFills, type ChartColor } from "./colors";
 
 export type LineChartCurveType = "linear" | "natural" | "monotone" | "step";
 
+/** Extract the hovered category's data key from a recharts Legend payload, or null. */
+function hoveredCategoryKey(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const dataKey = (payload as { dataKey?: unknown }).dataKey;
+  return typeof dataKey === "string" ? dataKey : null;
+}
+
 export type LineChartProps<TDatum extends Record<string, unknown>> = {
   data: readonly TDatum[];
   index: string;
@@ -35,6 +42,13 @@ export type LineChartProps<TDatum extends Record<string, unknown>> = {
   style?: React.CSSProperties;
   /** Invoked when a point on a line is clicked, with the datum row and the category. */
   onPointClick?: (datum: TDatum, category: string) => void;
+  /**
+   * When many categories are drawn (e.g. historical model performance with a
+   * model per line), hovering a line or a legend key focuses that category
+   * (full opacity, wider stroke) and fades every other line to grey so the
+   * user can read a single series. Defaults to off.
+   */
+  highlightOnHover?: boolean;
 };
 
 export function LineChart<TDatum extends Record<string, unknown>>({
@@ -55,10 +69,22 @@ export function LineChart<TDatum extends Record<string, unknown>>({
   className,
   style,
   onPointClick,
+  highlightOnHover = false,
 }: LineChartProps<TDatum>) {
   const fills = categoryFills(categories.length, colors);
   const config: ChartConfig = Object.fromEntries(categories.map((category) => [category, { label: category }]));
   const TooltipContent = customTooltip ?? ValueTooltip;
+  const [activeCategory, setActiveCategory] = React.useState<string | null>(null);
+
+  const isFocused = (category: string): boolean =>
+    Boolean(highlightOnHover && activeCategory !== null && activeCategory === category);
+  const isDimmed = (category: string): boolean =>
+    Boolean(highlightOnHover && activeCategory !== null && activeCategory !== category);
+  const lineWidth = (category: string): number => {
+    if (isDimmed(category)) return 1;
+    if (isFocused(category)) return 3;
+    return 2;
+  };
 
   return (
     <ChartContainer config={config} className={cn("aspect-auto h-80 w-full", className)} style={style}>
@@ -100,7 +126,20 @@ export function LineChart<TDatum extends Record<string, unknown>>({
         {showLegend && (
           <ChartLegend
             verticalAlign="top"
-            content={<ChartLegendContent className="justify-end text-muted-foreground" />}
+            onMouseEnter={(payload) => {
+              const dataKey = hoveredCategoryKey(payload);
+              if (dataKey !== null) setActiveCategory(dataKey);
+            }}
+            onMouseLeave={() => {
+              if (highlightOnHover) setActiveCategory(null);
+            }}
+            content={
+              <ChartLegendContent
+                className="justify-end text-muted-foreground"
+                onKeyMouseEnter={(key) => setActiveCategory(key)}
+                onKeyMouseLeave={() => setActiveCategory(null)}
+              />
+            }
           />
         )}
         {categories.map((category, i) => (
@@ -109,10 +148,25 @@ export function LineChart<TDatum extends Record<string, unknown>>({
             type={curveType}
             dataKey={category}
             stroke={fills[i]}
-            strokeWidth={2}
+            strokeWidth={lineWidth(category)}
+            strokeOpacity={isDimmed(category) ? 0.15 : 1}
             dot={false}
             isAnimationActive={false}
             connectNulls={connectNulls}
+            onMouseEnter={
+              highlightOnHover
+                ? () => {
+                    setActiveCategory(category);
+                  }
+                : undefined
+            }
+            onMouseLeave={
+              highlightOnHover
+                ? () => {
+                    setActiveCategory(null);
+                  }
+                : undefined
+            }
           />
         ))}
       </RechartsLineChart>

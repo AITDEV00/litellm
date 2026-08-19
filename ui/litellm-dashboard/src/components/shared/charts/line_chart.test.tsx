@@ -138,4 +138,32 @@ describe("LineChart", () => {
       "/chat/completions",
     );
   });
+
+  it("fades non-hovered lines to grey when highlightOnHover focuses a category", () => {
+    const { container } = render(
+      <LineChart
+        data={data}
+        index="date"
+        categories={["/chat/completions", "/embeddings"]}
+        colors={["blue", "cyan"]}
+        highlightOnHover
+      />,
+    );
+
+    const curves = () => Array.from(container.querySelectorAll("path.recharts-line-curve"));
+    const opacityOf = (i: number) => curves()[i]?.getAttribute("stroke-opacity");
+
+    // Baseline: no category focused, so every line keeps full opacity.
+    expect(opacityOf(0)).toBe("1");
+    expect(opacityOf(1)).toBe("1");
+
+    // Hovering the first curve focuses it and dims the others.
+    fireEvent.mouseEnter(curves()[0] as Element);
+    expect(opacityOf(0)).toBe("1");
+    expect(opacityOf(1)).toBe("0.15");
+
+    // Leaving the chart restores full opacity on all lines.
+    fireEvent.mouseLeave(curves()[0] as Element);
+    expect(opacityOf(1)).toBe("1");
+  });
 });

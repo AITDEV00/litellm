@@ -1,11 +1,13 @@
-import { Card, Grid, Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, Title } from "@tremor/react";
+import { Card, Grid, Title } from "@tremor/react";
 import { Segmented, Select } from "antd";
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
+import { type ColumnDef, type SortingState } from "@tanstack/react-table";
 
 import { useModelPerformance } from "@/app/(dashboard)/hooks/models/useModelPerformance";
 import { ChartLoader } from "../../../shared/chart_loader";
 import { LineChart, DEFAULT_COLOR_CYCLE } from "../../../shared/charts";
+import { DataTable, DataTableSortHeader } from "../../../shared/DataTable";
 import { UiLoadingSpinner } from "../../../ui/ui-loading-spinner";
 import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "./types";
 import { uiSpendLogsCall } from "../../../networking";
@@ -187,6 +189,7 @@ const PerformanceChart = memo(function PerformanceChart({
         valueFormatter={(v) => formatNumber(v, decimals)}
         connectNulls
         yAxisWidth={60}
+        highlightOnHover
         onPointClick={onPointClick}
       />
     </Card>
@@ -212,6 +215,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
 
   const [debouncedWindow] = useDebouncedValue(window, { wait: 200 });
   const [debouncedGranularity] = useDebouncedValue(granularity, { wait: 200 });
+  const [summarySorting, setSummarySorting] = useState<SortingState>([]);
 
   // Live mode is a self-contained realtime view: it overrides the shared date
   // range widget AND the internal window with a short Prometheus-backed window
@@ -293,6 +297,66 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
   const modelGroupOptions = useMemo(() => {
     return models.map((m) => ({ label: m.model_group, value: m.model_group }));
   }, [models]);
+
+  const summaryColumns = useMemo<ColumnDef<ModelPerformanceModel>[]>(
+    () => [
+      {
+        id: "model_group",
+        accessorKey: "model_group",
+        meta: { title: "Model Group" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="Model Group" />,
+        enableSorting: true,
+        cell: ({ row }) => (
+          <span className="font-medium" title={row.original.model_group}>
+            {row.original.model_group}
+          </span>
+        ),
+      },
+      {
+        id: "avg_concurrent",
+        accessorFn: (m) => m.summary.avg_concurrent,
+        meta: { numeric: true, title: "Avg Concurrent" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="Avg Concurrent" />,
+        cell: ({ row }) => formatNumber(row.original.summary.avg_concurrent, 1),
+      },
+      {
+        id: "avg_throughput",
+        accessorFn: (m) => m.summary.avg_throughput,
+        meta: { numeric: true, title: "Avg Throughput (tok/s)" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="Avg Throughput (tok/s)" />,
+        cell: ({ row }) => formatNumber(row.original.summary.avg_throughput, 1),
+      },
+      {
+        id: "p50_ttft",
+        accessorFn: (m) => m.summary.p50_ttft,
+        meta: { numeric: true, title: "P50 TTFT (s)" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="P50 TTFT (s)" />,
+        cell: ({ row }) => formatNumber(row.original.summary.p50_ttft, 3),
+      },
+      {
+        id: "p95_ttft",
+        accessorFn: (m) => m.summary.p95_ttft,
+        meta: { numeric: true, title: "P95 TTFT (s)" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="P95 TTFT (s)" />,
+        cell: ({ row }) => formatNumber(row.original.summary.p95_ttft, 3),
+      },
+      {
+        id: "total_requests",
+        accessorFn: (m) => m.summary.total_requests,
+        meta: { numeric: true, title: "Total Requests" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="Total Requests" />,
+        cell: ({ row }) => row.original.summary.total_requests.toLocaleString(),
+      },
+      {
+        id: "total_tokens",
+        accessorFn: (m) => m.summary.total_tokens,
+        meta: { numeric: true, title: "Total Tokens" },
+        header: ({ column }) => <DataTableSortHeader column={column} title="Total Tokens" />,
+        cell: ({ row }) => row.original.summary.total_tokens.toLocaleString(),
+      },
+    ],
+    [],
+  );
 
   const concurrentChart = useMemo(() => transformTimeSeries(filteredModels, "concurrent_requests"), [filteredModels]);
   const throughputChart = useMemo(
@@ -399,32 +463,18 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
 
         <Card>
           <Title>Summary</Title>
-          <Table className="mt-4">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Model Group</TableHeaderCell>
-                <TableHeaderCell>Avg Concurrent</TableHeaderCell>
-                <TableHeaderCell>Avg Throughput (tok/s)</TableHeaderCell>
-                <TableHeaderCell>P50 TTFT (s)</TableHeaderCell>
-                <TableHeaderCell>P95 TTFT (s)</TableHeaderCell>
-                <TableHeaderCell>Total Requests</TableHeaderCell>
-                <TableHeaderCell>Total Tokens</TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredModels.map((m) => (
-                <TableRow key={m.model_group}>
-                  <TableCell>{m.model_group}</TableCell>
-                  <TableCell>{formatNumber(m.summary.avg_concurrent, 1)}</TableCell>
-                  <TableCell>{formatNumber(m.summary.avg_throughput, 1)}</TableCell>
-                  <TableCell>{formatNumber(m.summary.p50_ttft, 3)}</TableCell>
-                  <TableCell>{formatNumber(m.summary.p95_ttft, 3)}</TableCell>
-                  <TableCell>{m.summary.total_requests.toLocaleString()}</TableCell>
-                  <TableCell>{m.summary.total_tokens.toLocaleString()}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="mt-4">
+            <DataTable
+              data={filteredModels}
+              columns={summaryColumns}
+              getRowId={(m) => m.model_group}
+              sortingMode="client"
+              sorting={summarySorting}
+              onSortingChange={setSummarySorting}
+              size="compact"
+              noDataMessage="No model data to display"
+            />
+          </div>
         </Card>
       </>
     );

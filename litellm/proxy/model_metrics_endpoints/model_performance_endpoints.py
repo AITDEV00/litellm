@@ -317,7 +317,6 @@ async def _fetch_prometheus_performance(
 
     from litellm.integrations.prometheus_helpers.prometheus_api import (
         _WINDOW_CONFIG,
-        _get_deployment_label_metadata,
         _parse_range_result,
         _parse_window_to_timedelta,
         _quote_promql_string_literal,
@@ -338,12 +337,12 @@ async def _fetch_prometheus_performance(
         label_filter = f"{{litellm_model_name={quoted}}}"
 
     # Group by model_id: it is present on all three metrics, whereas
-    # requested_model only exists on the token counter. This mirrors the proven
-    # query in prometheus_api.get_per_model_metrics.
+    # requested_model only exists on the token counter. This mirrors the
+    # proven query in prometheus_api.get_per_model_metrics.
     queries = {
         # Concurrent requests is a live gauge. Report the peak concurrency
-        # observed within each step interval, not the gauge value at exactly
-        # the step instant. Prometheus scrapes the gauge on its own cadence
+        # observed within each step interval, not the value at exactly the
+        # step instant. Prometheus scrapes the gauge on its own cadence
         # (scrape_interval, typically 15s), so a plain instant query can miss a
         # short-lived burst that falls between scrape points. max_over_time
         # takes the max of every scrape sample inside the window, so each
@@ -360,19 +359,19 @@ async def _fetch_prometheus_performance(
         ),
     }
 
-    # model_id -> readable litellm_model_name, recovered from the deployment
-    # gauge/state metrics (which carry litellm_model_name). Without this the
-    # response would surface raw model UUIDs instead of the model names the
-    # DB path returns for 24h/7d.
-    label_metadata, _ = await _get_deployment_label_metadata(label_filter)
-    model_id_to_name: dict[str, str] = {
-        mid: labels.get("litellm_model_name", "")
-        for mid, labels in label_metadata.items()
-        if labels.get("litellm_model_name")
-    }
-
-    # Raw per-model_id time series, keyed by model_id.
+    # Raw per-model_id time series, keyed by model_id, with the readable model
+    # name recovered from each series' own labels.
+    #
+    # We intentionally recover the name from the RANGE series' labels rather
+    # than a separate instant metadata query: the deployment metrics carry
+    # ``litellm_model_name`` (concurrent gauge, latency histogram) or
+    # ``requested_model`` (throughput counter) alongside ``model_id``. An
+    # instant label-metadata query only sees series that are live *right now*;
+    # a deployment that is idle, scaled to zero, or already removed by the
+    # discovery controller no longer emits the gauge, so the instant query
+    # misses its ``model_id`` and the model would surface as a raw UUID.
     series_by_id: dict[str, dict[str, list[dict]]] = {}
+    model_id_to_name: dict[str, str] = {}
 
     for series_name, promql in queries.items():
         try:
@@ -386,6 +385,9 @@ async def _fetch_prometheus_performance(
             if not mid:
                 continue
             series_by_id.setdefault(mid, {})[series_name] = _parse_range_result([entry])
+            name = labels.get("litellm_model_name", "") or labels.get("requested_model", "")
+            if name and mid not in model_id_to_name:
+                model_id_to_name[mid] = name
 
     # Merge every model_id that shares the same readable model name into one
     # model group. Throughput/concurrency sum across deployments serving the
