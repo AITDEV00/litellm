@@ -139,7 +139,7 @@ describe("LineChart", () => {
     );
   });
 
-  it("fades non-hovered lines to grey when highlightOnHover focuses a category", () => {
+  it("fades non-hovered lines to grey when highlightOnHover focuses a legend key", () => {
     const { container } = render(
       <LineChart
         data={data}
@@ -157,13 +157,13 @@ describe("LineChart", () => {
     expect(opacityOf(0)).toBe("1");
     expect(opacityOf(1)).toBe("1");
 
-    // Hovering the first curve focuses it and dims the others.
-    fireEvent.mouseEnter(curves()[0] as Element);
+    // Hovering the first legend key focuses it and dims the others.
+    fireEvent.mouseEnter(screen.getByText("/chat/completions"));
     expect(opacityOf(0)).toBe("1");
     expect(opacityOf(1)).toBe("0.15");
 
-    // Leaving the chart restores full opacity on all lines.
-    fireEvent.mouseLeave(curves()[0] as Element);
+    // Leaving the legend key restores full opacity on all lines.
+    fireEvent.mouseLeave(screen.getByText("/chat/completions"));
     expect(opacityOf(1)).toBe("1");
   });
 });

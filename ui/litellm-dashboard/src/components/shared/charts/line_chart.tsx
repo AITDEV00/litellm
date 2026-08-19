@@ -44,9 +44,11 @@ export type LineChartProps<TDatum extends Record<string, unknown>> = {
   onPointClick?: (datum: TDatum, category: string) => void;
   /**
    * When many categories are drawn (e.g. historical model performance with a
-   * model per line), hovering a line or a legend key focuses that category
-   * (full opacity, wider stroke) and fades every other line to grey so the
-   * user can read a single series. Defaults to off.
+   * model per line), hovering a legend key focuses that category (full opacity,
+   * wider stroke) and fades every other line to grey so the user can read a
+   * single series. Deliberately keyed to the legend only: hovering the lines
+   * themselves is not a focus trigger because tracking a precise line under a
+   * cursor is fiddly and a poor UX. Defaults to off.
    */
   highlightOnHover?: boolean;
 };
@@ -153,20 +155,6 @@ export function LineChart<TDatum extends Record<string, unknown>>({
             dot={false}
             isAnimationActive={false}
             connectNulls={connectNulls}
-            onMouseEnter={
-              highlightOnHover
-                ? () => {
-                    setActiveCategory(category);
-                  }
-                : undefined
-            }
-            onMouseLeave={
-              highlightOnHover
-                ? () => {
-                    setActiveCategory(null);
-                  }
-                : undefined
-            }
           />
         ))}
       </RechartsLineChart>
