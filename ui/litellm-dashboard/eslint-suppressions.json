@@ -694,6 +694,14 @@
       "count": 1
     }
   },
+  "src/app/(dashboard)/hooks/models/useModelPerformance.ts": {
+    "max-params": {
+      "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 1
+    }
+  },
   "src/app/(dashboard)/hooks/models/useModels.ts": {
     "max-params": {
       "count": 1
@@ -1785,6 +1793,9 @@
     "local/no-complex-jsx-arrow": {
       "count": 2
     },
+    "max-lines": {
+      "count": 1
+    },
     "no-restricted-imports": {
       "count": 2
     }
@@ -2458,6 +2469,17 @@
   },
   "src/components/UsagePage/components/KeyModelUsageView.tsx": {
     "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "src/components/UsagePage/components/ModelPerformance/ModelPerformanceView.tsx": {
+    "no-nested-ternary": {
+      "count": 2
+    },
+    "react-hooks/preserve-manual-memoization": {
+      "count": 2
+    },
+    "react-hooks/set-state-in-effect": {
       "count": 2
     }
   },

@@ -7,7 +7,7 @@ import { useModelPerformance } from "@/app/(dashboard)/hooks/models/useModelPerf
 import { ChartLoader } from "../../../shared/chart_loader";
 import { LineChart, DEFAULT_COLOR_CYCLE } from "../../../shared/charts";
 import { UiLoadingSpinner } from "../../../ui/ui-loading-spinner";
-import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "../../../networking";
+import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "./types";
 import { uiSpendLogsCall } from "../../../networking";
 import { LogDetailsDrawer } from "../../../view_logs/LogDetailsDrawer/LogDetailsDrawer";
 import type { LogEntry } from "../../../view_logs/columns";
@@ -241,12 +241,16 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
   // for refetch cadence / cache key) and reset granularity if the range size
   // class changes so the option set always fits the range. Live mode overrides
   // everything and forces the short realtime window.
-  const effectiveWindow = live ? LIVE_WINDOW : hasCustomRange ? deriveWindowFromRange(rangeDurationMs) : debouncedWindow;
+  const effectiveWindow = live
+    ? LIVE_WINDOW
+    : hasCustomRange
+      ? deriveWindowFromRange(rangeDurationMs)
+      : debouncedWindow;
   const granularityOptions = live
     ? []
     : hasCustomRange
       ? getRangeGranularityOptions(rangeDurationMs)
-      : (GRANULARITY_OPTIONS[effectiveWindow] ?? []);
+      : GRANULARITY_OPTIONS[effectiveWindow] ?? [];
 
   useEffect(() => {
     if (!live && hasCustomRange) setGranularity("");
@@ -441,10 +445,14 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
             />
           )}
           {!live && !hasCustomRange && (
-            <Segmented options={WINDOW_OPTIONS} value={window} onChange={(val) => {
-              setWindow(val as string);
-              setGranularity("");
-            }} />
+            <Segmented
+              options={WINDOW_OPTIONS}
+              value={window}
+              onChange={(val) => {
+                setWindow(val as string);
+                setGranularity("");
+              }}
+            />
           )}
           {!live && (
             <Segmented

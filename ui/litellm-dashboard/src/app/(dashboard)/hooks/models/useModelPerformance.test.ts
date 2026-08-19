@@ -3,15 +3,15 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { ReactNode } from "react";
 import { useModelPerformance } from "./useModelPerformance";
-import { modelPerformanceCall } from "@/components/networking";
-import type { ModelPerformanceScope } from "@/components/networking";
+import { modelPerformanceCall } from "@/components/UsagePage/components/ModelPerformance";
+import type { ModelPerformanceScope } from "@/components/UsagePage/components/ModelPerformance";
 
 const mockUseAuthorized = vi.fn();
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => mockUseAuthorized(),
 }));
 
-vi.mock("@/components/networking", () => ({
+vi.mock("@/components/UsagePage/components/ModelPerformance", () => ({
   modelPerformanceCall: vi.fn(),
 }));
 

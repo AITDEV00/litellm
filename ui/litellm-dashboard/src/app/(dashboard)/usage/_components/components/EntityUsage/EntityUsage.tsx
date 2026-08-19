@@ -53,7 +53,7 @@ import ModelViewToggle, { ModelViewType } from "../ModelViewToggle";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
 import TopModelView from "./TopModelView";
 import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
-import type { ModelPerformanceScope } from "@/components/networking";
+import type { ModelPerformanceScope } from "@/components/UsagePage/components/ModelPerformance";
 
 interface EntityMetrics {
   metrics: {

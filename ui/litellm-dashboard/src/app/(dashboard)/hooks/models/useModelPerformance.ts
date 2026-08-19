@@ -4,7 +4,7 @@ import {
   modelPerformanceCall,
   type ModelPerformanceResponse,
   type ModelPerformanceScope,
-} from "@/components/networking";
+} from "@/components/UsagePage/components/ModelPerformance";
 import useAuthorized from "../useAuthorized";
 
 const performanceKeys = createQueryKeys("modelPerformance");
@@ -19,8 +19,7 @@ export const useModelPerformance = (
   live: boolean = false,
 ) => {
   const { accessToken } = useAuthorized();
-  const effectiveScope: ModelPerformanceScope =
-    step == null || step === "" ? scope : { ...scope, step };
+  const effectiveScope: ModelPerformanceScope = step == null || step === "" ? scope : { ...scope, step };
   const filters = {
     window,
     ...(modelGroup ? { modelGroup } : {}),
