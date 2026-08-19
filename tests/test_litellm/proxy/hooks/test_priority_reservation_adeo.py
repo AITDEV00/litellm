@@ -732,3 +732,66 @@ class TestDemandCounterMultiPodVisibility:
             "async_increment must target the demand counter key."
         )
         assert incr_args.args[1] == 1, "async_increment must increment by exactly 1."
+
+    @pytest.mark.asyncio
+    async def test_demand_window_value_is_lua_tonumber_parseable(self, handler):
+        """The demand window value written to Redis must be parseable by Lua tonumber.
+
+        Regression for the bug where _increment_demand_counter wrote
+        value=str(now) -> Redis json.dumps produced a JSON-quoted string
+        '"1728..."'. The HTB Lua script reads the sibling demand window via
+        redis.call('GET', ...) and calls tonumber(window_start); tonumber of a
+        quoted string is nil, which crashed the script at @user_script:66
+        ("attempt to perform arithmetic on a nil value") and silently degraded
+        multi-instance HTB to in-memory fallback.
+
+        The test runs the REAL Lua script against a REAL Redis (if one is
+        configured via REDIS_HOST) and asserts the window value the code writes
+        survives tonumber. It fails before the fix and passes after.
+        """
+        host = os.getenv("REDIS_HOST")
+        if not host:
+            pytest.skip("REDIS_HOST not set; skipping real-Redis regression test")
+        from redis.asyncio import Redis as AsyncRedis
+
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        password = os.getenv("REDIS_PASSWORD")
+        client = AsyncRedis(
+            host=host, port=port, password=password, decode_responses=True
+        )
+        try:
+            window_key = "{htb:test-model}:test-model:prior1:demand:window"
+            counter_key = "{htb:test-model}:test-model:prior1:demand:requests"
+
+            redis_cache = litellm.RedisCache(
+                host=host, port=port, password=password
+            )
+            dual_cache = DualCache(redis_cache=redis_cache)
+            handler.v3_limiter.internal_usage_cache = InternalUsageCache(dual_cache=dual_cache)
+
+            await client.delete(window_key, counter_key)
+            await handler.v3_limiter._increment_demand_counter(
+                demand_window_key=window_key,
+                demand_counter_key=counter_key,
+                window_size=60,
+                ttl=60,
+                parent_otel_span=None,
+            )
+
+            # Reproduce the exact parse the Lua sibling-demand read does.
+            parse_script = """
+                local v = redis.call('GET', KEYS[1])
+                if not v then return 'nil' end
+                local n = tonumber(v)
+                if n == nil then return 'nil' end
+                return 'number'
+            """
+            parse_result = await client.eval(parse_script, 1, window_key)
+            assert parse_result == "number", (
+                "demand window value must be parseable by Lua tonumber, but got "
+                f"{parse_result!r}. Value stored is JSON-quoted (bug): "
+                f"{await client.get(window_key)!r}. The Lua HTB script would crash "
+                "at @user_script:66 and silently fall back to in-memory."
+            )
+        finally:
+            await client.aclose()

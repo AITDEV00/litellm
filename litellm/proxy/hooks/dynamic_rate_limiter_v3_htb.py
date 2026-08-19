@@ -372,7 +372,7 @@ class _PROXY_HtbMaxParallelRequestsHandlerV3(_PROXY_MaxParallelRequestsHandler_v
         if window_start is None or (now - int(window_start)) >= window_size:
             await self.internal_usage_cache.async_set_cache(
                 key=demand_window_key,
-                value=str(now),
+                value=now,
                 ttl=window_size,
                 litellm_parent_otel_span=parent_otel_span,
                 local_only=False,
@@ -483,7 +483,7 @@ class _PROXY_HtbMaxParallelRequestsHandlerV3(_PROXY_MaxParallelRequestsHandler_v
             if window_expired:
                 await self.internal_usage_cache.async_set_cache(
                     key=window_key,
-                    value=str(now_int),
+                    value=now_int,
                     ttl=window_size,
                     litellm_parent_otel_span=parent_otel_span,
                     local_only=True,
