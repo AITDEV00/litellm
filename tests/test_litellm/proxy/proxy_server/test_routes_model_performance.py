@@ -669,3 +669,67 @@ def test_model_performance_large_range_uses_long_timeout_client(client, auth_as,
     # The heavy client (not the shared proxy client) must have executed the query.
     assert "bucket_start" in captured["sql"]
     assert "LiteLLM_ModelPerformanceRollup" in captured["sql"]
+
+
+# ---------------------------------------------------------------------------
+# GET /model/performance — PromQL carries the readable model label through the
+# aggregation so the name survives the range query
+# ---------------------------------------------------------------------------
+
+
+def test_model_performance_promql_preserves_model_name_label(client, auth_as, monkeypatch):
+    """The range PromQL must aggregate by the readable model label, not just
+    ``model_id``.
+
+    Earlier the queries used ``sum by (model_id)``, which drops every other
+    label from the range result. The name-recovery logic reads the readable
+    name from each range series' own labels, so a bare ``model_id`` grouping
+    left that label empty and the endpoint fell back to the raw UUID. Each
+    metric carries its own name label, so the grouping must preserve it:
+
+    - concurrency gauge / latency histogram -> ``litellm_model_name``
+    - throughput counter                    -> ``requested_model``
+    """
+    pc = MagicMock()
+    pc.db.query_raw = AsyncMock(return_value=[])
+    monkeypatch.setattr(proxy_server, "prisma_client", pc)
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.is_prometheus_connected",
+        lambda: True,
+    )
+    captured: list[str] = []
+
+    async def fake_query(promql, start, end, step):
+        captured.append(promql)
+        # Return a live, labelled series so the handler actually runs.
+        if "in_progress_requests" in promql:
+            return [
+                {
+                    "metric": {"model_id": "uuid-a", "litellm_model_name": "hosted_vllm/gpt-4"},
+                    "values": [["1700000000", "2"]],
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
+        fake_query,
+    )
+
+    with auth_as():
+        response = client.get("/model/performance", params={"window": "15m"})
+    assert response.status_code == 200
+
+    concurrency = next(p for p in captured if "in_progress_requests" in p)
+    # Grouping must keep the readable name label, else the range result loses
+    # it and the handler cannot recover a non-UUID model_group.
+    assert "sum by (model_id, litellm_model_name)" in concurrency
+    assert "sum by (model_id)" not in concurrency.replace(
+        "sum by (model_id, litellm_model_name)", ""
+    )
+
+    throughput = next(p for p in captured if "output_tokens_metric_total" in p)
+    assert "sum by (model_id, requested_model)" in throughput
+
+    ttft = next(p for p in captured if "latency_per_output_token_bucket" in p)
+    assert "sum by (le, model_id, litellm_model_name)" in ttft

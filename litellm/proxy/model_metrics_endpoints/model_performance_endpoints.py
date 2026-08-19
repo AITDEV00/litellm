@@ -339,6 +339,14 @@ async def _fetch_prometheus_performance(
     # Group by model_id: it is present on all three metrics, whereas
     # requested_model only exists on the token counter. This mirrors the
     # proven query in prometheus_api.get_per_model_metrics.
+    # Group by model_id: it is present on all three metrics, whereas
+    # requested_model only exists on the token counter. We ALSO carry the
+    # readable model name through the aggregation so the name can be recovered
+    # from each range series' own labels (see below): the concurrency gauge and
+    # latency histogram expose ``litellm_model_name``, while the throughput
+    # counter exposes ``requested_model``. Without the name in the grouping,
+    # `sum by (model_id)` drops every other label and the name is unrecoverable
+    # from the range result.
     queries = {
         # Concurrent requests is a live gauge. Report the peak concurrency
         # observed within each step interval, not the value at exactly the
@@ -348,13 +356,13 @@ async def _fetch_prometheus_performance(
         # takes the max of every scrape sample inside the window, so each
         # plotted point is the true maximum concurrency seen in that interval.
         "concurrent_requests": (
-            f"sum by (model_id) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{step}]))"
+            f"sum by (model_id, litellm_model_name) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{step}]))"
         ),
         "throughput_tokens_per_sec": (
-            f"sum by (model_id) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
+            f"sum by (model_id, requested_model) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
         ),
         "ttft_seconds": (
-            f"histogram_quantile(0.5, sum by (le, model_id) (rate("
+            f"histogram_quantile(0.5, sum by (le, model_id, litellm_model_name) (rate("
             f"litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))"
         ),
     }
