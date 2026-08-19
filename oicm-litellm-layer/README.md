@@ -69,7 +69,7 @@ helm install litellm deploy/charts/litellm-helm/ \
   -f config/litellm-values.yaml
 
 # 3. Deploy the discovery controller
-kubectl apply -f deploy/discovery-controller.yaml
+kubectl apply -f deploy/prod/discovery-controller.yaml
 
 # 4. Apply the embedding patch (optional, for vLLM embedding extra_body)
 cd /home/adeo/litellm

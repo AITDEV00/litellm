@@ -88,10 +88,42 @@ class TestDoclingDetection:
         # detect_mode passes no paths -> mode falls back to chat by name alone
         assert detect_mode("PP-DocLayoutV3", "") == "chat"
 
+    def test_detect_mode_ocr_with_ocr_path(self):
+        # A model exposing only /v1/ocr (Mistral-OCR compatible, e.g. PaddleX
+        # PP-DocLayoutV3) is detected as an OCR model.
+        paths = frozenset({"/v1/ocr"})
+        assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "ocr"
+
+    def test_detect_mode_ocr_with_chat_takes_precedence(self):
+        # When both /v1/ocr and /v1/chat/completions are exposed, chat wins so a
+        # hybrid model is not forced into OCR mode.
+        paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
+        assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "chat"
+
+    def test_detect_provider_ocr_path_returns_mistral(self):
+        # A model exposing only /v1/ocr registers under the mistral provider so
+        # it routes through the first-class /v1/ocr endpoint as mistral/PP-DocLayoutV3.
+        paths = frozenset({"/v1/ocr"})
+        assert detect_provider("", "PP-DocLayoutV3", paths) == "mistral"
+
+    def test_detect_provider_ocr_with_known_provider_wins(self):
+        paths = frozenset({"/v1/ocr"})
+        assert detect_provider("inception", "PP-DocLayoutV3", paths) == "inception"
+
+    def test_detect_provider_ocr_with_chat_returns_hosted_vllm(self):
+        # A hybrid model exposing both /v1/ocr and chat stays a hosted_vllm chat
+        # model rather than being reclassified as mistral OCR.
+        paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
+        assert detect_provider("", "PP-DocLayoutV3", paths) == "hosted_vllm"
+
 
 class TestToLitellmMode:
     def test_text_to_speech_maps_to_audio_speech(self):
         assert to_litellm_mode("text_to_speech") == "audio_speech"
+
+    def test_ocr_passes_through(self):
+        # "ocr" is a first-class LiteLLM mode; no translation needed.
+        assert to_litellm_mode("ocr") == "ocr"
 
     def test_other_modes_passthrough(self):
         assert to_litellm_mode("chat") == "chat"

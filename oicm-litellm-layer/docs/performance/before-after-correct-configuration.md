@@ -34,7 +34,7 @@ The key technical finding is that litellm issues 29 Redis commands per request a
 ## Before: Original Configuration (uvicorn 1-worker, no Redis)
 
 ```yaml
-# deploy/litellm-proxy.yaml (before)
+# deploy/prod/litellm-proxy.yaml (before)
 spec:
   replicas: 1
   template:
@@ -81,7 +81,7 @@ No Redis, no cache, 1 Python process with 1 event loop and 1 GIL. The uvicorn h1
 ## After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)
 
 ```yaml
-# deploy/litellm-proxy.yaml (current)
+# deploy/prod/litellm-proxy.yaml (current)
 spec:
   replicas: 2
   strategy:
@@ -141,7 +141,7 @@ general_settings:
 ```
 
 ```yaml
-# deploy/litellm-redis.yaml (current)
+# deploy/prod/litellm-redis.yaml (current)
 # Dedicated Redis 7.4.3 StatefulSet in redis namespace
 # Key config: dir /data, appendonly yes, appendfsync everysec,
 #   maxmemory 512mb, io-threads 4, timeout 60

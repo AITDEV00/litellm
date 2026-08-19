@@ -2,7 +2,7 @@
 
 This is the single-source-of-truth extractor used by the Makefile, local
 configs, and benchmarks. It must return exactly the value in
-deploy/litellm-proxy.yaml and fail loudly (not silently) if that value is
+deploy/prod/litellm-proxy.yaml and fail loudly (not silently) if that value is
 missing, so a rotation can never be half-propagated.
 """
 

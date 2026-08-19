@@ -15,7 +15,7 @@ commands from `oicm-litellm-layer/`.
 | `LITELLM_SRC_HARBOR_IMG` | `$(REGISTRY)/$(REPO_PATH)/litellm-src` |
 | `LITELLM_SRC_TAG` | Sanitized current git branch name (slashes → `_`), e.g. `jya0-v1.96.2`. Override: `LITELLM_SRC_TAG=foo` |
 | `TAG` | `latest` |
-| `MASTER_KEY` | Derived from `deploy/litellm-proxy.yaml` via `scripts/get_master_key.py` (single source of truth) |
+| `MASTER_KEY` | Derived from `deploy/prod/litellm-proxy.yaml` via `scripts/get_master_key.py` (single source of truth) |
 
 ## Harbor login
 
@@ -39,13 +39,13 @@ make push-litellm
 make litellm-src-build        # build litellm-src:<branch>
 make litellm-src-push         # push to Harbor (needs `make login` first)
 make litellm-src-build-push   # build then push
-make litellm-src-deploy       # sed image tag in deploy/litellm-proxy.yaml, then kubectl apply
+make litellm-src-deploy       # sed image tag in deploy/prod/litellm-proxy.yaml, then kubectl apply
 make litellm-src-release      # build-push + deploy, one shot
 ```
 
 ### Cluster apply
 ```bash
-make deploy       # kubectl apply deploy/discovery-controller.yaml + litellm-proxy.yaml + litellm-servicemonitor.yaml
+make deploy       # kubectl apply deploy/prod/discovery-controller.yaml + deploy/prod/litellm-proxy.yaml + deploy/prod/litellm-servicemonitor.yaml
 make clean        # podman rmi local image
 ```
 

@@ -12,6 +12,6 @@ router_settings:
 
 general_settings:
   # Derived from the single source of truth: the `litellm-master-key` Secret in
-  # deploy/litellm-proxy.yaml. Export LITELLM_MASTER_KEY (e.g. via
+  # deploy/prod/litellm-proxy.yaml. Export LITELLM_MASTER_KEY (e.g. via
   # `make` which sets it from scripts/get_master_key.py) before running locally.
   master_key: os.environ/LITELLM_MASTER_KEY

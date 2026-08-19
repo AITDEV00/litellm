@@ -1,7 +1,7 @@
 """MkDocs on_page_markdown hook that injects the LiteLLM master key value.
 
 The single source of truth for the admin/master key is the inline Kubernetes
-Secret in ``deploy/litellm-proxy.yaml`` (``litellm-master-key`` /
+Secret in ``deploy/prod/litellm-proxy.yaml`` (``litellm-master-key`` /
 ``master-key``). Docs reference it via the ``{{ master_key }}`` placeholder;
 this hook reads the value from that manifest at build time so the docs always
 mirror the deployed value and there is no second copy to keep in sync.
@@ -18,7 +18,7 @@ import yaml
 
 PLACEHOLDER = "{{ master_key }}"
 # Relative to the oicm-litellm-layer/ directory (where mkdocs.yml lives).
-MANIFEST_RELATIVE = Path("deploy/litellm-proxy.yaml")
+MANIFEST_RELATIVE = Path("deploy/prod/litellm-proxy.yaml")
 SECRET_NAME = "litellm-master-key"
 SECRET_KEY = "master-key"
 

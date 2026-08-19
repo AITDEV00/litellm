@@ -9,7 +9,7 @@
 #   docker compose -f oicm-litellm-layer/docker-compose.dev.yml up --build
 #
 # The proxy listens on http://localhost:4000. Master key defaults to sk-1234
-# (matches deploy/litellm-proxy.yaml Secret), override with LITELLM_MASTER_KEY.
+# (matches deploy/prod/litellm-proxy.yaml Secret), override with LITELLM_MASTER_KEY.
 #
 # To test with the real cluster models, keep the SSH tunnel + port-forwards up
 # and point local_dev.yaml api_base values at the forwarded upstreams, or use

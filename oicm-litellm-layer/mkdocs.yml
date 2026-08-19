@@ -1,6 +1,6 @@
 site_name: OICM LiteLLM Layer
 site_description: Quick navigator for the OICM → LiteLLM integration layer. Maps where every component, config, deployment manifest, and doc lives so you know exactly where to edit things.
-site_url: https://litellm.adeoaiengine.ecouncil.ae/docs/
+site_url: https://litellm.ecouncil.ae/docs/
 site_author: openinnovationai contributors
 
 theme:
@@ -50,7 +50,7 @@ plugins:
 
 # Injects the master key into docs via the {{ master_key }} placeholder, read
 # from the single source of truth: the `litellm-master-key` Secret in
-# deploy/litellm-proxy.yaml. See scripts/mkdocs_master_key.py.
+# deploy/prod/litellm-proxy.yaml. See scripts/mkdocs_master_key.py.
 hooks:
   - scripts/mkdocs_master_key.py
 
@@ -100,9 +100,11 @@ nav:
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
+  - TLS / Certificates:
+      - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
+      - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md
   - Techniques:
       - Logic Mapping: techniques/logic_mapping_technique.md
-      - First-Class Endpoint Guide: techniques/FIRST_CLASS_ENDPOINT_GUIDE.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
       - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
       - Debug Pod: techniques/debug_pod_technique.md
@@ -120,9 +122,9 @@ nav:
       - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
       - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
-      - Before Optimization: performance/before optimization.md
-      - After Optimization: performance/after optimization.md
-      - Before/After Correct Configuration: performance/before + after correct configuration for litellm .md
+      - Before Optimization: performance/before-optimization.md
+      - After Optimization: performance/after-optimization.md
+      - Before/After Correct Configuration: performance/before-after-correct-configuration.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
@@ -139,7 +141,6 @@ nav:
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
       - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
-      - Docling Gateway Feasibility: custom-providers/DOCLING_GATEWAY_FEASIBILITY.md
   - Dashboard & Planning:
       - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
       - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md
@@ -153,7 +154,6 @@ nav:
   - Model Pricing:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
       - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
-  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - OpenRouter:
       - Models Design: openrouter/litellm_openrouter_models_design.md
       - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md

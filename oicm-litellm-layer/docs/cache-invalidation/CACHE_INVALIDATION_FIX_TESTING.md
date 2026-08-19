@@ -482,7 +482,7 @@ make litellm-src-build-push
 
 ### Step 3: Deploy to the Cluster
 
-The deployment manifest (`deploy/litellm-proxy.yaml`) already references the correct image tag. If the tag in the manifest matches what you pushed, you only need a rollout restart to pull the new image:
+The deployment manifest (`deploy/prod/litellm-proxy.yaml`) already references the correct image tag. If the tag in the manifest matches what you pushed, you only need a rollout restart to pull the new image:
 
 ```bash
 # Verify the manifest image tag matches what you pushed
@@ -507,10 +507,10 @@ kubectl exec -n mlops $NEW_POD -- grep -c "skip_in_memory" \
 # Expected: 10
 ```
 
-If the manifest image tag needs updating (e.g. new branch), edit `deploy/litellm-proxy.yaml` and apply:
+If the manifest image tag needs updating (e.g. new branch), edit `deploy/prod/litellm-proxy.yaml` and apply:
 
 ```bash
-kubectl apply -f deploy/litellm-proxy.yaml
+kubectl apply -f deploy/prod/litellm-proxy.yaml
 ```
 
 ### Step 4: Verify the Fix in the Cluster

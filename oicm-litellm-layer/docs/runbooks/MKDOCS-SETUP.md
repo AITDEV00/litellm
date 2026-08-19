@@ -66,7 +66,7 @@ Key configuration choices:
 - **Hooks**: a custom `on_page_markdown` hook
   (`scripts/mkdocs_master_key.py`) that replaces the `{{ master_key }}`
   placeholder in docs with the actual master key value read from the
-  `deploy/litellm-proxy.yaml` Secret at build time. This keeps a single source
+  `deploy/prod/litellm-proxy.yaml` Secret at build time. This keeps a single source
   of truth — no second copy of the key to keep in sync. The build fails loudly
   if the placeholder is present but the manifest cannot be read.
 - **Validation**: strict link/nav validation enabled so broken links and
@@ -178,7 +178,7 @@ editing the links keeps future builds clean.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| Build fails on `{{ master_key }}` | `deploy/litellm-proxy.yaml` is missing, or the `litellm-master-key` Secret has no non-empty `master-key` entry. Fix the manifest (or remove the placeholder). |
+| Build fails on `{{ master_key }}` | `deploy/prod/litellm-proxy.yaml` is missing, or the `litellm-master-key` Secret has no non-empty `master-key` entry. Fix the manifest (or remove the placeholder). |
 | `git-revision-date-localized` shows no dates | The page is not committed yet, or the plugin cannot read git history for it. |
 | Link validation warnings | A referenced page/anchor is missing. Open the warning path and fix the link. |
 | `mkdocs` command not found | Activate the docs venv first or use the full path `.venv-docs/bin/mkdocs`. |

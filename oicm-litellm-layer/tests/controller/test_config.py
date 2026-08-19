@@ -2,7 +2,7 @@
 
 The key must come from LITELLM_ADMIN_KEY when set (in-cluster the Deployment
 injects it via secretKeyRef), and otherwise fall back to the single source of
-truth in deploy/litellm-proxy.yaml so local runs match production.
+truth in deploy/prod/litellm-proxy.yaml so local runs match production.
 """
 
 import importlib

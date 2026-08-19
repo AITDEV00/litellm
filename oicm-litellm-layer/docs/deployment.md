@@ -5,23 +5,25 @@ rollout changes safely.
 
 ## Manifests (`deploy/`)
 
+Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rollback/`.
+
 | Manifest | Resources | Applies to |
 |----------|-----------|-----------|
-| `deploy/litellm-proxy.yaml` | Deployment `litellm-proxy`, Secret `litellm-master-key`, Secret `litellm-db-credentials`, ConfigMap `litellm-config`, ConfigMap `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `mlops` |
-| `deploy/discovery-controller.yaml` | Deployment `oicm-discovery-controller` + RBAC + ServiceAccount | `mlops` |
-| `deploy/litellm-redis.yaml` | Redis StatefulSet | `mlops` |
-| `deploy/litellm-ingress.yaml` | Ingress | `mlops` |
-| `deploy/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `mlops` |
-| `deploy/litellm-proxy-debug.yaml` | Debug variant of the proxy (extended logs, `--reload`) | `mlops` |
-| `deploy/discovery-controller-debug.yaml` | Debug variant of the controller | `mlops` |
-| `deploy/litellm-proxy-rollback-jya0-v1.95.0.yaml` | Rollback manifest pinned to image `v1.95.0` | `mlops` |
+| `deploy/prod/litellm-proxy.yaml` | Deployment `litellm-proxy`, Secret `litellm-master-key`, Secret `litellm-db-credentials`, ConfigMap `litellm-config`, ConfigMap `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `mlops` |
+| `deploy/prod/discovery-controller.yaml` | Deployment `oicm-discovery-controller` + RBAC + ServiceAccount | `mlops` |
+| `deploy/prod/litellm-redis.yaml` | Redis StatefulSet | `mlops` |
+| `deploy/prod/litellm-ingress.yaml` | Ingress | `mlops` |
+| `deploy/prod/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `mlops` |
+| `deploy/dev/litellm-proxy-dev.yaml` | Dev variant of the proxy (extended logs, `--reload`) | `mlops` |
+| `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `mlops` |
+| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `v1.96.2` | `mlops` |
 
 ## Apply
 
 ```bash
 # from oicm-litellm-layer/
-kubectl apply -f deploy/litellm-proxy.yaml
-kubectl apply -f deploy/discovery-controller.yaml
+kubectl apply -f deploy/prod/litellm-proxy.yaml
+kubectl apply -f deploy/prod/discovery-controller.yaml
 ```
 
 or via the Makefile:

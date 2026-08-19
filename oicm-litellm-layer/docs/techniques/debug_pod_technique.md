@@ -60,14 +60,14 @@ gun — a local psycopg connection doesn't reproduce it.
 
 ### 2. Create the debug Deployment
 
-Copy the production `deploy/litellm-proxy.yaml` Deployment + Service into a new
-file (`deploy/litellm-proxy-debug.yaml`) and change exactly these things:
+Copy the production `deploy/prod/litellm-proxy.yaml` Deployment + Service into a new
+file (`deploy/dev/litellm-proxy-dev.yaml`) and change exactly these things:
 
-| Field | Production | Debug |
+| Field | Production | Dev |
 |---|---|---|
-| `metadata.name` | `litellm-proxy` | `litellm-proxy-debug` |
-| label `app` | `litellm-proxy` | `litellm-proxy-debug` |
-| Service `selector` / name | `litellm-proxy` | `litellm-proxy-debug` |
+| `metadata.name` | `litellm-proxy` | `litellm-proxy-dev` |
+| label `app` | `litellm-proxy` | `litellm-proxy-dev` |
+| Service `selector` / name | `litellm-proxy` | `litellm-proxy-dev` |
 | `--num_workers` | `4` | `1` |
 | `replicas` | `2` | `1` |
 | `strategy` | RollingUpdate | Recreate (simpler for a scratch pod) |
@@ -75,20 +75,20 @@ file (`deploy/litellm-proxy-debug.yaml`) and change exactly these things:
 Keep EVERYTHING else identical: image tag, env (secrets `litellm-master-key`,
 `litellm-db-credentials`, `litellm-redis-password`), config/hook/logo ConfigMaps,
 nodeSelector `adeo-gpu-03`, tolerations, resources, probes. Identical environment
-guarantees the debug pod reproduces the production code path.
+guarantees the dev pod reproduces the production code path.
 
-The full working manifest is at `deploy/litellm-proxy-debug.yaml`.
+The full working manifest is at `deploy/dev/litellm-proxy-dev.yaml`.
 
 ### 3. Deploy + verify it's isolated
 
 ```bash
 export KUBECONFIG=/home/jyao/.kube/oicm-alain.conf
-kubectl -n mlops apply -f deploy/litellm-proxy-debug.yaml
-kubectl -n mlops rollout status deploy/litellm-proxy-debug
+kubectl -n mlops apply -f deploy/dev/litellm-proxy-dev.yaml
+kubectl -n mlops rollout status deploy/litellm-proxy-dev
 
 # It must NOT appear in the production Service's endpoints:
 kubectl -n mlops get endpoints litellm-proxy -o jsonpath='{.subsets[*].addresses[*].ip}'
-# -> only the 2 prod replicas' IPs; NOT the debug pod's IP
+# -> only the 2 prod replicas' IPs; NOT the dev pod's IP
 ```
 
 ### 4. Instrument + probe from inside the pod
@@ -96,7 +96,7 @@ kubectl -n mlops get endpoints litellm-proxy -o jsonpath='{.subsets[*].addresses
 Because there's a single worker, you can attach a profiler to it:
 
 ```bash
-POD=$(kubectl -n mlops get pod -l app=litellm-proxy-debug -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl -n mlops get pod -l app=litellm-proxy-dev -o jsonpath='{.items[0].metadata.name}')
 
 # cProfile the exact DB call the endpoint makes (in-process, no HTTP)
 kubectl -n mlops exec "$POD" -- python3 -c "
@@ -129,7 +129,7 @@ slow path.
 ### 5. Hit the debug pod over HTTP in isolation
 
 ```bash
-kubectl -n mlops port-forward deploy/litellm-proxy-debug 14001:4000 &
+kubectl -n mlops port-forward deploy/litellm-proxy-dev 14001:4000 &
 curl -s -w "HTTP %{http_code} in %{time_total}s\n" \
   -H "Authorization: Bearer sk-1234" \
   "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
@@ -142,8 +142,8 @@ one request with no interleaved router noise.
 ### 6. Clean up
 
 ```bash
-kubectl -n mlops delete deploy/litellm-proxy-debug svc/litellm-proxy-debug
-kubectl -n mlops scale deploy/litellm-proxy-debug --replicas=0   # or just delete
+kubectl -n mlops delete deploy/litellm-proxy-dev svc/litellm-proxy-dev
+kubectl -n mlops scale deploy/litellm-proxy-dev --replicas=0   # or just delete
 ```
 
 The debug Deployment holds GPU-node CPU/memory while running, so scale it to 0
@@ -155,12 +155,12 @@ or delete it when you're done.
 
 | Action | Command |
 |---|---|
-| Apply debug pod | `kubectl -n mlops apply -f deploy/litellm-proxy-debug.yaml` |
-| Exec a probe | `kubectl -n mlops exec deploy/litellm-proxy-debug -- python3 /app/probe.py` |
-| Port-forward it | `kubectl -n mlops port-forward deploy/litellm-proxy-debug 14001:4000` |
-| Read its logs | `kubectl -n mlops logs -l app=litellm-proxy-debug --tail=200` |
-| Confirm isolation | `kubectl -n mlops get endpoints litellm-proxy` (debug pod absent) |
-| Tear down | `kubectl -n mlops delete deploy/litellm-proxy-debug svc/litellm-proxy-debug` |
+| Apply debug pod | `kubectl -n mlops apply -f deploy/dev/litellm-proxy-dev.yaml` |
+| Exec a probe | `kubectl -n mlops exec deploy/litellm-proxy-dev -- python3 /app/probe.py` |
+| Port-forward it | `kubectl -n mlops port-forward deploy/litellm-proxy-dev 14001:4000` |
+| Read its logs | `kubectl -n mlops logs -l app=litellm-proxy-dev --tail=200` |
+| Confirm isolation | `kubectl -n mlops get endpoints litellm-proxy` (dev pod absent) |
+| Tear down | `kubectl -n mlops delete deploy/litellm-proxy-dev svc/litellm-proxy-dev` |
 
 ---
 

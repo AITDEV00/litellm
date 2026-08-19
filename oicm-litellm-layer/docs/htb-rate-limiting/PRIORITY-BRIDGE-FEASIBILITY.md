@@ -889,7 +889,7 @@ count > 0).
 | `oicm-litellm-layer/hooks/priority_bridge.py` | NEW. `PriorityBridge(CustomLogger)` hook. Reads `htb_priority` ContextVar, looks up `litellm.priority_body_fields`, merges into `data["extra_body"]`. Exports `priority_bridge` instance. |
 | `litellm/__init__.py` | Added `priority_body_fields: Optional[Dict[str, Dict[str, Any]]] = None` module-level global (same pattern as `priority_reservation`). |
 | `litellm/proxy/proxy_server.py` | Added `elif key == "priority_body_fields"` branch in the `litellm_settings` config-loading loop (~line 4151). Sets `litellm.priority_body_fields = value`. |
-| `oicm-litellm-layer/deploy/litellm-proxy.yaml` | Added `priority_body_fields` to `litellm_settings`, added `priority_bridge` callback, added in-cluster ConfigMap `priority_bridge.py` entry. |
+| `oicm-litellm-layer/deploy/prod/litellm-proxy.yaml` | Added `priority_body_fields` to `litellm_settings`, added `priority_bridge` callback, added in-cluster ConfigMap `priority_bridge.py` entry. |
 | `oicm-litellm-layer/tests/hooks/test_priority_bridge.py` | NEW. 13 unit tests covering injection, no-op guards, many-to-many aliases. |
 | `oicm-litellm-layer/tests/hooks/conftest.py` | NEW. Adds `oicm-litellm-layer` to `sys.path` and aliases `litellm_hooks` -> `hooks` for local testing. |
 

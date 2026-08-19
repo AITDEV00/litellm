@@ -16,7 +16,7 @@ extension points (`CustomLogger`, pre-call hooks) without forking the proxy.
 
 Hooks are registered in the proxy config's `litellm_settings.callbacks` list.
 In production that list lives in the inline `config.yaml` inside
-`deploy/litellm-proxy.yaml`:
+`deploy/prod/litellm-proxy.yaml`:
 
 ```yaml
 litellm_settings:

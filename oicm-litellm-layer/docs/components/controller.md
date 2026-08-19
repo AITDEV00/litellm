@@ -9,7 +9,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 | File | Purpose |
 |------|---------|
 | `controller/__main__.py` | Entry point, signal handling, event loop |
-| `controller/config.py` | Env vars, constants, `LITELLM_ADMIN_KEY` (env wins; local fallback reads `deploy/litellm-proxy.yaml`) |
+| `controller/config.py` | Env vars, constants, `LITELLM_ADMIN_KEY` (env wins; local fallback reads `deploy/prod/litellm-proxy.yaml`) |
 | `controller/controller.py` | Orchestration, reconcile loop, event dispatch |
 | `controller/reconciler.py` | Model reconciliation |
 | `controller/models.py` | `OicmModel` dataclass, `sanitize_model_id`, `detect_mode` |
@@ -33,7 +33,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 
 ## Deployment
 
-Deployed via `deploy/discovery-controller.yaml`, pinned to `adeo-gpu-03` (the
+Deployed via `deploy/prod/discovery-controller.yaml`, pinned to `adeo-gpu-03` (the
 Submariner gateway node) with tolerations and RBAC for reading EndpointSlices.
 The full env var table, build/push steps, and dependency graph live in
 [Discovery Controller](../discovery-controller/README.md); cluster apply /

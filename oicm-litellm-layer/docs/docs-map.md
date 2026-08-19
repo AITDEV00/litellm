@@ -62,7 +62,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Executive summary | `docs/performance/executive-summary.md` |
-| Before / after | `docs/performance/before optimization.md`, `after optimization.md` |
+| Before / after | `docs/performance/before-optimization.md`, `after-optimization.md` |
 | Perf recovery / session notes | `docs/performance/model-performance-perf-recovery.md` |
 
 ## Techniques

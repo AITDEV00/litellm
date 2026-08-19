@@ -23,7 +23,7 @@ Both sources are polled on every full sync cycle (default every 300 seconds). Lo
 | Resource | Location | Description |
 |---|---|---|
 | Controller source README | `controller/README.md` | Developer docs for the controller package: architecture (VSA), dependency graph, how to add a new source, Submariner import discovery |
-| Deployment manifest | `deploy/discovery-controller.yaml` | K8s Deployment + RBAC + ServiceAccount. Pinned to `adeo-gpu-03` (Submariner gateway node). Includes extensive comments on node pinning, tolerations, and RBAC for EndpointSlices |
+| Deployment manifest | `deploy/prod/discovery-controller.yaml` | K8s Deployment + RBAC + ServiceAccount. Pinned to `adeo-gpu-03` (Submariner gateway node). Includes extensive comments on node pinning, tolerations, and RBAC for EndpointSlices |
 | Implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` (Component #1) | Original design document for the discovery controller: scope, architecture, data flow, deployment steps |
 | Pricing logic map | `docs/model-pricing/PRICING-LOGIC-MAP.md` | Function-level trace of pricing resolution, which is triggered by the discovery controller's `_handle_add` event handler |
 | Changelog | `CHANGELOG.md` | Multiple entries covering the VSA rewrite, dedup fix, concurrent batch HTTP, health server fix, and secret reference fix |
@@ -80,7 +80,7 @@ sources -> models, config
 make login && make build && make push-discovery
 
 # Deploy to the cluster
-kubectl apply -f deploy/discovery-controller.yaml
+kubectl apply -f deploy/prod/discovery-controller.yaml
 
 # Restart to pull a new image
 kubectl -n mlops rollout restart deploy/oicm-discovery-controller

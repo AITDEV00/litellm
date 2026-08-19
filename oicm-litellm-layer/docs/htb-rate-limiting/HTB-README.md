@@ -600,7 +600,7 @@ The code is designed to work with any priority configuration:
 
 | Category | Files | Purpose |
 |----------|-------|---------|
-| Deployment | `deploy/litellm-proxy.yaml`, `deploy/litellm-redis.yaml`, `deploy/litellm-ingress.yaml`, `deploy/discovery-controller.yaml` | Kubernetes manifests |
+| Deployment | `deploy/prod/litellm-proxy.yaml`, `deploy/prod/litellm-redis.yaml`, `deploy/prod/litellm-ingress.yaml`, `deploy/prod/discovery-controller.yaml` | Kubernetes manifests |
 | Controller | `controller/` (8 Python files) | Cross-cluster model discovery and fallback reconciliation |
 | Hooks | `hooks/vllm_param_injector.py`, `hooks/keda_metrics.py` | Custom LiteLLM hooks |
 | Tests | `scripts/htb_test_v2.py`, `tests/test_litellm/proxy/hooks/test_priority_reservation_adeo.py`, `tests/test_litellm/proxy/hooks/run_priority_simulations.py` | HTB test suite |

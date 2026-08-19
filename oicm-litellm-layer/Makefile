@@ -23,7 +23,7 @@ LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
 # Master key for local runs, derived from the single source of truth: the
-# `litellm-master-key` Secret in deploy/litellm-proxy.yaml. A rotation in the
+# `litellm-master-key` Secret in deploy/prod/litellm-proxy.yaml. A rotation in the
 # manifest propagates here automatically.
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
@@ -66,9 +66,9 @@ push-litellm:
 
 ## Deploy all manifests to the cluster
 deploy:
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 
 ## Remove built images from local storage
 clean:
@@ -99,15 +99,15 @@ litellm-src-build-push: litellm-src-build litellm-src-push
 ## e.g. make litellm-src-release  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0)
 litellm-src-release: litellm-src-build-push litellm-src-deploy
 
-## Update deploy/litellm-proxy.yaml to use the current LITELLM_SRC_TAG image,
+## Update deploy/prod/litellm-proxy.yaml to use the current LITELLM_SRC_TAG image,
 ## then kubectl apply all deploy manifests.
 litellm-src-deploy:
-	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/litellm-proxy.yaml"
-	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/litellm-proxy.yaml
+	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/prod/litellm-proxy.yaml"
+	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/prod/litellm-proxy.yaml
 	@echo "Deploying to cluster"
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
 ## Build the MkDocs documentation site. Requires the docs venv (see

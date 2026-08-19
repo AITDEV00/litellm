@@ -57,15 +57,18 @@ oicm-litellm-layer/
 │
 ├── decor/                  ← images/assets (logo, favicon)
 │
-├── deploy/                 ← KUBERNETES MANIFESTS (apply these)
-│   ├── litellm-proxy.yaml              ← proxy Deployment + Secret + ConfigMap + Service + PDB
-│   ├── discovery-controller.yaml       ← controller Deployment + RBAC + ServiceAccount
-│   ├── litellm-redis.yaml              ← Redis StatefulSet
-│   ├── litellm-ingress.yaml            ← ingress
-│   ├── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
-│   ├── litellm-proxy-debug.yaml        ← debug proxy variant (see debug_pod technique)
-│   ├── discovery-controller-debug.yaml ← debug controller variant
-│   └── litellm-proxy-rollback-jya0-v1.95.0.yaml ← rollback manifest pinned to v1.95.0
+├── deploy/                 ← KUBERNETES MANIFESTS (grouped by environment)
+│   ├── prod/                          ← production manifests (apply these)
+│   │   ├── litellm-proxy.yaml              ← proxy Deployment + Secret + ConfigMap + Service + PDB
+│   │   ├── discovery-controller.yaml       ← controller Deployment + RBAC + ServiceAccount
+│   │   ├── litellm-redis.yaml              ← Redis StatefulSet
+│   │   ├── litellm-ingress.yaml            ← ingress
+│   │   └── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
+│   ├── dev/                           ← dev/profiling variants (see debug_pod technique)
+│   │   ├── litellm-proxy-dev.yaml        ← dev proxy variant
+│   │   └── discovery-controller-dev.yaml ← dev (read-only) controller variant
+│   └── rollback/                      ← rollback manifests pinned to specific versions
+│       └── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image v1.96.2
 │
 ├── docs/                   ← human/agent documentation (this site + existing)
 │   ├── index.md            ← THIS page (mkdocs home)
@@ -103,7 +106,7 @@ oicm-litellm-layer/
 │   └── ui/litellm-dashboard/src/components/UsagePage/components/ModelPerformance/
 │
 ├── scripts/                ← helper scripts
-│   ├── get_master_key.py       ← prints the master key from deploy/litellm-proxy.yaml (single source)
+│   ├── get_master_key.py       ← prints the master key from deploy/prod/litellm-proxy.yaml (single source)
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── htb_test.py  htb_test_v2.py
 │   └── port-forward-datasources.sh
@@ -131,7 +134,7 @@ oicm-litellm-layer/
 
 | You want to... | Open |
 |----------------|------|
-| Change the proxy master key / UI password | `deploy/litellm-proxy.yaml` (single source) + restart both Deployments. See `docs/credentials.md` |
+| Change the proxy master key / UI password | `deploy/prod/litellm-proxy.yaml` (single source) + restart both Deployments. See `docs/credentials.md` |
 | Edit discovery controller logic | `controller/controller.py`, `controller/reconciler.py`, `controller/sources/*` |
 | Edit controller env defaults | `controller/config.py` |
 | Edit LiteLLM proxy settings | `config/litellm_config.yaml` |

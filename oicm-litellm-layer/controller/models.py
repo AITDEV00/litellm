@@ -76,6 +76,7 @@ CHAT_PATH = "/v1/chat/completions"
 TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 TTS_PATH = "/v1/audio/speech"
 EMBEDDING_PATH = "/v1/embeddings"
+OCR_PATH = "/v1/ocr"
 RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
 
 
@@ -97,6 +98,9 @@ def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str
 
     if TTS_PATH in paths and CHAT_PATH not in paths:
         return "text_to_speech"
+
+    if OCR_PATH in paths and CHAT_PATH not in paths:
+        return "ocr"
 
     if "whisper" in mid_lower or "asr" in mid_lower:
         return "audio_transcription"
@@ -127,5 +131,8 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
 
     if "k2-fsa" in owner_lower or "k2fsa" in mid_lower:
         return "omnivoice"
+
+    if OCR_PATH in paths and CHAT_PATH not in paths:
+        return "mistral"
 
     return "hosted_vllm"

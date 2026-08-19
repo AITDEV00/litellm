@@ -1,7 +1,7 @@
 """Print the LiteLLM master key from the single source of truth.
 
 The authoritative value lives in the inline `litellm-master-key` Secret in
-`deploy/litellm-proxy.yaml`. This script lets local tooling (the Makefile, env
+`deploy/prod/litellm-proxy.yaml`. This script lets local tooling (the Makefile, env
 templates, benchmarks) derive the key from that one manifest instead of
 hardcoding a second copy, so a rotation in the manifest propagates everywhere.
 

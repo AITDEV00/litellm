@@ -1,5 +1,5 @@
 ---
-# Debug-only Deployment: oicm-discovery-controller-debug
+# Dev-only Deployment: oicm-discovery-controller-dev
 #
 # PURPOSE
 #   A throwaway replica of the production `oicm-discovery-controller` used to
@@ -10,7 +10,7 @@
 #   /v1/models) bit-for-bit.
 #
 # CRITICAL SAFETY GUARANTEE
-#   This debug controller is READ-ONLY. It NEVER mutates the production LiteLLM
+#   This dev controller is READ-ONLY. It NEVER mutates the production LiteLLM
 #   gateway. Enforcement is in CODE, not just config:
 #     - `CONTROLLER_READ_ONLY=true` makes LiteLLMClient.batch() /
 #       register_model() / deregister_model() logged no-ops. Discovery and plan
@@ -27,15 +27,15 @@
 #   with this flag set CANNOT write, regardless of its k8s env or admin creds.
 #
 # HOW TO USE
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/discovery-controller-debug.yaml
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/oicm-discovery-controller-debug
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/discovery-controller-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/oicm-discovery-controller-dev
 #   # Watch the logs: every would-be write is logged as [READ-ONLY]:
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops logs deploy/oicm-discovery-controller-debug -f
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops logs deploy/oicm-discovery-controller-dev -f
 #   # The logs show exactly what the production controller WOULD register/delete/patch
 #   # WITHOUT doing it. Compare with prod logs to validate a new discovery change.
 #
 # CLEANUP
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/oicm-discovery-controller-debug
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/oicm-discovery-controller-dev
 #
 # NOTE: This has NO Service, NO PDB, and a distinct name/labels, so it cannot
 #       affect the production controller or receive any production traffic.
@@ -43,19 +43,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: oicm-discovery-controller-debug
+  name: oicm-discovery-controller-dev
   namespace: mlops
   labels:
-    app: oicm-discovery-controller-debug
+    app: oicm-discovery-controller-dev
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: oicm-discovery-controller-debug
+      app: oicm-discovery-controller-dev
   template:
     metadata:
       labels:
-        app: oicm-discovery-controller-debug
+        app: oicm-discovery-controller-dev
     spec:
       serviceAccountName: oicm-discovery-controller
       nodeSelector:
@@ -100,7 +100,7 @@ spec:
               value: "300"
             - name: ENABLE_SUBMARINER_IMPORTS
               value: "true"
-            # READ-ONLY: this is the entire point of the debug controller. All
+            # READ-ONLY: this is the entire point of the dev controller. All
             # LiteLLM writes become logged no-ops; nothing mutates the gateway.
             - name: CONTROLLER_READ_ONLY
               value: "true"

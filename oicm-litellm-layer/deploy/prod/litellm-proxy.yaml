@@ -276,7 +276,10 @@ spec:
               app: litellm-proxy
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.95.0
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.97.0
+          # Non-latest tag defaults to IfNotPresent; force Always so a rollout
+          # restart pulls the freshly built image instead of a stale cache.
+          imagePullPolicy: Always
           ports:
             - containerPort: 4000
               name: http
