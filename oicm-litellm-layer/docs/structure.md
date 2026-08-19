@@ -87,7 +87,18 @@ oicm-litellm-layer/
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)
 │   ├── architecture/       ← integration-layer implementation plan
-│   └── cache-invalidation/ ← cache invalidation design + testing
+│   ├── cache-invalidation/  ← cache invalidation design + testing
+│   ├── oicm-slices.md       ← OICM vertical-slice locations & pattern (see below)
+│
+├── ../ (upstream litellm source tree, co-located OICM slices live there)
+│   ├── litellm/proxy/voice_routes.py                          ← voice routes slice
+│   ├── litellm/endpoints/voice/                          ← voice/script SDK slice
+│   ├── litellm/llms/oicm_providers/                     ← OICM provider config registry
+│   ├── litellm/integrations/prometheus_helpers/          ← in-flight deployment gauge slice
+│   ├── litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py ← HTB rate limiter
+│   ├── litellm/proxy/management_helpers/                  ← team cache invalidation slice
+│   ├── tests/test_litellm/proxy/test_oicm_drop_detection.py
+│   └── ui/litellm-dashboard/src/components/UsagePage/components/ModelPerformance/
 │
 ├── scripts/                ← helper scripts
 │   ├── get_master_key.py       ← prints the master key from deploy/litellm-proxy.yaml (single source)

@@ -71,6 +71,15 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |-----|----------|
 | Logic mapping technique | `docs/techniques/logic_mapping_technique.md` |
 | Code smell detection technique | `docs/techniques/code_smell_detection_technique.md` |
+| Upstream pull & branch merge | `docs/techniques/upstream_merge_technique.md` |
+| Debug pod technique | `docs/techniques/debug_pod_technique.md` |
+
+## OICM custom code
+
+| Doc | Location |
+|-----|----------|
+| OICM vertical-slice locations & pattern | `docs/oicm-slices.md` |
+| Drop-detection wiring tests | `tests/test_litellm/proxy/test_oicm_drop_detection.py` |
 
 ## Runbooks
 

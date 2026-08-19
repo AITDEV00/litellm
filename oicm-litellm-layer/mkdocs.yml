@@ -92,6 +92,7 @@ nav:
       - Hooks: components/hooks.md
       - Custom Routes: components/custom-routes.md
       - Patches: components/patches.md
+      - OICM Custom Code (Vertical Slices): oicm-slices.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
       - Makefile Reference: Makefile-reference.md
