@@ -519,3 +519,44 @@ What is missing (must be built):
   `EntityUsage`.
 - Tests: no `ModelPerformanceView.test.tsx` exists yet; a new feature should
   add meaningful tests (see repo `CLAUDE.md` guidance).
+
+---
+
+## 8. Known issue: deployments surfaced as raw UUIDs in the historical view
+
+**Status: known, not yet fixed. Deferred (2026-08-19).**
+
+The Model Performance historical view groups by the `model_group` recorded in
+`LiteLLM_SpendLogs` (and the 1-minute rollup). For a handful of deployments the
+discovery controller registers the deployment under its **raw UUID** because no
+friendly model id is discoverable, so requests against them land in the spend
+log with `model_group = hosted_vllm/<uuid>` and the historical chart/summary
+surfaces a raw UUID alongside the readable names.
+
+Observed on dev (`698c3cfd-55d5-40f7-a084-9f76d1b1fa5c`,
+`9c57bce9-0583-4bf7-9443-08825220a231`, `cd2850fc-5870-4a57-89da-5e978eee66f4`):
+
+- `j-698c...` → `presight/flood-compute-gpu`
+- `j-9c57...` → `hamsa-stt-onprem-v2` (serves `/transcribe`, FastAPI)
+- `j-cd28...` → `hamsa-tts-onprem-v2` (serves `/tts/stream`, FastAPI)
+
+**Root cause**: these servers return 404/405 on `/v1/models` (the
+`_query_v1_models` path in `controller/sources/local_deployments.py`) and their
+ConfigMaps carry no `MODEL_ID`/`MODEL_NAME`, so discovery falls back to
+`model_ids = [uuid]` and registers the deployment literally as the UUID. There
+is no friendlier name stored anywhere to map to, so the `/model/performance`
+endpoint cannot display one.
+
+**Fix options (not yet actioned):**
+
+1. **Discovery naming (preferred):** in the controller, recognize the FastAPI
+   serving surface (e.g. `/transcribe`, `/tts/stream`) and derive a friendly
+   model name from the deployment image/env instead of falling back to the
+   UUID. Only affects future requests; historical spend-log rows keep the old
+   UUID unless backfilled.
+2. **Endpoint display mapping:** map `hosted_vllm/<uuid>` groups to a friendlier
+   label in the `/model/performance` response (e.g. strip the provider prefix,
+   or a configurable UUID→name map). Fixes display only; there is no
+   authoritative friendly name to map to.
+3. **Backfill/hide:** backfill the spend-log rows for these deployments to
+   friendly names, or filter out UUID-only groups from the historical view.
