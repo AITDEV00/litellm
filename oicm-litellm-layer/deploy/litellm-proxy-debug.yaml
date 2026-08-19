@@ -77,7 +77,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.96.2
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.97.0
           # Force a re-pull even though the tag (branch name) doesn't change
           # between pushes, so a redeploy always picks up the freshly built
           # image instead of a node-cached one with the same tag.
