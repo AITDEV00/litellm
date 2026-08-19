@@ -1,6 +1,6 @@
 [project]
 name = "litellm"
-version = "1.96.2"
+version = "1.97.0"
 description = "Library to easily interface with LLM API providers"
 readme = "README.md"
 requires-python = ">=3.10, <3.15"
@@ -53,6 +53,9 @@ proxy = [
     "pyyaml>=6.0.3,<7.0",
     "rq>=2.7.0,<3.0",
     "orjson>=3.11.6,<4.0",
+    # redis-py's C response parser. It arrives with redis (via rq) either way; naming
+    # it here is what makes redis-py select _HiredisParser instead of the Python one.
+    "hiredis>=3.0.0,<4.0",
     "apscheduler>=3.11.2,<4.0",
     "fastapi-sso>=0.19.0,<1.0",
     "PyJWT>=2.13.0,<3.0",
@@ -64,8 +67,8 @@ proxy = [
     "azure-identity>=1.25.2,<2.0",
     "azure-storage-blob>=12.28.0,<13.0",
     "mcp>=1.28.1,<2.0",
-    "litellm-proxy-extras==0.4.81",
-    "litellm-enterprise==0.1.53",
+    "litellm-proxy-extras==0.4.84",
+    "litellm-enterprise==0.1.54",
     "RestrictedPython>=8.1,<9.0",
     "rich>=13.9.4,<14.0",
     "InquirerPy>=0.3.4,<1.0",
@@ -162,7 +165,6 @@ litellm-proxy = "litellm.proxy.client.cli:cli"
 [dependency-groups]
 dev = [
     "diff-cover==9.7.2",
-    "flake8==7.3.0",
     "basedpyright==1.39.7",
     "pytest==9.0.3",
     "pytest-mock==3.15.1",
@@ -304,7 +306,7 @@ members = ["enterprise", "litellm-proxy-extras"]
 profile = "black"
 
 [tool.commitizen]
-version = "1.96.2"
+version = "1.97.0"
 version_files = [
     "pyproject.toml:^version",
 ]

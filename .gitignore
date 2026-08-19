@@ -1,6 +1,7 @@
 .python-version
 .venv
 .venv-docs
+.venv-typecheck
 .venv_policy_test
 .env
 .env.datasource

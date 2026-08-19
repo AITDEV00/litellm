@@ -2,6 +2,8 @@
 Transformation logic for Hosted VLLM audio transcription.
 """
 
+from typing import Final
+
 import httpx
 
 from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
