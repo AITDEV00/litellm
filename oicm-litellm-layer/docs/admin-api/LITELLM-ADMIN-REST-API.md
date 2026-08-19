@@ -1673,11 +1673,13 @@ right access, the right guardrails, and a usable credential on the first call.
 Only a `PROXY_ADMIN` can create a `proxy_admin` or `proxy_admin_viewer`. For an
 ordinary person pick `internal_user`.
 
-**2. Set login credentials.** Pass `password` to let the user log in to the
-Admin UI (`UI_USERNAME`/`UI_PASSWORD` govern the top-level login; a user
-`password` authenticates that specific account). The proxy hashes it server
-side. Omit `password` and provide `sso_user_id` instead if the user authenticates
-via SSO.
+**2. Set login credentials.** `NewUserRequest` does **not** accept a `password`
+field, so a user created via `/user/new` starts passwordless and cannot log in
+until one is set. Set the password with `POST /user/update` right after
+creation (see the working example below). A user `password` authenticates that
+specific account; `UI_USERNAME`/`UI_PASSWORD` govern only the top-level login.
+The proxy hashes it server side. Alternatively provide `sso_user_id` so the user
+authenticates via SSO instead of a password.
 
 **3. Choose `auto_create_key`.**
 
@@ -1704,6 +1706,8 @@ the stable identifier for all subsequent `/user/update` and spend lookups.
 
 **Working example (ADEO gateway):**
 
+Create the user (role `internal_user`, auto-created key):
+
 ```bash
 curl -sk -X POST "$PROXY_BASE_URL/user/new" \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
@@ -1712,18 +1716,31 @@ curl -sk -X POST "$PROXY_BASE_URL/user/new" \
     "user_email": "adeogpt@ecouncil.ae",
     "user_alias": "ADEOGPT",
     "user_role": "internal_user",
-    "password": "Password123",
     "auto_create_key": true
   }'
 ```
 
-The response returns `user_id`, `user_role`, `user_alias`, `user_email`, and an
-auto-created `key`. Save the `user_id`; it is the handle for `/user/update` and
-`/user/info`.
+Then set a password so the account can actually log in to the Admin UI:
+
+```bash
+curl -sk -X POST "$PROXY_BASE_URL/user/update" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "<user_id_from_response>",
+    "password": "REPLACE_WITH_A_STRONG_PASSWORD"
+  }'
+```
+
+The `/user/new` response returns `user_id`, `user_role`, `user_alias`,
+`user_email`, and an auto-created `key`. Save the `user_id`; it is the handle
+for `/user/update` and `/user/info`. The account can log in only after the
+`/user/update` password step above succeeds.
 
 **Verify after creation** with `GET /user/info?user_id=<id>` (shows the user's
-keys and memberships). Rotate the auto-created key with `/key/regenerate` or
-`/key/update` if it was exposed.
+keys and memberships). Confirm the password took effect by logging in via
+`POST /v2/login` with the username and password. Rotate the auto-created key
+with `/key/regenerate` or `/key/update` if it was exposed.
 
 ### POST `/user/update` ; Update a User
 
