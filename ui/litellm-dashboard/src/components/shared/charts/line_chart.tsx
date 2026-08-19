@@ -16,13 +16,6 @@ import { categoryFills, type ChartColor } from "./colors";
 
 export type LineChartCurveType = "linear" | "natural" | "monotone" | "step";
 
-/** Extract the hovered category's data key from a recharts Legend payload, or null. */
-function hoveredCategoryKey(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const dataKey = (payload as { dataKey?: unknown }).dataKey;
-  return typeof dataKey === "string" ? dataKey : null;
-}
-
 export type LineChartProps<TDatum extends Record<string, unknown>> = {
   data: readonly TDatum[];
   index: string;
@@ -128,10 +121,6 @@ export function LineChart<TDatum extends Record<string, unknown>>({
         {showLegend && (
           <ChartLegend
             verticalAlign="top"
-            onMouseEnter={(payload) => {
-              const dataKey = hoveredCategoryKey(payload);
-              if (dataKey !== null) setActiveCategory(dataKey);
-            }}
             onMouseLeave={() => {
               if (highlightOnHover) setActiveCategory(null);
             }}
