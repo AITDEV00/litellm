@@ -17,8 +17,10 @@
 #       computation still run, but every write is logged as "[READ-ONLY] would
 #       ..." and the HTTP write calls (/model/new, /model/delete,
 #       /model/{id}/update) are never issued.
-#   So even though it shares the production master key and can READ the gateway,
-#   it can never change the gateway's model config.
+#   So even though it uses a dev key and can READ the gateway, it can never
+#   change the gateway's model config. It points at the DEV gateway
+#   (litellm-proxy-dev) using the dev key (litellm-master-key-dev), so it is
+#   fully decoupled from the production key/gateway.
 #
 # WHY READ-ONLY IS ENFORCED IN CODE (not just YAML)
 #   Relying on YAML to "just point it elsewhere" or "just not use the write
@@ -86,11 +88,11 @@ spec:
             - name: WATCH_NAMESPACE
               value: "adeo"
             - name: LITELLM_ADMIN_URL
-              value: "http://litellm-proxy.mlops.svc.cluster.local:4000"
+              value: "http://litellm-proxy-dev.mlops.svc.cluster.local:4000"
             - name: LITELLM_ADMIN_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-master-key
+                  name: litellm-master-key-dev
                   key: master-key
             - name: CLUSTER_DOMAIN
               value: "svc.cluster.local"

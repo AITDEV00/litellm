@@ -1,0 +1,137 @@
+---
+# ROLLBACK MANIFEST: revert the discovery-controller master-key change
+#
+# The controller only needs LITELLM_ADMIN_KEY for AUTH (it never decrypts DB
+# credentials), so reverting its key to sk-1234 is all that is required. It must
+# be applied AFTER (or alongside) the proxy rollback so the proxy accepts the
+# reverted admin key.
+#
+# APPLY
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl rollout restart deployment/oicm-discovery-controller -n mlops
+#
+# VERIFY (controller logs should show 200 / successful /model calls, no 401)
+#   kubectl -n mlops logs deployment/oicm-discovery-controller --tail=30
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oicm-discovery-controller
+  namespace: mlops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo
+rules:
+  # Read deployments (to discover model deployments)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  # Read services (to get ClusterIP for health checks)
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  # Read configmaps (to get MODEL_ID)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+  # Read endpointslices (to discover Submariner-imported services)
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oicm-discovery-controller
+subjects:
+  - kind: ServiceAccount
+    name: oicm-discovery-controller
+    namespace: mlops
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oicm-discovery-controller
+  namespace: mlops
+  labels:
+    app: oicm-discovery-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oicm-discovery-controller
+  template:
+    metadata:
+      labels:
+        app: oicm-discovery-controller
+    spec:
+      serviceAccountName: oicm-discovery-controller
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: controller
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:latest
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              value: "adeo"
+            - name: LITELLM_ADMIN_URL
+              value: "http://litellm-proxy.mlops.svc.cluster.local:4000"
+            - name: LITELLM_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: CLUSTER_DOMAIN
+              value: "svc.cluster.local"
+            - name: MODEL_PORT
+              value: "8080"
+            - name: SYNC_INTERVAL
+              value: "300"
+            - name: ENABLE_SUBMARINER_IMPORTS
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10

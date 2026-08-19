@@ -8,7 +8,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |------|---------|
 | `docs/index.md` | Entry point / quick navigator |
 | `docs/structure.md` | Full directory map |
-| `docs/credentials.md` | **Master key & password contract + rotation runbook** |
+| `docs/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
 | `docs/deployment.md` | Apply / rollout / cluster access |
 | `docs/components/*.md` | Per-component navigation |
 

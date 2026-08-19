@@ -27,8 +27,14 @@
 #       python3 /app/probe_performance.py
 #   # port-forward the dev pod if you want to hit it over HTTP in isolation:
 #   kubectl --kubeconfig=$KUBECONFIG -n mlops port-forward deploy/litellm-proxy-dev 14001:4000
-#   curl -s -H "Authorization: Bearer sk-1234" \
+#   curl -s -H "Authorization: Bearer sk-05132025" \
 #       "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
+#
+# NOTE: The dev proxy uses its OWN master key secret `litellm-master-key-dev`
+#       (value sk-05132025), rather than the shared production
+#       `litellm-master-key`. Both prod and dev now use the same value
+#       (sk-05132025), but they use SEPARATE secrets, so a dev-only change does
+#       not touch the production secret.
 #
 # CLEANUP
 #   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/litellm-proxy-dev
@@ -91,13 +97,23 @@ spec:
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-master-key
+                  name: litellm-master-key-dev
                   key: master-key
             - name: UI_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: litellm-master-key
+                  name: litellm-master-key-dev
                   key: master-key
+            # Decouple the at-rest encryption key from the master key. The model
+            # credentials in the SHARED DB are encrypted with the ORIGINAL key
+            # (sk-1234). The dev master key is now sk-05132025 (auth only), so
+            # we pin LITELLM_SALT_KEY to the old key to keep DB decryption
+            # working on dev. Never change this alongside the dev master key.
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-salt-key-dev
+                  key: salt-key
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

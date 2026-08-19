@@ -1,4 +1,39 @@
 ---
+# ROLLBACK MANIFEST: revert the prod master-key / salt-key change
+#
+# Restores prod to the PREVIOUS working state:
+#   - litellm-master-key  -> sk-1234  (auth / admin key)
+#   - removes the LITELLM_SALT_KEY pin (salt falls back to master = sk-1234)
+#   - deletes the litellm-salt-key secret created by the forward change
+#
+# WHY THIS EXISTS
+#   deploy/prod/litellm-proxy.yaml changed the master key to sk-05132025 and
+#   pinned LITELLM_SALT_KEY to sk-1234. If that change breaks prod, apply THIS
+#   file to return to the exact previous working configuration.
+#
+# APPLY ORDER (run the proxy first, then the controller)
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl apply -f deploy/rollback/litellm-proxy-rollback-key.yaml
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl rollout restart deployment/litellm-proxy -n mlops
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
+#     kubectl rollout restart deployment/oicm-discovery-controller -n mlops
+#
+# VERIFY ROLLBACK
+#   kubectl -n mlops rollout status deployment/litellm-proxy
+#   kubectl -n mlops get secret litellm-master-key -o jsonpath='{.data.master-key}' | base64 -d
+#   # -> sk-1234
+#   curl -s -o /dev/null -w "%{http_code}\n" \
+#     -H "Authorization: Bearer sk-1234" http://127.0.0.1:4000/v1/models
+#   # -> 200
+#
+# NOTE: This does NOT touch the DB. It only restores the keys the proxy/controller
+#       use. It is safe to apply at any time and is idempotent with the current
+#       forward state.
+
+---
 apiVersion: v1
 kind: Secret
 metadata:
@@ -6,12 +41,12 @@ metadata:
   namespace: mlops
 type: Opaque
 stringData:
-  master-key: sk-05132025
+  master-key: sk-1234
 ---
-# At-rest credential encryption key. MUST stay at the ORIGINAL value that the
-# shared DB credentials were encrypted with (sk-1234). If this ever changes, all
-# stored credentials become undecryptable and BOTH prod and dev break (they share
-# the DB). Do NOT rotate this unless you run the full re-encryption migration.
+# Removes the salt key secret so LITELLM_SALT_KEY falls back to the master key.
+# (Deleting the secret means any env var referencing it fails to resolve; the
+# forward deployment that references it is overwritten by this rollback's
+# deployment below, which no longer references it.)
 apiVersion: v1
 kind: Secret
 metadata:
@@ -29,16 +64,15 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
-# The litellm-logo ConfigMap is created separately with binary files.
-# To create or update the logo, run:
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
-# To update an existing one, delete and recreate, or use:
-#   kubectl delete configmap litellm-logo -n mlops && \
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-redis-password
+  namespace: mlops
+type: Opaque
+stringData:
+  password: litellm-redis-7f3a9b2e
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -77,29 +111,12 @@ data:
           priority: 100
         prior3:
           priority: 200
-      # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
-      # prior2 and prior3 fall into a shared default_pool at default_priority.
-      # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
-      # priority_reservation:
-      #   prior1: 1.0
-      # priority_reservation_settings:
-      #   saturation_threshold: 0.75
-      #   default_priority: 0.50
     router_settings:
       routing_strategy: usage-based-routing-v2
       optional_pre_call_checks:
         - enforce_model_rate_limits
     general_settings:
       use_redis_transaction_buffer: true
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: litellm-redis-password
-  namespace: mlops
-type: Opaque
-stringData:
-  password: litellm-redis-7f3a9b2e
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -212,35 +229,7 @@ data:
 
     priority_bridge = PriorityBridge()
 ---
-# LiteLLM Proxy Deployment
-#
-# Both replicas are pinned to adeo-gpu-03 (the Submariner gateway node) because Cilium's BPF
-# kube-proxy replacement drops return traffic from Submariner globalnet IPs (242.0.0.0/24) for
-# pods on non-gateway nodes. The gateway node is the only node where the outbound and return
-# paths use the same datapath (Cilium BPF + nftables SNAT + vx-submariner). See the Al Ain
-# Submariner guide §12.1 for the full root cause analysis.
-#
-# Commands used to apply this configuration:
-#
-#   kubectl patch deploy litellm-proxy -n mlops --type=json -p='[
-#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
-#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
-#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
-#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
-#       {"key":"target","value":"k8s","effect":"NoSchedule"},
-#       {"key":"target","value":"k8s","effect":"NoExecute"},
-#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
-#     ]}
-#   ]'
-#
-# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
-# for all three are required. topologySpreadConstraints with ScheduleAnyway lets both replicas
-# co-locate on gpu-03 (the only gateway node) while still attempting to spread across zones.
-#
-# IMPORTANT: Do not add a second gateway node for HA without also addressing the Cilium BPF
-# limitation. Non-gateway pods will time out reaching globalnet IPs regardless of tunnel health.
-
----
+# LiteLLM Proxy Deployment (ROLLBACK: master-key sk-1234, no salt pin)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -290,8 +279,6 @@ spec:
       containers:
         - name: litellm
           image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.97.0
-          # Non-latest tag defaults to IfNotPresent; force Always so a rollout
-          # restart pulls the freshly built image instead of a stale cache.
           imagePullPolicy: Always
           ports:
             - containerPort: 4000
@@ -309,15 +296,6 @@ spec:
                 secretKeyRef:
                   name: litellm-master-key
                   key: master-key
-            # Decouple the at-rest encryption key from the master key. The model
-            # credentials in the shared DB are encrypted with the ORIGINAL key
-            # (sk-1234). The master key is now sk-05132025 (auth only), so we pin
-            # LITELLM_SALT_KEY to the old key to keep DB decryption working.
-            - name: LITELLM_SALT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-salt-key
-                  key: salt-key
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
