@@ -59,7 +59,7 @@ async def test_convert_path_deployment_fans_out_to_multiple_models():
 
 
 @pytest.mark.asyncio
-async def test_ocr_path_deployment_registers_as_mistral_ocr():
+async def test_ocr_path_deployment_registers_as_paddlex_ocr():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(
@@ -74,9 +74,9 @@ async def test_ocr_path_deployment_registers_as_mistral_ocr():
 
     assert set(models.keys()) == {"ocr-uuid::PP-DocLayoutV3"}
     model = models["ocr-uuid::PP-DocLayoutV3"]
-    # A /v1/ocr-only model registers as a mistral OCR model.
+    # A /v1/ocr-only model registers as a paddlex OCR model.
     assert model.mode == "ocr"
-    assert model.provider == "mistral"
+    assert model.provider == "paddlex"
     assert model.api_base == "http://s-ocr-uuid.adeo.svc.cluster.local:8080/v1"
 
 

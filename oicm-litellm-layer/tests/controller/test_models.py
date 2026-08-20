@@ -100,11 +100,11 @@ class TestDoclingDetection:
         paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
         assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "chat"
 
-    def test_detect_provider_ocr_path_returns_mistral(self):
-        # A model exposing only /v1/ocr registers under the mistral provider so
-        # it routes through the first-class /v1/ocr endpoint as mistral/PP-DocLayoutV3.
+    def test_detect_provider_ocr_path_returns_paddlex(self):
+        # A model exposing only /v1/ocr registers under the paddlex provider so
+        # it routes through the first-class /v1/ocr endpoint as paddlex/PP-DocLayoutV3.
         paths = frozenset({"/v1/ocr"})
-        assert detect_provider("", "PP-DocLayoutV3", paths) == "mistral"
+        assert detect_provider("", "PP-DocLayoutV3", paths) == "paddlex"
 
     def test_detect_provider_ocr_with_known_provider_wins(self):
         paths = frozenset({"/v1/ocr"})
@@ -112,7 +112,7 @@ class TestDoclingDetection:
 
     def test_detect_provider_ocr_with_chat_returns_hosted_vllm(self):
         # A hybrid model exposing both /v1/ocr and chat stays a hosted_vllm chat
-        # model rather than being reclassified as mistral OCR.
+        # model rather than being reclassified as paddlex OCR.
         paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
         assert detect_provider("", "PP-DocLayoutV3", paths) == "hosted_vllm"
 

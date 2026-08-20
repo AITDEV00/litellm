@@ -121,6 +121,16 @@ def to_litellm_mode(mode: str) -> str:
 
 
 def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozenset()) -> str:
+    """Infer the LiteLLM provider for a discovered model.
+
+    Precedence: explicit known provider in owner/model id -> k2-fsa (omnivoice)
+    -> /v1/ocr-only surface -> hosted_vllm.
+
+    TODO(future): switch to provider-based matching on the model id itself when
+    model ids are namespaced by provider (e.g. a literal `paddlex/abcd` model
+    name). Today the OCR branch infers "paddlex" purely from the exposed
+    `/v1/ocr` path, which would also mislabel a non-PaddleX /v1/ocr model.
+    """
     owner_lower = owned_by.lower()
     mid_lower = model_id.lower()
 
@@ -133,6 +143,6 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
         return "omnivoice"
 
     if OCR_PATH in paths and CHAT_PATH not in paths:
-        return "mistral"
+        return "paddlex"
 
     return "hosted_vllm"
