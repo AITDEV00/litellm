@@ -8924,8 +8924,10 @@ class ProviderConfigManager:
             return None
 
         MistralOCRConfig: Final = getattr(sys.modules[__name__], "MistralOCRConfig")
+        PaddleXOCRConfig: Final = getattr(sys.modules[__name__], "PaddleXOCRConfig")
         PROVIDER_TO_CONFIG_MAP: Final = {
             litellm.LlmProviders.MISTRAL: MistralOCRConfig,
+            litellm.LlmProviders.PADDLEX: PaddleXOCRConfig,
         }
         config_class: Final = PROVIDER_TO_CONFIG_MAP.get(provider, None)
         if config_class is None:

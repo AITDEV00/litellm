@@ -3719,6 +3719,7 @@ class LlmProviders(str, Enum):
     GDC = "gdc"
     HAMSA = "hamsa"
     OMNIVOICE = "omnivoice"
+    PADDLEX = "paddlex"
 
 
 # Create a set of all provider values for quick lookup
