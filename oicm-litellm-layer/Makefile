@@ -105,9 +105,12 @@ litellm-src-deploy:
 	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/prod/litellm-proxy.yaml"
 	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/prod/litellm-proxy.yaml
 	@echo "Deploying to cluster"
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
+	@echo "Restarting litellm-proxy to pull the freshly tagged image"
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl -n mlops rollout restart deployment/litellm-proxy
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl -n mlops rollout status deployment/litellm-proxy --timeout=300s
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
