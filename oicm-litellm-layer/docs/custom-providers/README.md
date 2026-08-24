@@ -43,6 +43,7 @@ Key implementation files:
 |---|---|
 | [LITELLM_ENDPOINT_ARCHITECTURE.md](LITELLM_ENDPOINT_ARCHITECTURE.md) | Full 7-layer trace of how LiteLLM implements endpoints and the pattern for adding a new custom provider endpoint |
 | [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) | End-user guide for accessing Hamsa TTS/STT/voice through the LiteLLM gateway |
+| [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) | Usage guide for Hamsa STT/TTS endpoints through the gateway (`https://litellm.ecouncil.ae/v1`) |
 | [HAMSA_RESEARCH.md](HAMSA_RESEARCH.md) | Hamsa STT source code crawl, protocol analysis, and OpenAI compatibility assessment |
 | [HAMSA_TTS_BEHAVIOR.md](HAMSA_TTS_BEHAVIOR.md) | Hamsa TTS pod source code analysis covering model loading, inference flow, and API endpoints |
 | [inception-hamsa-audit.md](inception-hamsa-audit.md) | Logic mapping and code smell audit comparing inception and hamsa implementations |

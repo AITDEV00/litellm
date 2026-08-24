@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Transcription WebSocket Client</title>
+    <title>Hamsa STT Realtime WebSocket Client</title>
     <style>
         * {
             margin: 0;
@@ -486,7 +486,7 @@
                 <div class="input-group full">
                     <div class="input-wrapper">
                         <label for="wsUrl">WebSocket URL</label>
-                        <input type="url" id="wsUrl" placeholder="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt" value="wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt">
+                        <input type="url" id="wsUrl" placeholder="wss://litellm.ecouncil.ae/v1/realtime?model=hamsa-stt" value="wss://litellm.ecouncil.ae/v1/realtime?model=hamsa-stt">
                     </div>
                 </div>
 
@@ -497,7 +497,7 @@
                     </div>
                     <div class="input-wrapper">
                         <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
-                        <input type="text" id="bearerToken" placeholder="sk-..." value="sk-omQbswRlepuTISV-1wgsDg">
+                        <input type="text" id="bearerToken" placeholder="sk-..." value="sk-05132025">
                     </div>
                 </div>
             </div>
@@ -611,8 +611,8 @@
                 <h2>REST API (curl)</h2>
                 <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
 curl -sk -X POST \
-  "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
+  -H "Authorization: Bearer sk-05132025" \
   -F "model=hamsa-stt" \
   -F "file=@/path/to/audio.wav" \
   -F "language=auto"</div>

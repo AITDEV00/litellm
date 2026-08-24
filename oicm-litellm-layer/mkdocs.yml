@@ -131,6 +131,7 @@ nav:
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
   - Custom Providers:
       - Gateway Guide: custom-providers/GATEWAY_GUIDE.md
+      - HAMSA STT & TTS Guide: custom-providers/HAMSA_STT_TTS_GUIDE.md
       - HAMSA Research: custom-providers/HAMSA_RESEARCH.md
       - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md
       - Inception TTS/STT Guide: custom-providers/INCEPTION_TTS_STT_GUIDE.md
