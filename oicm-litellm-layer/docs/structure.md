@@ -88,6 +88,7 @@ oicm-litellm-layer/
 │   ├── discovery-controller/
 │   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue
 │   ├── model-pricing/      ← pricing logic maps
+│   ├── model-usage/        ← usage guides for standard hosted models (e.g. Qwen vision)
 │   ├── performance/        ← performance before/after + session recovery notes
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)

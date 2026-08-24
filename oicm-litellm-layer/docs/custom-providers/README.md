@@ -51,7 +51,6 @@ Key implementation files:
 | [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) | Sample curl commands and response shapes for calling inception TTS and STT through the gateway |
 | [OMNIVOICE_LOGIC_MAPPING.md](OMNIVOICE_LOGIC_MAPPING.md) | Endpoint-by-endpoint analysis of OmniVoice API mapped to LiteLLM 7-layer architecture |
 | [OMNIVOICE_TTS_GUIDE.md](OMNIVOICE_TTS_GUIDE.md) | Sample curl commands and response shapes for calling OmniVoice TTS and voice cloning through the gateway |
-| [QWEN_VISION_GUIDE.md](QWEN_VISION_GUIDE.md) | Usage guide for image (vision) understanding with `Qwen/Qwen3.5-122B-A10B-GPTQ-Int4` through the gateway |
 
 ## Architecture Comparison
 

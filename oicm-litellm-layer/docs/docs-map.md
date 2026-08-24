@@ -49,6 +49,12 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
 | HAMSA / INCEPTION / OMNIVOICE | `docs/custom-providers/HAMSA_*.md`, `INCEPTION_*.md`, `OMNIVOICE_*.md` |
 
+## Model Usage
+
+| Doc | Location |
+|-----|----------|
+| Qwen vision guide | `docs/model-usage/QWEN_VISION_GUIDE.md` |
+
 ## Dashboard / frontend
 
 | Doc | Location |
