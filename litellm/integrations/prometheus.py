@@ -2775,7 +2775,21 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
                 "custom_llm_provider", None
             )
             _model_info: Final = _metadata.get("model_info") or {}
-            model_id: Final = _model_info.get("id", None)
+            # model_id must be resolved consistently with the inc path and the
+            # failure dec path. Those prefer standard_logging_object["model_id"]
+            # (the stable deployment identity) and only fall back to
+            # metadata.model_info.id. Resolving it solely from metadata here
+            # leaves a permanent leak for request types where metadata.model_info
+            # is not populated at success time but standard_logging_object's
+            # model_id is: the inc counted the request, the dec no-ops on
+            # `if model_id:`, and the gauge climbs forever (observed as a frozen
+            # phantom concurrency on idle STT/TTS deployments).
+            model_id: Final = cast(
+                str | None,
+                standard_logging_payload.get("model_id")
+                or (enum_values.model_id if enum_values else None)
+                or _model_info.get("id"),
+            )
 
             if _model_info or _litellm_params:
                 self._set_deployment_tpm_rpm_limit_metrics(

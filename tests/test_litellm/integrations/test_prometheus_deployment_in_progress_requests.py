@@ -713,3 +713,70 @@ async def test_gauge_clamps_at_zero_when_dec_outnumbers_inc(logger, isolated_reg
         output_tokens=10.0,
     )
     assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_success_dec_falls_back_to_standard_logging_model_id(logger, isolated_registry):
+    """Regression: success dec must not leak when metadata.model_info is absent.
+
+    The inc path resolves model_id from standard_logging_object["model_id"]
+    (with fallback to metadata.model_info.id). The failure dec path does the
+    same. But the success dec historically resolved model_id ONLY from
+    metadata.model_info.id. For request types (e.g. streaming STT/TTS) where
+    metadata.model_info is not populated at success time while
+    standard_logging_object["model_id"] IS set, the dec no-ops on `if model_id:`
+    and the gauge leaks forever.
+
+    This reproduces the production leak where an idle STT deployment froze at a
+    phantom concurrency of 381 on every proxy pod with zero live traffic. The
+    gauge must return to 0.
+    """
+    await logger.async_pre_call_deployment_hook(
+        kwargs={
+            "model": "hamsa/hamsa-stt",
+            "messages": [],
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://stt:8080",
+                "model": "hamsa/hamsa-stt",
+                "custom_llm_provider": "hosted_vllm",
+            },
+        },
+        call_type=None,
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime(2026, 1, 1, 0, 0, 5)
+    enum_values = UserAPIKeyLabelValues(
+        litellm_model_name="hamsa/hamsa-stt",
+        model_id="abc-123",
+        api_base="http://stt:8080",
+        api_provider="hosted_vllm",
+    )
+    # NOTE: litellm_params.metadata.model_info is intentionally absent. The dec
+    # must fall back to standard_logging_object["model_id"] like the inc path.
+    logger.set_llm_deployment_success_metrics(
+        request_kwargs={
+            "model": "hamsa/hamsa-stt",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://stt:8080",
+                "model": "hamsa/hamsa-stt",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "hamsa/hamsa-stt",
+                "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
+                "metadata": {},
+                "completion_tokens": 10,
+            },
+            "litellm_params": {
+                "custom_llm_provider": "hosted_vllm",
+                "api_base": "http://stt:8080",
+            },
+        },
+        start_time=start,
+        end_time=end,
+        enum_values=enum_values,
+        output_tokens=10.0,
+    )
+    assert _gauge_value(isolated_registry) == 0.0

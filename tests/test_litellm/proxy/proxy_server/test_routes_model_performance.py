@@ -687,8 +687,9 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
     left that label empty and the endpoint fell back to the raw UUID. Each
     metric carries its own name label, so the grouping must preserve it:
 
-    - concurrency gauge / latency histogram -> ``litellm_model_name``
-    - throughput counter                    -> ``requested_model``
+    - concurrency gauge -> ``litellm_model_name``
+    - throughput counter -> ``requested_model``
+    - TTFT histogram    -> ``model`` (the TTFT histogram has no litellm_model_name)
     """
     pc = MagicMock()
     pc.db.query_raw = AsyncMock(return_value=[])
@@ -706,6 +707,13 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
             return [
                 {
                     "metric": {"model_id": "uuid-a", "litellm_model_name": "hosted_vllm/gpt-4"},
+                    "values": [["1700000000", "2"]],
+                }
+            ]
+        if "time_to_first_token_metric_bucket" in promql:
+            return [
+                {
+                    "metric": {"model_id": "uuid-a", "model": "hosted_vllm/gpt-4", "le": "+Inf"},
                     "values": [["1700000000", "2"]],
                 }
             ]
@@ -731,5 +739,5 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
     throughput = next(p for p in captured if "output_tokens_metric_total" in p)
     assert "sum by (model_id, requested_model)" in throughput
 
-    ttft = next(p for p in captured if "latency_per_output_token_bucket" in p)
-    assert "sum by (le, model_id, litellm_model_name)" in ttft
+    ttft = next(p for p in captured if "time_to_first_token_metric_bucket" in p)
+    assert "sum by (le, model_id, model)" in ttft

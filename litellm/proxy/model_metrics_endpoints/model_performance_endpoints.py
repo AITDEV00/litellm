@@ -11,7 +11,7 @@ import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -329,12 +329,18 @@ async def _fetch_prometheus_performance(
     start = end - _parse_window_to_timedelta(range_str)
 
     label_filter = ""
+    # The concurrency gauge carries litellm_model_name; the throughput counter
+    # carries requested_model; the TTFT histogram carries ``model`` (not
+    # litellm_model_name). Each metric is filtered on the label it actually
+    # exposes so a model_group filter does not silently drop a metric to empty.
     if model_filter:
         quoted = _quote_promql_string_literal(model_filter)
-        # The deployment-scoped metrics (concurrency gauge, latency histogram)
-        # carry litellm_model_name / model_id, not requested_model. Filter on
-        # litellm_model_name for the model_group filter so it matches.
         label_filter = f"{{litellm_model_name={quoted}}}"
+
+    ttft_label_filter = ""
+    if model_filter:
+        quoted = _quote_promql_string_literal(model_filter)
+        ttft_label_filter = f"{{model={quoted}}}"
 
     # Group by model_id: it is present on all three metrics, whereas
     # requested_model only exists on the token counter. This mirrors the
@@ -361,9 +367,16 @@ async def _fetch_prometheus_performance(
         "throughput_tokens_per_sec": (
             f"sum by (model_id, requested_model) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
         ),
+        # TTFT is the time to first token for streaming requests, captured by
+        # litellm_llm_api_time_to_first_token_metric (a histogram). It must not
+        # be conflated with litellm_deployment_latency_per_output_token, which
+        # measures total latency divided by completion tokens (i.e. per-token
+        # throughput) and is a different quantity. This query keys on ``model``
+        # because that is the label the TTFT histogram exposes (it has no
+        # litellm_model_name label).
         "ttft_seconds": (
-            f"histogram_quantile(0.5, sum by (le, model_id, litellm_model_name) (rate("
-            f"litellm_deployment_latency_per_output_token_bucket{label_filter}[{range_str}])))"
+            f"histogram_quantile(0.5, sum by (le, model_id, model) (rate("
+            f"litellm_llm_api_time_to_first_token_metric_bucket{ttft_label_filter}[{range_str}])))"
         ),
     }
 
@@ -388,12 +401,16 @@ async def _fetch_prometheus_performance(
             verbose_proxy_logger.debug(f"Prometheus performance query '{series_name}' failed: {e}")
             continue
         for entry in raw:
-            labels = entry.get("metric", {})
+            labels = cast(dict[str, str], entry.get("metric", {}))
             mid = labels.get("model_id", "") or labels.get("litellm_model_name", "")
             if not mid:
                 continue
             series_by_id.setdefault(mid, {})[series_name] = _parse_range_result([entry])
-            name = labels.get("litellm_model_name", "") or labels.get("requested_model", "")
+            name = (
+                labels.get("litellm_model_name", "")
+                or labels.get("requested_model", "")
+                or labels.get("model", "")
+            )
             if name and mid not in model_id_to_name:
                 model_id_to_name[mid] = name
 
