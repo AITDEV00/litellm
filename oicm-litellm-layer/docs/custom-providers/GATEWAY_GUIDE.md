@@ -511,6 +511,29 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/chat/completions" 
 
 If `max_tokens` is too low, the model exhausts tokens on reasoning and returns `"content": null` with `"finish_reason": "length"`.
 
+### Disabling Reasoning
+
+To skip chain-of-thought for faster, cheaper responses, pass the disable-reasoning parameter for the model family in use:
+
+- **Qwen** (vLLM) — `chat_template_kwargs: {"enable_thinking": false}`
+- **MiniMax / DeepSeek** — `thinking: false`
+
+Qwen example:
+
+```bash
+curl -s -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen3.5-122B-A10B-GPTQ-Int4",
+    "messages": [
+      {"role": "user", "content": "Say hello in one word."}
+    ],
+    "chat_template_kwargs": {"enable_thinking": false},
+    "max_tokens": 500
+  }'
+```
+
 ### Available LLM Models
 
 | Model | Type | Notes |

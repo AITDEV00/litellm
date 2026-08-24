@@ -139,6 +139,7 @@ nav:
       - OmniVoice Logic Mapping: custom-providers/OMNIVOICE_LOGIC_MAPPING.md
       - OmniVoice Post-Build Logic Map: custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
       - OmniVoice TTS Guide: custom-providers/OMNIVOICE_TTS_GUIDE.md
+      - Qwen Vision Guide: custom-providers/QWEN_VISION_GUIDE.md
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
       - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
