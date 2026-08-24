@@ -14,9 +14,9 @@ The gateway is properly SSL-verified, so the curl examples below use standard HT
 
 ## Available Hamsa Models
 
-| Model | Type | Description |
-|---|---|---|
-| `hamsa-tts` | Text-to-Speech | Arabic/English TTS with 110+ speakers |
+| Model         | Type           | Description                            |
+| ------------- | -------------- | -------------------------------------- |
+| `hamsa-tts` | Text-to-Speech | Arabic/English TTS with 110+ speakers  |
 | `hamsa-stt` | Speech-to-Text | Arabic STT (REST + WebSocket realtime) |
 
 Confirm they are registered on the gateway:
@@ -38,15 +38,15 @@ POST /v1/audio/speech
 
 ### Request Parameters
 
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `model` | string | Yes | - | Must be `hamsa-tts` |
-| `input` | string | Yes | - | Text to synthesize |
-| `voice` | string | No | `jasem` | Speaker name (case-insensitive) |
-| `dialect` | string | No | speaker default | `msa`, `ksa`, or `eng` |
-| `expressiveness` | float | No | `1.0` | 0.0-2.0, controls temperature and semantic tokens |
-| `speed` | float | No | `1.0` | 0.5-2.0, speech speed multiplier |
-| `response_format` | string | No | `wav` | `wav` (PCM 16kHz) or `mulaw` (8kHz mu-law) |
+| Parameter           | Type   | Required | Default         | Description                                       |
+| ------------------- | ------ | -------- | --------------- | ------------------------------------------------- |
+| `model`           | string | Yes      | -               | Must be`hamsa-tts`                              |
+| `input`           | string | Yes      | -               | Text to synthesize                                |
+| `voice`           | string | No       | `jasem`       | Speaker name (case-insensitive)                   |
+| `dialect`         | string | No       | speaker default | `msa`, `ksa`, or `eng`                      |
+| `expressiveness`  | float  | No       | `1.0`         | 0.0-2.0, controls temperature and semantic tokens |
+| `speed`           | float  | No       | `1.0`         | 0.5-2.0, speech speed multiplier                  |
+| `response_format` | string | No       | `wav`         | `wav` (PCM 16kHz) or `mulaw` (8kHz mu-law)    |
 
 ### Available Speakers
 
@@ -72,13 +72,13 @@ Wael, William, Yara, Yehya, Zeina
 
 ### Expressiveness Mapping
 
-| expressiveness | temperature | semantic tokens | Effect |
-|---|---|---|---|
-| 0.0 | 0.1 | no | Most deterministic, flat |
-| 0.5 | 0.35 | no | Mild variation |
-| 1.0 | 0.6 | no | Balanced (default) |
-| 1.5 | 0.95 | yes | Expressive |
-| 2.0 | 1.5 | yes | Most expressive, most random |
+| expressiveness | temperature | semantic tokens | Effect                       |
+| -------------- | ----------- | --------------- | ---------------------------- |
+| 0.0            | 0.1         | no              | Most deterministic, flat     |
+| 0.5            | 0.35        | no              | Mild variation               |
+| 1.0            | 0.6         | no              | Balanced (default)           |
+| 1.5            | 0.95        | yes             | Expressive                   |
+| 2.0            | 1.5         | yes             | Most expressive, most random |
 
 ### Example — Arabic TTS (PCM WAV)
 
@@ -133,16 +133,16 @@ Voice cloning is a two-step process:
 
 ### Request Parameters
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `model` | string | Yes | Must be `hamsa-tts` |
-| `action` | string | No | `register` (default) or `load` |
-| `speaker_id` | string | Yes (for `load`) | Name for the new voice |
-| `audio_url` | string | Yes (for `register`) | URL to the reference audio file |
-| `prompt_text` | string | Yes (for `register`) | Transcript of the reference audio |
-| `global_token_ids` | array | Yes (for `load`) | Global token arrays from step 1 |
-| `semantic_token_ids` | array | Yes (for `load`) | Semantic token arrays from step 1 |
-| `dialect` | string | No | `msa`, `ksa`, or `eng` (default: `msa`) |
+| Parameter              | Type   | Required              | Description                                     |
+| ---------------------- | ------ | --------------------- | ----------------------------------------------- |
+| `model`              | string | Yes                   | Must be`hamsa-tts`                            |
+| `action`             | string | No                    | `register` (default) or `load`              |
+| `speaker_id`         | string | Yes (for`load`)     | Name for the new voice                          |
+| `audio_url`          | string | Yes (for`register`) | URL to the reference audio file                 |
+| `prompt_text`        | string | Yes (for`register`) | Transcript of the reference audio               |
+| `global_token_ids`   | array  | Yes (for`load`)     | Global token arrays from step 1                 |
+| `semantic_token_ids` | array  | Yes (for`load`)     | Semantic token arrays from step 1               |
+| `dialect`            | string | No                    | `msa`, `ksa`, or `eng` (default: `msa`) |
 
 ### Known Limitation: Step 1 (register) is Currently Broken
 
@@ -210,11 +210,11 @@ POST /v1/audio/transcriptions
 
 ### Request Parameters
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `model` | string | Yes | Must be `hamsa-stt` |
-| `file` | file | Yes | Audio file (PCM 16kHz 16-bit WAV recommended) |
-| `language` | string | No | Language code (default: `auto`) |
+| Parameter    | Type   | Required | Description                                   |
+| ------------ | ------ | -------- | --------------------------------------------- |
+| `model`    | string | Yes      | Must be`hamsa-stt`                          |
+| `file`     | file   | Yes      | Audio file (PCM 16kHz 16-bit WAV recommended) |
+| `language` | string | No       | Language code (default:`auto`)              |
 
 ### Example
 
@@ -315,7 +315,6 @@ The `api_key` field is the Hamsa STT encrypted key (Fernet token). The `authoriz
 ```
 
 3. **Client streams audio** as binary PCM data (16kHz, 16-bit, mono, little-endian). Send `Int16Array` buffers from the microphone.
-
 4. **Server sends transcription results**:
 
 ```json
@@ -344,26 +343,26 @@ The `api_key` field is the Hamsa STT encrypted key (Fernet token). The `authoriz
 
 ### WebSocket Options
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `silence_timeout` | float | 30 | Seconds of silence before auto-disconnect |
-| `sample_rate` | int | 16000 | Audio sample rate (must be 16000) |
-| `min_silence_duration_ms` | int | 300 | Minimum silence to trigger end-of-utterance |
-| `min_speech_ms` | int | 600 | Minimum speech duration before processing |
-| `client_logging` | bool | true | Enable server-side logging |
-| `vad_threshold` | float | 0.6 | Voice activity detection sensitivity (0.1-0.99) |
-| `eos_enabled` | bool | true | Enable end-of-speech detection |
-| `eos_threshold` | float | 0.6 | End-of-speech detection threshold (0.1-0.99) |
-| `audio_type` | string | "PCM" | Audio encoding type |
-| `noise_cancellation` | bool | false | Enable noise cancellation |
+| Option                      | Type   | Default | Description                                     |
+| --------------------------- | ------ | ------- | ----------------------------------------------- |
+| `silence_timeout`         | float  | 30      | Seconds of silence before auto-disconnect       |
+| `sample_rate`             | int    | 16000   | Audio sample rate (must be 16000)               |
+| `min_silence_duration_ms` | int    | 300     | Minimum silence to trigger end-of-utterance     |
+| `min_speech_ms`           | int    | 600     | Minimum speech duration before processing       |
+| `client_logging`          | bool   | true    | Enable server-side logging                      |
+| `vad_threshold`           | float  | 0.6     | Voice activity detection sensitivity (0.1-0.99) |
+| `eos_enabled`             | bool   | true    | Enable end-of-speech detection                  |
+| `eos_threshold`           | float  | 0.6     | End-of-speech detection threshold (0.1-0.99)    |
+| `audio_type`              | string | "PCM"   | Audio encoding type                             |
+| `noise_cancellation`      | bool   | false   | Enable noise cancellation                       |
 
 ---
 
 ## Quick Reference
 
-| Capability | Method | Endpoint |
-|---|---|---|
-| TTS | `POST` | `/v1/audio/speech` |
-| Voice clone (load) | `POST` | `/v1/audio/voices` |
-| STT (REST) | `POST` | `/v1/audio/transcriptions` |
-| STT (realtime) | `WS` | `/v1/realtime?model=hamsa-stt` |
+| Capability         | Method   | Endpoint                         |
+| ------------------ | -------- | -------------------------------- |
+| TTS                | `POST` | `/v1/audio/speech`             |
+| Voice clone (load) | `POST` | `/v1/audio/voices`             |
+| STT (REST)         | `POST` | `/v1/audio/transcriptions`     |
+| STT (realtime)     | `WS`   | `/v1/realtime?model=hamsa-stt` |
