@@ -42,15 +42,13 @@ Key implementation files:
 | Document | Description |
 |---|---|
 | [LITELLM_ENDPOINT_ARCHITECTURE.md](LITELLM_ENDPOINT_ARCHITECTURE.md) | Full 7-layer trace of how LiteLLM implements endpoints and the pattern for adding a new custom provider endpoint |
-| [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) | End-user guide for accessing Hamsa TTS/STT/voice through the LiteLLM gateway |
-| [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) | Usage guide for Hamsa STT/TTS endpoints through the gateway (`https://litellm.ecouncil.ae/v1`) |
 | [HAMSA_RESEARCH.md](HAMSA_RESEARCH.md) | Hamsa STT source code crawl, protocol analysis, and OpenAI compatibility assessment |
 | [HAMSA_TTS_BEHAVIOR.md](HAMSA_TTS_BEHAVIOR.md) | Hamsa TTS pod source code analysis covering model loading, inference flow, and API endpoints |
 | [inception-hamsa-audit.md](inception-hamsa-audit.md) | Logic mapping and code smell audit comparing inception and hamsa implementations |
 | [inception-gateway-pod-parity.md](inception-gateway-pod-parity.md) | Request/response shape parity check: gateway vs pod-direct for inception TTS and STT |
-| [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) | Sample curl commands and response shapes for calling inception TTS and STT through the gateway |
 | [OMNIVOICE_LOGIC_MAPPING.md](OMNIVOICE_LOGIC_MAPPING.md) | Endpoint-by-endpoint analysis of OmniVoice API mapped to LiteLLM 7-layer architecture |
-| [OMNIVOICE_TTS_GUIDE.md](OMNIVOICE_TTS_GUIDE.md) | Sample curl commands and response shapes for calling OmniVoice TTS and voice cloning through the gateway |
+
+> **Usage guides** (curl examples for calling Hamsa, Inception, OmniVoice, Qwen, etc.) live in [`docs/usage-guides/`](../usage-guides/GATEWAY_GUIDE.md).
 
 ## Architecture Comparison
 

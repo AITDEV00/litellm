@@ -130,19 +130,20 @@ nav:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
   - Custom Providers:
-      - Gateway Guide: custom-providers/GATEWAY_GUIDE.md
-      - HAMSA STT & TTS Guide: custom-providers/HAMSA_STT_TTS_GUIDE.md
       - HAMSA Research: custom-providers/HAMSA_RESEARCH.md
       - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md
-      - Inception TTS/STT Guide: custom-providers/INCEPTION_TTS_STT_GUIDE.md
       - LiteLLM Endpoint Architecture: custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
       - OmniVoice Logic Mapping: custom-providers/OMNIVOICE_LOGIC_MAPPING.md
       - OmniVoice Post-Build Logic Map: custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
-      - OmniVoice TTS Guide: custom-providers/OMNIVOICE_TTS_GUIDE.md
-      - Qwen Vision Guide: custom-providers/QWEN_VISION_GUIDE.md
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
       - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
+  - Usage Guides:
+      - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
+      - HAMSA STT & TTS Guide: usage-guides/HAMSA_STT_TTS_GUIDE.md
+      - Inception TTS/STT Guide: usage-guides/INCEPTION_TTS_STT_GUIDE.md
+      - OmniVoice TTS Guide: usage-guides/OMNIVOICE_TTS_GUIDE.md
+      - Qwen Vision Guide: usage-guides/QWEN_VISION_GUIDE.md
   - Dashboard & Planning:
       - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
       - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md

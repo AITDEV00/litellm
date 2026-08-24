@@ -45,15 +45,18 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Custom providers README | `docs/custom-providers/README.md` |
-| Gateway guide | `docs/custom-providers/GATEWAY_GUIDE.md` |
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
-| HAMSA / INCEPTION / OMNIVOICE | `docs/custom-providers/HAMSA_*.md`, `INCEPTION_*.md`, `OMNIVOICE_*.md` |
+| HAMSA / INCEPTION / OMNIVOICE research & audits | `docs/custom-providers/HAMSA_*.md`, `INCEPTION_*.md`, `OMNIVOICE_*.md` |
 
-## Model Usage
+## Usage Guides
 
 | Doc | Location |
 |-----|----------|
-| Qwen vision guide | `docs/model-usage/QWEN_VISION_GUIDE.md` |
+| Gateway guide (Hamsa TTS/LLM/voice/STT) | `docs/usage-guides/GATEWAY_GUIDE.md` |
+| HAMSA STT & TTS guide | `docs/usage-guides/HAMSA_STT_TTS_GUIDE.md` |
+| Inception TTS/STT guide | `docs/usage-guides/INCEPTION_TTS_STT_GUIDE.md` |
+| OmniVoice TTS guide | `docs/usage-guides/OMNIVOICE_TTS_GUIDE.md` |
+| Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
 
 ## Dashboard / frontend
 

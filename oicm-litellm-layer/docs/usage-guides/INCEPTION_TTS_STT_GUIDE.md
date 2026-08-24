@@ -2,7 +2,7 @@
 
 > **Scope**: How to call Inception text-to-speech and speech-to-text through the LiteLLM gateway, with sample curl commands and expected response shapes
 >
-> **Related docs**: [inception-gateway-pod-parity.md](inception-gateway-pod-parity.md) (request/response parity vs pod-direct), [inception-hamsa-audit.md](inception-hamsa-audit.md) (internal code flow)
+> **Related docs**: [inception-gateway-pod-parity.md](../custom-providers/inception-gateway-pod-parity.md) (request/response parity vs pod-direct), [inception-hamsa-audit.md](../custom-providers/inception-hamsa-audit.md) (internal code flow)
 
 ---
 

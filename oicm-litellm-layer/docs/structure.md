@@ -83,12 +83,12 @@ oicm-litellm-layer/
 │   │   ├── custom-routes.md
 │   │   └── patches.md
 │   ├── admin-api/          ← LiteLLM admin REST API guides
-│   ├── custom-providers/   ← provider guides (HAMSA, INCEPTION, OMNIVOICE)
+│   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
 │   ├── dashboard-plan/     ← dashboard/frontend analysis
 │   ├── discovery-controller/
 │   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue
 │   ├── model-pricing/      ← pricing logic maps
-│   ├── model-usage/        ← usage guides for standard hosted models (e.g. Qwen vision)
+│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen)
 │   ├── performance/        ← performance before/after + session recovery notes
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)

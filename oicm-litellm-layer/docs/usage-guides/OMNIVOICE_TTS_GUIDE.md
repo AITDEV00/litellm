@@ -2,7 +2,7 @@
 
 > **Scope**: How to call OmniVoice text-to-speech and one-shot voice cloning through the LiteLLM gateway, with sample curl commands and expected response shapes
 >
-> **Related docs**: [OMNIVOICE_LOGIC_MAPPING.md](OMNIVOICE_LOGIC_MAPPING.md) (endpoint-by-endpoint architecture mapping), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (similar OpenAI-compatible TTS provider)
+> **Related docs**: [OMNIVOICE_LOGIC_MAPPING.md](../custom-providers/OMNIVOICE_LOGIC_MAPPING.md) (endpoint-by-endpoint architecture mapping), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (similar OpenAI-compatible TTS provider)
 
 ---
 
