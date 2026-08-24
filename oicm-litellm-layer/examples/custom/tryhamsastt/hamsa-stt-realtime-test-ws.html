@@ -610,7 +610,7 @@
             <div class="config-section" style="margin-top: 30px;">
                 <h2>REST API (curl)</h2>
                 <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
-curl -sk -X POST \
+curl -s -X POST \
   "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
   -H "Authorization: Bearer sk-05132025" \
   -F "model=hamsa-stt" \

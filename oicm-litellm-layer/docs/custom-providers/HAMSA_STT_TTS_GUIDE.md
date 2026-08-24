@@ -6,6 +6,8 @@ This guide covers the Hamsa Speech-to-Text (STT) and Text-to-Speech (TTS) endpoi
 
 **API Key**: replace `<YOUR_API_KEY>` everywhere below with your LiteLLM gateway API key (e.g. `sk-...`). All requests use the `Authorization: Bearer <YOUR_API_KEY>` header unless noted otherwise.
 
+The gateway is properly SSL-verified, so the curl examples below use standard HTTPS verification (no `-k`/`--insecure` flag).
+
 > **Interactive test page**: a browser-based WebSocket client for realtime Hamsa STT is available at `examples/custom/tryhamsastt/hamsa-stt-realtime-test-ws.html`. See [Realtime STT via WebSocket](#4-realtime-stt-websocket).
 
 ---
@@ -20,7 +22,7 @@ This guide covers the Hamsa Speech-to-Text (STT) and Text-to-Speech (TTS) endpoi
 Confirm they are registered on the gateway:
 
 ```bash
-curl -sk "https://litellm.ecouncil.ae/v1/models" \
+curl -s "https://litellm.ecouncil.ae/v1/models" \
   -H "Authorization: Bearer <YOUR_API_KEY>"
 ```
 
@@ -81,7 +83,7 @@ Wael, William, Yara, Yehya, Zeina
 ### Example — Arabic TTS (PCM WAV)
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -98,7 +100,7 @@ curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
 ### Example — English TTS (mu-law)
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -153,7 +155,7 @@ OSError: [Errno 30] Read-only file system: 'ref_audios'
 Verified through the gateway:
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -172,7 +174,7 @@ The pod has writable directories (`/app/output`, `/app/download`, `/tmp`), but `
 ### Example — Load a Cloned Voice (Step 2)
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -217,7 +219,7 @@ POST /v1/audio/transcriptions
 ### Example
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -F "model=hamsa-stt" \
   -F "file=@audio.wav" \
