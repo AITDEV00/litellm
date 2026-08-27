@@ -63,7 +63,10 @@ data:
         - dynamic_rate_limiter_v3_htb
         - litellm_hooks.priority_bridge.priority_bridge
         - prometheus
-      require_auth_for_metrics_endpoint: false
+      # Require auth on the /metrics scrape endpoint. Prometheus keeps scraping
+      # because the ServiceMonitor (litellm-servicemonitor.yaml) presents the
+      # master key as a bearer token.
+      require_auth_for_metrics_endpoint: true
       priority_reservation:
         prior1: 0.50
         prior2: 0.30

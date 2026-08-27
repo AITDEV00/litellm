@@ -11,6 +11,11 @@ spec:
     - interval: 30s
       path: /metrics/
       port: http
+      # The proxy config requires auth on /metrics (require_auth_for_metrics_endpoint: true),
+      # so the scrape presents the master key as a bearer token.
+      bearerTokenSecret:
+        name: litellm-master-key
+        key: master-key
   namespaceSelector:
     matchNames:
       - mlops
