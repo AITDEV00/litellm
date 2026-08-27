@@ -1,0 +1,27 @@
+---
+# Dev-only ServiceMonitor for the dev proxy (litellm-proxy-dev).
+# Because the dev config enables require_auth_for_metrics_endpoint: true, the
+# scrape must present the dev master key as a bearer token or it gets 401.
+# Reads the token from the litellm-master-key-dev Secret (same source the dev
+# deployment uses for LITELLM_MASTER_KEY).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: litellm-proxy-dev-service-monitor
+  namespace: mlops
+  labels:
+    release: prometheus
+spec:
+  endpoints:
+    - interval: 30s
+      path: /metrics/
+      port: http
+      bearerTokenSecret:
+        name: litellm-master-key-dev
+        key: master-key
+  namespaceSelector:
+    matchNames:
+      - mlops
+  selector:
+    matchLabels:
+      app: litellm-proxy-dev

@@ -178,9 +178,12 @@ spec:
               cpu: "4"
               memory: 8Gi
       volumes:
+        # Dev uses its OWN ConfigMap (litellm-config-dev) so config changes such
+        # as require_auth_for_metrics_endpoint can be tested on dev WITHOUT
+        # touching the shared production litellm-config.
         - name: config
           configMap:
-            name: litellm-config
+            name: litellm-config-dev
         - name: hooks
           configMap:
             name: litellm-hooks

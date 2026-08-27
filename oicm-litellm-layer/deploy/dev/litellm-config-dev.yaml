@@ -1,0 +1,75 @@
+---
+# Dev-only ConfigMap: litellm-config-dev
+#
+# PURPOSE
+#   A dev-specific copy of the shared `litellm-config` ConfigMap used to test
+#   config changes (e.g. `require_auth_for_metrics_endpoint`) on the dev proxy
+#   WITHOUT touching the live production config. The dev Deployment
+#   `litellm-proxy-dev` mounts this ConfigMap instead of the shared one.
+#
+# KEEP IN SYNC
+#   Any change to the shared `litellm-config` in deploy/prod/litellm-proxy.yaml
+#   that should apply to dev too must be mirrored here.
+#
+# DIFF VS PROD
+#   - require_auth_for_metrics_endpoint: true  (prod sets false)
+#
+# APPLY
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/dev/litellm-config-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout restart deployment/litellm-proxy-dev
+#
+# CLEANUP
+#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete configmap litellm-config-dev
+#   (and restore deploy/dev/litellm-proxy-dev.yaml volume to `litellm-config`)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config-dev
+  namespace: mlops
+data:
+  config.yaml: |
+    model_list: []
+    litellm_settings:
+      store_model_in_db: true
+      cache: true
+      cache_params:
+        type: redis
+        ttl: 3600
+        default_in_memory_ttl: 60
+        max_connections: 500
+        socket_timeout: 10.0
+      enable_redis_auth_cache: true
+      callbacks:
+        - litellm_hooks.vllm_param_injector.vllm_param_injector
+        - dynamic_rate_limiter_v3_htb
+        - litellm_hooks.priority_bridge.priority_bridge
+        - prometheus
+      require_auth_for_metrics_endpoint: true
+      priority_reservation:
+        prior1: 0.50
+        prior2: 0.30
+        prior3: 0.20
+      priority_reservation_settings:
+        saturation_threshold: 1.0
+      priority_body_fields:
+        prior1:
+          priority: 0
+        prior2:
+          priority: 100
+        prior3:
+          priority: 200
+      # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
+      # prior2 and prior3 fall into a shared default_pool at default_priority.
+      # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
+      # priority_reservation:
+      #   prior1: 1.0
+      # priority_reservation_settings:
+      #   saturation_threshold: 0.75
+      #   default_priority: 0.50
+    router_settings:
+      routing_strategy: usage-based-routing-v2
+      optional_pre_call_checks:
+        - enforce_model_rate_limits
+    general_settings:
+      use_redis_transaction_buffer: true
