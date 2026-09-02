@@ -12,19 +12,19 @@
     "limit": 2137
   },
   "ANN202": {
-    "limit": 941
+    "limit": 931
   },
   "ANN204": {
     "limit": 724
   },
   "ANN205": {
-    "limit": 126
+    "limit": 123
   },
   "ANN206": {
     "limit": 130
   },
   "ANN401": {
-    "limit": 1673
+    "limit": 1156
   },
   "ASYNC230": {
     "limit": 14
@@ -33,16 +33,16 @@
     "limit": 4
   },
   "B006": {
-    "limit": 188
+    "limit": 187
   },
   "B008": {
     "limit": 517
   },
   "B009": {
-    "limit": 84
+    "limit": 62
   },
   "B010": {
-    "limit": 193
+    "limit": 191
   },
   "B018": {
     "limit": 5
@@ -90,7 +90,7 @@
     "limit": 5
   },
   "DTZ003": {
-    "limit": 28
+    "limit": 23
   },
   "DTZ005": {
     "limit": 241
@@ -99,7 +99,7 @@
     "limit": 13
   },
   "DTZ007": {
-    "limit": 23
+    "limit": 21
   },
   "DTZ011": {
     "limit": 6
@@ -132,16 +132,16 @@
     "limit": 4
   },
   "PERF102": {
-    "limit": 30
+    "limit": 29
   },
   "PERF401": {
-    "limit": 32
+    "limit": 0
   },
   "PERF402": {
-    "limit": 3
+    "limit": 0
   },
   "PERF403": {
-    "limit": 38
+    "limit": 2
   },
   "PIE790": {
     "limit": 275
@@ -156,7 +156,7 @@
     "limit": 44
   },
   "PLC0206": {
-    "limit": 29
+    "limit": 27
   },
   "PLC0208": {
     "limit": 0
@@ -180,7 +180,7 @@
     "limit": 0
   },
   "PLR1714": {
-    "limit": 257
+    "limit": 253
   },
   "PLR1730": {
     "limit": 0
@@ -195,10 +195,10 @@
     "limit": 4
   },
   "PLW0602": {
-    "limit": 229
+    "limit": 227
   },
   "PLW0603": {
-    "limit": 192
+    "limit": 191
   },
   "PLW1508": {
     "limit": 198
@@ -222,7 +222,7 @@
     "limit": 0
   },
   "RET504": {
-    "limit": 208
+    "limit": 0
   },
   "RUF010": {
     "limit": 871
@@ -252,10 +252,10 @@
     "limit": 73
   },
   "RUF100": {
-    "limit": 479
+    "limit": 478
   },
   "S110": {
-    "limit": 235
+    "limit": 234
   },
   "S112": {
     "limit": 24
@@ -267,7 +267,7 @@
     "limit": 323
   },
   "SIM103": {
-    "limit": 125
+    "limit": 123
   },
   "SIM113": {
     "limit": 6
@@ -279,7 +279,7 @@
     "limit": 5
   },
   "SIM117": {
-    "limit": 10
+    "limit": 9
   },
   "SIM118": {
     "limit": 0
@@ -309,7 +309,7 @@
     "limit": 0
   },
   "TRY002": {
-    "limit": 539
+    "limit": 527
   },
   "TRY004": {
     "limit": 98
@@ -318,7 +318,7 @@
     "limit": 420
   },
   "TRY203": {
-    "limit": 120
+    "limit": 118
   },
   "TRY300": {
     "limit": 879
