@@ -1,4 +1,24 @@
 ---
+# ROLLBACK MANIFEST: revert the prod gateway image to jya0-v1.97.0
+#
+# Restores prod to the PRE-v1.99.1 working state (the image prod ran before the
+# v1.99.1 upgrade). Everything else in this file (master key, salt key, metrics
+# auth, config) is IDENTICAL to the current deploy/prod/litellm-proxy.yaml — the
+# only difference is the image tag.
+#
+# WHY THIS EXISTS
+#   deploy/prod/litellm-proxy.yaml now deploys litellm-src:jya0-v1.99.1 (the
+#   v1.99.1 upstream merge). If that upgrade misbehaves in prod, apply THIS file
+#   to return to the exact previous running image. It is a full snapshot of the
+#   current prod manifest, so `kubectl apply -f` restores everything at once.
+#
+# APPLY
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf #     kubectl apply -f deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf #     kubectl -n mlops rollout restart deployment/litellm-proxy
+#   KUBECONFIG=$HOME/.kube/oicm-alain.conf #     kubectl -n mlops rollout status deployment/litellm-proxy --timeout=300s
+#
+# NOTE: the ServiceMonitor (deploy/prod/litellm-servicemonitor.yaml) is
+#       image-agnostic and needs no change for either version.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -292,7 +312,7 @@ spec:
               app: litellm-proxy
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.99.1
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.97.0
           # Non-latest tag defaults to IfNotPresent; force Always so a rollout
           # restart pulls the freshly built image instead of a stale cache.
           imagePullPolicy: Always
