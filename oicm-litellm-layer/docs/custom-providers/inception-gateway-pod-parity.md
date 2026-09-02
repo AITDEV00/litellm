@@ -14,8 +14,8 @@
 External curl to the LiteLLM gateway:
 
 ```
-https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech        (TTS)
-https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions (STT)
+https://litellm.ecouncil.ae/v1/audio/speech        (TTS)
+https://litellm.ecouncil.ae/v1/audio/transcriptions (STT)
 ```
 
 Auth: `Authorization: Bearer {{ master_key }}`

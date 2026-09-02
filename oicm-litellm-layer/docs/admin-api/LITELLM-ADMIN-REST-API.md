@@ -10,14 +10,14 @@ The ADEO gateway uses a self-signed TLS certificate. All `curl` commands must us
 
 | Setting | Value |
 |---------|-------|
-| **Base URL** | `https://litellm.adeoaiengine.ecouncil.ae` |
+| **Base URL** | `https://litellm.ecouncil.ae` |
 | **Master Key** | `{{ master_key }}` |
 | **TLS** | Self-signed; use `-k` with curl |
 
 Set these environment variables for convenience:
 
 ```bash
-export PROXY_BASE_URL="https://litellm.adeoaiengine.ecouncil.ae"
+export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 export LITELLM_API_KEY="{{ master_key }}"
 ```
 

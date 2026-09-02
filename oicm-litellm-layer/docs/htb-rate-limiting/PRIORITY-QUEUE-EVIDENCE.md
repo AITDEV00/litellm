@@ -44,7 +44,7 @@ Launch flags relevant to priority scheduling:
 |----------|-------|
 | Namespace | `mlops` |
 | Pods | `litellm-proxy-7fbc675cf9-hhkv6` (10.42.6.163), `litellm-proxy-7fbc675cf9-nlwg8` (10.42.6.166) |
-| External URL | `https://litellm.adeoaiengine.ecouncil.ae` |
+| External URL | `https://litellm.ecouncil.ae` |
 | Image | `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.96.2` |
 | Server | Granian, 4 workers |
 | Config | `/app/config.yaml` (from `litellm-config` ConfigMap) |

@@ -199,7 +199,7 @@ The sequence repeats for each deployment in the fallback chain. If the primary m
 ### Step 1: Client sends request with API key
 
 ```bash
-curl https://litellm.adeoaiengine.ecouncil.ae/v1/chat/completions \
+curl https://litellm.ecouncil.ae/v1/chat/completions \
   -H "Authorization: Bearer sk-BR2PtwOoOIU8c01Cfq_y6g" \
   -H "Content-Type: application/json" \
   -d '{"model": "zai-org/GLM-5.2-FP8", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -418,13 +418,13 @@ Priorities are assigned via team or key metadata. In the LiteLLM admin UI or via
 
 ```bash
 # Set priority on a team (all keys in this team inherit it)
-curl -X POST https://litellm.adeoaiengine.ecouncil.ae/team/update \
+curl -X POST https://litellm.ecouncil.ae/team/update \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "05cc86a3-...", "metadata": {"priority": "prior1"}}'
 
 # Or set priority on an individual key
-curl -X POST https://litellm.adeoaiengine.ecouncil.ae/key/update \
+curl -X POST https://litellm.ecouncil.ae/key/update \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"key": "sk-...", "metadata": {"priority": "prior2"}}'
@@ -473,7 +473,7 @@ Each model deployment must have `rpm` set (in the model's `model_info` or `litel
 
 ```bash
 # Via the LiteLLM admin API
-curl -X POST https://litellm.adeoaiengine.ecouncil.ae/v1/model/info \
+curl -X POST https://litellm.ecouncil.ae/v1/model/info \
   -H "Authorization: Bearer {{ master_key }}" \
   -d '{"litellm_params": {"model": "zai-org/GLM-5.2-FP8", ...}, "model_info": {"rpm": 100}}'
 ```

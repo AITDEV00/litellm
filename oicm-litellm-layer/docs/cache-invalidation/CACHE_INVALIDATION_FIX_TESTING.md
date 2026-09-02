@@ -18,7 +18,7 @@ After `_refresh_cached_team` writes the updated team object to cache, enumerate 
 
 ## Test Environment
 
-- Proxy URL: `https://litellm.adeoaiengine.ecouncil.ae`
+- Proxy URL: `https://litellm.ecouncil.ae`
 - Admin key: `{{ master_key }}`
 - Test team: LITELLM TEST (ID: `dd76dd4d-95c4-4eef-b497-c3d4318ee7ee`)
 - Test key: `sk-ZVHnvrLkfSAE6GbuWCJssw` (alias: `test-user-key`)
@@ -41,7 +41,7 @@ After `_refresh_cached_team` writes the updated team object to cache, enumerate 
 
 ```bash
 # 1. Ensure team has both models
-curl -s https://litellm.adeoaiengine.ecouncil.ae/team/info \
+curl -s https://litellm.ecouncil.ae/team/info \
   -H "Authorization: Bearer {{ master_key }}" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -52,20 +52,20 @@ for t in data.get('teams', []):
 
 # 2. Confirm key can call the model that will be removed (should be 200)
 curl -s -o /dev/null -w "%{http_code}" \
-  https://litellm.adeoaiengine.ecouncil.ae/chat/completions \
+  https://litellm.ecouncil.ae/chat/completions \
   -H "Authorization: Bearer sk-ZVHnvrLkfSAE6GbuWCJssw" \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_TO_REMOVE>", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}'
 
 # 3. Remove the model from the team
-curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/team/model_delete \
+curl -s -X POST https://litellm.ecouncil.ae/team/model_delete \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["<MODEL_TO_REMOVE>"]}'
 
 # 4. Immediately try to call the removed model (should be 403 after fix, was 200 before fix)
 curl -s -o /dev/null -w "%{http_code}" \
-  https://litellm.adeoaiengine.ecouncil.ae/chat/completions \
+  https://litellm.ecouncil.ae/chat/completions \
   -H "Authorization: Bearer sk-ZVHnvrLkfSAE6GbuWCJssw" \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_TO_REMOVE>", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}'
@@ -84,20 +84,20 @@ curl -s -o /dev/null -w "%{http_code}" \
 ```bash
 # 1. Confirm key CANNOT call the model that will be added (should be 403)
 curl -s -o /dev/null -w "%{http_code}" \
-  https://litellm.adeoaiengine.ecouncil.ae/chat/completions \
+  https://litellm.ecouncil.ae/chat/completions \
   -H "Authorization: Bearer sk-ZVHnvrLkfSAE6GbuWCJssw" \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_TO_ADD>", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}'
 
 # 2. Add the model to the team
-curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/team/model_add \
+curl -s -X POST https://litellm.ecouncil.ae/team/model_add \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["<MODEL_TO_ADD>"]}'
 
 # 3. Immediately try to call the added model (should be 200)
 curl -s -o /dev/null -w "%{http_code}" \
-  https://litellm.adeoaiengine.ecouncil.ae/chat/completions \
+  https://litellm.ecouncil.ae/chat/completions \
   -H "Authorization: Bearer sk-ZVHnvrLkfSAE6GbuWCJssw" \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_TO_ADD>", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}'
@@ -113,14 +113,14 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 ```bash
 # 1. Update the key's models directly
-curl -s -X POST https://litellm.adeoaiengine.ecouncil.ae/key/update \
+curl -s -X POST https://litellm.ecouncil.ae/key/update \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"key": "sk-ZVHnvrLkfSAE6GbuWCJssw", "models": ["<MODEL_1>", "<MODEL_2>"]}'
 
 # 2. Immediately call one of the added models (should be 200)
 curl -s -o /dev/null -w "%{http_code}" \
-  https://litellm.adeoaiengine.ecouncil.ae/chat/completions \
+  https://litellm.ecouncil.ae/chat/completions \
   -H "Authorization: Bearer sk-ZVHnvrLkfSAE6GbuWCJssw" \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_1>", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5}'
@@ -206,13 +206,13 @@ After testing, restore the test team and key to their original state:
 
 ```bash
 # Restore team models
-curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/team/update \
+curl -sk -X POST https://litellm.ecouncil.ae/team/update \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"team_id": "dd76dd4d-95c4-4eef-b497-c3d4318ee7ee", "models": ["Qwen/Qwen3-Embedding-0.6B", "Qwen/Qwen3.5-0.8B"]}'
 
 # Restore key models
-curl -sk -X POST https://litellm.adeoaiengine.ecouncil.ae/key/update \
+curl -sk -X POST https://litellm.ecouncil.ae/key/update \
   -H "Authorization: Bearer {{ master_key }}" \
   -H "Content-Type: application/json" \
   -d '{"key": "sk-ZVHnvrLkfSAE6GbuWCJssw", "models": ["all-team-models"]}'
@@ -534,8 +534,8 @@ kubectl -n mlops port-forward pod/$POD2 4002:4000 &
 Alternatively, test against the cluster ingress:
 
 ```bash
-curl -sk https://litellm.adeoaiengine.ecouncil.ae/health/liveliness
-curl -sk https://litellm.adeoaiengine.ecouncil.ae/v1/models \
+curl -sk https://litellm.ecouncil.ae/health/liveliness
+curl -sk https://litellm.ecouncil.ae/v1/models \
   -H "Authorization: Bearer {{ master_key }}"
 ```
 

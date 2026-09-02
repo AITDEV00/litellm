@@ -4,7 +4,7 @@
 
 The LiteLLM gateway provides a unified OpenAI-compatible API for accessing Hamsa TTS, Hamsa STT, LLM chat completions, and embedding models. All requests go through a single endpoint with a single API key.
 
-**Gateway URL**: `https://litellm.adeoaiengine.ecouncil.ae`
+**Gateway URL**: `https://litellm.ecouncil.ae`
 
 **API Key**: `sk-omQbswRlepuTISV-1wgsDg`
 
@@ -91,7 +91,7 @@ Wael, William, Yara, Yehya, Zeina
 **Arabic TTS (PCM WAV)**
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -108,7 +108,7 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech" \
 **English TTS (mu-law)**
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -164,7 +164,7 @@ OSError: [Errno 30] Read-only file system: 'ref_audios'
 Verified by calling the endpoint through the gateway:
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -229,7 +229,7 @@ KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl cp \
 Once you have the extracted tokens, register the voice through the gateway:
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -252,7 +252,7 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/voices" \
 After loading, the new voice is immediately usable in `/v1/audio/speech` by passing `"voice": "my_custom_voice"`. Verified:
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -287,7 +287,7 @@ POST /v1/audio/transcriptions
 ### Example
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -F "model=hamsa-stt" \
   -F "file=@audio.wav" \
@@ -323,7 +323,7 @@ ffmpeg -i input_mulaw.wav -ar 16000 -ac 1 -sample_fmt s16 output_pcm.wav
 ### Endpoint
 
 ```
-wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt
+wss://litellm.ecouncil.ae/v1/realtime?model=hamsa-stt
 ```
 
 The WebSocket connection enables real-time streaming transcription from a microphone or audio stream.
@@ -334,7 +334,7 @@ Browsers cannot set custom headers on WebSocket connections, so the API key is p
 
 ```javascript
 const ws = new WebSocket(
-  "wss://litellm.adeoaiengine.ecouncil.ae/v1/realtime?model=hamsa-stt",
+  "wss://litellm.ecouncil.ae/v1/realtime?model=hamsa-stt",
   ["openai-insecure-api-key.sk-omQbswRlepuTISV-1wgsDg"]
 );
 ```
@@ -440,7 +440,7 @@ Standard OpenAI-compatible chat completions API.
 ### Example: Standard Model
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/chat/completions" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -480,7 +480,7 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/chat/completions" 
 Reasoning models (`Qwen3.5-122B`, `Qwen3.6-35B`, `MiniMax-M3`) produce a `reasoning_content` field in addition to `content`. Use a higher `max_tokens`:
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/chat/completions" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -563,7 +563,7 @@ POST /v1/embeddings
 ### Example
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/embeddings" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/embeddings" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -600,7 +600,7 @@ curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/embeddings" \
 ### Batch Embeddings
 
 ```bash
-curl -sk -X POST "https://litellm.adeoaiengine.ecouncil.ae/v1/embeddings" \
+curl -sk -X POST "https://litellm.ecouncil.ae/v1/embeddings" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
   -H "Content-Type: application/json" \
   -d '{
@@ -622,7 +622,7 @@ GET /v1/models
 ### Example
 
 ```bash
-curl -sk "https://litellm.adeoaiengine.ecouncil.ae/v1/models" \
+curl -sk "https://litellm.ecouncil.ae/v1/models" \
   -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" | python3 -m json.tool
 ```
 
@@ -635,7 +635,7 @@ Returns the list of models accessible with this API key.
 All endpoints use the same base URL and API key:
 
 ```
-Base URL:  https://litellm.adeoaiengine.ecouncil.ae
+Base URL:  https://litellm.ecouncil.ae
 API Key:   sk-omQbswRlepuTISV-1wgsDg
 Header:    Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg
 ```

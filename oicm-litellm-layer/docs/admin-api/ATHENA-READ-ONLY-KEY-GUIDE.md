@@ -8,7 +8,7 @@ Use it for dashboards, auditors, export jobs, monitoring scrapers, and any integ
 
 | Setting | Value |
 |---------|-------|
-| Proxy base URL | `https://litellm.adeoaiengine.ecouncil.ae` |
+| Proxy base URL | `https://litellm.ecouncil.ae` |
 | TLS | Self-signed. Every HTTP client must skip verification (`curl -k`, `requests.verify=False`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, etc.) |
 | Key alias | `athena-read-only` |
 | Key value | `sk-nUVF9ruGsSRqe7xOthTU1Q` (treat as a secret; rotate via a proxy admin key if leaked) |
@@ -23,7 +23,7 @@ The `athena-read-only` key itself is what you use day to day. Key rotation/delet
 Every request must carry the key in the `Authorization` header:
 
 ```bash
-export PROXY_BASE_URL="https://litellm.adeoaiengine.ecouncil.ae"
+export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 export ATHENA_KEY="sk-nUVF9ruGsSRqe7xOthTU1Q"
 
 curl -sk -X GET "$PROXY_BASE_URL/key/list?page=1&size=5" \
@@ -64,7 +64,7 @@ curl -sk -X POST "$PROXY_BASE_URL/user/update" \
   }'
 ```
 
-Then log in at `https://litellm.adeoaiengine.ecouncil.ae/ui/` with:
+Then log in at `https://litellm.ecouncil.ae/ui/` with:
 
 | Field | Value |
 |-------|-------|
@@ -564,7 +564,7 @@ The `/chat/completions` 400 you may see when passing an invalid model name does 
 ## Quick verification commands
 
 ```bash
-export PROXY_BASE_URL="https://litellm.adeoaiengine.ecouncil.ae"
+export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 export ATHENA_KEY="sk-nUVF9ruGsSRqe7xOthTU1Q"
 
 # Read works

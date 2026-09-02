@@ -10,8 +10,8 @@
 
 | Endpoint | Gateway URL |
 |---|---|
-| Text-to-speech | `https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech` |
-| Voice cloning | `https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech/clone` |
+| Text-to-speech | `https://litellm.ecouncil.ae/v1/audio/speech` |
+| Voice cloning | `https://litellm.ecouncil.ae/v1/audio/speech/clone` |
 
 Authentication is the standard LiteLLM gateway key passed as a Bearer token. The OmniVoice pod itself does not require auth (no API key), but the gateway always requires it:
 
@@ -63,7 +63,7 @@ The `instructions` parameter (an OpenAI TTS param) is silently dropped because O
 ### Sample curl
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -80,7 +80,7 @@ Save the binary response to a file because the response body is raw audio, not J
 ### Minimal curl (relying on defaults)
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{"model": "omnivoice", "input": "Hello world."}' \
@@ -92,7 +92,7 @@ With no `voice` supplied, the gateway defaults it to `alloy` before forwarding.
 ### Curl with custom inference params
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -171,7 +171,7 @@ The `voice` field is set to `"clone"` by the gateway route. It is not forwarded 
 ### Sample curl
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech/clone \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
   -H "Authorization: Bearer <your-api-key>" \
   -F "text=Hello world, this is a cloned voice test." \
   -F "ref_audio=@reference.wav" \
@@ -185,7 +185,7 @@ curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech/clone \
 ### Minimal curl (text + ref_audio only)
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech/clone \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
   -H "Authorization: Bearer <your-api-key>" \
   -F "text=Hello world." \
   -F "ref_audio=@reference.wav" \

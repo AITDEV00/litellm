@@ -10,8 +10,8 @@
 
 | Endpoint | Gateway URL |
 |---|---|
-| Text-to-speech | `https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech` |
-| Speech-to-text | `https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions` |
+| Text-to-speech | `https://litellm.ecouncil.ae/v1/audio/speech` |
+| Speech-to-text | `https://litellm.ecouncil.ae/v1/audio/transcriptions` |
 
 Authentication is the standard LiteLLM gateway key passed as a Bearer token. The Inception pods themselves do not require auth, but the gateway always requires it:
 
@@ -44,7 +44,7 @@ Any other fields you pass that are not LiteLLM-internal parameters are passed th
 ### Sample curl
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -61,7 +61,7 @@ Save the binary response to a file because the response body is raw audio, not J
 ### Minimal curl (relying on defaults)
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/speech \
+curl -sS https://litellm.ecouncil.ae/v1/audio/speech \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{"model": "inception-tts", "input": "Hello world."}' \
@@ -112,7 +112,7 @@ As with TTS, LiteLLM-internal parameters are stripped before forwarding. The mul
 ### Sample curl
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions \
+curl -sS https://litellm.ecouncil.ae/v1/audio/transcriptions \
   -H "Authorization: Bearer <your-api-key>" \
   -F "model=inception-stt" \
   -F "file=@audio_sample.wav" \
@@ -124,7 +124,7 @@ The `-F` flags build the multipart form. Use `@` to attach the audio file from d
 ### Minimal curl (no optional params)
 
 ```bash
-curl -sS https://litellm.adeoaiengine.ecouncil.ae/v1/audio/transcriptions \
+curl -sS https://litellm.ecouncil.ae/v1/audio/transcriptions \
   -H "Authorization: Bearer <your-api-key>" \
   -F "model=inception-stt" \
   -F "file=@audio_sample.wav"

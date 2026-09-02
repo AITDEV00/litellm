@@ -12,8 +12,8 @@
 
 ## Why this was done
 
-`litellm.adeoaiengine.ecouncil.ae` was the existing host, but its TLS secret
-(`litellm.adeoaiengine.ecouncil.ae-tls`) **did not exist**, so nginx silently
+`litellm.ecouncil.ae` was the existing host, but its TLS secret
+(`litellm.ecouncil.ae-tls`) **did not exist**, so nginx silently
 fell back to the cluster default certificate (the internal `EC-ISSUINGCA`
 wildcard `*.adeoaiengine.ecouncil.ae`). That cert is only trusted by
 domain-joined ADEO machines, not by public clients / BYOD / Python-`curl`.
@@ -23,7 +23,7 @@ Two candidate fixes were ruled out:
 - Adding `*.adeoaiengine.ecouncil.ae` as a SAN to the existing DigiCert cert:
   **not possible.** DigiCert only allows *non-wildcard* SANs on a wildcard
   order, and a Standard/wildcard SKU may not accept SANs at all. Also
-  `litellm.adeoaiengine.ecouncil.ae` is two levels deep, so even the wildcard
+  `litellm.ecouncil.ae` is two levels deep, so even the wildcard
   would not match it.
 - Let's Encrypt via cert-manager (DNS-01): **blocked by egress.** The cluster
   has no outbound internet (`acme-v02.api.letsencrypt.org` returned
@@ -39,13 +39,13 @@ already covers directly. No DigiCert reissue or new purchase needed.
 
 ```
 BEFORE
-litellm.adeoaiengine.ecouncil.ae  (ingress rule)
-   tls.secretName = litellm.adeoaiengine.ecouncil.ae-tls  (MISSING)
+litellm.ecouncil.ae  (ingress rule)
+   tls.secretName = litellm.ecouncil.ae-tls  (MISSING)
    -> nginx falls back to default-cert = internal EC-ISSUINGCA wildcard
       (trusted only by domain-joined machines)
 
 AFTER
-litellm.adeoaiengine.ecouncil.ae  (ingress rule)  -> (unchanged, still fallback)
+litellm.ecouncil.ae  (ingress rule)  -> (unchanged, still fallback)
 litellm.ecouncil.ae               (ingress rule)  -> tls.secretName = litellm-ecouncil-ae-tls
                                                    -> DigiCert *.ecouncil.ae  (publicly trusted)
 ```
@@ -121,11 +121,11 @@ Expected result:
 
 ```bash
 kubectl get ingress litellm-proxy -n mlops -o jsonpath='{range .spec.rules[*]}{.host}{"\n"}{end}'
-# litellm.adeoaiengine.ecouncil.ae
+# litellm.ecouncil.ae
 # litellm.ecouncil.ae
 
 kubectl get ingress litellm-proxy -n mlops -o jsonpath='{range .spec.tls[*]}{.hosts[0]} -> {.secretName}{"\n"}{end}'
-# litellm.adeoaiengine.ecouncil.ae -> litellm.adeoaiengine.ecouncil.ae-tls
+# litellm.ecouncil.ae -> litellm.ecouncil.ae-tls
 # litellm.ecouncil.ae              -> litellm-ecouncil-ae-tls
 ```
 
@@ -150,7 +150,7 @@ kubectl get ingress litellm-proxy -n mlops -o jsonpath='{.status.loadBalancer.in
 ```
 
 It should match the IP that the existing host resolves to
-(`litellm.adeoaiengine.ecouncil.ae`). File a network ticket with that IP.
+(`litellm.ecouncil.ae`). File a network ticket with that IP.
 
 ---
 
@@ -246,5 +246,5 @@ though the cluster is egress-restricted.
 ## What still needs the human
 
 - **DNS A record** `litellm.ecouncil.ae -> <LB IP>` (network ticket, external).
-- Decide whether to also fix/drop the old `litellm.adeoaiengine.ecouncil.ae`
+- Decide whether to also fix/drop the old `litellm.ecouncil.ae`
   host (currently still on the fallback cert).
