@@ -1,5 +1,5 @@
-import { Card, Grid, Title } from "@tremor/react";
-import { Segmented, Select } from "antd";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
+import { MultiSelect } from "@/components/shared/MultiSelect";
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 import { type ColumnDef, type SortingState } from "@tanstack/react-table";
@@ -154,6 +154,33 @@ function formatNumber(value: number | null | undefined, decimals: number = 2): s
   return value.toFixed(decimals);
 }
 
+
+function SegmentedToggle({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly { label: string; value: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex bg-muted rounded-lg p-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          className={`px-3 py-1 text-sm rounded-md transition-colors ${
+            value === option.value ? "bg-card shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface PerformanceChartProps {
   title: string;
   data: Array<Record<string, string | number | null>>;
@@ -172,14 +199,14 @@ const PerformanceChart = memo(function PerformanceChart({
   if (data.length === 0) {
     return (
       <Card>
-        <Title>{title}</Title>
+        <CardTitle className="text-lg font-medium text-foreground">{title}</CardTitle>
         <p className="text-gray-500 mt-4">No data available</p>
       </Card>
     );
   }
   return (
     <Card>
-      <Title>{title}</Title>
+      <CardTitle className="text-lg font-medium text-foreground">{title}</CardTitle>
       <LineChart
         className="mt-4"
         data={data}
@@ -409,7 +436,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
     if (isError) {
       return (
         <Card>
-          <Title>Failed to load performance data</Title>
+          <CardTitle className="text-lg font-medium text-foreground">Failed to load performance data</CardTitle>
         </Card>
       );
     }
@@ -425,13 +452,13 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
     if (models.length === 0) {
       return (
         <Card>
-          <Title>No performance data for the selected window</Title>
+          <CardTitle className="text-lg font-medium text-foreground">No performance data for the selected window</CardTitle>
         </Card>
       );
     }
     return (
       <>
-        <Grid numItems={1} className="gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {isFetching && models.length > 0 && (
             <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
               <UiLoadingSpinner className="size-4" />
@@ -459,10 +486,10 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
             categories={ttftChart.categories}
             decimals={3}
           />
-        </Grid>
+        </div>
 
         <Card>
-          <Title>Summary</Title>
+          <CardTitle className="text-lg font-medium text-foreground">Summary</CardTitle>
           <div className="mt-4">
             <DataTable
               data={filteredModels}
@@ -485,7 +512,7 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           {canLive && (
-            <Segmented
+            <SegmentedToggle
               options={[
                 { label: "Live", value: "live" },
                 { label: "Historical", value: "hist" },
@@ -495,21 +522,20 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
             />
           )}
           {!live && !hasCustomRange && (
-            <Segmented
+            <SegmentedToggle
               options={WINDOW_OPTIONS}
               value={window}
               onChange={(val) => {
-                setWindow(val as string);
+                setWindow(val);
                 setGranularity("");
               }}
             />
           )}
           {!live && (
-            <Segmented
-              size="small"
+            <SegmentedToggle
               options={granularityOptions}
               value={granularity}
-              onChange={(val) => setGranularity(val as string)}
+              onChange={(val) => setGranularity(val)}
             />
           )}
           {live && dataUpdatedAt > 0 && (
@@ -519,18 +545,14 @@ const ModelPerformanceView: React.FC<ModelPerformanceViewProps> = ({ scope = {},
             </span>
           )}
         </div>
-        <Select
-          style={{ minWidth: 280, maxWidth: 380 }}
-          mode="multiple"
-          placeholder="Search and select model groups"
-          value={selectedModelGroups}
-          onChange={(vals: string[]) => setSelectedModelGroups(vals)}
-          options={modelGroupOptions}
-          allowClear
-          showSearch
-          maxTagCount="responsive"
-          optionFilterProp="label"
-        />
+        <div className="min-w-[280px] max-w-[380px]">
+          <MultiSelect
+            options={modelGroupOptions}
+            value={selectedModelGroups}
+            onValueChange={setSelectedModelGroups}
+            placeholder="Search and select model groups"
+          />
+        </div>
       </div>
 
       {renderContent()}

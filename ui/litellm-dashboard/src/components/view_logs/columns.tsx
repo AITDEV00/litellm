@@ -1,7 +1,8 @@
 import { getSpendString } from "@/utils/dataUtils";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Badge, Button } from "@tremor/react";
-import { Tooltip } from "antd";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState } from "react";
 import { getProviderLogoAndName } from "../provider_info_helpers";
 import { TableHeaderSortDropdown } from "../common_components/TableHeaderSortDropdown/TableHeaderSortDropdown";
@@ -171,7 +172,12 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
         sessionAgentCount > 0 && `${sessionAgentCount} Agent`,
         sessionMcpCount > 0 && `${sessionMcpCount} MCP`,
       ].filter(Boolean);
-      return <Tooltip title={tooltipParts.join(" • ")}>{sessionTypeBadge}</Tooltip>;
+      return (
+        <Tooltip>
+          <TooltipTrigger render={<span>{sessionTypeBadge}</span>} />
+          <TooltipContent>{tooltipParts.join(" • ")}</TooltipContent>
+        </Tooltip>
+      );
     },
   },
   {
@@ -201,15 +207,20 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       const value = String(info.getValue() || "");
       const onSessionClick = info.row.original.onSessionClick;
       return (
-        <Tooltip title={String(info.getValue() || "")}>
-          <Button
-            size="xs"
-            variant="light"
-            className="font-mono text-blue-500 bg-blue-50 hover:bg-blue-100 text-xs font-normal text-xs max-w-[15ch] truncate block"
-            onClick={() => onSessionClick?.(value)}
-          >
-            {String(info.getValue() || "")}
-          </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="xs"
+                variant="ghost"
+                className="font-mono text-blue-500 bg-blue-50 hover:bg-blue-100 text-xs font-normal max-w-[15ch] truncate block"
+                onClick={() => onSessionClick?.(value)}
+              >
+                {String(info.getValue() || "")}
+              </Button>
+            }
+          />
+          <TooltipContent>{String(info.getValue() || "")}</TooltipContent>
         </Tooltip>
       );
     },
@@ -219,9 +230,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
     header: "Request ID",
     accessorKey: "request_id",
     cell: (info: any) => (
-      <Tooltip title={String(info.getValue() || "")}>
-        <span className="font-mono text-xs max-w-[15ch] truncate block">{String(info.getValue() || "")}</span>
-      </Tooltip>
+      <Tooltip>
+          <TooltipTrigger render={<span className="font-mono text-xs max-w-[15ch] truncate block">{String(info.getValue() || "")}</span>} />
+          <TooltipContent>{String(info.getValue() || "")}</TooltipContent>
+        </Tooltip>
     ),
   },
   {
@@ -245,9 +257,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
 
       return (
         <div className="flex flex-col">
-          <Tooltip title={`$${String(info.getValue() || 0)}`}>
-            <span>{getSpendString(info.getValue() || 0)}</span>
-          </Tooltip>
+          <Tooltip>
+              <TooltipTrigger render={<span>{getSpendString(info.getValue() || 0)}</span>} />
+              <TooltipContent>{`$${String(info.getValue() || 0)}`}</TooltipContent>
+            </Tooltip>
           {mcpCount > 0 && mcpSpend > 0 && (
             <span className="text-[10px] text-amber-600">
               incl. {getSpendString(mcpSpend)} from {mcpCount} MCP
@@ -275,9 +288,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       if (ms == null) return <span>-</span>;
       const seconds = (ms / 1000).toFixed(2);
       return (
-        <Tooltip title={`${ms}ms`}>
-          <span className="max-w-[15ch] truncate block">{seconds}</span>
-        </Tooltip>
+        <Tooltip>
+            <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{seconds}</span>} />
+            <TooltipContent>{`${ms}ms`}</TooltipContent>
+          </Tooltip>
       );
     },
   },
@@ -304,9 +318,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       if (ttftMs <= 0) return <span>-</span>;
       const ttftSeconds = (ttftMs / 1000).toFixed(2);
       return (
-        <Tooltip title={`${ttftMs}ms`}>
-          <span className="max-w-[15ch] truncate block">{ttftSeconds}</span>
-        </Tooltip>
+        <Tooltip>
+            <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{ttftSeconds}</span>} />
+            <TooltipContent>{`${ttftMs}ms`}</TooltipContent>
+          </Tooltip>
       );
     },
   },
@@ -328,9 +343,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       const tps = computeThroughput(row.completion_tokens, row.request_duration_ms);
       if (tps == null) return <span>-</span>;
       return (
-        <Tooltip title={`${row.completion_tokens} tokens / ${(row.request_duration_ms / 1000).toFixed(2)}s`}>
-          <span className="max-w-[15ch] truncate block">{tps.toFixed(1)}</span>
-        </Tooltip>
+        <Tooltip>
+            <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{tps.toFixed(1)}</span>} />
+            <TooltipContent>{`${row.completion_tokens} tokens / ${(row.request_duration_ms / 1000).toFixed(2)}s`}</TooltipContent>
+          </Tooltip>
       );
     },
   },
@@ -339,9 +355,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
     accessorKey: "metadata.user_api_key_team_alias",
     size: 150,
     cell: (info: any) => (
-      <Tooltip title={String(info.getValue() || "-")}>
-        <span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>
-      </Tooltip>
+      <Tooltip>
+          <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>} />
+          <TooltipContent>{String(info.getValue() || "-")}</TooltipContent>
+        </Tooltip>
     ),
   },
   {
@@ -353,14 +370,14 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
       const onKeyHashClick = info.row.original.onKeyHashClick;
 
       return (
-        <Tooltip title={value}>
-          <span
-            className="font-mono max-w-[15ch] truncate block cursor-pointer hover:text-blue-600"
+        <Tooltip>
+            <TooltipTrigger render={<span className="font-mono max-w-[15ch] truncate block cursor-pointer hover:text-blue-600"
             onClick={() => onKeyHashClick?.(value)}
           >
             {value}
-          </span>
-        </Tooltip>
+          </span>} />
+            <TooltipContent>{value}</TooltipContent>
+          </Tooltip>
       );
     },
   },
@@ -369,9 +386,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
     accessorKey: "metadata.user_api_key_alias",
     size: 150,
     cell: (info: any) => (
-      <Tooltip title={String(info.getValue() || "-")}>
-        <span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>
-      </Tooltip>
+      <Tooltip>
+          <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>} />
+          <TooltipContent>{String(info.getValue() || "-")}</TooltipContent>
+        </Tooltip>
     ),
   },
   {
@@ -405,9 +423,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
               }}
             />
           )}
-          <Tooltip title={modelName}>
-            <span className="max-w-[15ch] truncate block">{modelName}</span>
-          </Tooltip>
+          <Tooltip>
+              <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{modelName}</span>} />
+              <TooltipContent>{modelName}</TooltipContent>
+            </Tooltip>
         </div>
       );
     },
@@ -443,9 +462,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
     accessorKey: "user",
     size: 150,
     cell: (info: any) => (
-      <Tooltip title={String(info.getValue() || "-")}>
-        <span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>
-      </Tooltip>
+      <Tooltip>
+          <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>} />
+          <TooltipContent>{String(info.getValue() || "-")}</TooltipContent>
+        </Tooltip>
     ),
   },
   {
@@ -453,9 +473,10 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
     accessorKey: "end_user",
     size: 140,
     cell: (info: any) => (
-      <Tooltip title={String(info.getValue() || "-")}>
-        <span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>
-      </Tooltip>
+      <Tooltip>
+          <TooltipTrigger render={<span className="max-w-[15ch] truncate block">{String(info.getValue() || "-")}</span>} />
+          <TooltipContent>{String(info.getValue() || "-")}</TooltipContent>
+        </Tooltip>
     ),
   },
 
@@ -473,8 +494,16 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
 
       return (
         <div className="flex flex-wrap gap-1">
-          <Tooltip
-            title={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="px-2 py-1 bg-gray-100 rounded-full text-xs">
+                  {firstTag[0]}: {String(firstTag[1])}
+                  {remainingTags.length > 0 && ` +${remainingTags.length}`}
+                </span>
+              }
+            />
+            <TooltipContent>
               <div className="flex flex-col gap-1">
                 {tagEntries.map(([key, value]) => (
                   <span key={key}>
@@ -482,12 +511,7 @@ export const createColumns = (sortProps?: LogsSortProps): ColumnDef<LogEntry>[] 
                   </span>
                 ))}
               </div>
-            }
-          >
-            <span className="px-2 py-1 bg-gray-100 rounded-full text-xs">
-              {firstTag[0]}: {String(firstTag[1])}
-              {remainingTags.length > 0 && ` +${remainingTags.length}`}
-            </span>
+            </TooltipContent>
           </Tooltip>
         </div>
       );
@@ -619,7 +643,7 @@ export type AuditLogEntry = {
 
 const getActionBadge = (action: string) => {
   return (
-    <Badge color="gray" className="flex items-center gap-1">
+    <Badge variant="secondary" className="flex items-center gap-1">
       <span className="whitespace-nowrap text-xs">{action}</span>
     </Badge>
   );
@@ -710,13 +734,14 @@ export const auditLogColumns: ColumnDef<AuditLogEntry>[] = [
         <div className="space-y-1">
           <div className="font-medium">{changedBy}</div>
           {apiKey && ( // Only show API key if it exists
-            <Tooltip title={apiKey}>
-              <div className="text-xs text-muted-foreground max-w-[15ch] truncate">
+            <Tooltip>
+                <TooltipTrigger render=<div className="text-xs text-muted-foreground max-w-[15ch] truncate">
                 {" "}
                 {/* Apply max-width and truncate */}
                 {apiKey}
-              </div>
-            </Tooltip>
+              </div> />
+                <TooltipContent>{apiKey}</TooltipContent>
+              </Tooltip>
           )}
         </div>
       );
@@ -743,11 +768,12 @@ export const auditLogColumns: ColumnDef<AuditLogEntry>[] = [
         };
 
         return (
-          <Tooltip title={copied ? "Copied!" : String(objectId)}>
-            <span className="max-w-[20ch] truncate block cursor-pointer hover:text-blue-600" onClick={handleCopy}>
+          <Tooltip>
+              <TooltipTrigger render={<span className="max-w-[20ch] truncate block cursor-pointer hover:text-blue-600" onClick={handleCopy}>
               {String(objectId)}
-            </span>
-          </Tooltip>
+            </span>} />
+              <TooltipContent>{copied ? "Copied!" : String(objectId)}</TooltipContent>
+            </Tooltip>
         );
       };
       return <ObjectIdDisplay />;

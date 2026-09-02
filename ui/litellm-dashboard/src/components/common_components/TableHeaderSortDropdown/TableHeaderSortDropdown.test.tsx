@@ -6,16 +6,14 @@ import { TableHeaderSortDropdown } from "./TableHeaderSortDropdown";
 describe("TableHeaderSortDropdown", () => {
   it("should render", () => {
     const onSortChange = vi.fn();
-    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange
-} />);
+    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange} />);
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
   it("should open dropdown menu when button is clicked", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
-    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange
-} />);
+    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange} />);
 
     const button = screen.getByRole("button");
     await user.click(button);
@@ -27,12 +25,10 @@ describe("TableHeaderSortDropdown", () => {
     });
   });
 
-  it("should call onSortChange with asc when ascending option is clicked", async
- () => {
+  it("should call onSortChange with asc when ascending option is clicked", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
-    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange
-} />);
+    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange} />);
 
     const button = screen.getByRole("button");
     await user.click(button);
@@ -48,12 +44,10 @@ describe("TableHeaderSortDropdown", () => {
     expect(onSortChange).toHaveBeenCalledWith("asc");
   });
 
-  it("should call onSortChange with desc when descending option is clicked", asy
-nc () => {
+  it("should call onSortChange with desc when descending option is clicked", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
-    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange
-} />);
+    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange} />);
 
     const button = screen.getByRole("button");
     await user.click(button);
@@ -125,8 +119,7 @@ nc () => {
   it("should not highlight any option when sort state is false", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
-    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange
-} />);
+    render(<TableHeaderSortDropdown sortState={false} onSortChange={onSortChange} />);
 
     const button = screen.getByRole("button");
     await user.click(button);
