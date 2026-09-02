@@ -17,13 +17,10 @@ check-and-increment becomes atomic.
 """
 
 import asyncio
-import os
-import sys
 from typing import List
 
 import pytest
 
-sys.path.insert(0, os.path.abspath("../../../.."))
 
 import litellm
 from litellm import DualCache, Router
@@ -183,7 +180,7 @@ async def test_batch_limiter_uses_atomic_check_and_increment():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
+async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity(monkeypatch):
     """
     The HTB dynamic limiter uses an atomic Lua script
     (htb_check_and_increment) that checks and increments in one step,
@@ -199,7 +196,7 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
     MODEL_RPM = 2
     MAX_SEQUENTIAL_SUCCESSES = MODEL_RPM + 1
 
-    os.environ["LITELLM_LICENSE"] = "test-license-key"
+    monkeypatch.setenv("LITELLM_LICENSE", "test-license-key")
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
@@ -246,7 +243,7 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment():
+async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment(monkeypatch):
     """
     Regression test: the HTB dynamic limiter routes through
     `htb_check_and_increment`, which is an atomic Lua-script-based
@@ -256,7 +253,7 @@ async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment():
     """
     from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
-    os.environ["LITELLM_LICENSE"] = "test-license-key"
+    monkeypatch.setenv("LITELLM_LICENSE", "test-license-key")
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
@@ -361,7 +358,7 @@ async def test_batch_zero_token_consumes_rpm_only():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor():
+async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor(monkeypatch):
     """
     Fail-closed guard: when htb_check_and_increment returns
     overall_code=OVER_LIMIT, the dynamic limiter must raise a 429
@@ -375,7 +372,7 @@ async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor():
 
     from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
-    os.environ["LITELLM_LICENSE"] = "test-license-key"
+    monkeypatch.setenv("LITELLM_LICENSE", "test-license-key")
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
