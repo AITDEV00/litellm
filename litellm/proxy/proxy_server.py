@@ -3362,16 +3362,22 @@ def run_ollama_serve():
 
 def _get_process_rss_mb() -> float | None:
     """
-    Get process RSS memory in MB.
-    On Linux, ru_maxrss is in KB. On macOS, ru_maxrss is in bytes.
+    Get CURRENT process RSS memory in MB.
+
+    Reads /proc/self/statm (resident pages now), not ru_maxrss — ru_maxrss is
+    a high-water mark that never decreases, so a one-time spike makes the old
+    value permanently misleading for memory-creep logging.
+    On macOS /proc does not exist, so fall back to ru_maxrss (peak) there.
     """
     try:
+        if sys.platform != "darwin":
+            with open("/proc/self/statm", encoding="ascii") as statm:
+                resident_pages: Final = int(statm.read().split()[1])
+            return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
         import resource
 
         ru_maxrss: Final = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        if sys.platform == "darwin":
-            return float(ru_maxrss) / (1024 * 1024)
-        return float(ru_maxrss) / 1024
+        return float(ru_maxrss) / (1024 * 1024)
     except Exception:
         return None
 
@@ -8926,6 +8932,32 @@ class ProxyStartupEvent:
             replace_existing=True,
             misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
         )
+
+        ### MEMORY MONITOR ###
+        # Samples RSS/GC/threads/prom-series every interval and logs one
+        # structured line (mem_monitor), so memory creep is visible in
+        # container logs and Loki. When RSS grows beyond a threshold between
+        # samples, opens ONE bounded tracemalloc window and logs the top
+        # growing allocation sites. Interval 0 disables; see
+        # litellm/proxy/memory_monitor.py for the overhead design.
+        from litellm.proxy.memory_monitor import (
+            MemoryMonitor,
+            get_sample_interval_seconds,
+        )
+
+        memory_monitor_interval: Final = get_sample_interval_seconds()
+        if memory_monitor_interval > 0:
+            memory_monitor: Final = MemoryMonitor(
+                sample_interval_seconds=memory_monitor_interval
+            )
+            scheduler.add_job(
+                memory_monitor.sample,
+                "interval",
+                seconds=memory_monitor_interval,
+                id="memory_monitor_job",
+                replace_existing=True,
+                misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
+            )
 
         ### RESET BUDGET ###
         if general_settings.get("disable_reset_budget", False) is False:

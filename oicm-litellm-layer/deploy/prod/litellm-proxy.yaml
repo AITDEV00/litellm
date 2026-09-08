@@ -400,7 +400,11 @@ spec:
               memory: 2Gi
             limits:
               cpu: "4"
-              memory: 8Gi
+              # 12Gi (was 8Gi): steady-state RSS grows ~1.6Gi/day under real
+              # traffic and OOMKilled at 8Gi twice in one week (2026-09-05/07).
+              # Root cause under investigation via mem_monitor logging; this
+              # raises time-to-OOM from ~3 days to ~6 days.
+              memory: 12Gi
       volumes:
         - name: config
           configMap:
