@@ -1329,3 +1329,15 @@ async def test_route_request_aspeech_without_model_uses_user_model():
 
     assert response == "fake_response"
     assert data["model"] == "hamsa-tts-new"
+
+
+def test_openai_status_errors_have_a_dedicated_app_handler():
+    """LiteLLM SDK exceptions (BadRequestError etc.) are openai.APIStatusError
+    subclasses, not ProxyException/HTTPException. Without a dedicated handler
+    they fell through to the Exception catch-all and surfaced as opaque 500s
+    (e.g. hamsa speaker_not_found on /v1/audio/speech)."""
+    import openai
+
+    from litellm.proxy import proxy_server
+
+    assert openai.APIStatusError in proxy_server.app.exception_handlers

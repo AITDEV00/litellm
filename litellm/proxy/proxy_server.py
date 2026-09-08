@@ -222,6 +222,7 @@ from functools import lru_cache
 
 import litellm
 import litellm._redis
+import openai
 from litellm import Router
 from litellm._logging import _redact_string, verbose_proxy_logger, verbose_router_logger
 from litellm.caching.caching import DualCache, RedisCache
@@ -1703,6 +1704,23 @@ async def otel_request_validation_exception_handler(request: Request, exc: Reque
     return JSONResponse(
         status_code=422,
         content={"detail": jsonable_encoder(exc.errors())},
+    )
+
+
+@app.exception_handler(openai.APIStatusError)
+async def litellm_sdk_status_error_handler(request: Request, exc: openai.APIStatusError):
+    """Map LiteLLM SDK exceptions (subclasses of openai.APIStatusError, e.g.
+    BadRequestError / NotFoundError / RateLimitError raised by provider configs)
+    to their HTTP status instead of the generic 500.
+
+    Without this, a provider 4xx surfaced as "Internal server error" because
+    openai errors are neither ProxyException nor Starlette HTTPException.
+    """
+    status_code: Final = int(getattr(exc, "status_code", 500) or 500)
+    _close_dangling_otel_server_span(request, status_code, exc=exc)
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"message": str(exc), "type": type(exc).__name__}},
     )
 
 
