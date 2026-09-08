@@ -1880,6 +1880,66 @@ def _map_vllm_exception(
             )
 
 
+def _map_hamsa_exception(
+    *,
+    model: str,
+    original_exception: _ProviderHTTPException,
+    custom_llm_provider: str,
+    error_str: str,
+    exception_type: str,
+    exception_provider: str,
+    extra_information: str,
+) -> None:
+    """Map Hamsa BaseLLMException to OpenAI-style errors.
+
+    Hamsa pods answer with JSON envelopes like
+    {"error": {"code": "speaker_not_found", "message": ...}} and 422
+    validation failures ({"error": {"code": "invalid_request", ...}}).
+    Without this mapper every pod rejection degraded to a generic 500
+    APIConnectionError at the proxy, hiding the real cause from callers.
+    """
+    status_code = getattr(original_exception, "status_code", None)
+    message = getattr(original_exception, "message", None) or error_str
+
+    error_code: str | None = None
+    try:
+        body: Final = getattr(original_exception, "body", None)
+        if isinstance(body, dict) and isinstance(body.get("error"), dict):
+            error_code = body["error"].get("code")
+    except Exception:
+        error_code = None
+    if error_code is None:
+        for code in ("speaker_not_found", "invalid_request", "model_not_found"):
+            if code in error_str:
+                error_code = code
+                break
+
+    if error_code in ("speaker_not_found", "model_not_found"):
+        raise BadRequestError(
+            message=f"HamsaException - {message}",
+            model=model,
+            llm_provider=custom_llm_provider,
+            litellm_debug_info=extra_information,
+            response=getattr(original_exception, "response", None),
+        )
+    if error_code == "invalid_request" or status_code == 422:
+        raise BadRequestError(
+            message=f"HamsaException - {message}",
+            model=model,
+            llm_provider=custom_llm_provider,
+            litellm_debug_info=extra_information,
+            response=getattr(original_exception, "response", None),
+        )
+    if status_code is not None and 400 <= int(status_code) < 500:
+        raise BadRequestError(
+            message=f"HamsaException - {message}",
+            model=model,
+            llm_provider=custom_llm_provider,
+            litellm_debug_info=extra_information,
+            response=getattr(original_exception, "response", None),
+        )
+
+
 def _map_azure_exception(
     *,
     model: str,
@@ -2467,6 +2527,16 @@ def exception_type(
                 )
             elif custom_llm_provider == "azure" or custom_llm_provider == "azure_text":
                 _map_azure_exception(
+                    model=model,
+                    original_exception=mappable_exception,
+                    custom_llm_provider=custom_llm_provider,
+                    error_str=error_str,
+                    exception_type=exception_type,
+                    exception_provider=exception_provider,
+                    extra_information=extra_information,
+                )
+            elif custom_llm_provider == "hamsa":
+                _map_hamsa_exception(
                     model=model,
                     original_exception=mappable_exception,
                     custom_llm_provider=custom_llm_provider,

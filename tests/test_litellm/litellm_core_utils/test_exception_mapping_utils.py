@@ -804,3 +804,51 @@ def test_bedrock_mantle_context_overflow_maps_to_context_window_exceeded():
 
     assert excinfo.value.status_code == 400
     assert "prompt is too long: 1055489 tokens > 1050000 maximum" in excinfo.value.message
+
+
+def test_hamsa_speaker_not_found_maps_to_bad_request():
+    """Hamsa v1 pods answer 400 {"error":{"code":"speaker_not_found",...}}.
+    Without the hamsa mapper this degraded to a generic 500 at the proxy."""
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+    with pytest.raises(litellm.exceptions.BadRequestError, match="speaker"):
+        exception_type(
+            model="hamsa-tts-new",
+            original_exception=BaseLLMException(
+                status_code=400,
+                message='{"error":{"code":"speaker_not_found","message":"speaker nope not loaded"}}',
+                headers={},
+            ),
+            custom_llm_provider="hamsa",
+        )
+
+
+def test_hamsa_invalid_request_422_maps_to_bad_request():
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+    with pytest.raises(litellm.exceptions.BadRequestError, match="validation"):
+        exception_type(
+            model="hamsa-tts-new",
+            original_exception=BaseLLMException(
+                status_code=422,
+                message='{"error":{"code":"invalid_request","message":"request validation failed"}}',
+                headers={},
+            ),
+            custom_llm_provider="hamsa",
+        )
+
+
+def test_hamsa_gateway_rejection_maps_to_bad_request():
+    """The gateway's own 400 (e.g. missing voice) must surface as 400, not 500."""
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+    with pytest.raises(litellm.exceptions.BadRequestError, match="voice"):
+        exception_type(
+            model="hamsa-tts-new",
+            original_exception=BaseLLMException(
+                status_code=400,
+                message="'voice' (speaker) is required for Hamsa TTS. Pass a speaker name like 'jasem'.",
+                headers={},
+            ),
+            custom_llm_provider="hamsa",
+        )
