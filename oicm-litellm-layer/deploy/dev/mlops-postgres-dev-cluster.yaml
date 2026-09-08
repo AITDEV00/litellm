@@ -1,0 +1,62 @@
+---
+# Dev-only CNPG Postgres cluster: mlops-postgres-dev
+#
+# PURPOSE
+#   A single-instance Postgres for the dev gateway so memory profiling runs
+#   against the REAL logging pipeline (spend-log writes, flush jobs, prisma
+#   engine churn) instead of the DB-less path. This is what makes the
+#   prod memory creep reproducible: the DB-less test showed raw request
+#   bodies alone do NOT leak — the DB pipeline is the suspect.
+#
+# DIFF VS PROD (deploy/prod/mlops-postgres-cluster.yaml)
+#   - instances: 1 (not 3)
+#   - resources: 1Gi mem / 250m cpu (not 2G / 500m-1cpu)
+#   - storage: 20Gi (not 100Gi) — profiling data is throwaway
+#   - walStorage: 5Gi (not 50Gi)
+#   - NO pod anti-affinity / monitoring / PDB minimalism kept simple
+#   - database/owner: litellm (matches the dev gateway's expected DB)
+#
+# NOTE
+#   The dev gateway connects via mlops-postgres-dev-rw.mlops:5432 with
+#   credentials from secret litellm-db-credentials-dev.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: mlops-postgres-dev
+  namespace: mlops
+spec:
+  description: dev-only single-instance postgres for gateway memory profiling
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  storage:
+    size: 20Gi
+    storageClass: longhorn-rwx-crypto-retain
+  walStorage:
+    size: 5Gi
+    storageClass: longhorn-rwx-crypto-retain
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  postgresql:
+    parameters:
+      # Same logging shape as prod so the profiling path matches
+      log_destination: csvlog
+      log_directory: /controller/log
+      log_filename: postgres
+      log_rotation_age: "0"
+      log_rotation_size: "0"
+      logging_collector: "on"
+      max_connections: "100"
+      shared_buffers: 128MB
+      wal_level: logical
+  bootstrap:
+    initdb:
+      database: litellm
+      owner: litellm
+  monitoring:
+    enablePodMonitor: true

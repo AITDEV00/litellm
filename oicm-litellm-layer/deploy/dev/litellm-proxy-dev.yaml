@@ -114,17 +114,18 @@ spec:
                 secretKeyRef:
                   name: litellm-salt-key-dev
                   key: salt-key
-            # DB-DECOUPLED DEV: no DATABASE_URL on purpose. This pod exercises
-            # the gateway with NO Postgres connection at all — startup, serving,
-            # auth fallback and the spend-queue drop-oldest path all run
-            # DB-less. Made possible by allow_requests_on_db_unavailable in
-            # litellm-config-dev (mirrors prod's 2026-09-08 decoupling).
-            # To re-attach a DB, re-add:
-            #   - name: DATABASE_URL
-            #     valueFrom:
-            #       secretKeyRef:
-            #         name: litellm-db-credentials
-            #         key: DATABASE_URL
+            # DB-ATTACHED FOR MEMORY PROFILING: connects to the dev-only
+            # single-instance CNPG cluster (mlops-postgres-dev, see
+            # mlops-postgres-dev-cluster.yaml). This re-enable is deliberate:
+            # the DB-less test proved raw request bodies do NOT creep memory,
+            # so profiling must run against the REAL logging pipeline.
+            # allow_requests_on_db_unavailable stays on, so an outage of the
+            # dev DB degrades instead of crashing — same semantics as prod.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials-dev
+                  key: DATABASE_URL
             - name: REDIS_HOST
               value: "litellm-redis.redis.svc.cluster.local"
             - name: REDIS_PORT
