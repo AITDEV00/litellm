@@ -1,0 +1,103 @@
+# Mirror of the live CNPG cluster (originally deployed via Helm release `oicm`,
+# then patched out-of-band: data storage 50Gi -> 100Gi on 2026-09-08 after the
+# data volume filled and the primary crash-looped). Keep this file in sync with
+# `kubectl get cluster mlops-postgres -n mlops` — a helm upgrade of release
+# `oicm` with stale values would revert spec.storage.size back to 50Gi.
+#
+# Filled-disk postmortem: LiteLLM_SpendLogs grew to 48 GB in 75 days with no
+# retention configured. Consider adding maximum_spend_logs_retention_period to
+# general_settings in litellm-proxy.yaml before this refills the volume.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: mlops-postgres
+  namespace: mlops
+spec:
+  affinity:
+    podAntiAffinityType: preferred
+  bootstrap:
+    initdb:
+      database: oicm
+      encoding: UTF8
+      localeCType: C
+      localeCollate: C
+      owner: oicm
+  description: mlops database cluster
+  enablePDB: true
+  enableSuperuserAccess: true
+  failoverDelay: 0
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  instances: 3
+  logLevel: info
+  maxSyncReplicas: 0
+  minSyncReplicas: 0
+  monitoring:
+    customQueriesConfigMap:
+      - key: queries
+        name: cnpg-default-monitoring
+    disableDefaultQueries: false
+    enablePodMonitor: true
+  postgresGID: 26
+  postgresUID: 26
+  postgresql:
+    parameters:
+      archive_mode: "on"
+      archive_timeout: 5min
+      dynamic_shared_memory_type: posix
+      full_page_writes: "on"
+      log_destination: csvlog
+      log_directory: /controller/log
+      log_filename: postgres
+      log_rotation_age: "0"
+      log_rotation_size: "0"
+      log_truncate_on_rotation: "false"
+      logging_collector: "on"
+      max_connections: "200"
+      max_parallel_workers: "32"
+      max_replication_slots: "32"
+      max_worker_processes: "32"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: all
+      shared_buffers: 256MB
+      shared_memory_type: mmap
+      shared_preload_libraries: ""
+      ssl_max_protocol_version: TLSv1.3
+      ssl_min_protocol_version: TLSv1.3
+      wal_keep_size: 512MB
+      wal_level: logical
+      wal_log_hints: "on"
+      wal_receiver_timeout: 5s
+      wal_sender_timeout: 5s
+    shared_preload_libraries:
+      - pg_stat_statements
+    syncReplicaElectionConstraint:
+      enabled: false
+  primaryUpdateMethod: restart
+  primaryUpdateStrategy: unsupervised
+  replicationSlots:
+    highAvailability:
+      enabled: true
+      slotPrefix: _cnpg_
+    synchronizeReplicas:
+      enabled: true
+    updateInterval: 30
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2G
+    requests:
+      cpu: 500m
+      memory: 2G
+  smartShutdownTimeout: 180
+  startDelay: 30
+  stopDelay: 100
+  storage:
+    resizeInUseVolumes: true
+    size: 100Gi
+    storageClass: longhorn-rwx-crypto-retain
+  switchoverDelay: 3600
+  walStorage:
+    resizeInUseVolumes: true
+    size: 50Gi
+    storageClass: longhorn-rwx-crypto-retain
