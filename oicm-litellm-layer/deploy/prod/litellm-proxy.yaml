@@ -94,6 +94,11 @@ data:
         - enforce_model_rate_limits
     general_settings:
       use_redis_transaction_buffer: true
+      # Prune LiteLLM_SpendLogs rows older than 60 days (bounded batched
+      # deletes, single pod via Redis lock). Sizing: ~13M rows ≈ 62 GB
+      # including indexes+TOAST — the 50Gi data volume filled on 2026-09-08
+      # with no retention (see incidents/2026-09-08-postgres-disk-full-...).
+      maximum_spend_logs_retention_period: "60d"
 ---
 apiVersion: v1
 kind: Secret
