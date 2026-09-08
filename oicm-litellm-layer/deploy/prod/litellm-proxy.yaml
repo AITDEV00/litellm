@@ -99,6 +99,20 @@ data:
       # including indexes+TOAST — the 50Gi data volume filled on 2026-09-08
       # with no retention (see incidents/2026-09-08-postgres-disk-full-...).
       maximum_spend_logs_retention_period: "60d"
+      # Run the retention job 4x/day (default 1x) and lift the per-run drain
+      # cap from 500K to 2M rows, so a traffic-burst day cannot outrun
+      # cleanup between alert cycles. All three knobs are re-read per run,
+      # so they can also be changed live from the Admin UI.
+      maximum_spend_logs_retention_interval: "6h"
+      maximum_spend_logs_cleanup_max_batches: 2000
+      maximum_spend_logs_cleanup_run_budget: "20m"
+      # Decouple gateway availability from Postgres (2026-09-08 incident:
+      # flush-retry CPU churn starved the event loop until liveness timed
+      # out and pods restarted). With this on: auth falls back to cached
+      # identity instead of 503 on cache misses, and the pod starts even
+      # when the DB is down. Spend-log queueing stays bounded (64MB,
+      # drop-oldest) so RAM cannot grow unboundedly while the DB is down.
+      allow_requests_on_db_unavailable: true
 ---
 apiVersion: v1
 kind: Secret
