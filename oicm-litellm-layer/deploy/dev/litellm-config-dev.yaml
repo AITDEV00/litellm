@@ -73,3 +73,13 @@ data:
         - enforce_model_rate_limits
     general_settings:
       use_redis_transaction_buffer: true
+      # Mirror of prod (2026-09-08 decoupling). Retention knobs are inert
+      # without a DB but kept identical so dev matches prod exactly.
+      maximum_spend_logs_retention_period: "60d"
+      maximum_spend_logs_retention_interval: "6h"
+      maximum_spend_logs_cleanup_max_batches: 2000
+      maximum_spend_logs_cleanup_run_budget: "20m"
+      # The whole point of DB-less dev: with no DATABASE_URL and this flag,
+      # auth falls back to a restricted synthetic identity and the proxy
+      # starts/serves without Postgres. Validates the prod decoupling.
+      allow_requests_on_db_unavailable: true
