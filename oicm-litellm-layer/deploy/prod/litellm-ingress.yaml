@@ -1,4 +1,3 @@
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -14,9 +13,20 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
+        - litellm.ecouncil.ae
         - litellm.adeoaiengine.ecouncil.ae
-      secretName: litellm.adeoaiengine.ecouncil.ae-tls
+      secretName: litellm-ecouncil-ae-tls
   rules:
+    - host: litellm.ecouncil.ae
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-proxy
+                port:
+                  number: 4000
     - host: litellm.adeoaiengine.ecouncil.ae
       http:
         paths:
