@@ -36,23 +36,20 @@ def resolve_api_surface(litellm_params: Optional[dict] = None) -> str:
     """Resolve the hamsa API surface: litellm_params override env override default."""
     from_params = (litellm_params or {}).get("api_surface")
     if isinstance(from_params, str) and from_params:
-        return from_params
-    from_env = os.environ.get("HAMSA_API_SURFACE")
-    if from_env:
-        return from_env
-    return HAMSA_API_SURFACE_NATIVE
-
-
-def surface_path(capability: str, litellm_params: Optional[dict] = None) -> str:
-    """Path suffix for a capability (speech/transcription/voice_clone/voice_load)."""
-    surface = resolve_api_surface(litellm_params)
-    paths = HAMSA_SURFACE_PATHS.get(surface)
-    if paths is None:
+        surface = from_params
+    else:
+        surface = os.environ.get("HAMSA_API_SURFACE") or HAMSA_API_SURFACE_NATIVE
+    if surface not in HAMSA_SURFACE_PATHS:
         raise ValueError(
             f"Unknown Hamsa API surface '{surface}'. "
             f"Expected one of {sorted(HAMSA_SURFACE_PATHS)}."
         )
-    return paths[capability]
+    return surface
+
+
+def surface_path(capability: str, litellm_params: Optional[dict] = None) -> str:
+    """Path suffix for a capability (speech/transcription/voice_clone/voice_load)."""
+    return HAMSA_SURFACE_PATHS[resolve_api_surface(litellm_params)][capability]
 
 HAMSA_INTERNAL_PARAMS: frozenset[str] = frozenset(
     {
@@ -118,6 +115,8 @@ HAMSA_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "use_xai_oauth",
         "use_chat_completions_api",
         "merge_reasoning_content_in_choices",
+        # Surface selector: routing metadata, never a pod request field.
+        "api_surface",
     }
 )
 

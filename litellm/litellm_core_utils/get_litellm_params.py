@@ -59,6 +59,10 @@ OPTIONAL_KWARGS_KEYS: Final = (
             # of the provider body; this keeps it *in* litellm_params, which is
             # where the chat completions handlers read it from.
             RUST_KWARG_KEY,
+            # Hamsa API surface selector (native vs v1). Same pattern as
+            # RUST_KWARG_KEY: kept out of the provider request body, read from
+            # litellm_params by the hamsa config classes when building URLs.
+            "api_surface",
         }
     )
     | AWS_CREDENTIAL_KWARGS_KEYS

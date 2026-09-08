@@ -64,7 +64,7 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
             for key, value in kwargs.items():
                 if value is None or key in HAMSA_INTERNAL_PARAMS:
                     continue
-                if key in ("extra_body", "extra_headers"):
+                if key in ("extra_body", "extra_headers", "api_surface"):
                     continue
                 mapped_params[key] = value
 

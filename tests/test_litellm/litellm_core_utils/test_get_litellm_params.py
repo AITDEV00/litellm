@@ -244,3 +244,22 @@ class TestRustOptIn:
         from litellm.types.utils import all_litellm_params
 
         assert "rust" in all_litellm_params
+
+
+class TestHamsaApiSurface:
+    """`api_surface` (hamsa native vs v1 pods) is a routing param stamped by the
+    discovery controller into deployment litellm_params. Like `rust`, it must
+    survive into `litellm_params` so the hamsa config classes can pick request
+    paths, and it must stay out of the provider request body (SpeechRequest is
+    a strict schema and would 422 on unknown fields).
+    """
+
+    def test_api_surface_is_an_optional_kwargs_key(self):
+        assert "api_surface" in _OPTIONAL_KWARGS_KEYS
+
+    def test_api_surface_survives_into_litellm_params(self):
+        params = get_litellm_params(api_surface="v1")
+        assert params["api_surface"] == "v1"
+
+    def test_api_surface_absent_when_deployment_did_not_set_it(self):
+        assert "api_surface" not in get_litellm_params()
