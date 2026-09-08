@@ -1,4 +1,4 @@
-"""Tests for controller/models.py shape parsing and docling detection."""
+"""Tests for controller/models.py shape parsing, mode/provider detection, and api_base shape."""
 
 from controller.models import (
     OicmModel,
@@ -78,6 +78,21 @@ class TestDoclingDetection:
         paths = frozenset({"/v1/convert/source"})
         assert detect_provider("hamsa", "PP-DocLayoutV3", paths) == "hamsa"
 
+    def test_detect_provider_suffixed_hamsa_model_id(self):
+        # "hamsa-tts-new" must resolve to the hamsa provider via substring
+        # matching, same as the bare "hamsa-tts" id.
+        assert detect_provider("", "hamsa-tts-new") == "hamsa"
+        assert detect_provider("", "hamsa-stt-v2") == "hamsa"
+        assert detect_provider("", "hamsa-tts") == "hamsa"
+
+    def test_detect_provider_suffixed_inception(self):
+        assert detect_provider("", "inception-tts-new") == "inception"
+
+    def test_detect_provider_unrelated_ids_stay_hosted_vllm(self):
+        # Guard the substring match: ids merely containing similar letters must
+        # not flip providers.
+        assert detect_provider("", "openchat-3.5") == "hosted_vllm"
+
     def test_detect_provider_convert_path_falls_back_to_hosted_vllm(self):
         # /v1/convert/* paths no longer imply a docling provider; they fall
         # back to the default hosted_vllm classification.
@@ -100,6 +115,30 @@ class TestDoclingDetection:
         paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
         assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "chat"
 
+    def test_detect_mode_hamsa_native_tts_path(self):
+        # Hamsa pods expose /tts/stream, not the OpenAI /v1/audio/speech path.
+        paths = frozenset({"/tts/stream"})
+        assert detect_mode_from_paths(paths, "hamsa-tts-new", "") == "text_to_speech"
+
+    def test_detect_mode_hamsa_native_transcription_path(self):
+        paths = frozenset({"/transcribe"})
+        assert (
+            detect_mode_from_paths(paths, "hamsa-stt-new", "")
+            == "audio_transcription"
+        )
+
+    def test_detect_mode_name_fallback_tts(self):
+        # No OpenAPI probe available: the hyphen-delimited capability token in
+        # the model id decides the mode.
+        assert detect_mode("hamsa-tts-new", "") == "text_to_speech"
+        assert detect_mode("hamsa-stt-v2", "") == "audio_transcription"
+
+    def test_detect_mode_name_fallback_requires_token(self):
+        # Bare substrings must not match: "settings" contains neither "-tts"
+        # as a token nor starts with one.
+        assert detect_mode("settings", "") == "chat"
+        assert detect_mode("chats-model", "") == "chat"
+
     def test_detect_provider_ocr_path_returns_paddlex(self):
         # A model exposing only /v1/ocr registers under the paddlex provider so
         # it routes through the first-class /v1/ocr endpoint as paddlex/PP-DocLayoutV3.
@@ -115,6 +154,42 @@ class TestDoclingDetection:
         # model rather than being reclassified as paddlex OCR.
         paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
         assert detect_provider("", "PP-DocLayoutV3", paths) == "hosted_vllm"
+
+
+class TestApiBaseShape:
+    def _model(self, provider: str) -> OicmModel:
+        return OicmModel(
+            uuid="abc123",
+            model_id="hamsa-tts",
+            model_name="hamsa-tts",
+            namespace="adeo",
+            ready_replicas=1,
+            total_replicas=1,
+            provider=provider,
+        )
+
+    def test_native_provider_gets_bare_base(self):
+        # Hamsa's LiteLLM config appends its own paths ("/tts/stream"), so the
+        # registered api_base must not carry a "/v1" suffix.
+        assert (
+            self._model("hamsa").api_base
+            == "http://s-abc123.adeo.svc.cluster.local:8080"
+        )
+
+    def test_openai_providers_get_v1_suffix(self):
+        assert (
+            self._model("hosted_vllm").api_base
+            == "http://s-abc123.adeo.svc.cluster.local:8080/v1"
+        )
+        assert (
+            self._model("inception").api_base
+            == "http://s-abc123.adeo.svc.cluster.local:8080/v1"
+        )
+
+    def test_override_wins_over_native_shape(self):
+        m = self._model("hamsa")
+        m.api_base_override = "http://10.0.0.1:8080"
+        assert m.api_base == "http://10.0.0.1:8080"
 
 
 class TestToLitellmMode:

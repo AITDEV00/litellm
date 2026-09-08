@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import FrozenSet, List, Optional
+from typing import Final, FrozenSet, List, Optional, Tuple
 
 from .config import CLUSTER_DOMAIN, MODEL_PORT
 
@@ -7,6 +7,17 @@ from .config import CLUSTER_DOMAIN, MODEL_PORT
 # deployment (uuid) can host multiple models behind the same ClusterIP, so the
 # controller keys its state by this composite rather than by uuid alone.
 COMPOSITE_KEY_SEP = "::"
+
+# Providers recognized by substring in the deployment's owned_by / model id.
+# Substring (not exact) matching, so suffixed ids like "hamsa-tts-new" still
+# resolve to the "hamsa" provider.
+KNOWN_PROVIDERS: Final[Tuple[str, ...]] = ("inception", "hamsa", "omnivoice")
+
+# Providers whose pods serve a native REST surface instead of an OpenAI /v1
+# API. Their LiteLLM config classes append their own paths to api_base (e.g.
+# HamsaTextToSpeechConfig -> "<api_base>/tts/stream"), so the registered
+# api_base must be the bare ClusterIP with no "/v1" suffix.
+NATIVE_BASE_PROVIDERS: Final[FrozenSet[str]] = frozenset({"hamsa"})
 
 
 @dataclass
@@ -31,10 +42,13 @@ class OicmModel:
     def api_base(self) -> str:
         if self.api_base_override:
             return self.api_base_override
-        return (
+        base = (
             f"http://s-{self.uuid}.{self.namespace}.{CLUSTER_DOMAIN}"
-            f":{MODEL_PORT}/v1"
+            f":{MODEL_PORT}"
         )
+        if self.provider in NATIVE_BASE_PROVIDERS:
+            return base
+        return f"{base}/v1"
 
     @property
     def is_ready(self) -> bool:
@@ -79,6 +93,10 @@ EMBEDDING_PATH = "/v1/embeddings"
 OCR_PATH = "/v1/ocr"
 RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
 
+# Native (non-OpenAI) REST paths exposed by Hamsa pods.
+HAMSA_TTS_PATH = "/tts/stream"
+HAMSA_TRANSCRIPTION_PATH = "/transcribe"
+
 
 def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str) -> str:
     mid_lower = model_id.lower()
@@ -99,10 +117,25 @@ def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str
     if TTS_PATH in paths and CHAT_PATH not in paths:
         return "text_to_speech"
 
+    if HAMSA_TTS_PATH in paths and CHAT_PATH not in paths:
+        return "text_to_speech"
+
+    if HAMSA_TRANSCRIPTION_PATH in paths and CHAT_PATH not in paths:
+        return "audio_transcription"
+
     if OCR_PATH in paths and CHAT_PATH not in paths:
         return "ocr"
 
     if "whisper" in mid_lower or "asr" in mid_lower:
+        return "audio_transcription"
+
+    # Name fallback for pods whose openapi.json probe fails: hyphen-delimited
+    # capability tokens ("hamsa-tts-new", "hamsa-stt-v2") rather than bare
+    # substrings, so ids like "settings" don't trip the "tts" check.
+    if "-tts" in mid_lower or mid_lower.startswith("tts"):
+        return "text_to_speech"
+
+    if "-stt" in mid_lower or mid_lower.startswith("stt"):
         return "audio_transcription"
 
     return "chat"
@@ -123,7 +156,8 @@ def to_litellm_mode(mode: str) -> str:
 def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozenset()) -> str:
     """Infer the LiteLLM provider for a discovered model.
 
-    Precedence: explicit known provider in owner/model id -> k2-fsa (omnivoice)
+    Precedence: known-provider substring in owner/model id (matches suffixed
+    ids like "hamsa-tts-new", not just a bare "hamsa") -> k2-fsa (omnivoice)
     -> /v1/ocr-only surface -> hosted_vllm.
 
     TODO(future): switch to provider-based matching on the model id itself when
@@ -134,8 +168,7 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
     owner_lower = owned_by.lower()
     mid_lower = model_id.lower()
 
-    known_providers = ("inception", "hamsa", "omnivoice")
-    for p in known_providers:
+    for p in KNOWN_PROVIDERS:
         if p in owner_lower or p in mid_lower:
             return p
 
