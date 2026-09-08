@@ -102,10 +102,13 @@ spec:
               value: "300"
             - name: ENABLE_SUBMARINER_IMPORTS
               value: "true"
-            # READ-ONLY: this is the entire point of the dev controller. All
-            # LiteLLM writes become logged no-ops; nothing mutates the gateway.
+            # READ-WRITE ENABLED (2026-09-08): the controller now WRITES to the
+            # dev gateway so the dev DB mirrors prod's model discovery. It
+            # still only ever talks to litellm-proxy-dev (LITELLM_ADMIN_URL)
+            # with the dev master key — production is untouched by construction.
+            # Flip this back to "true" to return to log-only mode.
             - name: CONTROLLER_READ_ONLY
-              value: "true"
+              value: "false"
           resources:
             requests:
               cpu: 50m
