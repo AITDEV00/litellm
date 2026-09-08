@@ -17,12 +17,21 @@ each cycle replaces, never appends, so the monitor itself cannot leak.
 
 import asyncio
 import gc
+import logging
 import os
 import threading
 import time
 from typing import Final
 
-from litellm._logging import verbose_proxy_logger
+# The proxy logger is NOTSET unless --detailed_debug is passed, which makes
+# its effective level the root logger's WARNING — hiding the monitor's INFO
+# samples exactly when they matter (default prod config). The monitor gets
+# its own logger with an explicit INFO level so its samples are always
+# emitted, while the handler still respects LITELLM_LOG filtering.
+monitor_logger: Final = logging.getLogger("LiteLLM Proxy MemoryMonitor")
+monitor_logger.setLevel(logging.INFO)
+if not monitor_logger.handlers:
+    monitor_logger.propagate = True
 
 _MONITOR_LOG_PREFIX: Final = "mem_monitor"
 
@@ -81,7 +90,7 @@ def _log_sample(extra: str = "") -> None:
     """Emit one structured mem_monitor line with all Tier-1 gauges."""
     rss: Final = _current_rss_mb()
     series: Final = _prometheus_series_count()
-    verbose_proxy_logger.info(
+    monitor_logger.info(
         "%s rss_mb=%s peak_rss_mb=%s prom_series=%s threads=%d %s %s",
         _MONITOR_LOG_PREFIX,
         f"{rss:.1f}" if rss is not None else "unknown",
@@ -124,7 +133,7 @@ class MemoryMonitor:
         """One scheduled sample. Cheap; safe to run concurrently with traffic."""
         rss: Final = _current_rss_mb()
         if rss is None:
-            verbose_proxy_logger.warning("%s could not read RSS", _MONITOR_LOG_PREFIX)
+            monitor_logger.warning("%s could not read RSS", _MONITOR_LOG_PREFIX)
             return
 
         extra_parts: list[str] = []
@@ -155,7 +164,7 @@ class MemoryMonitor:
         try:
             import tracemalloc
 
-            verbose_proxy_logger.info(
+            monitor_logger.info(
                 "%s tracemalloc attribution window starting (%.0fs, depth=%d)",
                 _MONITOR_LOG_PREFIX,
                 self.attribution_window_seconds,
@@ -166,14 +175,14 @@ class MemoryMonitor:
             await asyncio.sleep(self.attribution_window_seconds)
             after: Final = tracemalloc.take_snapshot()
             diff: Final = after.compare_to(before, "lineno")
-            verbose_proxy_logger.info(
+            monitor_logger.info(
                 "%s tracemalloc top growing allocation sites over %.0fs:",
                 _MONITOR_LOG_PREFIX,
                 self.attribution_window_seconds,
             )
             for stat in diff[:_TOP_GROWING_SITES]:
                 frame: Final = stat.traceback[0]
-                verbose_proxy_logger.info(
+                monitor_logger.info(
                     "%s +%.2f MB (%d blocks) %s:%d (%s)",
                     _MONITOR_LOG_PREFIX,
                     stat.size_diff / (1024 * 1024),
@@ -183,21 +192,21 @@ class MemoryMonitor:
                     stat.traceback.format()[-1].strip()[:120],
                 )
             traced: Final = tracemalloc.get_traced_memory()
-            verbose_proxy_logger.info(
+            monitor_logger.info(
                 "%s tracemalloc traced current=%.1fMB peak=%.1fMB",
                 _MONITOR_LOG_PREFIX,
                 traced[0] / (1024 * 1024),
                 traced[1] / (1024 * 1024),
             )
         except Exception as e:  # noqa: BLE001 - the monitor must never crash the proxy
-            verbose_proxy_logger.warning("%s attribution window failed: %s", _MONITOR_LOG_PREFIX, e)
+            monitor_logger.warning("%s attribution window failed: %s", _MONITOR_LOG_PREFIX, e)
         finally:
             try:
                 import tracemalloc
 
                 tracemalloc.stop()
             except Exception as stop_err:  # noqa: BLE001 - releasing the tracer must never crash the proxy
-                verbose_proxy_logger.warning(
+                monitor_logger.warning(
                     "%s tracemalloc.stop() failed: %s", _MONITOR_LOG_PREFIX, stop_err
                 )
             self._attribution_running = False
@@ -211,7 +220,7 @@ def get_sample_interval_seconds() -> int:
     try:
         return int(raw)
     except ValueError:
-        verbose_proxy_logger.warning(
+        monitor_logger.warning(
             "Invalid LITELLM_MEMORY_MONITOR_INTERVAL %r; using default %ds",
             raw,
             _DEFAULT_SAMPLE_INTERVAL_SECONDS,

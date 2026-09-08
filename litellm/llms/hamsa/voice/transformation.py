@@ -1,13 +1,20 @@
-from typing import Any, Dict, Optional
+import json
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.text_to_speech.transformation import (
+    BaseTextToSpeechConfig,
     TextToSpeechRequestData,
 )
 from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
-from litellm.llms.hamsa.common_utils import HamsaModelInfo, surface_path
+from litellm.llms.hamsa.common_utils import (
+    HAMSA_API_SURFACE_V1,
+    HamsaModelInfo,
+    resolve_api_surface,
+    surface_path,
+)
 
 
 class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
@@ -134,3 +141,138 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
                 result[key] = value
 
         return result
+
+
+class HamsaVoiceCloneConfig(HamsaModelInfo, BaseTextToSpeechConfig):
+    """Config for the proxy's POST /v1/audio/speech/clone route on hamsa.
+
+    Body shape depends on the pod's API surface:
+    - native: multipart directly to /tts/voice_clone (ref_audio bytes go in
+      ``files=``), matching the old two-step protocol.
+    - v1 (tts-2026.09.08 pods): /v1/voice-clone accepts ONLY JSON
+      {"audio_url", "prompt_text"} — the pod downloads the URL itself and
+      there is no upload endpoint. An uploaded ref_audio cannot be forwarded,
+      so callers must pass audio_url (form field) instead; uploading bytes
+      yields an explicit 400 rather than the previous opaque serialization
+      500.
+    """
+
+    def get_supported_openai_params(self, model: str) -> list:
+        return ["voice", "response_format", "speed"]
+
+    def map_openai_params(
+        self,
+        model: str,
+        optional_params: Dict,
+        voice: Optional[str] = None,
+        drop_params: bool = False,
+        kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[str], Dict]:
+        mapped_params: Dict[str, Any] = {}
+        if kwargs is not None:
+            ref_audio = kwargs.get("ref_audio")
+            if ref_audio is not None:
+                mapped_params["ref_audio"] = ref_audio
+            ref_text = kwargs.get("ref_text")
+            if ref_text is not None:
+                mapped_params["ref_text"] = ref_text
+        return voice, mapped_params
+
+    def validate_environment(
+        self,
+        headers: dict,
+        model: str,
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+    ) -> dict:
+        return self._inject_auth_headers(headers, api_key)
+
+    def get_complete_url(
+        self,
+        model: str,
+        api_base: Optional[str],
+        litellm_params: dict,
+    ) -> str:
+        base = self._resolve_base(api_base)
+        surface = resolve_api_surface(litellm_params)
+        if surface == HAMSA_API_SURFACE_V1:
+            return base + "/v1/voice-clone"
+        return base + "/tts/voice_clone"
+
+    def transform_text_to_speech_request(
+        self,
+        model: str,
+        input: str,
+        voice: Optional[str],
+        optional_params: Dict,
+        litellm_params: Dict,
+        headers: dict,
+    ) -> TextToSpeechRequestData:
+        surface = resolve_api_surface(litellm_params)
+
+        ref_audio = optional_params.pop("ref_audio", None)
+        ref_text = optional_params.pop("ref_text", None)
+
+        if surface == HAMSA_API_SURFACE_V1:
+            if ref_audio is not None:
+                raise BaseLLMException(
+                    status_code=400,
+                    message=(
+                        "Hamsa v1 pods cannot accept uploaded reference audio: "
+                        "/v1/voice-clone downloads audio from 'audio_url' only. "
+                        "Host the reference clip where the pod can reach it and "
+                        "pass audio_url instead of ref_audio."
+                    ),
+                    headers={},
+                )
+            audio_url = litellm_params.get("audio_url") or (
+                ref_text if isinstance(ref_text, str) and ref_text.startswith("http") else None
+            )
+            if audio_url is None:
+                raise BaseLLMException(
+                    status_code=400,
+                    message="'audio_url' is required for voice cloning on Hamsa v1 pods. Provide a URL the pod can fetch.",
+                    headers={},
+                )
+            body: Dict[str, Any] = {"audio_url": audio_url, "prompt_text": input}
+            speaker = voice if voice and voice != "clone" else None
+            if speaker:
+                body["speaker_id"] = speaker
+            return TextToSpeechRequestData(dict_body=body)
+
+        # native surface: multipart upload
+        if ref_audio is None:
+            raise BaseLLMException(
+                status_code=400,
+                message="'ref_audio' is required for voice cloning. Provide a reference audio file.",
+                headers={},
+            )
+        from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
+
+        processed = process_audio_file(ref_audio)
+        form_fields: Dict[str, Any] = {"text": input}
+        if ref_text is not None:
+            form_fields["ref_text"] = ref_text
+        return TextToSpeechRequestData(
+            form_data=form_fields,
+            files={"ref_audio": (processed.filename, processed.file_content, processed.content_type)},
+        )
+
+    def transform_text_to_speech_response(
+        self,
+        model: str,
+        raw_response: httpx.Response,
+        logging_obj: Any,
+    ) -> Any:
+        from litellm.types.llms.openai import HttpxBinaryResponseContent
+
+        try:
+            payload = raw_response.json()
+        except (ValueError, json.JSONDecodeError):
+            return HttpxBinaryResponseContent(raw_response)
+
+        # v1 clone returns the token bundle, not audio. Surface it as the dict
+        # so callers can feed action=load on /v1/audio/voices.
+        if isinstance(payload, dict):
+            return payload
+        return HttpxBinaryResponseContent(raw_response)

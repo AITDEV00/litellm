@@ -1297,3 +1297,35 @@ async def test_route_request_a2a_agent_miss_does_not_consume_model_read_through(
 
     assert agents_find_unique.await_count == 2
     assert model_table.find_many_wheres == []
+
+
+@pytest.mark.asyncio
+async def test_route_request_aspeech_without_model_raises_model_not_found():
+    """/audio/speech/clone with no resolvable model must 400, not KeyError.
+
+    The clone route resolves a default audio model when it can, but on a
+    gateway with no audio_speech deployments and no user_model, data reaches
+    route_request without "model". The router chain then hit data["model"]
+    unguarded (KeyError -> opaque 500). It must fall back to user_model and
+    otherwise raise ProxyModelNotFoundError.
+    """
+    data = {"input": "hello", "voice": "clone", "ref_audio": ("a.wav", b"RIFF", "audio/wav")}
+    llm_router = MagicMock()
+
+    with pytest.raises(ProxyModelNotFoundError):
+        await route_request(data, llm_router, None, "aspeech")
+
+
+@pytest.mark.asyncio
+async def test_route_request_aspeech_without_model_uses_user_model():
+    """When user_model is set, a model-less aspeech routes to it instead of 400."""
+    data = {"input": "hello", "voice": "clone"}
+    llm_router = MagicMock()
+    getattr(llm_router, "aspeech").return_value = "fake_response"
+
+    response = await route_request(
+        data, llm_router, "hamsa-tts-new", "aspeech"
+    )
+
+    assert response == "fake_response"
+    assert data["model"] == "hamsa-tts-new"

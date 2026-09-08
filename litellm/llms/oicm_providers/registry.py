@@ -66,6 +66,12 @@ def get_provider_text_to_speech_config(
     *kwargs* is inspected to select the correct config subclass.
     """
     if litellm.LlmProviders.HAMSA == provider:
+        if kwargs is not None and kwargs.get("ref_audio") is not None:
+            from litellm.llms.hamsa.voice.transformation import (
+                HamsaVoiceCloneConfig,
+            )
+
+            return HamsaVoiceCloneConfig()
         from litellm.llms.hamsa.text_to_speech.transformation import (
             HamsaTextToSpeechConfig,
         )

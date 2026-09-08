@@ -162,6 +162,13 @@ REQUIRED_BODY_PARAMS_BY_ROUTE: Final[Mapping[str, tuple[str, ...]]] = {
     "acreate_batch": ("input_file_id", "endpoint", "completion_window"),
 }
 
+# Audio routes whose handler chains index data["model"] unguarded. When one of
+# these arrives without a model (and no user_model fallback exists), fail fast
+# with a 400 instead of a KeyError.
+_AUDIO_MODEL_REQUIRED_ROUTES: Final[frozenset[str]] = frozenset(
+    {"aspeech", "acreate_voice", "ascript"}
+)
+
 
 class ProxyMissingRequiredParamError(ProxyException):
     def __init__(self, route: str, param: str):
@@ -630,6 +637,24 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
         ] and (data.get("model") is None or data.get("model") == ""):
             # These endpoints don't need a model, use custom_llm_provider directly
             return getattr(litellm, f"{route_type}")(**data)
+
+        # Audio routes (aspeech/atranscription/...) can arrive without a model
+        # when the caller omitted one and the proxy has no user_model / audio
+        # default to resolve (e.g. /audio/speech/clone on a gateway with no
+        # audio_speech deployments). Fall back to user_model, then to a proper
+        # 400 instead of crashing with KeyError on data["model"] below. Other
+        # model-less routes (vector stores, video, skills) have their own
+        # handling further down and must not be intercepted here.
+        if route_type in _AUDIO_MODEL_REQUIRED_ROUTES and (
+            data.get("model") is None or data.get("model") == ""
+        ):
+            if user_model is not None:
+                data["model"] = user_model
+            else:
+                raise ProxyModelNotFoundError(
+                    route=ROUTE_ENDPOINT_MAPPING.get(route_type, route_type),
+                    model_name="",
+                )
 
         team_model_name: Final = llm_router.map_team_model(data["model"], team_id) if team_id is not None else None
         if team_model_name is not None:
