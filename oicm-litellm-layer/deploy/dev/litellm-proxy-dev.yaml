@@ -83,7 +83,10 @@ spec:
           effect: NoSchedule
       containers:
         - name: litellm
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.99.1
+          # PROFILER IMAGE: same source as jya0-v1.99.1 plus memray + py-spy
+          # (INSTALL_PROFILERS=true build arg). Used for the memory-leak
+          # investigation. Revert to the plain jya0-v1.99.1 tag when done.
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.99.1-profiler
           # Force a re-pull even though the tag (branch name) doesn't change
           # between pushes, so a redeploy always picks up the freshly built
           # image instead of a node-cached one with the same tag.
@@ -143,8 +146,17 @@ spec:
               value: /app/assets/favicon.png
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
+          # MEMRAY WRAPPER: `memray run` tracks every allocation (Python +
+          # native) of the gateway process and writes a binary capture at
+          # exit. memray requires a real script file — `litellm` is a console
+          # script — so we invoke the wrapper at /app/docker/memray_wrapper.py
+          # (shipped in the profiler image), which calls litellm:run_server.
           command:
-            - "litellm"
+            - "memray"
+            - "run"
+            - "--output"
+            - "/tmp/memray-gateway.bin"
+            - "/app/docker/memray_wrapper.py"
             - "--config"
             - "/app/config.yaml"
             - "--port"

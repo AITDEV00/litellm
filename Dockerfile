@@ -128,6 +128,16 @@ COPY --from=builder /app/litellm/proxy/prisma_migration.py /app/litellm/proxy/pr
 # enterprise.enterprise_hooks from it)
 COPY --from=builder /app/enterprise /app/enterprise
 COPY --from=builder /app/litellm-proxy-extras /app/litellm-proxy-extras
+
+# Profiling tools for the memory-leak investigation (dev/profiler image only).
+# memray = allocation-level profiler with native stacks; py-spy = sampling
+# profiler attachable to a running process. Both are inert unless invoked.
+# Placed AFTER the venv COPY so /app/.venv exists.
+ARG INSTALL_PROFILERS=false
+RUN if [ "$INSTALL_PROFILERS" = "true" ]; then \
+        /app/.venv/bin/python -m ensurepip --upgrade 2>/dev/null || true; \
+        /app/.venv/bin/python -m pip install --no-cache-dir memray py-spy; \
+    fi
 # Prisma CLI + engines are baked under /opt/prisma, a fixed path every
 # runtime uid can read and that no cache volume mount shadows. The paths are
 # pinned via PRISMA_BINARY_CACHE_DIR / PRISMA_CLI_PATH and recorded into the
