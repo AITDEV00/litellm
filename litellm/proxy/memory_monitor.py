@@ -31,7 +31,16 @@ from typing import Final
 monitor_logger: Final = logging.getLogger("LiteLLM Proxy MemoryMonitor")
 monitor_logger.setLevel(logging.INFO)
 if not monitor_logger.handlers:
-    monitor_logger.propagate = True
+    # Propagation alone is not enough under granian: its dictConfig leaves the
+    # root logger without handlers, so propagated INFO records are dropped by
+    # Python's last-resort handler (WARNING+). Attach an explicit stdout
+    # handler so samples reach container logs (and Loki) without --detailed_debug.
+    _monitor_handler: Final = logging.StreamHandler()
+    _monitor_handler.setFormatter(
+        logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    )
+    monitor_logger.addHandler(_monitor_handler)
+monitor_logger.propagate = False
 
 _MONITOR_LOG_PREFIX: Final = "mem_monitor"
 
