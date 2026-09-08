@@ -7,7 +7,11 @@ from litellm.llms.base_llm.text_to_speech.transformation import (
     BaseTextToSpeechConfig,
     TextToSpeechRequestData,
 )
-from litellm.llms.hamsa.common_utils import HAMSA_INTERNAL_PARAMS, HamsaModelInfo
+from litellm.llms.hamsa.common_utils import (
+    HAMSA_INTERNAL_PARAMS,
+    HamsaModelInfo,
+    surface_path,
+)
 
 
 class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
@@ -86,7 +90,7 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
         api_base: Optional[str],
         litellm_params: dict,
     ) -> str:
-        return self._resolve_base(api_base) + "/tts/stream"
+        return self._resolve_base(api_base) + surface_path("speech", litellm_params)
 
     def transform_text_to_speech_request(
         self,

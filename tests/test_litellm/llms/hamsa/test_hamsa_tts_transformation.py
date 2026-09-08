@@ -128,6 +128,55 @@ def test_hamsa_tts_router_level_params_filtered():
     assert body["custom_param"] == "kept"
 
 
+def test_hamsa_keyless_config_does_not_raise():
+    """Keyless pods (v1-surface builds ship no auth dependency) must get no
+    x-api-key header instead of a 401 from the gateway itself."""
+    config = HamsaTextToSpeechConfig()
+    headers = config.validate_environment(
+        headers={}, model="hamsa-tts-new", api_key="", api_base="http://10.0.0.5:8080"
+    )
+    assert "x-api-key" not in headers
+    assert headers["Content-Type"] == "application/json"
+
+
+def test_hamsa_configured_key_still_sent():
+    config = HamsaTextToSpeechConfig()
+    headers = config.validate_environment(
+        headers={}, model="hamsa-tts", api_key="some-key", api_base="http://10.0.0.5:8080"
+    )
+    assert headers["x-api-key"] == "some-key"
+
+
+def test_hamsa_tts_url_v1_surface():
+    """The tts-2026.09.08 pods expose /v1/speech instead of /tts/stream."""
+    config = HamsaTextToSpeechConfig()
+    url = config.get_complete_url(
+        model="hamsa-tts-new",
+        api_base="http://10.0.0.5:8080",
+        litellm_params={"api_surface": "v1"},
+    )
+    assert url == "http://10.0.0.5:8080/v1/speech"
+
+
+def test_hamsa_tts_url_native_surface_default():
+    config = HamsaTextToSpeechConfig()
+    url = config.get_complete_url(
+        model="hamsa-tts",
+        api_base="http://10.0.0.5:8080",
+        litellm_params={},
+    )
+    assert url == "http://10.0.0.5:8080/tts/stream"
+
+
+def test_hamsa_unknown_surface_raises():
+    import pytest
+
+    from litellm.llms.hamsa.common_utils import surface_path
+
+    with pytest.raises(ValueError, match="Unknown Hamsa API surface"):
+        surface_path("speech", {"api_surface": "grpc"})
+
+
 def test_hamsa_tts_response_returns_binary():
     config = HamsaTextToSpeechConfig()
     fake_response = httpx.Response(

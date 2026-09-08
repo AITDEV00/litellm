@@ -68,6 +68,42 @@ async def test_patch_one_degrades_on_connect_error():
 
 
 @pytest.mark.asyncio
+async def test_register_payload_stamps_api_surface_for_hamsa_v1():
+    """A hamsa pod sniffed as the v1 surface must register litellm_params with
+    api_surface=v1 so the gateway builds /v1/speech URLs."""
+    captured = {}
+
+    class _CaptureClient:
+        async def post(self, url, headers=None, json=None):
+            captured["json"] = json
+            return httpx.Response(200, json={"model_id": "mid-1"}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False)
+    model = _make_model(model_id="hamsa-tts-new", provider="hamsa")
+    model.api_surface = "v1"
+
+    result = await client._register_one(_CaptureClient(), model)
+    assert result == "mid-1"
+    assert captured["json"]["litellm_params"]["api_surface"] == "v1"
+    # And the hamsa api_base stays bare (no /v1) regardless of surface.
+    assert captured["json"]["litellm_params"]["api_base"].endswith(":8080")
+
+
+@pytest.mark.asyncio
+async def test_register_payload_omits_api_surface_when_unset():
+    captured = {}
+
+    class _CaptureClient:
+        async def post(self, url, headers=None, json=None):
+            captured["json"] = json
+            return httpx.Response(200, json={"model_id": "mid-2"}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False)
+    await client._register_one(_CaptureClient(), _make_model(model_id="llama-3"))
+    assert "api_surface" not in captured["json"]["litellm_params"]
+
+
+@pytest.mark.asyncio
 async def test_batch_preserves_none_placeholders_for_failed_registers():
     """batch() must keep None for a failed register so callers can align ids to
     inputs by position.

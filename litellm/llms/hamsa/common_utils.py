@@ -4,6 +4,56 @@ from typing import List, Optional
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
 
+# API surface variants deployed in the cluster:
+# - "native": original build. Paths /tts/stream, /transcribe, and the
+#   two-step /tts/voice_clone + /tts/load_voice_cloning protocol. Requires an
+#   encrypted x-api-key header (Fernet auth.py inside the pod).
+# - "v1": tts-2026.09.08 build. OpenAI-flavored paths /v1/speech, /v1/voices,
+#   one-shot multipart /v1/voice-clone. No auth dependency at all.
+# Selected per deployment via litellm_params["api_surface"] (stamped by the
+# discovery controller) or the HAMSA_API_SURFACE env var; default "native".
+HAMSA_API_SURFACE_NATIVE: str = "native"
+HAMSA_API_SURFACE_V1: str = "v1"
+
+# Path suffixes per surface, keyed by capability.
+HAMSA_SURFACE_PATHS: dict[str, dict[str, str]] = {
+    HAMSA_API_SURFACE_NATIVE: {
+        "speech": "/tts/stream",
+        "transcription": "/transcribe",
+        "voice_clone": "/tts/voice_clone",
+        "voice_load": "/tts/load_voice_cloning",
+    },
+    HAMSA_API_SURFACE_V1: {
+        "speech": "/v1/speech",
+        "transcription": "/transcribe",
+        "voice_clone": "/v1/voice-clone",
+        "voice_load": "/v1/voices",
+    },
+}
+
+
+def resolve_api_surface(litellm_params: Optional[dict] = None) -> str:
+    """Resolve the hamsa API surface: litellm_params override env override default."""
+    from_params = (litellm_params or {}).get("api_surface")
+    if isinstance(from_params, str) and from_params:
+        return from_params
+    from_env = os.environ.get("HAMSA_API_SURFACE")
+    if from_env:
+        return from_env
+    return HAMSA_API_SURFACE_NATIVE
+
+
+def surface_path(capability: str, litellm_params: Optional[dict] = None) -> str:
+    """Path suffix for a capability (speech/transcription/voice_clone/voice_load)."""
+    surface = resolve_api_surface(litellm_params)
+    paths = HAMSA_SURFACE_PATHS.get(surface)
+    if paths is None:
+        raise ValueError(
+            f"Unknown Hamsa API surface '{surface}'. "
+            f"Expected one of {sorted(HAMSA_SURFACE_PATHS)}."
+        )
+    return paths[capability]
+
 HAMSA_INTERNAL_PARAMS: frozenset[str] = frozenset(
     {
         "model",
@@ -108,17 +158,15 @@ class HamsaModelInfo(BaseLLMModelInfo):
         headers: dict,
         api_key: Optional[str] = None,
     ) -> dict:
+        # Keyless deployments (e.g. the v1-surface tts-2026.09.08 pods) have no
+        # auth dependency; an empty/absent key means no header rather than an
+        # error. Only raise when the caller explicitly configured a key
+        # mechanism and it resolved to nothing via HAMSA_API_KEY.
         resolved_key = HamsaModelInfo.get_api_key(api_key)
-        if resolved_key is None:
-            from litellm.llms.base_llm.chat.transformation import BaseLLMException
-
-            raise BaseLLMException(
-                status_code=401,
-                message="Missing Hamsa API key. Set HAMSA_API_KEY or pass api_key in model config.",
-                headers={},
-            )
-        headers["x-api-key"] = resolved_key
         headers["Content-Type"] = "application/json"
+        if resolved_key is None or str(resolved_key).strip() == "":
+            return headers
+        headers["x-api-key"] = resolved_key
         return headers
 
     @staticmethod

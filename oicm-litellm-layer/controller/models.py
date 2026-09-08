@@ -19,6 +19,27 @@ KNOWN_PROVIDERS: Final[Tuple[str, ...]] = ("inception", "hamsa", "omnivoice")
 # api_base must be the bare ClusterIP with no "/v1" suffix.
 NATIVE_BASE_PROVIDERS: Final[FrozenSet[str]] = frozenset({"hamsa"})
 
+# Hamsa API surface variants, mirrored in litellm.llms.hamsa.common_utils.
+# The controller sniffs the pod's openapi.json and stamps the matching surface
+# into litellm_params["api_surface"] so the gateway builds correct URLs.
+API_SURFACE_NATIVE: str = "native"
+API_SURFACE_V1: str = "v1"
+
+# Path sets that identify each hamsa surface in an openapi.json probe.
+_HAMSA_V1_PATHS: Final[FrozenSet[str]] = frozenset({"/v1/speech", "/v1/voices", "/v1/voice-clone"})
+_HAMSA_NATIVE_PATHS: Final[FrozenSet[str]] = frozenset({"/tts/stream", "/transcribe"})
+
+
+def detect_api_surface(provider: str, paths: FrozenSet[str]) -> Optional[str]:
+    """Return the hamsa API surface implied by the pod's exposed paths, if any."""
+    if provider != "hamsa":
+        return None
+    if _HAMSA_V1_PATHS & paths:
+        return API_SURFACE_V1
+    if _HAMSA_NATIVE_PATHS & paths:
+        return API_SURFACE_NATIVE
+    return None
+
 
 @dataclass
 class OicmModel:
@@ -33,6 +54,7 @@ class OicmModel:
     extra_args: str = ""
     source: str = "local"
     api_base_override: Optional[str] = None
+    api_surface: Optional[str] = None
 
     @property
     def composite_key(self) -> str:

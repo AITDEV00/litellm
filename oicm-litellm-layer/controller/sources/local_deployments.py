@@ -16,6 +16,7 @@ from ..config import (
 )
 from ..models import (
     OicmModel,
+    detect_api_surface,
     detect_mode_from_paths,
     detect_provider,
     parse_model_list,
@@ -87,6 +88,7 @@ class LocalDeploymentSource(ModelSource):
         # surface, not the individual model id), so compute them once.
         mode = detect_mode_from_paths(paths, model_ids[0], extra_args)
         provider = detect_provider(owned_by or "", model_ids[0], paths)
+        api_surface = detect_api_surface(provider, paths)
 
         models: Dict[str, OicmModel] = {}
         for model_id in model_ids:
@@ -101,6 +103,7 @@ class LocalDeploymentSource(ModelSource):
                 provider=provider,
                 extra_args=extra_args,
                 source="local",
+                api_surface=api_surface,
             )
             models[model.composite_key] = model
         return models

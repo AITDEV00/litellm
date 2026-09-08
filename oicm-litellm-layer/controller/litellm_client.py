@@ -161,6 +161,12 @@ class LiteLLMClient:
             "drop_params": True,
         }
 
+        if model.api_surface:
+            # Hamsa pods ship two API generations (native /tts/stream vs v1
+            # /v1/speech). The gateway config classes read this param to pick
+            # request paths.
+            litellm_params["api_surface"] = model.api_surface
+
         if inherited_params:
             for k, v in inherited_params.items():
                 if k not in litellm_params and v is not None:

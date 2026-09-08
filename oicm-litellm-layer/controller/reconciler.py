@@ -103,6 +103,8 @@ class SyncReconciler:
                         "model": f"{model.provider}/{model.model_id}",
                         "api_base": model.api_base,
                     }
+                    if model.api_surface:
+                        patch_params["api_surface"] = model.api_surface
                     pricing = await self.pricing.resolve(model.model_id)
                     inherited = pricing_to_params(pricing)
                     if inherited:

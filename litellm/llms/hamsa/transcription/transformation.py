@@ -10,7 +10,11 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
-from litellm.llms.hamsa.common_utils import HAMSA_INTERNAL_PARAMS, HamsaModelInfo
+from litellm.llms.hamsa.common_utils import (
+    HAMSA_INTERNAL_PARAMS,
+    HamsaModelInfo,
+    surface_path,
+)
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -63,7 +67,7 @@ class HamsaAudioTranscriptionConfig(HamsaModelInfo, BaseAudioTranscriptionConfig
         litellm_params: dict,
         stream: Optional[bool] = None,
     ) -> str:
-        return self._resolve_base(api_base) + "/transcribe"
+        return self._resolve_base(api_base) + surface_path("transcription", litellm_params)
 
     def transform_audio_transcription_request(
         self,

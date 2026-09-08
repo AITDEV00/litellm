@@ -7,7 +7,7 @@ from litellm.llms.base_llm.text_to_speech.transformation import (
     TextToSpeechRequestData,
 )
 from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
-from litellm.llms.hamsa.common_utils import HamsaModelInfo
+from litellm.llms.hamsa.common_utils import HamsaModelInfo, surface_path
 
 
 class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
@@ -29,8 +29,8 @@ class HamsaVoiceConfig(HamsaModelInfo, BaseVoiceConfig):
         base = self._resolve_base(api_base)
         action = litellm_params.get("voice_action", "register")
         if action == "load":
-            return base + "/tts/load_voice_cloning"
-        return base + "/tts/voice_clone"
+            return base + surface_path("voice_load", litellm_params)
+        return base + surface_path("voice_clone", litellm_params)
 
     def transform_create_voice_request(
         self,

@@ -1,7 +1,8 @@
-"""Tests for controller/models.py shape parsing, mode/provider detection, and api_base shape."""
+"""Tests for controller/models.py shape parsing, mode/provider detection, api_base shape, and hamsa api-surface sniffing."""
 
 from controller.models import (
     OicmModel,
+    detect_api_surface,
     detect_mode,
     detect_mode_from_paths,
     detect_provider,
@@ -92,6 +93,25 @@ class TestDoclingDetection:
         # Guard the substring match: ids merely containing similar letters must
         # not flip providers.
         assert detect_provider("", "openchat-3.5") == "hosted_vllm"
+
+
+class TestDetectApiSurface:
+    def test_v1_paths(self):
+        paths = frozenset({"/v1/speech", "/v1/voices", "/v1/voice-clone", "/healthz"})
+        assert detect_api_surface("hamsa", paths) == "v1"
+
+    def test_native_paths(self):
+        paths = frozenset({"/tts/stream", "/transcribe", "/health"})
+        assert detect_api_surface("hamsa", paths) == "native"
+
+    def test_non_hamsa_provider_is_none(self):
+        paths = frozenset({"/v1/speech"})
+        assert detect_api_surface("hosted_vllm", paths) is None
+
+    def test_unknown_path_set_is_none(self):
+        # Probe failed or empty openapi.json: leave surface unset rather than
+        # guessing; the gateway default (native) applies.
+        assert detect_api_surface("hamsa", frozenset()) is None
 
     def test_detect_provider_convert_path_falls_back_to_hosted_vllm(self):
         # /v1/convert/* paths no longer imply a docling provider; they fall
@@ -190,6 +210,9 @@ class TestApiBaseShape:
         m = self._model("hamsa")
         m.api_base_override = "http://10.0.0.1:8080"
         assert m.api_base == "http://10.0.0.1:8080"
+
+    def test_api_surface_defaults_to_none(self):
+        assert self._model("hamsa").api_surface is None
 
 
 class TestToLitellmMode:
