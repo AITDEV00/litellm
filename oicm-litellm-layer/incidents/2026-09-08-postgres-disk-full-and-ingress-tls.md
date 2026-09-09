@@ -232,18 +232,64 @@ current defense is retention-by-age + alerts.
 
 ## Why OOM appeared 2–3 days after pod starts (proxy OOM mechanism)
 
-The serving path is leak-free — proven later by memray (4,800 real DeepSeek V4
-requests: 3.1M allocations, 9.7 GB cumulative churn, peak live tracked memory
-753 MB, **flat** for the whole session). The OOMs came from:
+### Hypothesis tested: "pending writes to the dead DB caused the OOM" — DISPROVEN
 
-1. **DB-outage amplification** (Sep 7 kill, coincides with the disk-full
-   window): flush-retry serialization churn × 4 workers + auth reconnect
-   latency (~2s per cache miss) + prisma query-engine subprocess churn every
-   ~15s per worker → event-loop starvation → `/health/liveliness` (touches
-   nothing) times out → kubelet restart
-2. **Steady-state accumulation** (Sep 5 kill, before any DB trouble):
+The natural theory — pods OOM'd because pending DB writes piled up in memory
+— was tested against the code and **rejected**: every pending-write structure
+is bounded, and their combined maximum is ~100–110 MB, nowhere near the 8Gi
+limit. Measured from the running image (same tag as at incident time):
+
+| Pending-write structure | Bound | Max during outage |
+|---|---|---|
+| `spend_log_transactions` (the log rows) | 64 MB byte cap, drop-oldest (`constants.py:1546`, `utils.py:5999`) | **64 MB** |
+| 9 × `asyncio.Queue` (entity/daily/rollup aggregates) | 1,000 items each (`constants.py` LITELLM_ASYNCIO_QUEUE_MAXSIZE); full queue = `put()` blocks the request path (backpressure, not growth) | ~9–45 MB |
+| `tool_usage_transactions` list (UNBOUNDED) | drained ≤10K/tick; entry = small dataclass (`request_id`, dates, tool names, spend — **not** the payload; `spend_log_tool_index.py:29`) | ~6 MB (14K entries × ~400B in a 40-min outage) |
+| `autorouter_turn_transactions` list (UNBOUNDED) | same shape — small scalar fields only (`autorouter_session_rollup.py`) | ~6 MB |
+| Redis buffer lists | unbounded RPUSH, but they grow **in the Redis pod**, not the gateway; gateway-side pop/restore transients only | — |
+
+Total: **~95–110 MB bounded**. The OOM gap (RSS climbing from a 6.5 Gi
+baseline through the 8 Gi limit) cannot be explained by pending writes.
+
+### The actual OOM mechanism (what the evidence supports)
+
+The kills came from CPU-side event-loop starvation plus transient allocation
+churn on top of an already-high baseline, not from any unbounded queue:
+
+1. **4 granian workers × per-tick rebuild** of ≤10K-row flush batches with
+   MB-scale JSON serialization, retried/requeued every 2–30s against the dead
+   DB for the whole outage window — continuous heavy CPU + transient
+   allocations (`utils.py:6301-6420`)
+2. **Auth reconnect latency**: every auth cache miss during the outage paid a
+   ~2s reconnect budget before failing (`auth_checks.py:3132-3175`) —
+   concurrent requests pile up as awaiting tasks, each holding its request
+   payload
+3. **Prisma engine churn**: the reconnect watchdog spawns a NEW query-engine
+   subprocess every ~15s of continued failure, per worker
+   (`utils.py:3492, 5067-5150`) — each engine is a child process with its own
+   RSS inside the same 8Gi cgroup (hundreds of MB of spikes)
+4. **GC starvation**: with the event loop saturated, GC cycles fall behind
+   allocation rate — transient garbage accumulates as real RSS
+
+The liveness probe failing on `/health/liveliness` (which touches no DB, no
+Redis, no locks) is the definitive signature: the loop couldn't schedule a
+trivial handler, so the kubelet killed the pod.
+
+The serving path itself is leak-free — proven by memray (4,800 real DeepSeek
+V4 requests: 3.1M allocations, 9.7 GB cumulative churn, peak live tracked
+memory 753 MB, **flat** for the whole session).
+
+Post-incident verification (09-09): with `allow_requests_on_db_unavailable:
+true` the same failure mode cannot recur — auth falls back instead of
+piling up, and pods start even with the DB down.
+
+## Why OOM appeared 2–3 days after pod starts (the two kills, separated)
+
+1. **Sep 7 kill = DB-outage amplification** (the mechanism above, coinciding
+   with the disk-full window)
+2. **Sep 5 kill = steady-state accumulation** (before any DB trouble):
    ~1.6 Gi/day RSS growth from per-request buffering, fragmentation, metric
-   cardinality — this one is subtle and motivated the monitoring work below
+   cardinality — subtle, and the motivation for the `memory_monitor_job` and
+   the 12Gi limit below
 
 ## Gateway-DB decoupling (the architectural fix)
 
