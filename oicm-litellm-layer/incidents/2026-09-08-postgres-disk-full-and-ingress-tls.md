@@ -444,7 +444,14 @@ grep mlops-postgres /var/log/kubernetes/audit/audit.log \
    past 60d as of 09-09, 217K dead tuples pending autovacuum). Optionally
    `VACUUM FULL` later to shrink below the plateau, or range partitioning via
    `db_scripts/partition_spend_logs.sql` (drops partitions instantly,
-   recommended at this volume)
+   recommended at this volume). **2026-09-09 maintenance done**: online
+   `VACUUM (ANALYZE)` run, and per-table autovacuum tuned on
+   LiteLLM_SpendLogs / SpendLogToolIndex / SpendLogGuardrailIndex
+   (`autovacuum_vacuum_scale_factor = 0.02` vs default 0.2) so autovacuum
+   triggers after ~270K dead tuples instead of 2.6M — matching the daily
+   ~500K-row delete churn from the retention job. DDL lives only on the
+   primary via psql (not in any manifest); re-apply if the cluster is ever
+   rebuilt
 2. ~~Memory monitoring~~ **DONE** (`memory_monitor_job` live in prod). Remaining:
    watch `prom_series` growth over days; if linear with RSS, apply
    `prometheus_metrics_config` label filtering (upstream caps only
