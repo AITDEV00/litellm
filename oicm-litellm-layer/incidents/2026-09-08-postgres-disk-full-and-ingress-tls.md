@@ -48,7 +48,7 @@ and LiteLLM proxy logs. Post-fix events verified live on 2026-09-09.
 | 2025-12-13 | `mlops-postgres` CNPG cluster created (Helm release `oicm`); data PVC 50Gi, WAL PVC 50Gi |
 | 2026-06-25 | litellm DB created (first SpendLogs row 2026-06-25 13:49); from day one **no `maximum_spend_logs_retention_period`** was configured, so LiteLLM never scheduled its built-in cleanup job — every request appended a row forever |
 | 2026-06-25 → 09-08 | `LiteLLM_SpendLogs` grew to **48 GB / 13.2M rows in 75 days** (~500–650K rows/day ≈ 1.7–2 GB/day incl. indexes+TOAST). 72% of each row's bytes is `metadata`, 72% of *that* is `model_map_information` — a ~5 KB verbatim copy of the model's registry entry written per row (117 fields, 95% null), write-only, never read back (see Row Anatomy) |
-| 2026-09-05 03:58 | litellm-proxy pod `wrgvs` **OOMKilled** (exit 137, 8Gi limit, RSS 6.5–6.7Gi). First proxy crash of the week — separate from the DB problem |
+| 2026-09-05 03:58 | litellm-proxy pod `wrgvs` **OOMKilled** (exit 137, 8Gi limit, RSS 6.5–6.7Gi). First proxy crash of the week — separate from the DB problem. Evidence: `containerStatuses.lastState` captured live 09-08 (pod replaced since; k8s events expire) |
 | 2026-09-07 07:42 | litellm-proxy pod `mjt5h` **OOMKilled** again (same pattern). Two kills in 3 days at 8Gi |
 
 ### The DB failure (morning of 09-08)
@@ -118,7 +118,9 @@ pressure, not DB coupling.
 
 `LiteLLM_SpendLogs` = 48 GB of the 49 GB database:
 
-- 13,205,736 rows spanning exactly 2026-06-25 13:49 → 2026-09-08 (75 days)
+- 13,205,736 rows spanning exactly 2026-06-25 13:49 → 2026-09-08 (75 days),
+  measured 09-08 before any deletion; after retention went live the oldest
+  surviving row is 2026-07-12 01:53 (a rolling 60-day window)
 - ~3.6 KB/row all-in (heap + TOAST + index share); measured row anatomy:
   - `metadata` JSONB: 2,833 B/row avg — and **72% of that is
     `model_map_information`**: a ~5,241 B verbatim copy of the model's
@@ -162,10 +164,13 @@ The admission webhook enforces per-disk:
 Scheduling counts each replica's *requested* size, not physical usage. At the
 old 100% limit:
 
+Measured at incident time (09-08); re-measured 09-09 (values drift as
+scheduling changes):
+
 ```
-adeo-storage-01/disk-3   scheduled=36.35TB  max=30.72TB  118%  <- disk in error (UUID 3cad3033)
-adeo-storage-03/disk-10  scheduled=36.26TB  max=30.72TB  118%
-adeo-storage-02/disk-5,6 scheduled=30.45/30.28TB          99%
+adeo-storage-01/disk-3   scheduled=36.35TB  max=30.72TB  118%  <- disk in error (UUID 3cad3033); 09-09: 36.97TB, 120%
+adeo-storage-03/disk-10  scheduled=36.26TB  max=30.72TB  118%  (09-09: 36.32TB, 118%)
+adeo-storage-02/disk-5,6 scheduled=30.45/30.28TB          99%   (09-09: 30.51TB, 99%)
 ```
 
 Physical free space was healthy (15–21 TB per storage disk) — the constraint
@@ -194,13 +199,13 @@ that inserts reuse; the table plateaus instead of growing.
 
 ## Row anatomy (what one SpendLogs row costs)
 
-Measured from prod (200-row sample, `pg_column_size`):
+Measured from prod (2,000-row samples; re-verified 09-09):
 
 | Component | Avg bytes | What it is |
 |---|---|---|
 | Heap row | 3,559 | tuple header + columns |
-| → of which `metadata` JSONB | 2,833 | see breakdown |
-| → → `model_map_information` | 4,988** | 117-field model registry copy, 95% null |
+| → of which `metadata` JSONB | 2,833–2,872 | see breakdown (80% of heap-row bytes) |
+| → → `model_map_information` | 4,880–5,241 | 117-field model registry copy, 95% null |
 | → → `cost_breakdown` | 398 | useful |
 | → → `usage_object` | 250 | useful |
 | → → other 17 keys | ~400 | small |
@@ -271,7 +276,7 @@ profiling.
   periodic work), `delta_mb ≈ 0`, no linear growth since 12Gi deploy. At the
   observed rate the 12Gi limit gives 70+ days of headroom
 - Suspected (unproven) remaining creep driver: Prometheus metric cardinality
-  (9K–14K series already, grows with key/team/model diversity); only
+  (10.5K–14.8K series as of 09-09, grows with key/team/model diversity); only
   `end_user` labels are cardinality-capped upstream (10K series, 1h TTL) —
   model/key/team labels are not
 
