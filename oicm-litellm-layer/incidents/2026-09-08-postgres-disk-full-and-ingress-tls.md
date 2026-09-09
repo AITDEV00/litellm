@@ -491,6 +491,26 @@ grep mlops-postgres /var/log/kubernetes/audit/audit.log \
 
 ## Follow-ups (open)
 
+### Completeness verification (2026-09-09, live-checked)
+
+Every issue identified in this incident was cross-checked against the commit
+log AND the running cluster:
+
+| Issue | Fix commit(s) | Live-verified state |
+|---|---|---|
+| Unbounded spend-log growth | `d46df2176c` (60d retention) + `c5182135b4` (drain capacity) | **✅ Deleting**: 0 rows past 60d (was 200,724); rows cycling (inserts ≈ deletes); oldest surviving row rolls at the 60d boundary (2026-07-12) |
+| DB full = stalemate (no auto-reclaim) | `d46df2176c` + autovacuum tuning via psql | **✅ Mitigated**: retention now reclaims continuously so the stalemate window requires a 6x traffic burst to reach; per-table autovacuum (scale 0.02) keeps dead tuples bounded |
+| Gateway crashes when DB down | `c5182135b4` (`allow_requests_on_db_unavailable`) | **✅ Live**: flag in pod config; validated end-to-end on dev (DB-less startup + serving) |
+| Gateway OOMKills (8Gi limit) | `df73dfe33f` (12Gi) | **✅ Live**: limit 12Gi, 0 restarts since deploy; memray proved serving path leak-free |
+| Memory creep invisibility | `df73dfe33f` + `33798c230b` (memory monitor) | **✅ Live**: mem_monitor lines in prod logs/Loki; RSS floor flat, cycle peaks drifting ~11 MB/day (~1,000 days to limit) |
+| Ingress TLS mismatch | `b0d766c44c` | **✅ Live**: `litellm.ecouncil.ae` serves DigiCert; `litellm.adeoaiengine.ecouncil.ae` serves internal cert (accepted, see follow-up 5) |
+| 100Gi revert risk (Helm) | `93ebda45d1` (manifest mirror) | **✅ Live**: PVCs report 100Gi; manifest in deploy/prod |
+| Longhorn webhook blocking resize | settings patch 100→150 | **✅ Live**: over-provisioning = 150 |
+| Autovacuum lag after mass deletes | psql per-table tuning (0d7c6def59) | **✅ Live**: reloptions on SpendLogs/ToolIndex/GuardrailIndex (scale 0.02) |
+| Slow-bleed alerting gap | **NOT FIXED** | **❌ OPEN**: no PrometheusRule for DB-size alerts; Alertmanager critical/warning receivers still undefined (alerts would go nowhere); needs a notification target |
+
+### Follow-ups (open)
+
 1. ~~Enable spend log retention~~ **DONE** (60d, verified deleting: 0 rows
    past 60d as of 09-09, 217K dead tuples pending autovacuum). Optionally
    `VACUUM FULL` later to shrink below the plateau, or range partitioning via
@@ -507,12 +527,15 @@ grep mlops-postgres /var/log/kubernetes/audit/audit.log \
    watch `prom_series` growth over days; if linear with RSS, apply
    `prometheus_metrics_config` label filtering (upstream caps only
    `end_user`; model/key/team labels are uncapped)
-3. ~~Alerting~~ **PARTIAL**: alert rules not yet created. When created, they
-   must use `cnpg_pg_database_size_bytes{datname="litellm"}` (verified
-   working) — NOT `kubelet_volume_stats_*` (absent on kubelet v1.34). The
-   Alertmanager `critical`/`warning` receivers are still undefined — every
-   alert in the cluster currently goes nowhere; wiring needs a notification
-   target (Slack webhook/email)
+3. ~~Alerting~~ **OPEN — the only remaining gap**: no PrometheusRule exists
+   for DB-size alerts. When created, they must use
+   `cnpg_pg_database_size_bytes{datname="litellm"}` (verified working) — NOT
+   `kubelet_volume_stats_*` (absent on kubelet v1.34). The Alertmanager
+   `critical`/`warning` receivers are still undefined — every alert in the
+   cluster currently goes nowhere; wiring needs a notification target (Slack
+   webhook/email). Interim detection is covered by the memory monitor's
+   structured logs in Loki (prom_series floor stable at 10.8K as of 09-09;
+   a rising floor = cardinality leak signature)
 4. ~~Investigate proxy OOMKills~~ **RESOLVED**: root cause identified (DB-outage
    amplification + steady-state buffering); mitigated by
    `allow_requests_on_db_unavailable`, 12Gi limit, and the monitor. Serving
