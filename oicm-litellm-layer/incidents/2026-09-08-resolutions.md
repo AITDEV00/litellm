@@ -60,7 +60,8 @@ separate behaviors, none of which is space-based overwrite:
    fail too (deleting requires WAL writes, which need disk) — the cleanup job
    aborts after 3 consecutive batch failures. Neither old logs are removed nor
    new logs written: a stalemate until manual intervention (exactly the state
-   at 07:55–08:40)
+   during the Sep 8 degradation window, 05:23 first no-space error → 08:40
+   recovery)
 
 Space-based auto-overwrite would be an upstream feature request (a job
 checking DB size and force-pruning oldest data below a threshold); the
@@ -118,14 +119,23 @@ Post-incident verification (09-09): with `allow_requests_on_db_unavailable:
 true` the same failure mode cannot recur — auth falls back instead of
 piling up, and pods start even with the DB down.
 
-## Why OOM appeared 2–3 days after pod starts (the two kills, separated)
+## Why OOM appeared 2–3 days after pod starts (the kills, separated)
 
-1. **Sep 7 kill = DB-outage amplification** (the mechanism above, coinciding
-   with the disk-full window)
-2. **Sep 5 kill = steady-state accumulation** (before any DB trouble):
+1. **Sep 5 kill = steady-state accumulation** (before any DB trouble):
    ~1.6 Gi/day RSS growth from per-request buffering, fragmentation, metric
    cardinality — subtle, and the motivation for the `memory_monitor_job` and
-   the 12Gi limit below
+   the 12Gi limit below. Verified against Loki: zero DB-unreachable lines all
+   day, restart banner 03:58:52 UTC
+2. **Sep 7 kill = steady-state accumulation** (the database was healthy all
+   day — zero P1001 / unreachable / no-space lines on Sep 5–7 in both gateway
+   and postgres logs; the disk-full window was Sep 8 morning). Restart banner
+   07:42:51 UTC
+3. **Sep 8 kills = the DB-outage amplification mechanism**, with a timing
+   correction: both pods logged P1001 continuously 07:34–08:38 and stayed up
+   through the outage; the restarts landed at 10:23 (wrgvs 10:23:08, mjt5r
+   10:23:40) with mjt5r dying again at 10:38 — roughly 1.5h after the DB
+   recovered at 08:40. The outage churn is the plausible stressor; the deaths
+   trailed after recovery rather than landing inside the outage window
 
 ## Gateway-DB decoupling (the architectural fix)
 
@@ -153,10 +163,12 @@ profiling.
   753 MB, flat — no leak
 - `memory_monitor_job` now samples prod every 60s: current RSS, peak RSS,
   Prometheus series count, threads, GC stats, delta — in logs and Loki
-  (`{namespace="mlops"} |= "mem_monitor"`)
-- Live prod data (09-09): RSS oscillates per pod (983/1081/1395/1118 MiB —
-  periodic work), `delta_mb ≈ 0`, no linear growth since 12Gi deploy. At the
-  observed rate the 12Gi limit gives 70+ days of headroom
+  (`{job="fluent-bit", namespace_name="mlops"} |= "mem_monitor"`, tenant
+  header `X-Scope-OrgID: oiai-loki-logs`)
+- Live prod data (09-09): RSS oscillates ~970–1,700 MiB across both pods
+  (periodic work; hour-averages 1.0–1.2 GiB), `delta_mb ≈ 0`, no linear
+  growth since 12Gi deploy. At the observed rate the 12Gi limit gives 70+
+  days of headroom
 - Suspected (unproven) remaining creep driver: Prometheus metric cardinality
   (10.5K–14.8K series as of 09-09, grows with key/team/model diversity); only
   `end_user` labels are cardinality-capped upstream (10K series, 1h TTL) —
