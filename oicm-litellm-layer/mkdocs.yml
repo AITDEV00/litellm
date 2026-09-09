@@ -141,6 +141,7 @@ nav:
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
       - HAMSA STT & TTS Guide: usage-guides/HAMSA_STT_TTS_GUIDE.md
+      - Hamsa TTS New /v1 Guide: usage-guides/HAMSA-TTS-NEW-V1-GUIDE.md
       - Inception TTS/STT Guide: usage-guides/INCEPTION_TTS_STT_GUIDE.md
       - OmniVoice TTS Guide: usage-guides/OMNIVOICE_TTS_GUIDE.md
       - Qwen Vision Guide: usage-guides/QWEN_VISION_GUIDE.md
