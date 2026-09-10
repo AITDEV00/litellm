@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sep 08 2026: what happened</title>
+<title>Sep 08 2026: the disk that filled</title>
 <style>
   :root{
     --bg:#0a0d13; --card:#121826; --card2:#0f141f; --line:#1e2736;
@@ -11,284 +11,125 @@
     --red:#ff6b6b; --green:#3fd68c; --blue:#6ea8ff; --amber:#ffb454;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  body{
-    background:var(--bg); color:var(--text);
-    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
-    line-height:1.55; overflow-x:hidden;
-  }
-  .hero{min-height:64vh;display:flex;flex-direction:column;justify-content:center;
-    align-items:center;text-align:center;padding:70px 20px}
-  .hero .k{letter-spacing:.26em;text-transform:uppercase;font-size:.72rem;color:var(--muted);margin-bottom:18px}
-  .hero h1{font-size:clamp(2rem,5.5vw,3.4rem);line-height:1.12;font-weight:800}
-  .hero h1 .accent{background:linear-gradient(90deg,var(--red),var(--amber));
-    -webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero p{max-width:520px;margin:20px auto 0;color:var(--muted);font-size:1.02rem}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;line-height:1.55;overflow-x:hidden}
 
-  section{max-width:900px;margin:0 auto;padding:60px 20px}
+  .hero{min-height:62vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 20px}
+  .hero .k{letter-spacing:.26em;text-transform:uppercase;font-size:.72rem;color:var(--muted);margin-bottom:16px}
+  .hero h1{font-size:clamp(1.9rem,5vw,3.1rem);line-height:1.12;font-weight:800}
+  .hero h1 .accent{background:linear-gradient(90deg,var(--red),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{max-width:520px;margin:18px auto 0;color:var(--muted);font-size:1rem}
+
+  section{max-width:940px;margin:0 auto;padding:50px 20px}
   .kicker{letter-spacing:.26em;text-transform:uppercase;font-size:.7rem;font-weight:700;margin-bottom:10px}
-  .kicker.red{color:var(--red)} .kicker.amber{color:var(--amber)} .kicker.green{color:var(--green)}
-  h2{font-size:clamp(1.4rem,3vw,1.9rem);margin-bottom:10px}
-  section>p{color:var(--muted);font-size:1.02rem;margin-bottom:8px}
-  .caption{font-size:.85rem;color:var(--muted);margin-top:14px}
+  .kicker.red{color:var(--red)} .kicker.green{color:var(--green)}
+  h2{font-size:clamp(1.3rem,3vw,1.7rem);margin-bottom:8px}
+  section>p{color:var(--muted);font-size:1rem;margin-bottom:6px}
 
-  /* ===== stage shared ===== */
-  .stage{background:var(--card);border:1px solid var(--line);border-radius:16px;
-    padding:26px 18px;margin-top:26px}
-  .phase{min-height:30px;text-align:center;font-weight:700;font-size:1.05rem;margin-bottom:18px}
-  .phase .t{color:var(--muted);font-weight:400;font-size:.78rem;margin-left:10px}
-  .p0{color:var(--blue)} .p1{color:var(--amber)} .p2{color:var(--red)}
-  .row{display:flex;align-items:stretch;justify-content:center;gap:6px;flex-wrap:wrap}
-  .comp{flex:1;min-width:190px;max-width:260px;background:var(--card2);border:1px solid var(--line);
-    border-radius:14px;padding:16px 14px;transition:border-color .5s,box-shadow .5s}
-  .comp h5{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
-    display:flex;align-items:center;gap:8px}
-  .comp .body{margin-top:12px;font-size:.85rem;color:var(--muted);min-height:104px;
-    display:flex;flex-direction:column;justify-content:center}
-  .comp.dim{opacity:.45}
-  .led{width:9px;height:9px;border-radius:50%;background:#3a4658;flex:0 0 auto;transition:background .4s}
-  .led.g{background:var(--green);box-shadow:0 0 8px rgba(63,214,140,.7)}
-  .led.a{background:var(--amber);box-shadow:0 0 8px rgba(255,180,84,.7);animation:blink 1s steps(2) infinite}
-  .led.r{background:var(--red);box-shadow:0 0 8px rgba(255,107,107,.8);animation:blink .7s steps(2) infinite}
-  @keyframes blink{50%{opacity:.3}}
-  .link{flex:0 0 84px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;position:relative}
-  .wire{width:100%;height:2px;background:#2a3446;position:relative;border-radius:2px}
-  .dot{position:absolute;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--green);left:-8px;opacity:0}
-  .stage.on .dot.run{animation:travel 1.5s linear infinite}
-  .stage.on .dot.run.d2{animation-delay:.75s}
-  @keyframes travel{0%{left:-8px;opacity:1}90%{opacity:1}100%{left:calc(100% + 2px);opacity:1}}
-  .lbl{font-size:.64rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;text-align:center}
-  .link .x{position:absolute;top:-9px;left:50%;font-size:.72rem;font-weight:800;color:var(--red);
-    opacity:0;transition:opacity .4s}
-  .link.err .wire{background:rgba(255,107,107,.55)}
-  .link.err .dot{background:var(--red);animation:fail 1.4s ease-in infinite}
-  .link.err .dot.d2{animation-delay:.7s}
-  @keyframes fail{0%{left:-8px;opacity:1}46%{left:44%;opacity:1}50%{opacity:0}100%{left:44%;opacity:0}}
-  .link.err .x{opacity:1;animation:shake .5s ease-in-out infinite}
-  @keyframes shake{0%,100%{transform:translateX(-50%)}25%{transform:translateX(-64%)}75%{transform:translateX(-36%)}}
+  /* ============ THEATRE ============ */
+  .theatre{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 22px;margin-top:26px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:center;margin-bottom:20px}
+  .btn{display:inline-flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--card2);
+    color:var(--text);font-family:inherit;font-size:.95rem;font-weight:700;padding:12px 26px;border-radius:30px;
+    cursor:pointer;transition:all .2s}
+  .btn:hover{border-color:var(--green);transform:translateY(-1px)}
+  .btn .tri{width:0;height:0;border-left:13px solid var(--green);border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .btn.replay{color:var(--amber)} .btn.replay:hover{border-color:var(--amber)}
+  .btn.playing{opacity:.5;pointer-events:none}
 
-  /* play button */
-  .playbox{display:flex;justify-content:center;margin:0 0 6px}
-  .btn{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);
-    background:var(--card2);color:var(--text);font-family:inherit;font-size:.92rem;font-weight:700;
-    padding:11px 22px;border-radius:30px;cursor:pointer;transition:all .25s;letter-spacing:.02em}
-  .btn:hover{border-color:var(--blue);transform:translateY(-1px)}
-  .btn .tri{width:0;height:0;border-left:12px solid var(--green);border-top:8px solid transparent;border-bottom:8px solid transparent}
-  .btn .re{font-size:1.05rem;line-height:1}
-  .btn.watch{color:var(--green);cursor:default;pointer-events:none;opacity:.85}
-  .btn.watch .tri{border-left-color:var(--green);animation:blink 1s steps(2) infinite}
-  .btn.started{opacity:.4;pointer-events:none}
-  .btn.replay{color:var(--amber)}
-  .btn.replay:hover{border-color:var(--amber)}
+  /* scene timeline */
+  .timeline{display:flex;gap:8px;margin-bottom:18px}
+  .tl-seg{flex:1;height:7px;border-radius:4px;background:#1c2434;overflow:hidden}
+  .tl-seg i{display:block;height:100%;width:0;border-radius:4px;background:var(--green);transition:width .25s linear}
+  .tl-seg.live i{background:var(--green)}
+  .tl-seg.done i{width:100%}
+  .tl-labels{display:flex;gap:8px;margin-bottom:4px}
+  .tl-label{flex:1;font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;color:#5b6880;text-align:center}
+  .tl-label.live{color:var(--green);font-weight:700}
 
-  /* ===== ACT 1: disk fills from record writes ===== */
-  .diskwrap{display:flex;gap:12px;justify-content:center;align-items:flex-end}
-  .disk{height:120px;width:60px;border:2px solid #2a3446;border-radius:10px;padding:4px;
-    display:flex;flex-direction:column-reverse;background:#0c1017;overflow:hidden;transition:border-color .5s,box-shadow .5s}
-  .dfill{width:100%;height:1%;border-radius:5px 5px 0 0;
-    background:linear-gradient(180deg,var(--blue),#3d6bd6);
-    transition:height 5s linear .5s,background .6s}
-  .stage1.on .dfill{height:96%}
-  .stage1.on .dfill.hot{background:linear-gradient(180deg,var(--red),#c24545)}
-  .stage1.on .disk.full{border-color:rgba(255,107,107,.6);box-shadow:0 0 16px rgba(255,107,107,.25)}
-  .ticks{display:flex;flex-direction:column;justify-content:space-between;height:120px;
-    font-size:.58rem;color:#4a5568;padding:1px 0}
-  .dval{font-size:.8rem;font-weight:700;text-align:center;color:var(--blue);margin-top:6px;transition:color .5s}
-  .stage1.on.d-full .dval{color:var(--red)}
-  .dlabel{font-size:.66rem;color:var(--muted);text-align:center;margin-top:2px}
-  .writechip{font-size:.64rem;color:var(--blue);background:rgba(110,168,255,.1);
-    border:1px solid rgba(110,168,255,.3);border-radius:4px;padding:1px 6px;opacity:0}
-  .stage1.on .writechip{animation:wpop 5s linear forwards}
-  @keyframes wpop{0%{opacity:0}5%{opacity:1}90%{opacity:.8}100%{opacity:0}}
-  .chipcol{display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;min-height:110px}
-  .dbstat{font-size:.78rem;margin-top:10px;text-align:center;min-height:20px;transition:color .4s}
-  .dbstat.ok{color:var(--green)} .dbstat.down{color:var(--red);font-weight:700}
+  /* subtitle = scene narration */
+  .subtitle{text-align:center;font-size:1.02rem;font-weight:600;min-height:28px;margin-bottom:16px}
+  .subtitle .t{display:block;font-size:.74rem;font-weight:400;color:var(--muted);margin-top:2px}
 
-  /* ===== ACT 2: requests arrive -> OOM -> reboot fails ===== */
-  .mem{height:16px;border-radius:8px;background:#0c1017;border:1px solid #2a3446;overflow:hidden}
-  .mem .mfill{height:100%;width:13%;border-radius:8px;background:var(--green);
-    transition:width 1.2s ease,background .8s}
-  .meml{display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted);margin-top:5px}
-  .retry{font-size:.72rem;color:var(--amber);margin-top:7px;min-height:18px;opacity:0;transition:opacity .4s}
-  .retry.show{opacity:1}
-  .retry b{animation:blink 1s steps(2) infinite}
-  .reqs{display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start;min-height:56px;margin-top:8px}
-  .rq{width:12px;height:16px;border-radius:3px;background:var(--green);opacity:0;transform:translateY(8px)}
-  .stage2.on .rq{animation:rqin .35s ease forwards}
-  @keyframes rqin{from{opacity:0;transform:translateY(8px) scale(.7)}to{opacity:.9;transform:none}}
-  .comp.dead{border-color:rgba(255,107,107,.65);box-shadow:0 0 20px rgba(255,107,107,.3);
-    animation:crash .55s cubic-bezier(.36,.07,.19,.97)}
-  @keyframes crash{0%,100%{transform:none}25%{transform:translate(-4px,2px)}50%{transform:translate(4px,-2px)}75%{transform:translate(-3px,1px)}}
-  .comp.dead .body{color:var(--red)}
-  .deadmsg{font-size:.8rem;color:var(--red);font-weight:700;margin-top:8px;min-height:18px}
-  .bootmsg{font-size:.78rem;color:var(--blue);margin-top:6px;min-height:18px;display:flex;align-items:center;gap:7px;justify-content:center}
-  .spin{width:11px;height:11px;border:2px solid var(--blue);border-top-color:transparent;
-    border-radius:50%;animation:spin .9s linear infinite;flex:0 0 auto}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .steps{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}
-  .step{display:flex;align-items:center;gap:7px;font-size:.76rem;color:var(--muted);
-    background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:5px 13px;transition:all .4s}
-  .step i{width:9px;height:9px;border-radius:50%;background:#3a4658;transition:all .4s}
-  .step.cur{color:var(--text);border-color:#3a4658}
-  .step.cur i{background:var(--amber);box-shadow:0 0 7px rgba(255,180,84,.8)}
-  .step.done i{background:var(--red);opacity:.7}
+  /* the stage canvas */
+  .screen{border:1px solid var(--line);border-radius:14px;background:#0b0f16;overflow:hidden}
+  .screen svg{width:100%;height:auto;display:block}
 
-  /* ===== compare ===== */
-  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}
-  @media(max-width:720px){.compare{grid-template-columns:1fr}}
+  .after{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+  @media(max-width:720px){.after{grid-template-columns:1fr}}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
   .panel h3{font-size:1rem;margin-bottom:14px;display:flex;align-items:center;gap:9px}
   .panel h3 .dot2{width:10px;height:10px;border-radius:50%}
   .panel.bad h3 .dot2{background:var(--red)} .panel.good h3 .dot2{background:var(--green)}
   .panel ul{list-style:none}
-  .panel li{font-size:.92rem;color:var(--muted);padding:7px 0;border-bottom:1px dashed var(--line);
-    display:flex;gap:10px;align-items:baseline}
+  .panel li{font-size:.92rem;color:var(--muted);padding:7px 0;border-bottom:1px dashed var(--line);display:flex;gap:10px;align-items:baseline}
   .panel li:last-child{border:none}
-  .panel li b{color:var(--text);font-weight:600;white-space:nowrap;min-width:86px}
-  .panel.bad li i{color:var(--red);font-style:normal}
-  .panel.good li i{color:var(--green);font-style:normal}
+  .panel li b{color:var(--text);font-weight:600;white-space:nowrap;min-width:84px}
+  .panel li i{font-style:normal} .panel.bad li i{color:var(--red)} .panel.good li i{color:var(--green)}
   .panel li span:last-child{flex:1}
 
-  footer{border-top:1px solid var(--line);padding:60px 20px 80px;text-align:center}
-  footer h2{margin-bottom:8px}
-  footer p{color:var(--muted);max-width:560px;margin:0 auto}
-  .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+  footer{border-top:1px solid var(--line);padding:54px 20px 74px;text-align:center}
+  footer h2{margin-bottom:8px} footer p{color:var(--muted);max-width:540px;margin:0 auto}
+
+  .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
   .reveal.in-view{opacity:1;transform:none}
 
-  @media (prefers-reduced-motion: reduce){
-    *{animation:none!important;transition:none!important}
-    .reveal{opacity:1!important;transform:none!important}
-    .stage1 .dfill{height:96%!important;background:var(--red)!important}
-    .stage2 .mfill{width:97%!important;background:var(--red)!important}
-    .dot{opacity:1!important}
-    .rq{opacity:.9!important}
-    .retry,.dbstat.down{opacity:1!important}
-  }
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} .reveal{opacity:1!important;transform:none!important} }
 </style>
 </head>
 <body>
 
 <header class="hero">
-  <div class="k">OICM incident, September 8 2026</div>
-  <h1>Act 1: the disk filled.<br><span class="accent">Act 2: the gateway went down with it.</span></h1>
-  <p>Two animations. One story.</p>
+  <div class="k">OICM platform · incident · September 8 2026</div>
+  <h1>The request log filled the disk.<br><span class="accent">Then the gateway went down with it.</span></h1>
+  <p>One short film, five scenes. Press play.</p>
 </header>
 
-<!-- ============ ACT 1: DATABASE FILLS UP ============ -->
+<!-- ============ THE FILM ============ -->
 <section>
-  <div class="kicker red">act 1</div>
-  <h2>The database fills up</h2>
-  <p>Every request writes one record. Nothing ever deletes them.</p>
+  <div class="kicker red">the story</div>
+  <h2>A 20-second film of what happened</h2>
+  <p>Play it, or step scene by scene. Each scene runs about four seconds.</p>
 
-  <div class="stage stage1" id="stage1">
-    <div class="playbox">
-      <button class="btn" id="play1" type="button"><span class="tri"></span>Play</button>
+  <div class="theatre">
+    <div class="controls">
+      <button class="btn" id="playBtn" type="button"><span class="tri"></span>Play film</button>
+      <button class="btn" id="stepBtn" type="button">&#8250; Step scene</button>
     </div>
-    <div class="phase" id="phase1">press play to watch the database fill up</div>
-    <div class="row">
-      <!-- gateway writes -->
-      <div class="comp dim" id="g1">
-        <h5><span class="led g"></span> gateway</h5>
-        <div class="body">
-          <div class="chipcol">
-            <span class="writechip">record +1</span>
-          </div>
-        </div>
-      </div>
-      <div class="link">
-        <div class="wire"><span class="dot run"></span><span class="dot run d2"></span></div>
-        <span class="lbl">writes</span>
-      </div>
-      <!-- database -->
-      <div class="comp" id="dbc1">
-        <h5><span class="led g" id="dbled1"></span> database</h5>
-        <div class="body">
-          <div class="diskwrap">
-            <div class="disk" id="disk"><div class="dfill" id="dfill"></div></div>
-            <div class="ticks"><span>50</span><span>38</span><span>25</span><span>13</span><span>0</span></div>
-          </div>
-          <div class="dval" id="dval">0 / 50 GB</div>
-          <div class="dbstat ok" id="dbstat">accepting writes</div>
-        </div>
-      </div>
+
+    <div class="tl-labels" id="tlLabels">
+      <span class="tl-label">1 · records pile up</span>
+      <span class="tl-label">2 · disk full</span>
+      <span class="tl-label">3 · requests keep coming</span>
+      <span class="tl-label">4 · saves fail, memory climbs</span>
+      <span class="tl-label">5 · OOM &amp; failed reboot</span>
     </div>
-    <div class="steps" id="steps1">
-      <div class="step" data-s="0"><i></i>records pile up, 2.5 months</div>
-      <div class="step" data-s="1"><i></i>disk full</div>
-      <div class="step" data-s="2"><i></i>database goes down</div>
+    <div class="timeline" id="timeline">
+      <div class="tl-seg" data-i="0"><i></i></div>
+      <div class="tl-seg" data-i="1"><i></i></div>
+      <div class="tl-seg" data-i="2"><i></i></div>
+      <div class="tl-seg" data-i="3"><i></i></div>
+      <div class="tl-seg" data-i="4"><i></i></div>
+    </div>
+
+    <div class="subtitle" id="subtitle">Records are being written&hellip;</div>
+
+    <div class="screen">
+      <svg id="film" viewBox="0 0 900 380" role="img" aria-label="animated diagram of the disk filling, then the gateway failing"></svg>
     </div>
   </div>
-
-  <p class="caption">48 GB of records on a 50 GB disk. The first write fails at
-     05:23, and by 07:47 the database refuses all connections.</p>
 </section>
 
-<!-- ============ ACT 2: GATEWAY OOM + FAILED REBOOTS ============ -->
-<section>
-  <div class="kicker amber">act 2</div>
-  <h2>The gateway goes down with it</h2>
-  <p>The database is down. Requests keep arriving. Watch the gateway.</p>
-
-  <div class="stage stage2" id="stage2">
-    <div class="playbox">
-      <button class="btn" id="play2" type="button"><span class="tri"></span>Play</button>
-    </div>
-    <div class="phase" id="phase2">press play to watch the gateway go down</div>
-    <div class="row">
-      <!-- users -->
-      <div class="comp">
-        <h5><span class="led g"></span> users</h5>
-        <div class="body">
-          <div class="reqs" id="reqs"></div>
-        </div>
-      </div>
-      <!-- gateway -->
-      <div class="comp" id="gw">
-        <h5><span class="led g" id="gwled"></span> gateway</h5>
-        <div class="body">
-          <div class="mem"><div class="mfill" id="mfill"></div></div>
-          <div class="meml"><span>memory</span><span id="mval">1.1 GiB</span></div>
-          <div class="retry" id="retry">save failed. <b>retrying&hellip;</b></div>
-          <div class="deadmsg" id="deadmsg"></div>
-        </div>
-      </div>
-      <div class="link" id="wire2">
-        <span class="x">&#10007;</span>
-        <div class="wire"><span class="dot"></span><span class="dot d2"></span></div>
-        <span class="lbl">save</span>
-      </div>
-      <!-- database, already down -->
-      <div class="comp dead" id="dbc2">
-        <h5><span class="led r"></span> database</h5>
-        <div class="body" style="text-align:center">
-          <div style="font-size:1.6rem">&#9940;</div>
-          <div style="margin-top:8px">down</div>
-        </div>
-      </div>
-    </div>
-    <div class="steps" id="steps2">
-      <div class="step" data-s="0"><i></i>requests arrive</div>
-      <div class="step" data-s="1"><i></i>saves fail, retries pile up</div>
-      <div class="step" data-s="2"><i></i>memory hits 8 GiB, OOM</div>
-      <div class="step" data-s="3"><i></i>restart fails, boot needs the db</div>
-    </div>
-  </div>
-
-  <p class="caption">Memory climbed until the gateway was killed. Every reboot
-     failed for the same reason: booting calls the database that is down.</p>
-</section>
-
-<!-- BEFORE / AFTER -->
+<!-- ============ BEFORE / AFTER ============ -->
 <section>
   <div class="kicker green">the fix</div>
   <h2>Before and after</h2>
-
-  <div class="compare">
+  <div class="after">
     <div class="panel bad reveal">
       <h3><span class="dot2"></span>Before</h3>
       <ul>
         <li><b>records</b><span>never deleted <i>&#10007;</i></span></li>
         <li><b>disk</b><span>50 GB, filled to 48 <i>&#10007;</i></span></li>
-        <li><b>gateway</b><span>needs db to boot and serve <i>&#10007;</i></span></li>
+        <li><b>gateway</b><span>needs the db to boot and serve <i>&#10007;</i></span></li>
         <li><b>crashes</b><span>2 that week <i>&#10007;</i></span></li>
       </ul>
     </div>
@@ -297,7 +138,7 @@
       <ul>
         <li><b>records</b><span>deleted after 60 days <i>&#10003;</i></span></li>
         <li><b>disk</b><span>100 GB, cycles at half full <i>&#10003;</i></span></li>
-        <li><b>gateway</b><span>boots and serves without db <i>&#10003;</i></span></li>
+        <li><b>gateway</b><span>boots and serves without the db <i>&#10003;</i></span></li>
         <li><b>crashes</b><span>0 since the fix <i>&#10003;</i></span></li>
       </ul>
     </div>
@@ -306,175 +147,239 @@
 
 <footer>
   <div class="kicker green reveal">outcome</div>
-  <h2 class="reveal">Fixed same day. Verified next morning.</h2>
+  <h2 class="reveal">Fixed the same day. Verified the next morning.</h2>
   <p class="reveal">The gateway has not restarted since.</p>
 </footer>
 
 <script>
 (function(){
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // =====================================================================
+  //  FILM DIRECTOR — a single deterministic timeline.
+  //  Scene lengths in frames. 60 fps. Each scene redraws the whole stage
+  //  from a frame counter, so the animation can never desync.
+  // =====================================================================
+  const FPS = 60;
+  const S = {
+    pile:   {start:0,    end:239,  sub:"Records are being written &mdash; one per request, nothing ever deleted."},
+    full:   {start:240,  end:359,  sub:"Disk full &mdash; the database can no longer save anything."},
+    arrive: {start:360,  end:479,  sub:"Database is down. Requests keep arriving at the gateway."},
+    climb:  {start:480,  end:659,  sub:"Saves fail. The gateway retries, and memory climbs."},
+    oom:    {start:660,  end:959,  sub:"Out of memory &mdash; the gateway is killed. Reboots fail: booting needs the database."}
+  };
+  const ORDER = ["pile","full","arrive","climb","oom"];
+  const TOTAL = S.oom.end;              // 960 frames = 16s
+  const segs  = document.querySelectorAll("#timeline .tl-seg");
+  const labels= document.querySelectorAll("#tlLabels .tl-label");
+  const film  = document.getElementById("film");
+  const sub   = document.getElementById("subtitle");
+  const playBtn=document.getElementById("playBtn");
+  const stepBtn=document.getElementById("stepBtn");
 
-  const rev = new IntersectionObserver(es=>es.forEach(e=>{
-    if(e.isIntersecting){ e.target.classList.add("in-view"); rev.unobserve(e.target); }
-  }),{threshold:.2});
+  const NS="http://www.w3.org/2000/svg";
+  function el(tag,attrs){const n=document.createElementNS(NS,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);return n;}
+
+  // ---- base geometry ----
+  const DB={x:640,w:170,h:250,y:70};      // database box (right)
+  const GW={x:130,w:170,h:250,y:70};      // gateway box (middle-left)
+  const USB={x:70,y:80};                  // users (far left)
+  // disk inside the database
+  const DISK={x:DB.x+28,w:DB.w-56,y:DB.y+60,h:120};
+  // gateway memory bar
+  const MEM={x:GW.x+22,w:GW.w-44,y:GW.y+60,h:20};
+
+  function draw(t){
+    const g=el("g");
+    // ---------- users (left) ----------
+    g.appendChild(el("rect",{x:USB.x,y:USB.y,width:90,height:70,rx:12,fill:"#121826",stroke:"#1e2736"}));
+    g.appendChild(el("text",{x:USB.x+45,y:USB.y+30,"text-anchor":"middle","font-size":"18",fill:"#8b97ab"})).textContent="Users";
+    g.appendChild(el("text",{x:USB.x+45,y:USB.y+52,"text-anchor":"middle","font-size":"13",fill:"#dfe6f2"})).textContent="\uD83D\uDE80";
+
+    // ---------- gateway (middle) ----------
+    let gwStroke="#1e2736";
+    if(sceneOf(t)==="oom" && inWindow(t,S.oom.start+140,S.oom.start+210)) gwStroke=hasReboot(t)? "#6ea8ff":"#ff6b6b";
+    g.appendChild(el("rect",{x:GW.x,y:GW.y,width:GW.w,height:GW.h,rx:14,fill:"#121826",stroke:gwStroke,"stroke-width":2}));
+    g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+24,"text-anchor":"middle","font-size":"14",fill:"#8b97ab","letter-spacing":"2"})).textContent="GATEWAY";
+    // memory label
+    g.appendChild(el("text",{x:MEM.x,y:MEM.y-8,"font-size":"11",fill:"#8b97ab"})).textContent="memory";
+    const memPct = memoryPct(t);
+    g.appendChild(el("rect",{x:MEM.x,y:MEM.y,width:MEM.w,height:MEM.h,rx:10,fill:"#0c1017",stroke:"#2a3446"}));
+    const mcol = memPct>0.95 ? "#ff6b6b" : memPct>0.6 ? "#ffb454" : "#3fd68c";
+    g.appendChild(el("rect",{x:MEM.x,y:MEM.y,width:Math.max(6,MEM.w*memPct),height:MEM.h,rx:10,fill:mcol}));
+    g.appendChild(el("text",{x:MEM.x+MEM.w,y:MEM.y+MEM.h+16,"text-anchor":"end","font-size":"11",fill:"#8b97ab"})).textContent=(1.1+6.9*memPct).toFixed(1)+" GiB";
+    // retry note when failing
+    if(sceneOf(t)==="climb" || (sceneOf(t)==="oom" && !hasReboot(t))){
+      g.appendChild(el("text",{x:GW.x+GW.w/2,y:DB.y+220,"text-anchor":"middle","font-size":"12",fill:"#ffb454"})).textContent="save failed · retrying";
+    }
+    // OOM / reboot label on gateway
+    if(sceneOf(t)==="oom"){
+      if(!hasReboot(t)){
+        if(inWindow(t,S.oom.start+140,S.oom.start+210)){
+          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"26",fill:"#ff6b6b"})).textContent="\uD83D\uDC80";
+          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+176,"text-anchor":"middle","font-size":"12",fill:"#ff6b6b"})).textContent="OOM killed";
+        }
+      } else {
+        const rb=Math.floor((t-(S.oom.start+220))/8)%2;
+        if(rb===0){
+          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"13",fill:"#6ea8ff"})).textContent="\u21bb booting...";
+        } else {
+          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"13",fill:"#ff6b6b"})).textContent="boot failed";
+        }
+      }
+    }
+
+    // ---------- wire / requests between gateway and db ----------
+    const yMid=DB.y+40;
+    const wx1=GW.x+GW.w, wx2=DB.x-20;
+    if(sceneOf(t)==="arrive" || sceneOf(t)==="climb"){
+      drawRequests(g,wx1,yMid,wx2,t);
+    } else if(sceneOf(t)==="oom" && !hasReboot(t)){
+      drawRequests(g,wx1,yMid,wx2,t);
+    }
+
+    // ---------- database (right) ----------
+    let dbStroke="#1e2736";
+    let dbFill="#121826";
+    if(sceneOf(t)==="full" || sceneOf(t)==="arrive" || sceneOf(t)==="climb" || sceneOf(t)==="oom"){
+      dbStroke="#ff6b6b"; dbFill="#16121a";
+    }
+    g.appendChild(el("rect",{x:DB.x,y:DB.y,width:DB.w,height:DB.h,rx:14,fill:dbFill,stroke:dbStroke,"stroke-width":2}));
+    g.appendChild(el("text",{x:DB.x+DB.w/2,y:DB.y+24,"text-anchor":"middle","font-size":"14",fill:"#8b97ab","letter-spacing":"2"})).textContent="DATABASE";
+    // disk
+    const fillPct=diskPct(t);
+    const dcol=fillPct>0.97? "#ff6b6b":"#6ea8ff";
+    g.appendChild(el("rect",{x:DISK.x,y:DISK.y,width:DISK.w,height:DISK.h,rx:10,fill:"#0c1017",stroke:"#2a3446"}));
+    const fh=Math.max(0, DISK.h*fillPct-6);
+    const dTop=DISK.y+DISK.h-fh-3;
+    if(fh>1)g.appendChild(el("rect",{x:DISK.x+4,y:dTop,width:DISK.w-8,height:fh,rx:6,fill:dcol}));
+    // disk % text
+    const dpctTxt=el("text",{x:DB.x+DB.w/2,y:DISK.y+DISK.h+22,"text-anchor":"middle","font-size":"13",fill:"#8b97ab"});
+    dpctTxt.textContent=Math.round(48*fillPct)+" / 50 GB";
+    g.appendChild(dpctTxt);
+    // db status line
+    const down = sceneOf(t)!=="pile" && sceneOf(t)!=="full";
+    const st=el("text",{x:DB.x+DB.w/2,y:DISK.y+DISK.h+44,"text-anchor":"middle","font-size":"12",fill:down?"#ff6b6b":"#3fd68c"});
+    st.textContent = down? "down — refusing connections" : (sceneOf(t)==="full"? "full — no space" : "accepting writes");
+    g.appendChild(st);
+
+    return g;
+  }
+
+  function sceneOf(t){
+    for(const k of ORDER){ if(t>=S[k].start && t<S[k].end) return k; }
+    return "oom";
+  }
+  function diskPct(t){
+    // fills during scene 1 (0..239) to ~0.97
+    const sc=sceneOf(t);
+    if(sc==="pile") return (t-S.pile.start)/(S.pile.end-S.pile.start);
+    return 0.97; // full from scene 2 onward
+  }
+  function memoryPct(t){
+    const sc=sceneOf(t);
+    if(sc==="pile"||sc==="full") return 0.05;
+    if(sc==="arrive") return 0.08;
+    if(sc==="climb") return Math.min(1,0.08+0.92*((t-S.climb.start)/(S.climb.end-S.climb.start)));
+    // oom: high, with reboot dip
+    if(!hasReboot(t)) return 1;
+    return (Math.floor((t-(S.oom.start+220))/8)%2===0)? 0.2 : 1;
+  }
+  function hasReboot(t){ return t>=S.oom.start+220; }
+  function inWindow(t,a,b){ return t>=a && t<b; }
+
+  // request blocks travelling gateway->db (scene 3-5)
+  function drawRequests(g,x1,y,x2,t){
+    const sc=sceneOf(t);
+    const per=(t-(S[sc].start))/FPS;          // seconds into scene
+    for(let i=0;i<5;i++){
+      const off=per*150 - i*80;               // continuous flow, wrap
+      const px=((off % (x2-x1+60))+ (x2-x1+60)) % (x2-x1+60);
+      const cx=x1+px;
+      const alive= sceneOf(t)==="climb" || sceneOf(t)==="oom";
+      // scene 3 = arrive (reach db then stop), scene 4/5 = bounce back (fail)
+      if(sc==="arrive" && cx<x2-10){
+        g.appendChild(el("rect",{x:cx-7,y:y-5,width:14,height:10,rx:3,fill:"#3fd68c",opacity:.9}));
+      } else if(alive){
+        // bounce at the db: return toward gateway = failed save
+        const bounce=((off)%(x2-x1+60));
+        const rcx=x2-bounce;                   // travels back left
+        g.appendChild(el("rect",{x:rcx-7,y:y-5,width:14,height:10,rx:3,fill:"#ffb454",opacity:.9}));
+        if(bounce>40)g.appendChild(el("text",{x:rcx-24,y:y+4,"font-size":"10",fill:"#ff6b6b"})).textContent="\u2717";
+      }
+    }
+  }
+
+  // ---- subtitle + timeline ----
+  function setSub(sc){
+    sub.innerHTML=S[sc].sub;
+  }
+  function markScene(i){
+    segs.forEach((s,j)=>{ s.classList.toggle("done",j<i); s.classList.toggle("live",j===i); });
+    labels.forEach((l,j)=>{
+      l.style.color = j===i ? "var(--green)" : "#5b6880";
+      l.style.fontWeight = j===i ? "700" : "400";
+    });
+  }
+  function segFill(i,sc,t){
+    const seg=segs[i].querySelector("i");
+    const f=Math.max(0,Math.min(1,(t-S[sc].start)/(S[sc].end-S[sc].start)));
+    seg.style.width=(f*100)+"%";
+    seg.style.background = sceneOf(t)==="full"||sceneOf(t)==="oom"?"#ff6b6b":(sc==="climb"?"#ffb454":"#3fd68c");
+  }
+
+  // ---- director state ----
+  let playing=false, frame=0, raf=null, sceneIdx=0;
+
+  function render(){
+    film.replaceChildren(draw(frame));
+    const sc=sceneOf(frame);
+    const idx=ORDER.indexOf(sc);
+    sceneIdx=idx;
+    setSub(sc);
+    markScene(idx);
+    for(let i=0;i<5;i++) segFill(i,ORDER[i],frame);
+  }
+
+  function tick(){
+    frame++;
+    render();
+    if(frame>=TOTAL){ frame=TOTAL-1; render(); endFilm(); return; }
+    raf=requestAnimationFrame(tick);
+  }
+
+  function startFilm(){
+    if(playing) return;
+    playing=true;
+    playBtn.classList.add("playing"); playBtn.innerHTML='<span class="tri"></span>Playing&hellip;';
+    frame=0; sceneIdx=0;
+    render();
+    raf=requestAnimationFrame(tick);
+  }
+
+  function stepScene(){
+    if(playing) return;
+    // jump to the start of the next scene and hold it there
+    sceneIdx=(sceneIdx+1)%ORDER.length;
+    frame=S[ORDER[sceneIdx]].start;
+    render();
+  }
+
+  function endFilm(){
+    playing=false;
+    cancelAnimationFrame(raf);
+    playBtn.classList.remove("playing");
+    playBtn.innerHTML='<span class="tri"></span>Replay';
+  }
+
+  playBtn.addEventListener("click",()=>{
+    if(playing) return;
+    if(frame>=TOTAL-1) frame=0;      // replay from start
+    startFilm();
+  });
+  stepBtn.addEventListener("click",stepScene);
+
+  // reveal scroll
+  const rev=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in-view");rev.unobserve(e.target);}}),{threshold:.2});
   document.querySelectorAll(".reveal").forEach(el=>rev.observe(el));
-
-  /* ============ ACT 1 ============ */
-  const s1=document.getElementById("stage1");
-  const phase1=document.getElementById("phase1");
-  const steps1=[...document.querySelectorAll("#steps1 .step")];
-  const disk=document.getElementById("disk"), dfill=document.getElementById("dfill");
-  const dval=document.getElementById("dval"), dbled1=document.getElementById("dbled1");
-  const dbstat=document.getElementById("dbstat");
-  const play1=document.getElementById("play1");
-
-  let t1=[];
-  function stop1(){ t1.forEach(clearTimeout); t1=[]; s1.classList.remove("on"); }
-  function reset1(runNext){
-    stop1();
-    s1.classList.remove("d-full");
-    disk.classList.remove("full"); dfill.classList.remove("hot");
-    dbled1.className="led g";
-    dbstat.textContent="accepting writes"; dbstat.className="dbstat ok";
-    dval.textContent="0 / 50 GB";
-    setPhase1(0);
-    void s1.offsetWidth;
-    if(runNext) s1.classList.add("on");
-  }
-  function setPhase1(i){
-    const P=[
-      ["records are being written&hellip;","p0"],
-      ["disk full.","p2"],
-      ["database goes down.","p2"]
-    ];
-    phase1.innerHTML=P[i][0]+'<span class="t">step '+(i+1)+'/3</span>';
-    phase1.className="phase "+P[i][1];
-    steps1.forEach((s,j)=>{ s.classList.toggle("cur",j===i); s.classList.toggle("done",j<i); });
-  }
-  function run1(){
-    reset1(true);
-    setPlayBtn(play1, "started");
-    const t0=performance.now();
-    (function tick(now){
-      const d=Math.min(Math.max((now-t0-500)/5000,0),1);
-      dval.textContent=(48*(1-Math.pow(1-d,1.6))).toFixed(0)+" / 50 GB";
-      if(d<1 && dval.isConnected) requestAnimationFrame(tick);
-    })(t0);
-    t1.push(setTimeout(()=>setPhase1(1),5600));
-    t1.push(setTimeout(()=>{
-      disk.classList.add("full"); dfill.classList.add("hot");
-      s1.classList.add("d-full");
-      dbstat.textContent="write failed: no space"; dbstat.className="dbstat down";
-    },5800));
-    t1.push(setTimeout(()=>setPhase1(2),7600));
-    t1.push(setTimeout(()=>{
-      dbled1.className="led r";
-      dbstat.textContent="down: refusing connections"; dbstat.className="dbstat down";
-    },8200));
-    t1.push(setTimeout(()=>{
-      reset1(false);
-      setPlayBtn(play1, "replay");
-    },13500));
-  }
-  play1.addEventListener("click",()=>{
-    if(play1.classList.contains("started")) return;
-    reset1(false);
-    setPlayBtn(play1, "watch");
-    run1();
-  });
-
-  /* ============ ACT 2 ============ */
-  const s2=document.getElementById("stage2");
-  const phase2=document.getElementById("phase2");
-  const steps2=[...document.querySelectorAll("#steps2 .step")];
-  const mfill=document.getElementById("mfill"), mval=document.getElementById("mval");
-  const wire2=document.getElementById("wire2"), gwled=document.getElementById("gwled");
-  const gw=document.getElementById("gw"), retry=document.getElementById("retry");
-  const deadmsg=document.getElementById("deadmsg"), reqs=document.getElementById("reqs");
-  const play2=document.getElementById("play2");
-
-  const NR=24;
-  for(let i=0;i<NR;i++){
-    const c=document.createElement("span");
-    c.className="rq"; c.style.animationDelay=(i*0.22)+"s";
-    reqs.appendChild(c);
-  }
-
-  let t2=[], reqLoop=null;
-  function stop2(){ t2.forEach(clearTimeout); if(reqLoop) clearInterval(reqLoop); reqLoop=null; t2=[]; s2.classList.remove("on"); }
-  function reset2(runNext){
-    stop2();
-    wire2.classList.remove("err");
-    gw.classList.remove("dead");
-    gwled.className="led g"; mfill.classList.remove("hot");
-    retry.classList.remove("show"); deadmsg.textContent="";
-    mval.textContent="1.1 GiB";
-    document.querySelectorAll("#reqs .rq").forEach(r=>r.style.animation="none");
-    void s2.offsetWidth;
-    document.querySelectorAll("#reqs .rq").forEach(r=>r.style.animation="");
-    setPhase2(0);
-    if(runNext) s2.classList.add("on");
-  }
-  function setPhase2(i){
-    const P=[
-      ["requests keep arriving&hellip;","p0"],
-      ["saves fail. retries pile up.","p1"],
-      ["memory full. OOM.","p2"],
-      ["restart fails: boot needs the database.","p2"]
-    ];
-    phase2.innerHTML=P[i][0]+'<span class="t">step '+(i+1)+'/4</span>';
-    phase2.className="phase "+P[i][1];
-    steps2.forEach((s,j)=>{ s.classList.toggle("cur",j===i); s.classList.toggle("done",j<i); });
-  }
-  function run2(){
-    reset2(true);
-    setPlayBtn(play2, "started");
-    reqLoop=setInterval(()=>{
-      const first=reqs.querySelector(".rq");
-      if(first) reqs.appendChild(first);   // recycle chips so arrivals never stop
-    },900);
-    t2.push(reqLoop);
-    const t0=performance.now();
-    (function tick(now){
-      const m=Math.min(Math.max((now-t0-1000)/6500,0),1);
-      mval.textContent=(1.1+6.9*(1-Math.pow(1-m,2))).toFixed(1)+" GiB";
-      if(m<1 && mval.isConnected) requestAnimationFrame(tick);
-    })(t0);
-    t2.push(setTimeout(()=>{ setPhase2(1); wire2.classList.add("err"); retry.classList.add("show"); },3400));
-    t2.push(setTimeout(()=>{ mfill.classList.add("hot"); gwled.className="led a"; },4200));
-    t2.push(setTimeout(()=>setPhase2(2),10000));
-    t2.push(setTimeout(()=>{
-      gw.classList.add("dead"); gwled.className="led r";
-      mval.textContent="8 GiB \u2013 limit crossed";
-      deadmsg.textContent="\u2620 killed: out of memory";
-    },10400));
-    t2.push(setTimeout(()=>setPhase2(3),13600));
-    t2.push(setTimeout(()=>{
-      gw.classList.remove("dead"); gwled.className="led a";
-      mval.textContent="2.4 GiB"; deadmsg.textContent="";
-    },14200));
-    t2.push(setTimeout(()=>{
-      gw.classList.add("dead"); gwled.className="led r";
-      deadmsg.textContent="boot failed: database unreachable";
-    },15600));
-    t2.push(setTimeout(()=>{
-      reset2(false);
-      setPlayBtn(play2, "replay");
-    },19500));
-  }
-  play2.addEventListener("click",()=>{
-    if(play2.classList.contains("started")) return;
-    reset2(false);
-    setPlayBtn(play2, "watch");
-    run2();
-  });
-
-  function setPlayBtn(btn, mode){
-    btn.className="btn "+mode;
-    if(mode==="started"){ btn.innerHTML='<span class="tri"></span>Playing&hellip;'; }
-    else if(mode==="watch"){ btn.innerHTML='<span class="tri"></span>Playing&hellip;'; }
-    else { btn.innerHTML='<span class="re">&#8635;</span>Replay'; }
-  }
 })();
 </script>
 </body>
