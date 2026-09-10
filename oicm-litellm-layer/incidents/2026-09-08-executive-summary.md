@@ -50,9 +50,3 @@ running diary of its own memory use, collected in our Loki log store, so a
 slow creep can be spotted and fixed long before anything crashes. Storage and
 memory are now checked as part of routine review, so the next silent fill-up
 gets noticed instead of surfacing as an outage
-
-## Where things stand
-
-Service is healthy. The gateway has run without a single restart since the
-fixes landed, and the database cycles inside its stable window with room to
-spare. Remaining follow-ups are optional improvements, not needed for safety
