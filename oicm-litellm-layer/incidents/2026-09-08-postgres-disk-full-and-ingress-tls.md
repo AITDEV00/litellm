@@ -9,6 +9,9 @@ following day.
 
 Status: RESOLVED. Retention verified deleting rows. Monitor live in prod.
 
+Plain-language version for non-technical readers:
+[executive summary](2026-09-08-executive-summary.md)
+
 ---
 
 ## Executive summary
