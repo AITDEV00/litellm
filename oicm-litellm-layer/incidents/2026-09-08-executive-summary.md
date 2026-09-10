@@ -1,9 +1,6 @@
 # 2026-09-08 incident: executive summary
 
-Plain-language version for non-technical readers. The technical detail and
-evidence live in the
-[incident report](2026-09-08-postgres-disk-full-and-ingress-tls.md) and the
-[resolutions document](2026-09-08-resolutions.md)
+Plain-language version of the incident, for non-technical readers
 
 Status: resolved the same day, with every fix verified working the next morning
 
@@ -58,5 +55,4 @@ gets noticed instead of surfacing as an outage
 
 Service is healthy. The gateway has run without a single restart since the
 fixes landed, and the database cycles inside its stable window with room to
-spare. The remaining follow-ups are optional improvements listed in the
-resolutions document
+spare. Remaining follow-ups are optional improvements, not needed for safety
