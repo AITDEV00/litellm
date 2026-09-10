@@ -482,6 +482,29 @@
   }
   wire(1,play1); wire(2,play2); wire(3,play3);
 
+  /* autoplay when the stage is directly in view — once per act */
+  if(!reduce){
+    const played={1:false,2:false,3:false};
+    const playFns={1:play1,2:play2,3:play3};
+    const autoObs=new IntersectionObserver(es=>es.forEach(e=>{
+      const n=+e.target.dataset.act;
+      if(e.isIntersecting && !played[n] && !$("btn"+n).classList.contains("playing")){
+        played[n]=true;                       // never autoplay the same act twice
+        clearTimers(n);
+        const btn=$("btn"+n);
+        btn.classList.remove("replay");
+        btn.innerHTML='<span class="tri"></span>Play';
+        playFns[n]();
+        autoObs.unobserve(e.target);          // stop watching after first trigger
+      }
+    }),{threshold:.75});                       // only when the stage is fully in view
+    [1,2,3].forEach(n=>{
+      const svg=$("svg"+n);
+      svg.dataset.act=n;
+      autoObs.observe(svg);
+    });
+  }
+
   if(reduce){
     // static final states
     [1,2,3].forEach(n=>{ $("btn"+n).style.display="none"; });
