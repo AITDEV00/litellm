@@ -506,16 +506,42 @@
   }
 
   if(reduce){
-    // static final states
-    [1,2,3].forEach(n=>{ $("btn"+n).style.display="none"; });
-    show("g1a","g1b","g2a","g2b","g2c","g2d","g2e","db2","skull","g3a","boot3","bootfail","db3","g3x","fix3");
-    const d=$("df1"); d.setAttribute("y","104"); d.setAttribute("height","110");
-    const m=$("mf2"); m.setAttribute("width","130"); m.setAttribute("fill","#ff6b6b");
-    $("w2f").setAttribute("opacity",".5");
-    say(1,"disk full: 48/50 GB, never deleted",true);
-    say(2,"saves failed, memory hit 8 GiB, db refused connections",true);
-    say(3,"OOM killed; reboots failed while the db was down",true);
-    [1,2,3].forEach(n=>setSteps(n,99));
+    // reduced motion: skip the animated transitions but keep the full story —
+    // a "Show story" button steps through the scenes instantly (no motion).
+    [1,2,3].forEach(n=>{
+      const btn=$("btn"+n);
+      btn.classList.remove("playing");
+      btn.innerHTML='<span class="re">&#8635;</span>Show story';
+      btn.classList.remove("replay");
+    });
+    window.__showStory = function(n){
+      const steps = {
+        1: ()=>{ show("g1a","g1b");
+                 const d=$("df1"); d.setAttribute("y","104"); d.setAttribute("height","110");
+                 say(1,"disk full: 48/50 GB, never deleted",true);
+                 setSteps(1,2); },
+        2: ()=>{ show("g2a","g2b","g2c","g2d","g2e","db2");
+                 $("w2f").setAttribute("opacity",".5");
+                 const m=$("mf2"); m.setAttribute("width","130"); m.setAttribute("fill","#ff6b6b");
+                 say(2,"saves failed, memory hit 8 GiB, db refused connections",true);
+                 setSteps(2,3); },
+        3: ()=>{ show("skull","g3a","boot3","bootfail","db3","g3x","fix3");
+                 $("w3f").setAttribute("opacity",".35");
+                 say(3,"OOM killed; reboots failed while the db was down",true);
+                 setSteps(3,3); }
+      };
+      steps[n]();
+      const btn=$("btn"+n);
+      btn.innerHTML='<span class="re">&#8635;</span>Show again';
+    };
+    // wire the buttons to the instant story reveal
+    [1,2,3].forEach(n=>{
+      const btn=$("btn"+n);
+      const clone=btn.cloneNode(true);
+      btn.replaceWith(clone);
+      clone.addEventListener("click",()=>window.__showStory(n));
+    });
+    // show nothing pre-click: charts start neutral until the user asks for the story
   }
 })();
 </script>
