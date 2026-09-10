@@ -1,11 +1,11 @@
 # 2026-09-08 incident — resolutions in detail
 
-Companion to the [incident report](2026-09-08-postgres-disk-full-and-ingress-tls.md),
+Companion to the [incident report](incident-report.md),
 which documents what happened, the exact timeline, and the evidence. This
 document covers how each issue was resolved, with full technical detail,
 verification data, and the reasoning behind each decision. A plain-language
 version for non-technical readers lives in the
-[executive summary](2026-09-08-executive-summary.md)
+[executive summary](executive-summary.md)
 
 All fixes below were verified against the running cluster on 2026-09-09.
 

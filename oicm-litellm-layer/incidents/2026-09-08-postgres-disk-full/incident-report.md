@@ -10,7 +10,7 @@ following day.
 Status: RESOLVED. Retention verified deleting rows. Monitor live in prod.
 
 Plain-language version for non-technical readers:
-[executive summary](2026-09-08-executive-summary.md)
+[executive summary](executive-summary.md)
 
 ---
 
@@ -211,7 +211,7 @@ free space on storage nodes (`/var/lib/longhorn`).
 Every issue above was resolved the same day. The full resolution details —
 sizing rationale, row anatomy, the OOM mechanism analysis, the gateway-DB
 decoupling design, and the memory creep investigation — live in the
-companion document: [2026-09-08-resolutions.md](2026-09-08-resolutions.md).
+companion document: [resolutions.md](resolutions.md).
 
 ## Evidence: exact commands
 
@@ -379,5 +379,5 @@ grep mlops-postgres /var/log/kubernetes/audit/audit.log \
 ## Follow-ups
 
 All resolution details, verification data, and open items live in the
-companion document: [2026-09-08-resolutions.md](2026-09-08-resolutions.md).
+companion document: [resolutions.md](resolutions.md).
 
