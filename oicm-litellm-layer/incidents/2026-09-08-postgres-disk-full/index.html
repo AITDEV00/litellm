@@ -174,7 +174,7 @@
       <text x="88" y="142" text-anchor="middle" font-size="16" fill="#8b97ab">USERS</text>
       <text x="88" y="168" text-anchor="middle" font-size="18">🚀</text>
       <line id="w2u" x1="136" y1="150" x2="210" y2="150" stroke="#3fd68c" stroke-width="2.5" class="wireflow" opacity=".25"/>
-      <rect id="gw2" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#ffb454" stroke-width="2"/>
+      <rect id="gw2" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
       <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
       <rect x="232" y="106" width="136" height="22" rx="10" fill="#0c1017" stroke="#2a3446"/>
       <rect class="mfill" id="mf2" x="235" y="109" width="6" height="16" rx="7" fill="#3fd68c"/>
@@ -183,7 +183,7 @@
         <text x="300" y="172" text-anchor="middle" font-size="11" fill="#ffb454">save failed · retrying…</text>
       </g>
       <text x="300" y="196" text-anchor="middle" font-size="10" fill="#8b97ab">every pending record held in memory</text>
-      <line id="w2f" x1="395" y1="150" x2="535" y2="150" stroke="#ff6b6b" stroke-width="2.5" opacity=".15"/>
+      <line id="w2f" x1="395" y1="150" x2="535" y2="150" stroke="#ff6b6b" stroke-width="2.5" opacity="0"/>
       <text class="gone gfade" id="g2b" x="465" y="122" text-anchor="middle" font-size="11" fill="#ff6b6b" font-weight="700">✗ save fails</text>
       <text class="gone gfade" id="g2c" x="465" y="184" text-anchor="middle" font-size="10" fill="#8b97ab">bounce-backs pile up in memory</text>
       <g id="db2" class="gone gfade">
@@ -220,7 +220,7 @@
       <span class="ph" id="ph3">press play to watch the crash and failed reboots</span>
     </div>
     <svg class="dg" id="svg3" viewBox="0 0 860 300" role="img" aria-label="Gateway is OOM killed, reboot loop fails because boot needs the down database">
-      <rect id="gw3" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#ffb454" stroke-width="2"/>
+      <rect id="gw3" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
       <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
       <text class="gone gfade" id="skull" x="300" y="140" text-anchor="middle" font-size="24">💀</text>
       <g class="gone gfade" id="g3a">
@@ -393,6 +393,7 @@
   function reset2(){
     hide("g2a","g2b","g2c","g2d","g2e","db2");
     const m=$("mf2"); m.setAttribute("width","6"); m.setAttribute("fill","#3fd68c");
+    $("gw2").setAttribute("stroke","#1e2736");
     $("w2f").setAttribute("opacity","0");
     $("w2u").classList.remove("run");
     setSteps(2,-1);
@@ -407,6 +408,7 @@
     T(()=>{ setSteps(2,0); show("db2","g2d"); say(2,"05:23 — the first write fails"); },1200);
     T(()=>{ setSteps(2,1); show("g2e"); say(2,"07:47 — the database refuses all connections"); },2600);
     T(()=>{ setSteps(2,2); show("g2b","g2c");
+            $("gw2").setAttribute("stroke","#ffb454");
             $("w2f").setAttribute("opacity",".5"); $("w2f").classList.add("fail");
             say(2,"saves fail — every record waits in gateway memory"); },4200);
     T(()=>{ setSteps(2,3); show("g2a");
@@ -428,7 +430,7 @@
   let timers3=[];
   function reset3(){
     hide("skull","g3a","boot3","bootfail","db3","g3x","fix3");
-    const gw=$("gw3"); gw.setAttribute("stroke","#ffb454");
+    const gw=$("gw3"); gw.setAttribute("stroke","#1e2736");
     $("w3f").setAttribute("opacity","0");
     $("boottxt").textContent="↻ rebooting…"; $("boottxt").setAttribute("fill","#6ea8ff");
     setSteps(3,-1);
