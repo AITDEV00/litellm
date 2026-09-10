@@ -66,6 +66,20 @@
   .link.err .x{opacity:1;animation:shake .5s ease-in-out infinite}
   @keyframes shake{0%,100%{transform:translateX(-50%)}25%{transform:translateX(-64%)}75%{transform:translateX(-36%)}}
 
+  /* play button */
+  .playbox{display:flex;justify-content:center;margin:0 0 6px}
+  .btn{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);
+    background:var(--card2);color:var(--text);font-family:inherit;font-size:.92rem;font-weight:700;
+    padding:11px 22px;border-radius:30px;cursor:pointer;transition:all .25s;letter-spacing:.02em}
+  .btn:hover{border-color:var(--blue);transform:translateY(-1px)}
+  .btn .tri{width:0;height:0;border-left:12px solid var(--green);border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .btn .re{font-size:1.05rem;line-height:1}
+  .btn.watch{color:var(--green);cursor:default;pointer-events:none;opacity:.85}
+  .btn.watch .tri{border-left-color:var(--green);animation:blink 1s steps(2) infinite}
+  .btn.started{opacity:.4;pointer-events:none}
+  .btn.replay{color:var(--amber)}
+  .btn.replay:hover{border-color:var(--amber)}
+
   /* ===== ACT 1: disk fills from record writes ===== */
   .diskwrap{display:flex;gap:12px;justify-content:center;align-items:flex-end}
   .disk{height:120px;width:60px;border:2px solid #2a3446;border-radius:10px;padding:4px;
@@ -166,7 +180,10 @@
   <p>Every request writes one record. Nothing ever deletes them.</p>
 
   <div class="stage stage1" id="stage1">
-    <div class="phase" id="phase1">records are being written&hellip;</div>
+    <div class="playbox">
+      <button class="btn" id="play1" type="button"><span class="tri"></span>Play</button>
+    </div>
+    <div class="phase" id="phase1">press play to watch the database fill up</div>
     <div class="row">
       <!-- gateway writes -->
       <div class="comp dim" id="g1">
@@ -212,7 +229,10 @@
   <p>The database is down. Requests keep arriving. Watch the gateway.</p>
 
   <div class="stage stage2" id="stage2">
-    <div class="phase" id="phase2">requests keep arriving&hellip;</div>
+    <div class="playbox">
+      <button class="btn" id="play2" type="button"><span class="tri"></span>Play</button>
+    </div>
+    <div class="phase" id="phase2">press play to watch the gateway go down</div>
     <div class="row">
       <!-- users -->
       <div class="comp">
@@ -306,16 +326,11 @@
   const disk=document.getElementById("disk"), dfill=document.getElementById("dfill");
   const dval=document.getElementById("dval"), dbled1=document.getElementById("dbled1");
   const dbstat=document.getElementById("dbstat");
-
-  if(reduce){
-    phase1.innerHTML='<span class="p2">disk full &#8594; database down</span>';
-    steps1.forEach(s=>s.classList.add("done"));
-    dfill.classList.add("hot");
-  }
+  const play1=document.getElementById("play1");
 
   let t1=[];
   function stop1(){ t1.forEach(clearTimeout); t1=[]; s1.classList.remove("on"); }
-  function reset1(){
+  function reset1(runNext){
     stop1();
     s1.classList.remove("d-full");
     disk.classList.remove("full"); dfill.classList.remove("hot");
@@ -324,8 +339,7 @@
     dval.textContent="0 / 50 GB";
     setPhase1(0);
     void s1.offsetWidth;
-    s1.classList.add("on");
-    run1();
+    if(runNext) s1.classList.add("on");
   }
   function setPhase1(i){
     const P=[
@@ -338,6 +352,8 @@
     steps1.forEach((s,j)=>{ s.classList.toggle("cur",j===i); s.classList.toggle("done",j<i); });
   }
   function run1(){
+    reset1(true);
+    setPlayBtn(play1, "started");
     const t0=performance.now();
     (function tick(now){
       const d=Math.min(Math.max((now-t0-500)/5000,0),1);
@@ -355,12 +371,17 @@
       dbled1.className="led r";
       dbstat.textContent="down: refusing connections"; dbstat.className="dbstat down";
     },8200));
-    t1.push(setTimeout(reset1,13500));
+    t1.push(setTimeout(()=>{
+      reset1(false);
+      setPlayBtn(play1, "replay");
+    },13500));
   }
-  const obs1=new IntersectionObserver(es=>es.forEach(e=>{
-    if(e.isIntersecting){ if(!s1.classList.contains("on")) reset1(); } else stop1();
-  }),{threshold:.4});
-  obs1.observe(s1);
+  play1.addEventListener("click",()=>{
+    if(play1.classList.contains("started")) return;
+    reset1(false);
+    setPlayBtn(play1, "watch");
+    run1();
+  });
 
   /* ============ ACT 2 ============ */
   const s2=document.getElementById("stage2");
@@ -370,6 +391,7 @@
   const wire2=document.getElementById("wire2"), gwled=document.getElementById("gwled");
   const gw=document.getElementById("gw"), retry=document.getElementById("retry");
   const deadmsg=document.getElementById("deadmsg"), reqs=document.getElementById("reqs");
+  const play2=document.getElementById("play2");
 
   const NR=24;
   for(let i=0;i<NR;i++){
@@ -378,17 +400,9 @@
     reqs.appendChild(c);
   }
 
-  if(reduce){
-    phase2.innerHTML='<span class="p2">saves fail &#8594; OOM &#8594; restart fails</span>';
-    steps2.forEach(s=>s.classList.add("done"));
-    mfill.classList.add("hot"); retry.classList.add("show");
-    wire2.classList.add("err");
-    return;
-  }
-
-  let t2=[];
-  function stop2(){ t2.forEach(clearTimeout); t2=[]; s2.classList.remove("on"); }
-  function reset2(){
+  let t2=[], reqLoop=null;
+  function stop2(){ t2.forEach(clearTimeout); if(reqLoop) clearInterval(reqLoop); reqLoop=null; t2=[]; s2.classList.remove("on"); }
+  function reset2(runNext){
     stop2();
     wire2.classList.remove("err");
     gw.classList.remove("dead");
@@ -399,8 +413,7 @@
     void s2.offsetWidth;
     document.querySelectorAll("#reqs .rq").forEach(r=>r.style.animation="");
     setPhase2(0);
-    s2.classList.add("on");
-    run2();
+    if(runNext) s2.classList.add("on");
   }
   function setPhase2(i){
     const P=[
@@ -414,30 +427,28 @@
     steps2.forEach((s,j)=>{ s.classList.toggle("cur",j===i); s.classList.toggle("done",j<i); });
   }
   function run2(){
-    // requests flow in on a loop
-    const reqLoop=setInterval(()=>{
+    reset2(true);
+    setPlayBtn(play2, "started");
+    reqLoop=setInterval(()=>{
       const first=reqs.querySelector(".rq");
       if(first) reqs.appendChild(first);   // recycle chips so arrivals never stop
     },900);
     t2.push(reqLoop);
-
-    // memory climbs 1.1 -> 8 GiB as retries pile up
     const t0=performance.now();
     (function tick(now){
       const m=Math.min(Math.max((now-t0-1000)/6500,0),1);
       mval.textContent=(1.1+6.9*(1-Math.pow(1-m,2))).toFixed(1)+" GiB";
       if(m<1 && mval.isConnected) requestAnimationFrame(tick);
     })(t0);
-
     t2.push(setTimeout(()=>{ setPhase2(1); wire2.classList.add("err"); retry.classList.add("show"); },3400));
     t2.push(setTimeout(()=>{ mfill.classList.add("hot"); gwled.className="led a"; },4200));
-    t2.push(setTimeout(()=>setPhase2(2),10000));   // OOM
+    t2.push(setTimeout(()=>setPhase2(2),10000));
     t2.push(setTimeout(()=>{
       gw.classList.add("dead"); gwled.className="led r";
       mval.textContent="8 GiB \u2013 limit crossed";
       deadmsg.textContent="\u2620 killed: out of memory";
     },10400));
-    t2.push(setTimeout(()=>setPhase2(3),13600));   // restart fails
+    t2.push(setTimeout(()=>setPhase2(3),13600));
     t2.push(setTimeout(()=>{
       gw.classList.remove("dead"); gwled.className="led a";
       mval.textContent="2.4 GiB"; deadmsg.textContent="";
@@ -446,12 +457,24 @@
       gw.classList.add("dead"); gwled.className="led r";
       deadmsg.textContent="boot failed: database unreachable";
     },15600));
-    t2.push(setTimeout(reset2,19500));             // loop
+    t2.push(setTimeout(()=>{
+      reset2(false);
+      setPlayBtn(play2, "replay");
+    },19500));
   }
-  const obs2=new IntersectionObserver(es=>es.forEach(e=>{
-    if(e.isIntersecting){ if(!s2.classList.contains("on")) reset2(); } else stop2();
-  }),{threshold:.4});
-  obs2.observe(s2);
+  play2.addEventListener("click",()=>{
+    if(play2.classList.contains("started")) return;
+    reset2(false);
+    setPlayBtn(play2, "watch");
+    run2();
+  });
+
+  function setPlayBtn(btn, mode){
+    btn.className="btn "+mode;
+    if(mode==="started"){ btn.innerHTML='<span class="tri"></span>Playing&hellip;'; }
+    else if(mode==="watch"){ btn.innerHTML='<span class="tri"></span>Playing&hellip;'; }
+    else { btn.innerHTML='<span class="re">&#8635;</span>Replay'; }
+  }
 })();
 </script>
 </body>
