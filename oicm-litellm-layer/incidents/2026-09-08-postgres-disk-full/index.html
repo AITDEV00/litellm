@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sep 08 2026: the disk that filled</title>
+<title>Sep 08 2026: what happened — diagram</title>
 <style>
   :root{
     --bg:#0a0d13; --card:#121826; --card2:#0f141f; --line:#1e2736;
@@ -13,49 +13,55 @@
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;line-height:1.55;overflow-x:hidden}
 
-  .hero{min-height:62vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 20px}
+  .hero{min-height:52vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 20px}
   .hero .k{letter-spacing:.26em;text-transform:uppercase;font-size:.72rem;color:var(--muted);margin-bottom:16px}
-  .hero h1{font-size:clamp(1.9rem,5vw,3.1rem);line-height:1.12;font-weight:800}
+  .hero h1{font-size:clamp(1.9rem,5vw,3.1rem);line-height:1.12;font-weight:800;max-width:860px}
   .hero h1 .accent{background:linear-gradient(90deg,var(--red),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero p{max-width:520px;margin:18px auto 0;color:var(--muted);font-size:1rem}
+  .hero p{max-width:540px;margin:18px auto 0;color:var(--muted);font-size:1rem}
 
-  section{max-width:940px;margin:0 auto;padding:50px 20px}
+  section{max-width:960px;margin:0 auto;padding:50px 20px}
   .kicker{letter-spacing:.26em;text-transform:uppercase;font-size:.7rem;font-weight:700;margin-bottom:10px}
   .kicker.red{color:var(--red)} .kicker.green{color:var(--green)}
   h2{font-size:clamp(1.3rem,3vw,1.7rem);margin-bottom:8px}
   section>p{color:var(--muted);font-size:1rem;margin-bottom:6px}
+  .caption{font-size:.85rem;color:var(--muted);margin-top:14px}
+  .caption b{color:var(--text)}
 
-  /* ============ THEATRE ============ */
-  .theatre{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 22px;margin-top:26px}
-  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:center;margin-bottom:20px}
-  .btn{display:inline-flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--card2);
-    color:var(--text);font-family:inherit;font-size:.95rem;font-weight:700;padding:12px 26px;border-radius:30px;
-    cursor:pointer;transition:all .2s}
-  .btn:hover{border-color:var(--green);transform:translateY(-1px)}
-  .btn .tri{width:0;height:0;border-left:13px solid var(--green);border-top:8px solid transparent;border-bottom:8px solid transparent}
-  .btn.replay{color:var(--amber)} .btn.replay:hover{border-color:var(--amber)}
-  .btn.playing{opacity:.5;pointer-events:none}
+  /* ============ diagram frame ============ */
+  .diagram{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 18px;margin-top:26px}
+  .dg{width:100%;height:auto;display:block}
+  .dg text{font-family:inherit}
 
-  /* scene timeline */
-  .timeline{display:flex;gap:8px;margin-bottom:18px}
-  .tl-seg{flex:1;height:7px;border-radius:4px;background:#1c2434;overflow:hidden}
-  .tl-seg i{display:block;height:100%;width:0;border-radius:4px;background:var(--green);transition:width .25s linear}
-  .tl-seg.live i{background:var(--green)}
-  .tl-seg.done i{width:100%}
-  .tl-labels{display:flex;gap:8px;margin-bottom:4px}
-  .tl-label{flex:1;font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;color:#5b6880;text-align:center}
-  .tl-label.live{color:var(--green);font-weight:700}
+  /* minimal CSS-only life: flowing dots on wires + blinking leds */
+  .flow{stroke-dasharray:6 10;animation:flow 1.2s linear infinite}
+  .flow.rev{animation-direction:reverse}
+  .flow.fast{animation-duration:.7s}
+  @keyframes flow{to{stroke-dashoffset:-32}}
+  .led{animation:blink 1.4s ease-in-out infinite}
+  .led.fast{animation-duration:.6s}
+  @keyframes blink{50%{opacity:.25}}
+  .pulse{animation:pulse 2.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .broken{animation:xnudge .6s ease-in-out infinite}
+  @keyframes xnudge{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
 
-  /* subtitle = scene narration */
-  .subtitle{text-align:center;font-size:1.02rem;font-weight:600;min-height:28px;margin-bottom:16px}
-  .subtitle .t{display:block;font-size:.74rem;font-weight:400;color:var(--muted);margin-top:2px}
+  /* act labels under each panel */
+  .panels{display:grid;grid-template-columns:1fr;gap:22px}
+  .act{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 18px}
+  .act h3{font-size:1.05rem;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .act h3 .n{width:26px;height:26px;border-radius:50%;background:var(--card2);border:1px solid var(--line);
+    display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;flex:0 0 auto}
+  .act p.sub{color:var(--muted);font-size:.92rem;margin:2px 0 14px}
+  .act .dg{margin-top:6px}
 
-  /* the stage canvas */
-  .screen{border:1px solid var(--line);border-radius:14px;background:#0b0f16;overflow:hidden}
-  .screen svg{width:100%;height:auto;display:block}
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-top:18px;font-size:.8rem;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:18px;height:3px;border-radius:2px;display:inline-block}
 
-  .after{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
-  @media(max-width:720px){.after{grid-template-columns:1fr}}
+  /* before/after */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+  @media(max-width:720px){.compare{grid-template-columns:1fr}}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
   .panel h3{font-size:1rem;margin-bottom:14px;display:flex;align-items:center;gap:9px}
   .panel h3 .dot2{width:10px;height:10px;border-radius:50%}
@@ -64,13 +70,14 @@
   .panel li{font-size:.92rem;color:var(--muted);padding:7px 0;border-bottom:1px dashed var(--line);display:flex;gap:10px;align-items:baseline}
   .panel li:last-child{border:none}
   .panel li b{color:var(--text);font-weight:600;white-space:nowrap;min-width:84px}
-  .panel li i{font-style:normal} .panel.bad li i{color:var(--red)} .panel.good li i{color:var(--green)}
+  .panel.bad li i{color:var(--red);font-style:normal}
+  .panel.good li i{color:var(--green);font-style:normal}
   .panel li span:last-child{flex:1}
 
   footer{border-top:1px solid var(--line);padding:54px 20px 74px;text-align:center}
   footer h2{margin-bottom:8px} footer p{color:var(--muted);max-width:540px;margin:0 auto}
 
-  .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
   .reveal.in-view{opacity:1;transform:none}
 
   @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} .reveal{opacity:1!important;transform:none!important} }
@@ -80,66 +87,201 @@
 
 <header class="hero">
   <div class="k">OICM platform · incident · September 8 2026</div>
-  <h1>The request log filled the disk.<br><span class="accent">Then the gateway went down with it.</span></h1>
-  <p>One short film, five scenes. Press play.</p>
+  <h1>The request log filled the disk.<br><span class="accent">The database went down. The gateway followed.</span></h1>
+  <p>The whole story in three diagrams</p>
 </header>
 
-<!-- ============ THE FILM ============ -->
+<!-- ============ ACT 1 ============ -->
 <section>
-  <div class="kicker red">the story</div>
-  <h2>A 20-second film of what happened</h2>
-  <p>Play it, or step scene by scene. Each scene runs about four seconds.</p>
+  <div class="panels">
 
-  <div class="theatre">
-    <div class="controls">
-      <button class="btn" id="playBtn" type="button"><span class="tri"></span>Play film</button>
-      <button class="btn" id="stepBtn" type="button">&#8250; Step scene</button>
+    <div class="act reveal">
+      <h3><span class="n">1</span> Records pile up — the disk fills</h3>
+      <p class="sub">Every request writes one record to the database. Nothing ever deleted them. After 2.5 months: 48 GB on a 50 GB disk.</p>
+      <svg class="dg" viewBox="0 0 860 300" role="img" aria-label="Gateway writes records into a database whose disk fills from 0 to 48 of 50 gigabytes">
+        <!-- gateway -->
+        <rect x="60" y="60" width="170" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+        <text x="145" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+        <text x="145" y="130" text-anchor="middle" font-size="22">🖥️</text>
+        <text x="145" y="165" text-anchor="middle" font-size="11" fill="#8b97ab">handles requests,</text>
+        <text x="145" y="180" text-anchor="middle" font-size="11" fill="#8b97ab">writes a record for each</text>
+        <!-- wire: flowing right -->
+        <line x1="230" y1="150" x2="380" y2="150" stroke="#3fd68c" stroke-width="2.5" class="flow"/>
+        <text x="305" y="136" text-anchor="middle" font-size="10" fill="#3fd68c" letter-spacing="1">writes record</text>
+        <!-- database -->
+        <rect x="380" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+        <text x="470" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+        <!-- disk bar vertical -->
+        <rect x="510" y="100" width="34" height="120" rx="7" fill="#0c1017" stroke="#2a3446"/>
+        <rect x="513" y="104" width="28" height="110" rx="5" fill="#6ea8ff"/>
+        <!-- ticks -->
+        <g font-size="9" fill="#4a5568">
+          <text x="552" y="108">50</text><text x="552" y="148">37</text>
+          <text x="552" y="188">25</text><text x="552" y="215">12</text>
+        </g>
+        <text x="452" y="200" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">48 / 50 GB</text>
+        <text x="452" y="218" text-anchor="middle" font-size="10" fill="#ff6b6b">2.5 months · never deleted</text>
+        <!-- growth arrows -->
+        <text x="620" y="95" font-size="12" fill="#8b97ab">records only ever grow:</text>
+        <g font-size="11" fill="#8b97ab">
+          <text x="620" y="122">13.2M records</text>
+          <text x="620" y="142">~176K/day average</text>
+          <text x="620" y="162">~500K/day by September</text>
+          <text x="620" y="182">72% duplicated model info</text>
+        </g>
+        <!-- full marker -->
+        <line x1="380" y1="106" x2="560" y2="106" stroke="#ff6b6b" stroke-width="1.5" stroke-dasharray="5 4" class="pulse"/>
+        <text x="566" y="110" font-size="10" fill="#ff6b6b">disk limit</text>
+      </svg>
     </div>
 
-    <div class="tl-labels" id="tlLabels">
-      <span class="tl-label">1 · records pile up</span>
-      <span class="tl-label">2 · disk full</span>
-      <span class="tl-label">3 · requests keep coming</span>
-      <span class="tl-label">4 · saves fail, memory climbs</span>
-      <span class="tl-label">5 · OOM &amp; failed reboot</span>
-    </div>
-    <div class="timeline" id="timeline">
-      <div class="tl-seg" data-i="0"><i></i></div>
-      <div class="tl-seg" data-i="1"><i></i></div>
-      <div class="tl-seg" data-i="2"><i></i></div>
-      <div class="tl-seg" data-i="3"><i></i></div>
-      <div class="tl-seg" data-i="4"><i></i></div>
+    <!-- ============ ACT 2 ============ -->
+    <div class="act reveal">
+      <h3><span class="n">2</span> Database goes down — saves start failing</h3>
+      <p class="sub">Sep 08, 05:23: the first write fails. 07:47: the database refuses all connections. Requests keep arriving, so the gateway holds every record in memory and retries.</p>
+      <svg class="dg" viewBox="0 0 860 300" role="img" aria-label="Requests arrive at the gateway, saves to the down database fail and bounce back, memory fills toward 8 gigabytes">
+        <!-- users -->
+        <rect x="40" y="110" width="96" height="80" rx="12" fill="#121826" stroke="#1e2736"/>
+        <text x="88" y="142" text-anchor="middle" font-size="16" fill="#8b97ab">USERS</text>
+        <text x="88" y="168" text-anchor="middle" font-size="18">🚀</text>
+        <!-- wire: users to gateway, flowing -->
+        <line x1="136" y1="150" x2="210" y2="150" stroke="#3fd68c" stroke-width="2.5" class="flow fast"/>
+        <!-- gateway (straining) -->
+        <rect x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#ffb454" stroke-width="2"/>
+        <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+        <!-- memory bar nearly full -->
+        <rect x="232" y="106" width="136" height="22" rx="10" fill="#0c1017" stroke="#2a3446"/>
+        <rect x="235" y="109" width="130" height="16" rx="7" fill="url(#mg)"/>
+        <defs><linearGradient id="mg" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#ffb454"/><stop offset="1" stop-color="#ff6b6b"/>
+        </linearGradient></defs>
+        <text x="300" y="150" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">8.0 / 8.0 GiB</text>
+        <text x="300" y="172" text-anchor="middle" font-size="11" fill="#ffb454" class="led">save failed · retrying…</text>
+        <text x="300" y="196" text-anchor="middle" font-size="10" fill="#8b97ab">every pending record held in memory</text>
+        <!-- failing wire -->
+        <line x1="390" y1="150" x2="540" y2="150" stroke="#ff6b6b" stroke-width="2.5" opacity=".5" class="flow rev"/>
+        <text x="465" y="132" text-anchor="middle" font-size="12" fill="#ff6b6b" font-weight="700" class="broken">✗ save fails</text>
+        <text x="465" y="176" text-anchor="middle" font-size="10" fill="#8b97ab">bounce-backs pile up in memory</text>
+        <!-- database down -->
+        <rect x="540" y="60" width="180" height="180" rx="14" fill="#16121a" stroke="#ff6b6b" stroke-width="2"/>
+        <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+        <text x="630" y="140" text-anchor="middle" font-size="26" class="led fast">⛔</text>
+        <text x="630" y="170" text-anchor="middle" font-size="13" fill="#ff6b6b" font-weight="700">DOWN</text>
+        <text x="630" y="192" text-anchor="middle" font-size="10" fill="#8b97ab">disk full · refusing connections</text>
+        <!-- timeline chips -->
+        <g font-size="10" fill="#8b97ab">
+          <text x="540" y="266">05:23 first write fails</text>
+          <text x="540" y="282">07:47 refuses connections</text>
+        </g>
+        <line x1="380" y1="270" x2="532" y2="270" stroke="#1e2736"/>
+        <text x="300" y="266" text-anchor="middle" font-size="10" fill="#3fd68c">users keep arriving</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:#3fd68c"></i>flowing ok</span>
+        <span><i style="background:#ff6b6b;opacity:.5"></i>failing</span>
+        <span><i style="background:#ffb454"></i>memory pressure</span>
+      </div>
     </div>
 
-    <div class="subtitle" id="subtitle">Records are being written&hellip;</div>
-
-    <div class="screen">
-      <svg id="film" viewBox="0 0 900 380" role="img" aria-label="animated diagram of the disk filling, then the gateway failing"></svg>
+    <!-- ============ ACT 3 ============ -->
+    <div class="act reveal">
+      <h3><span class="n">3</span> Gateway crashes — and every reboot fails</h3>
+      <p class="sub">Memory crossed the 8 GiB limit: the pod was killed. Restarting didn't help — booting calls the database, which was still down.</p>
+      <svg class="dg" viewBox="0 0 860 300" role="img" aria-label="Gateway is OOM killed, reboot loop fails because boot needs the down database">
+        <!-- dead gateway -->
+        <rect x="210" y="60" width="180" height="180" rx="14" fill="#16121a" stroke="#ff6b6b" stroke-width="2"/>
+        <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+        <text x="300" y="140" text-anchor="middle" font-size="24" class="led fast">💀</text>
+        <text x="300" y="168" text-anchor="middle" font-size="12" fill="#ff6b6b" font-weight="700">OOM killed</text>
+        <text x="300" y="188" text-anchor="middle" font-size="10" fill="#8b97ab">memory limit 8 GiB crossed</text>
+        <!-- reboot loop -->
+        <path d="M300,240 L300,262" stroke="#1e2736" stroke-width="2"/>
+        <rect x="180" y="262" width="240" height="30" rx="8" fill="#0f141f" stroke="#6ea8ff"/>
+        <text x="300" y="281" text-anchor="middle" font-size="11" fill="#6ea8ff" class="led">↻ rebooting… → boot failed: db unreachable</text>
+        <!-- database still down -->
+        <rect x="540" y="60" width="180" height="180" rx="14" fill="#16121a" stroke="#ff6b6b" stroke-width="2"/>
+        <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+        <text x="630" y="140" text-anchor="middle" font-size="26" class="led fast">⛔</text>
+        <text x="630" y="170" text-anchor="middle" font-size="13" fill="#ff6b6b" font-weight="700">still DOWN</text>
+        <text x="630" y="192" text-anchor="middle" font-size="10" fill="#8b97ab">nothing can save or boot against it</text>
+        <!-- broken wire -->
+        <line x1="390" y1="150" x2="540" y2="150" stroke="#ff6b6b" stroke-width="2" opacity=".35" stroke-dasharray="4 6"/>
+        <text x="465" y="136" text-anchor="middle" font-size="11" fill="#ff6b6b" class="broken">✗</text>
+        <!-- what it took -->
+        <g font-size="11" fill="#8b97ab">
+          <text x="60" y="88">the fix, same morning:</text>
+          <text x="60" y="116" fill="#3fd68c">✓ cleared the storage safety rule</text>
+          <text x="60" y="138" fill="#3fd68c">✓ doubled disk 50 → 100 GB</text>
+          <text x="60" y="160" fill="#3fd68c">✓ standby promoted to primary</text>
+          <text x="60" y="182" fill="#3fd68c">✓ database healthy again 08:40</text>
+        </g>
+        <text x="60" y="218" font-size="10" fill="#8b97ab">users never stopped getting answers:</text>
+        <text x="60" y="234" font-size="10" fill="#dfe6f2">the gateway serves most requests without the db</text>
+      </svg>
     </div>
+
   </div>
 </section>
 
-<!-- ============ BEFORE / AFTER ============ -->
+<!-- ============ AFTER ============ -->
 <section>
-  <div class="kicker green">the fix</div>
-  <h2>Before and after</h2>
-  <div class="after">
+  <div class="kicker green">after the fix</div>
+  <h2>Same components, healthy state</h2>
+  <p>Every fix is live in production and was verified the next morning.</p>
+
+  <div class="diagram reveal">
+    <svg class="dg" viewBox="0 0 860 300" role="img" aria-label="After the fix: records cycle at half full disk, gateway decoupled from database, both healthy">
+      <!-- users -->
+      <rect x="40" y="100" width="96" height="90" rx="12" fill="#121826" stroke="#1e2736"/>
+      <text x="88" y="136" text-anchor="middle" font-size="16" fill="#8b97ab">USERS</text>
+      <text x="88" y="164" text-anchor="middle" font-size="18">🚀</text>
+      <line x1="136" y1="145" x2="210" y2="145" stroke="#3fd68c" stroke-width="2.5" class="flow fast"/>
+      <!-- gateway healthy -->
+      <rect x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#3fd68c" stroke-width="2"/>
+      <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+      <rect x="232" y="106" width="136" height="22" rx="10" fill="#0c1017" stroke="#2a3446"/>
+      <rect x="235" y="109" width="55" height="16" rx="7" fill="#3fd68c"/>
+      <text x="300" y="150" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">~1.5 / 12 GiB</text>
+      <text x="300" y="172" text-anchor="middle" font-size="11" fill="#3fd68c">no db needed to boot or serve</text>
+      <text x="300" y="196" text-anchor="middle" font-size="10" fill="#8b97ab">memory logged to Loki · 0 restarts since fix</text>
+      <!-- wire healthy -->
+      <line x1="390" y1="145" x2="540" y2="145" stroke="#3fd68c" stroke-width="2.5" class="flow"/>
+      <text x="465" y="130" text-anchor="middle" font-size="10" fill="#3fd68c">saves succeed</text>
+      <text x="465" y="166" text-anchor="middle" font-size="10" fill="#8b97ab">auto-reconnects if db blips</text>
+      <!-- database healthy -->
+      <rect x="540" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#3fd68c" stroke-width="2"/>
+      <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+      <rect x="580" y="100" width="34" height="120" rx="7" fill="#0c1017" stroke="#2a3446"/>
+      <rect x="583" y="160" width="28" height="57" rx="5" fill="#3fd68c"/>
+      <text x="630" y="140" text-anchor="middle" font-size="11" fill="#3fd68c" font-weight="700">cycles ~½ full</text>
+      <text x="630" y="164" text-anchor="middle" font-size="10" fill="#8b97ab">100 GB disk</text>
+      <!-- cleanup note -->
+      <g font-size="11" fill="#8b97ab">
+        <text x="580" y="266" fill="#3fd68c">✓ records &gt; 60 days deleted 4×/day</text>
+        <text x="580" y="284" fill="#3fd68c">✓ verified: 0 rows past the window</text>
+      </g>
+      <text x="60" y="266" font-size="11" fill="#8b97ab">watched:</text>
+      <text x="60" y="284" font-size="11" fill="#dfe6f2">memory diary in Loki · storage + memory reviewed routinely</text>
+    </svg>
+  </div>
+
+  <div class="compare">
     <div class="panel bad reveal">
       <h3><span class="dot2"></span>Before</h3>
       <ul>
-        <li><b>records</b><span>never deleted <i>&#10007;</i></span></li>
-        <li><b>disk</b><span>50 GB, filled to 48 <i>&#10007;</i></span></li>
-        <li><b>gateway</b><span>needs the db to boot and serve <i>&#10007;</i></span></li>
-        <li><b>crashes</b><span>2 that week <i>&#10007;</i></span></li>
+        <li><b>records</b><span>never deleted <i>✗</i></span></li>
+        <li><b>disk</b><span>50 GB, filled to 48 <i>✗</i></span></li>
+        <li><b>gateway</b><span>needs db to boot and serve <i>✗</i></span></li>
+        <li><b>crashes</b><span>2 that week <i>✗</i></span></li>
       </ul>
     </div>
     <div class="panel good reveal" style="--d:.12s">
       <h3><span class="dot2"></span>After</h3>
       <ul>
-        <li><b>records</b><span>deleted after 60 days <i>&#10003;</i></span></li>
-        <li><b>disk</b><span>100 GB, cycles at half full <i>&#10003;</i></span></li>
-        <li><b>gateway</b><span>boots and serves without the db <i>&#10003;</i></span></li>
-        <li><b>crashes</b><span>0 since the fix <i>&#10003;</i></span></li>
+        <li><b>records</b><span>deleted after 60 days <i>✓</i></span></li>
+        <li><b>disk</b><span>100 GB, cycles at half full <i>✓</i></span></li>
+        <li><b>gateway</b><span>boots and serves without db <i>✓</i></span></li>
+        <li><b>crashes</b><span>0 since the fix <i>✓</i></span></li>
       </ul>
     </div>
   </div>
@@ -153,231 +295,6 @@
 
 <script>
 (function(){
-  // =====================================================================
-  //  FILM DIRECTOR — a single deterministic timeline.
-  //  Scene lengths in frames. 60 fps. Each scene redraws the whole stage
-  //  from a frame counter, so the animation can never desync.
-  // =====================================================================
-  const FPS = 60;
-  const S = {
-    pile:   {start:0,    end:239,  sub:"Records are being written &mdash; one per request, nothing ever deleted."},
-    full:   {start:240,  end:359,  sub:"Disk full &mdash; the database can no longer save anything."},
-    arrive: {start:360,  end:479,  sub:"Database is down. Requests keep arriving at the gateway."},
-    climb:  {start:480,  end:659,  sub:"Saves fail. The gateway retries, and memory climbs."},
-    oom:    {start:660,  end:959,  sub:"Out of memory &mdash; the gateway is killed. Reboots fail: booting needs the database."}
-  };
-  const ORDER = ["pile","full","arrive","climb","oom"];
-  const TOTAL = S.oom.end;              // 960 frames = 16s
-  const segs  = document.querySelectorAll("#timeline .tl-seg");
-  const labels= document.querySelectorAll("#tlLabels .tl-label");
-  const film  = document.getElementById("film");
-  const sub   = document.getElementById("subtitle");
-  const playBtn=document.getElementById("playBtn");
-  const stepBtn=document.getElementById("stepBtn");
-
-  const NS="http://www.w3.org/2000/svg";
-  function el(tag,attrs){const n=document.createElementNS(NS,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);return n;}
-
-  // ---- base geometry ----
-  const DB={x:640,w:170,h:250,y:70};      // database box (right)
-  const GW={x:130,w:170,h:250,y:70};      // gateway box (middle-left)
-  const USB={x:70,y:80};                  // users (far left)
-  // disk inside the database
-  const DISK={x:DB.x+28,w:DB.w-56,y:DB.y+60,h:120};
-  // gateway memory bar
-  const MEM={x:GW.x+22,w:GW.w-44,y:GW.y+60,h:20};
-
-  function draw(t){
-    const g=el("g");
-    // ---------- users (left) ----------
-    g.appendChild(el("rect",{x:USB.x,y:USB.y,width:90,height:70,rx:12,fill:"#121826",stroke:"#1e2736"}));
-    g.appendChild(el("text",{x:USB.x+45,y:USB.y+30,"text-anchor":"middle","font-size":"18",fill:"#8b97ab"})).textContent="Users";
-    g.appendChild(el("text",{x:USB.x+45,y:USB.y+52,"text-anchor":"middle","font-size":"13",fill:"#dfe6f2"})).textContent="\uD83D\uDE80";
-
-    // ---------- gateway (middle) ----------
-    let gwStroke="#1e2736";
-    if(sceneOf(t)==="oom" && inWindow(t,S.oom.start+140,S.oom.start+210)) gwStroke=hasReboot(t)? "#6ea8ff":"#ff6b6b";
-    g.appendChild(el("rect",{x:GW.x,y:GW.y,width:GW.w,height:GW.h,rx:14,fill:"#121826",stroke:gwStroke,"stroke-width":2}));
-    g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+24,"text-anchor":"middle","font-size":"14",fill:"#8b97ab","letter-spacing":"2"})).textContent="GATEWAY";
-    // memory label
-    g.appendChild(el("text",{x:MEM.x,y:MEM.y-8,"font-size":"11",fill:"#8b97ab"})).textContent="memory";
-    const memPct = memoryPct(t);
-    g.appendChild(el("rect",{x:MEM.x,y:MEM.y,width:MEM.w,height:MEM.h,rx:10,fill:"#0c1017",stroke:"#2a3446"}));
-    const mcol = memPct>0.95 ? "#ff6b6b" : memPct>0.6 ? "#ffb454" : "#3fd68c";
-    g.appendChild(el("rect",{x:MEM.x,y:MEM.y,width:Math.max(6,MEM.w*memPct),height:MEM.h,rx:10,fill:mcol}));
-    g.appendChild(el("text",{x:MEM.x+MEM.w,y:MEM.y+MEM.h+16,"text-anchor":"end","font-size":"11",fill:"#8b97ab"})).textContent=(1.1+6.9*memPct).toFixed(1)+" GiB";
-    // retry note when failing
-    if(sceneOf(t)==="climb" || (sceneOf(t)==="oom" && !hasReboot(t))){
-      g.appendChild(el("text",{x:GW.x+GW.w/2,y:DB.y+220,"text-anchor":"middle","font-size":"12",fill:"#ffb454"})).textContent="save failed · retrying";
-    }
-    // OOM / reboot label on gateway
-    if(sceneOf(t)==="oom"){
-      if(!hasReboot(t)){
-        if(inWindow(t,S.oom.start+140,S.oom.start+210)){
-          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"26",fill:"#ff6b6b"})).textContent="\uD83D\uDC80";
-          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+176,"text-anchor":"middle","font-size":"12",fill:"#ff6b6b"})).textContent="OOM killed";
-        }
-      } else {
-        const rb=Math.floor((t-(S.oom.start+220))/8)%2;
-        if(rb===0){
-          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"13",fill:"#6ea8ff"})).textContent="\u21bb booting...";
-        } else {
-          g.appendChild(el("text",{x:GW.x+GW.w/2,y:GW.y+150,"text-anchor":"middle","font-size":"13",fill:"#ff6b6b"})).textContent="boot failed";
-        }
-      }
-    }
-
-    // ---------- wire / requests between gateway and db ----------
-    const yMid=DB.y+40;
-    const wx1=GW.x+GW.w, wx2=DB.x-20;
-    if(sceneOf(t)==="arrive" || sceneOf(t)==="climb"){
-      drawRequests(g,wx1,yMid,wx2,t);
-    } else if(sceneOf(t)==="oom" && !hasReboot(t)){
-      drawRequests(g,wx1,yMid,wx2,t);
-    }
-
-    // ---------- database (right) ----------
-    let dbStroke="#1e2736";
-    let dbFill="#121826";
-    if(sceneOf(t)==="full" || sceneOf(t)==="arrive" || sceneOf(t)==="climb" || sceneOf(t)==="oom"){
-      dbStroke="#ff6b6b"; dbFill="#16121a";
-    }
-    g.appendChild(el("rect",{x:DB.x,y:DB.y,width:DB.w,height:DB.h,rx:14,fill:dbFill,stroke:dbStroke,"stroke-width":2}));
-    g.appendChild(el("text",{x:DB.x+DB.w/2,y:DB.y+24,"text-anchor":"middle","font-size":"14",fill:"#8b97ab","letter-spacing":"2"})).textContent="DATABASE";
-    // disk
-    const fillPct=diskPct(t);
-    const dcol=fillPct>0.97? "#ff6b6b":"#6ea8ff";
-    g.appendChild(el("rect",{x:DISK.x,y:DISK.y,width:DISK.w,height:DISK.h,rx:10,fill:"#0c1017",stroke:"#2a3446"}));
-    const fh=Math.max(0, DISK.h*fillPct-6);
-    const dTop=DISK.y+DISK.h-fh-3;
-    if(fh>1)g.appendChild(el("rect",{x:DISK.x+4,y:dTop,width:DISK.w-8,height:fh,rx:6,fill:dcol}));
-    // disk % text
-    const dpctTxt=el("text",{x:DB.x+DB.w/2,y:DISK.y+DISK.h+22,"text-anchor":"middle","font-size":"13",fill:"#8b97ab"});
-    dpctTxt.textContent=Math.round(48*fillPct)+" / 50 GB";
-    g.appendChild(dpctTxt);
-    // db status line
-    const down = sceneOf(t)!=="pile" && sceneOf(t)!=="full";
-    const st=el("text",{x:DB.x+DB.w/2,y:DISK.y+DISK.h+44,"text-anchor":"middle","font-size":"12",fill:down?"#ff6b6b":"#3fd68c"});
-    st.textContent = down? "down — refusing connections" : (sceneOf(t)==="full"? "full — no space" : "accepting writes");
-    g.appendChild(st);
-
-    return g;
-  }
-
-  function sceneOf(t){
-    for(const k of ORDER){ if(t>=S[k].start && t<S[k].end) return k; }
-    return "oom";
-  }
-  function diskPct(t){
-    // fills during scene 1 (0..239) to ~0.97
-    const sc=sceneOf(t);
-    if(sc==="pile") return (t-S.pile.start)/(S.pile.end-S.pile.start);
-    return 0.97; // full from scene 2 onward
-  }
-  function memoryPct(t){
-    const sc=sceneOf(t);
-    if(sc==="pile"||sc==="full") return 0.05;
-    if(sc==="arrive") return 0.08;
-    if(sc==="climb") return Math.min(1,0.08+0.92*((t-S.climb.start)/(S.climb.end-S.climb.start)));
-    // oom: high, with reboot dip
-    if(!hasReboot(t)) return 1;
-    return (Math.floor((t-(S.oom.start+220))/8)%2===0)? 0.2 : 1;
-  }
-  function hasReboot(t){ return t>=S.oom.start+220; }
-  function inWindow(t,a,b){ return t>=a && t<b; }
-
-  // request blocks travelling gateway->db (scene 3-5)
-  function drawRequests(g,x1,y,x2,t){
-    const sc=sceneOf(t);
-    const per=(t-(S[sc].start))/FPS;          // seconds into scene
-    for(let i=0;i<5;i++){
-      const off=per*150 - i*80;               // continuous flow, wrap
-      const px=((off % (x2-x1+60))+ (x2-x1+60)) % (x2-x1+60);
-      const cx=x1+px;
-      const alive= sceneOf(t)==="climb" || sceneOf(t)==="oom";
-      // scene 3 = arrive (reach db then stop), scene 4/5 = bounce back (fail)
-      if(sc==="arrive" && cx<x2-10){
-        g.appendChild(el("rect",{x:cx-7,y:y-5,width:14,height:10,rx:3,fill:"#3fd68c",opacity:.9}));
-      } else if(alive){
-        // bounce at the db: return toward gateway = failed save
-        const bounce=((off)%(x2-x1+60));
-        const rcx=x2-bounce;                   // travels back left
-        g.appendChild(el("rect",{x:rcx-7,y:y-5,width:14,height:10,rx:3,fill:"#ffb454",opacity:.9}));
-        if(bounce>40)g.appendChild(el("text",{x:rcx-24,y:y+4,"font-size":"10",fill:"#ff6b6b"})).textContent="\u2717";
-      }
-    }
-  }
-
-  // ---- subtitle + timeline ----
-  function setSub(sc){
-    sub.innerHTML=S[sc].sub;
-  }
-  function markScene(i){
-    segs.forEach((s,j)=>{ s.classList.toggle("done",j<i); s.classList.toggle("live",j===i); });
-    labels.forEach((l,j)=>{
-      l.style.color = j===i ? "var(--green)" : "#5b6880";
-      l.style.fontWeight = j===i ? "700" : "400";
-    });
-  }
-  function segFill(i,sc,t){
-    const seg=segs[i].querySelector("i");
-    const f=Math.max(0,Math.min(1,(t-S[sc].start)/(S[sc].end-S[sc].start)));
-    seg.style.width=(f*100)+"%";
-    seg.style.background = sceneOf(t)==="full"||sceneOf(t)==="oom"?"#ff6b6b":(sc==="climb"?"#ffb454":"#3fd68c");
-  }
-
-  // ---- director state ----
-  let playing=false, frame=0, raf=null, sceneIdx=0;
-
-  function render(){
-    film.replaceChildren(draw(frame));
-    const sc=sceneOf(frame);
-    const idx=ORDER.indexOf(sc);
-    sceneIdx=idx;
-    setSub(sc);
-    markScene(idx);
-    for(let i=0;i<5;i++) segFill(i,ORDER[i],frame);
-  }
-
-  function tick(){
-    frame++;
-    render();
-    if(frame>=TOTAL){ frame=TOTAL-1; render(); endFilm(); return; }
-    raf=requestAnimationFrame(tick);
-  }
-
-  function startFilm(){
-    if(playing) return;
-    playing=true;
-    playBtn.classList.add("playing"); playBtn.innerHTML='<span class="tri"></span>Playing&hellip;';
-    frame=0; sceneIdx=0;
-    render();
-    raf=requestAnimationFrame(tick);
-  }
-
-  function stepScene(){
-    if(playing) return;
-    // jump to the start of the next scene and hold it there
-    sceneIdx=(sceneIdx+1)%ORDER.length;
-    frame=S[ORDER[sceneIdx]].start;
-    render();
-  }
-
-  function endFilm(){
-    playing=false;
-    cancelAnimationFrame(raf);
-    playBtn.classList.remove("playing");
-    playBtn.innerHTML='<span class="tri"></span>Replay';
-  }
-
-  playBtn.addEventListener("click",()=>{
-    if(playing) return;
-    if(frame>=TOTAL-1) frame=0;      // replay from start
-    startFilm();
-  });
-  stepBtn.addEventListener("click",stepScene);
-
-  // reveal scroll
   const rev=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in-view");rev.unobserve(e.target);}}),{threshold:.2});
   document.querySelectorAll(".reveal").forEach(el=>rev.observe(el));
 })();
