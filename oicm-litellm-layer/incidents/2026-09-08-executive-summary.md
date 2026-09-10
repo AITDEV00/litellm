@@ -10,7 +10,8 @@ Status: resolved the same day, with every fix verified working the next morning
 ## What happened
 
 Our AI gateway keeps a record of every request it handles, stored in a
-database, mainly for billing. Those records were configured to grow forever:
+database, to track usage, watch how the models are performing and confirm
+they behave as expected. Those records were configured to grow forever:
 nothing was ever deleted. After about two and a half months they filled all
 the storage the database had, roughly 50 GB of request records, and the
 database stopped working
@@ -23,12 +24,12 @@ its allowance and it crashed. And each time it restarted, it struggled to come
 back up, because one of its first steps is connecting to the very database
 that was down
 
-The platform then tried to heal itself by giving the database more storage,
-but a safety rule meant to prevent overbooking of disk space on the storage
-cluster blocked the enlargement. We cleared the block manually, doubled the
-storage, and a standby copy of the database took over as the primary. User
-requests kept flowing throughout, because the gateway can answer most of them
-even when the database is down
+The OICM platform then tried to heal itself by giving the database more
+storage, but a safety rule meant to prevent overbooking of disk space on the
+storage cluster blocked the enlargement. We cleared the block manually,
+doubled the storage, and a standby copy of the database took over as the
+primary. User requests kept flowing throughout, because the gateway can
+answer most of them even when the database is down
 
 ## What we changed
 
@@ -37,20 +38,21 @@ deleted automatically, several times a day, and the deletions are verified to
 actually happen. The database stopped growing and now cycles inside a stable
 window with plenty of room to spare
 
-The database got double the storage, and the safety rule was raised so future
-enlargements complete on their own instead of needing manual help. The
-enlarged setup is also stored in our configuration repository, so a routine
-platform upgrade cannot quietly shrink it back
+The database also got double the storage, so the records cycle inside a
+stable window with plenty of room to spare
 
 The gateway no longer depends on the database to serve users or to start up.
 With the database completely unreachable it still boots, still answers
-requests, and reconnects on its own once the database returns, so the
-crash-and-fail-to-boot pattern cannot repeat. Its memory allowance was raised,
-and it now keeps a running diary of its own memory use, so a slow creep can be
-spotted and fixed long before anything crashes
+requests normally, and reconnects on its own once the database recovers, so
+the crash-and-fail-to-boot pattern cannot repeat. If a database failure ever
+happens again, the decoupling buys ample time to repair or rebuild the
+database calmly, no matter which recovery measures succeed or fail
 
-Checks now watch storage and memory use, so the next silent fill-up gets
-noticed instead of surfacing as an outage
+Each gateway replica was also given more memory, and the gateway keeps a
+running diary of its own memory use, collected in our Loki log store, so a
+slow creep can be spotted and fixed long before anything crashes. Storage and
+memory are now checked as part of routine review, so the next silent fill-up
+gets noticed instead of surfacing as an outage
 
 ## Where things stand
 
