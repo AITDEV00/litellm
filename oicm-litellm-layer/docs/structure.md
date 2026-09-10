@@ -90,6 +90,7 @@ oicm-litellm-layer/
 │   ├── model-pricing/      ← pricing logic maps
 │   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen)
 │   ├── performance/        ← performance before/after + session recovery notes
+│   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)
 │   ├── architecture/       ← integration-layer implementation plan

@@ -91,6 +91,15 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | OICM vertical-slice locations & pattern | `docs/oicm-slices.md` |
 | Drop-detection wiring tests | `tests/test_litellm/proxy/test_oicm_drop_detection.py` |
 
+## Reports
+
+Generated / exported reports (data snapshots for use cases). Regenerate rather
+than hand-edit; each file states its generation date.
+
+| Doc | Location |
+|-----|----------|
+| ADEOGPT model performance (7d) | `docs/reports/ADEOGPT-MODEL-PERFORMANCE.md` |
+
 ## Runbooks
 
 | Doc | Location |
