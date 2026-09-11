@@ -32,7 +32,7 @@ def test_reads_value_from_named_secret(manifest):
                 "kind: Secret",
                 "metadata:",
                 "  name: litellm-master-key",
-                "  namespace: mlops",
+                "  namespace: adeo-litellm",
                 "type: Opaque",
                 "stringData:",
                 "  master-key: sk-test-rotate",

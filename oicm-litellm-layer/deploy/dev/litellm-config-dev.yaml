@@ -15,18 +15,18 @@
 #   - require_auth_for_metrics_endpoint: true  (prod sets false)
 #
 # APPLY
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/dev/litellm-config-dev.yaml
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout restart deployment/litellm-proxy-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/dev/litellm-config-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout restart deployment/litellm-proxy-dev
 #
 # CLEANUP
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete configmap litellm-config-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete configmap litellm-config-dev
 #   (and restore deploy/dev/litellm-proxy-dev.yaml volume to `litellm-config`)
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config-dev
-  namespace: mlops
+  namespace: adeo-litellm
 data:
   config.yaml: |
     model_list: []

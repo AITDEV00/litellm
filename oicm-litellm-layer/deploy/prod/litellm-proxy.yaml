@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-master-key
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   master-key: sk-05132025
@@ -16,7 +16,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-salt-key
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   salt-key: sk-1234
@@ -25,26 +25,26 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-db-credentials
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
-  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
+  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@adeo-litellm-postgres-rw.adeo-litellm:5432/litellm"
 # The litellm-logo ConfigMap is created separately with binary files.
 # To create or update the logo, run:
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
+  # kubectl create configmap litellm-logo -n adeo-litellm \
+  #   --from-file=adeo-ai-gateway.jpg=./decor/adeo-ai-gateway.jpg \
+  #   --from-file=favicon.png=./decor/favicon.png
 # To update an existing one, delete and recreate, or use:
-#   kubectl delete configmap litellm-logo -n mlops && \
-#   kubectl create configmap litellm-logo -n mlops \
-#     --from-file=adeo-ai-gateway.jpg=./assets/adeo-ai-gateway.jpg \
-#     --from-file=favicon.png=./assets/favicon.png
+  # kubectl delete configmap litellm-logo -n adeo-litellm && \
+  # kubectl create configmap litellm-logo -n adeo-litellm \
+  #   --from-file=adeo-ai-gateway.jpg=./decor/adeo-ai-gateway.jpg \
+  #   --from-file=favicon.png=./decor/favicon.png
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config
-  namespace: mlops
+  namespace: adeo-litellm
 data:
   config.yaml: |
     model_list: []
@@ -118,7 +118,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-redis-password
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   password: litellm-redis-7f3a9b2e
@@ -127,7 +127,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-hooks
-  namespace: mlops
+  namespace: adeo-litellm
 data:
   vllm_param_injector.py: |
     import os
@@ -244,7 +244,7 @@ data:
 #
 # Commands used to apply this configuration:
 #
-#   kubectl patch deploy litellm-proxy -n mlops --type=json -p='[
+#   kubectl patch deploy litellm-proxy -n adeo-litellm --type=json -p='[
 #     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
 #     {"op":"add","path":"/spec/template/spec/tolerations","value":[
 #       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
@@ -267,7 +267,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm-proxy
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy
 spec:
@@ -420,7 +420,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm-proxy
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy
 spec:
@@ -435,7 +435,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: litellm-proxy-pdb
-  namespace: mlops
+  namespace: adeo-litellm
 spec:
   minAvailable: 1
   selector:

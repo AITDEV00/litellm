@@ -26,7 +26,7 @@ def master_key() -> str:
 MODEL = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 DIRECT_URL = "http://s-a500a62d-ddda-45cc-87d9-f0b53e5d62af.adeo.svc.cluster.local:8080/v1/chat/completions"
 # Service IP - load balances across both replicas
-LITELLM_SVC_URL = "http://litellm-proxy.mlops.svc.cluster.local:4000/v1/chat/completions"
+LITELLM_SVC_URL = "http://litellm-proxy.adeo-litellm.svc.cluster.local:4000/v1/chat/completions"
 # Single pod URLs (for comparison)
 LITELLM_POD1_URL = "http://10.42.1.161:4000/v1/chat/completions"
 LITELLM_POD2_URL = "http://10.42.2.94:4000/v1/chat/completions"

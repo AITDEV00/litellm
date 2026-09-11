@@ -29,15 +29,15 @@
 #   with this flag set CANNOT write, regardless of its k8s env or admin creds.
 #
 # HOW TO USE
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/discovery-controller-dev.yaml
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/oicm-discovery-controller-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/discovery-controller-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout status deploy/oicm-discovery-controller-dev
 #   # Watch the logs: every would-be write is logged as [READ-ONLY]:
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops logs deploy/oicm-discovery-controller-dev -f
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm logs deploy/oicm-discovery-controller-dev -f
 #   # The logs show exactly what the production controller WOULD register/delete/patch
 #   # WITHOUT doing it. Compare with prod logs to validate a new discovery change.
 #
 # CLEANUP
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/oicm-discovery-controller-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete deploy/oicm-discovery-controller-dev
 #
 # NOTE: This has NO Service, NO PDB, and a distinct name/labels, so it cannot
 #       affect the production controller or receive any production traffic.
@@ -46,7 +46,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: oicm-discovery-controller-dev
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: oicm-discovery-controller-dev
 spec:
@@ -88,7 +88,7 @@ spec:
             - name: WATCH_NAMESPACE
               value: "adeo"
             - name: LITELLM_ADMIN_URL
-              value: "http://litellm-proxy-dev.mlops.svc.cluster.local:4000"
+              value: "http://litellm-proxy-dev.adeo-litellm.svc.cluster.local:4000"
             - name: LITELLM_ADMIN_KEY
               valueFrom:
                 secretKeyRef:

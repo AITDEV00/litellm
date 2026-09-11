@@ -17,13 +17,13 @@
 #   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
 #     kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
 #   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-#     kubectl rollout restart deployment/litellm-proxy -n mlops
+#     kubectl rollout restart deployment/litellm-proxy -n adeo-litellm
 #   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-#     kubectl rollout restart deployment/oicm-discovery-controller -n mlops
+#     kubectl rollout restart deployment/oicm-discovery-controller -n adeo-litellm
 #
 # VERIFY ROLLBACK
-#   kubectl -n mlops rollout status deployment/litellm-proxy
-#   kubectl -n mlops get secret litellm-master-key -o jsonpath='{.data.master-key}' | base64 -d
+#   kubectl -n adeo-litellm rollout status deployment/litellm-proxy
+#   kubectl -n adeo-litellm get secret litellm-master-key -o jsonpath='{.data.master-key}' | base64 -d
 #   # -> sk-1234
 #   curl -s -o /dev/null -w "%{http_code}\n" \
 #     -H "Authorization: Bearer sk-1234" http://127.0.0.1:4000/v1/models
@@ -38,7 +38,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-master-key
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   master-key: sk-1234
@@ -51,7 +51,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-salt-key
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   salt-key: sk-1234
@@ -60,16 +60,16 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-db-credentials
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
-  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@mlops-postgres-rw.mlops:5432/litellm"
+  DATABASE_URL: "postgresql://litellm:litellm_proxy_2025@adeo-litellm-postgres-rw.adeo-litellm:5432/litellm"
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: litellm-redis-password
-  namespace: mlops
+  namespace: adeo-litellm
 type: Opaque
 stringData:
   password: litellm-redis-7f3a9b2e
@@ -78,7 +78,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config
-  namespace: mlops
+  namespace: adeo-litellm
 data:
   config.yaml: |
     model_list: []
@@ -122,7 +122,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-hooks
-  namespace: mlops
+  namespace: adeo-litellm
 data:
   vllm_param_injector.py: |
     import os
@@ -234,7 +234,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm-proxy
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy
 spec:
@@ -372,7 +372,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm-proxy
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy
 spec:
@@ -387,7 +387,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: litellm-proxy-pdb
-  namespace: mlops
+  namespace: adeo-litellm
 spec:
   minAvailable: 1
   selector:

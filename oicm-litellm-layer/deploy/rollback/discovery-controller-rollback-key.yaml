@@ -10,17 +10,17 @@
 #   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
 #     kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
 #   KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-#     kubectl rollout restart deployment/oicm-discovery-controller -n mlops
+#     kubectl rollout restart deployment/oicm-discovery-controller -n adeo-litellm
 #
 # VERIFY (controller logs should show 200 / successful /model calls, no 401)
-#   kubectl -n mlops logs deployment/oicm-discovery-controller --tail=30
+#   kubectl -n adeo-litellm logs deployment/oicm-discovery-controller --tail=30
 
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: oicm-discovery-controller
-  namespace: mlops
+  namespace: adeo-litellm
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -57,13 +57,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: oicm-discovery-controller
-    namespace: mlops
+    namespace: adeo-litellm
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: oicm-discovery-controller
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: oicm-discovery-controller
 spec:
@@ -102,7 +102,7 @@ spec:
             - name: WATCH_NAMESPACE
               value: "adeo"
             - name: LITELLM_ADMIN_URL
-              value: "http://litellm-proxy.mlops.svc.cluster.local:4000"
+              value: "http://litellm-proxy.adeo-litellm.svc.cluster.local:4000"
             - name: LITELLM_ADMIN_KEY
               valueFrom:
                 secretKeyRef:

@@ -9,7 +9,7 @@
 # Commands used to apply this configuration:
 #
 #   # Pin to gpu-03 with tolerations for all three GPU node taints:
-#   kubectl patch deploy oicm-discovery-controller -n mlops --type=json -p='[
+#   kubectl patch deploy oicm-discovery-controller -n adeo-litellm --type=json -p='[
 #     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
 #     {"op":"add","path":"/spec/template/spec/tolerations","value":[
 #       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
@@ -21,7 +21,7 @@
 #   ]'
 #
 #   # Add ENABLE_SUBMARINER_IMPORTS env var (was missing from the initially deployed version):
-#   kubectl patch deploy oicm-discovery-controller -n mlops --type=json -p='[
+#   kubectl patch deploy oicm-discovery-controller -n adeo-litellm --type=json -p='[
 #     {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"ENABLE_SUBMARINER_IMPORTS","value":"true"}}
 #   ]'
 #
@@ -33,7 +33,7 @@
 #   make login && make build && make push-discovery
 #
 #   # Restart to pull the new image:
-#   kubectl -n mlops rollout restart deploy/oicm-discovery-controller
+#   kubectl -n adeo-litellm rollout restart deploy/oicm-discovery-controller
 #
 # The Role in this manifest includes endpointslices permissions (discovery.k8s.io API group)
 # which the SubmarinerImportSource needs to list cross-cluster EndpointSlices created by the
@@ -51,7 +51,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: oicm-discovery-controller
-  namespace: mlops
+  namespace: adeo-litellm
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -88,13 +88,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: oicm-discovery-controller
-    namespace: mlops
+    namespace: adeo-litellm
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: oicm-discovery-controller
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: oicm-discovery-controller
 spec:
@@ -133,7 +133,7 @@ spec:
             - name: WATCH_NAMESPACE
               value: "adeo"
             - name: LITELLM_ADMIN_URL
-              value: "http://litellm-proxy.mlops.svc.cluster.local:4000"
+              value: "http://litellm-proxy.adeo-litellm.svc.cluster.local:4000"
             - name: LITELLM_ADMIN_KEY
               valueFrom:
                 secretKeyRef:

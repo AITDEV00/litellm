@@ -27,7 +27,7 @@ def master_key() -> str:
 
 MODEL = "MiniMaxAI/MiniMax-M3-MXFP8"
 DIRECT_URL = "http://s-908d3952-1e69-40a4-95b9-db1abff27fcb.adeo.svc.cluster.local:8080/v1/chat/completions"
-LITELLM_URL = "http://litellm-proxy.mlops.svc.cluster.local:4000/v1/chat/completions"
+LITELLM_URL = "http://litellm-proxy.adeo-litellm.svc.cluster.local:4000/v1/chat/completions"
 LITELLM_HEADERS = {"Content-Type": "application/json", "Authorization": f"Bearer {master_key()}"}
 DIRECT_HEADERS = {"Content-Type": "application/json"}
 

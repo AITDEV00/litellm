@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-MANIFEST = Path(__file__).resolve().parent.parent / "deploy" / "litellm-proxy.yaml"
+MANIFEST = Path(__file__).resolve().parent.parent / "deploy" / "prod" / "litellm-proxy.yaml"
 SECRET_NAME = "litellm-master-key"
 SECRET_KEY = "master-key"
 

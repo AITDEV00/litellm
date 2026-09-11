@@ -1,7 +1,7 @@
 # Mirror of the live CNPG cluster (originally deployed via Helm release `oicm`,
 # then patched out-of-band: data storage 50Gi -> 100Gi on 2026-09-08 after the
 # data volume filled and the primary crash-looped). Keep this file in sync with
-# `kubectl get cluster mlops-postgres -n mlops` — a helm upgrade of release
+# `kubectl get cluster adeo-litellm-postgres -n adeo-litellm` — a helm upgrade of release
 # `oicm` with stale values would revert spec.storage.size back to 50Gi.
 #
 # Filled-disk postmortem: LiteLLM_SpendLogs grew to 48 GB in 75 days with no
@@ -11,8 +11,8 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: mlops-postgres
-  namespace: mlops
+  name: adeo-litellm-postgres
+  namespace: adeo-litellm
 spec:
   affinity:
     podAntiAffinityType: preferred

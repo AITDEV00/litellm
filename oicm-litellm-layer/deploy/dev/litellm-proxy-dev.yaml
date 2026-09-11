@@ -19,14 +19,14 @@
 #   attach to, log to, and restart at will.
 #
 # HOW TO USE
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops apply -f deploy/litellm-proxy-dev.yaml
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops rollout status deploy/litellm-proxy-dev
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops get pods -l app=litellm-proxy-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/litellm-proxy-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout status deploy/litellm-proxy-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm get pods -l app=litellm-proxy-dev
 #   # exec into it and run a Python probe against the real DB/config:
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops exec deploy/litellm-proxy-dev -- \
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm exec deploy/litellm-proxy-dev -- \
 #       python3 /app/probe_performance.py
 #   # port-forward the dev pod if you want to hit it over HTTP in isolation:
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops port-forward deploy/litellm-proxy-dev 14001:4000
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000
 #   curl -s -H "Authorization: Bearer sk-05132025" \
 #       "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
 #
@@ -37,7 +37,7 @@
 #       not touch the production secret.
 #
 # CLEANUP
-#   kubectl --kubeconfig=$KUBECONFIG -n mlops delete deploy/litellm-proxy-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete deploy/litellm-proxy-dev
 #
 # NOTE: This intentionally has NO PodDisruptionBudget and NO Service selector
 #       matching production, so scaling it up/down or deleting it cannot affect
@@ -47,7 +47,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm-proxy-dev
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy-dev
 spec:
@@ -121,8 +121,8 @@ spec:
                   name: litellm-salt-key-dev
                   key: salt-key
             # DB-ATTACHED FOR MEMORY PROFILING: connects to the dev-only
-            # single-instance CNPG cluster (mlops-postgres-dev, see
-            # mlops-postgres-dev-cluster.yaml). This re-enable is deliberate:
+            # single-instance CNPG cluster (adeo-litellm-postgres-dev, see
+            # adeo-litellm-postgres-dev-cluster.yaml). This re-enable is deliberate:
             # the DB-less test proved raw request bodies do NOT creep memory,
             # so profiling must run against the REAL logging pipeline.
             # allow_requests_on_db_unavailable stays on, so an outage of the
@@ -211,7 +211,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm-proxy-dev
-  namespace: mlops
+  namespace: adeo-litellm
   labels:
     app: litellm-proxy-dev
 spec:

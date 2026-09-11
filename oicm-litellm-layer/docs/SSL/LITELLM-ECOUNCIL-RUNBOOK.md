@@ -165,6 +165,7 @@ echo | openssl s_client -connect litellm.ecouncil.ae:443 \
 ```
 
 Expected:
+
 ```
 subject=... CN=ecouncil.ae
 issuer=C=US, O=DigiCert Inc, CN=DigiCert Global G2 TLS RSA SHA256 2020 CA1
@@ -212,6 +213,7 @@ nothing depends on it.
 **Other ingresses serving the same host elsewhere:** nginx will pick one
 TLS binding per host. If a different namespace has an ingress rule for
 `litellm.ecouncil.ae`, remove its TLS section so it doesn't compete:
+
 ```bash
 kubectl get ingress -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.rules[*].host}{"\t"}{.spec.tls[*].secretName}{"\n"}{end}' | grep litellm.ecouncil.ae
 ```
@@ -221,6 +223,7 @@ kubectl get ingress -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}
 ## Renewal
 
 The DigiCert cert expires **Jan 14, 2027**. When the new `.pfx` arrives:
+
 1. Re-run Step 1 (`create-tls-secret-ns.sh`) with the same namespace + secret
    name — it uses `kubectl apply`, so it overwrites in place.
 2. No ingress change needed (it already points at the secret name).
@@ -233,13 +236,13 @@ though the cluster is egress-restricted.
 
 ## Files / artifacts
 
-| Artifact | Purpose |
-|---|---|
-| `create-tls-secret-ns.sh` | Generalized pfx->tls-secret script (namespace/secret params) |
-| `ecouncil.ae-30062026-inter 1.pfx` | The DigiCert `*.ecouncil.ae` bundle (password-protected) |
-| `CERT-GUIDELINE.md` | Original Traefik/DKP guide (ecas/gsip/mdm) |
-| Ingress `litellm-proxy` (mlops) | Updated with `litellm.ecouncil.ae` + TLS entry |
-| Secret `litellm-ecouncil-ae-tls` (mlops) | DigiCert leaf + intermediate |
+| Artifact                                  | Purpose                                                      |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| `create-tls-secret-ns.sh`               | Generalized pfx->tls-secret script (namespace/secret params) |
+| `ecouncil.ae-30062026-inter 1.pfx`      | The DigiCert`*.ecouncil.ae` bundle (password-protected)    |
+| `CERT-GUIDELINE.md`                     | Original Traefik/DKP guide (ecas/gsip/mdm)                   |
+| Ingress`litellm-proxy` (mlops)          | Updated with`litellm.ecouncil.ae` + TLS entry              |
+| Secret`litellm-ecouncil-ae-tls` (mlops) | DigiCert leaf + intermediate                                 |
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-# Dev-only CNPG Postgres cluster: mlops-postgres-dev
+# Dev-only CNPG Postgres cluster: adeo-litellm-postgres-dev
 #
 # PURPOSE
 #   A single-instance Postgres for the dev gateway so memory profiling runs
@@ -8,7 +8,7 @@
 #   prod memory creep reproducible: the DB-less test showed raw request
 #   bodies alone do NOT leak — the DB pipeline is the suspect.
 #
-# DIFF VS PROD (deploy/prod/mlops-postgres-cluster.yaml)
+# DIFF VS PROD (deploy/prod/adeo-litellm-postgres-cluster.yaml)
 #   - instances: 1 (not 3)
 #   - resources: 1Gi mem / 250m cpu (not 2G / 500m-1cpu)
 #   - storage: 20Gi (not 100Gi) — profiling data is throwaway
@@ -17,14 +17,14 @@
 #   - database/owner: litellm (matches the dev gateway's expected DB)
 #
 # NOTE
-#   The dev gateway connects via mlops-postgres-dev-rw.mlops:5432 with
+#   The dev gateway connects via adeo-litellm-postgres-dev-rw.adeo-litellm:5432 with
 #   credentials from secret litellm-db-credentials-dev.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: mlops-postgres-dev
-  namespace: mlops
+  name: adeo-litellm-postgres-dev
+  namespace: adeo-litellm
 spec:
   description: dev-only single-instance postgres for gateway memory profiling
   instances: 1
