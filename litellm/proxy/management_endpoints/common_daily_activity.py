@@ -753,7 +753,7 @@ def _build_aggregated_sql_query(
                              custom_llm_provider, mcp_namespaced_tool_name,
                              endpoint) AS group_level,
                     SUM(spend)::float AS spend,
-                    {_ptu_flat_cost_select(table_name)} AS ptu_flat_cost,
+                    {_ptu_flat_cost_select(table_name)},
                     SUM(prompt_tokens)::bigint AS prompt_tokens,
                     SUM(completion_tokens)::bigint AS completion_tokens,
                     SUM(cache_read_input_tokens)::bigint AS cache_read_input_tokens,
