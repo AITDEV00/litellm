@@ -9,6 +9,7 @@ from litellm.proxy.spend_tracking.ptu_feature_flag import PTU_COST_ATTRIBUTION_E
 
 
 from litellm.proxy.management_endpoints.common_daily_activity import (
+    _MAX_ROWS_PER_GROUPING_LEVEL,
     _adjust_dates_for_timezone,
     _build_aggregated_sql_query,
     _build_entity_rollup_sql_query,
@@ -970,9 +971,13 @@ class TestBuildAggregatedSqlQuery:
             "user-1",
             "bedrock/global.anthropic.claude-opus-4-8",
             "sk-test",
+            _MAX_ROWS_PER_GROUPING_LEVEL,
         ]
         assert "model = $4" in sql
         assert "api_key = $5" in sql
+        # The engine-side statement must stay bounded: the per-level row cap
+        # is bound as the final parameter.
+        assert "WHERE level_rank <= $6" in " ".join(sql.split())
 
     def test_model_group_rollups_fall_back_to_model_name(self):
         """Aggregated model_groups rollups must fall back to model for group-less rows.
@@ -1025,7 +1030,11 @@ class TestAggregatedEmptyEntityFilter:
         normalized = " ".join(sql.split())
         assert "IN ()" not in normalized
         assert '"team_id" IN' not in normalized
-        assert params == ["2026-08-01", "2026-08-19"]
+        if build is _build_entity_rollup_sql_query:
+            assert params == ["2026-08-01", "2026-08-19"]
+        else:
+            # the aggregated builder appends the per-level row cap for the engine
+            assert params == ["2026-08-01", "2026-08-19", _MAX_ROWS_PER_GROUPING_LEVEL]
 
     @pytest.mark.parametrize("build", _BUILDERS)
     def test_empty_entity_list_matches_nothing_rather_than_everything(self, build):
@@ -1056,7 +1065,17 @@ class TestAggregatedEmptyEntityFilter:
         normalized = " ".join(sql.split())
         assert '"team_id" IN ($3, $4)' in normalized
         assert "FALSE" not in normalized
-        assert params == ["2026-08-01", "2026-08-19", "team-alpha", "team-beta"]
+        if build is _build_entity_rollup_sql_query:
+            assert params == ["2026-08-01", "2026-08-19", "team-alpha", "team-beta"]
+        else:
+            # the aggregated builder appends the per-level row cap for the engine
+            assert params == [
+                "2026-08-01",
+                "2026-08-19",
+                "team-alpha",
+                "team-beta",
+                _MAX_ROWS_PER_GROUPING_LEVEL,
+            ]
 
 
 @pytest.mark.asyncio
@@ -1824,7 +1843,7 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
     assert "SUM(ptu_flat_cost)::float" in sql
     assert params == ["2024-01-01", "2024-01-31", "key-1", "key-2"]
 
-    plain_sql, _ = _build_aggregated_sql_query(
+    plain_sql, plain_params = _build_aggregated_sql_query(
         table_name="litellm_dailyteamspend",
         entity_id_field="team_id",
         entity_id=None,
@@ -1834,6 +1853,8 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
         api_key=None,
     )
     assert "entity_id" not in plain_sql
+    # the aggregated builder binds the per-level engine row cap as its last param
+    assert plain_params[-1] == _MAX_ROWS_PER_GROUPING_LEVEL
     assert "GROUPING(date" in plain_sql
 
     empty_sql, empty_params = _build_aggregated_sql_query(
@@ -1846,7 +1867,7 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
         api_key=[],
     )
     assert "FALSE" in empty_sql
-    assert empty_params == ["2024-01-01", "2024-01-31"]
+    assert empty_params == ["2024-01-01", "2024-01-31", _MAX_ROWS_PER_GROUPING_LEVEL]
 
 
 @pytest.mark.asyncio
@@ -1949,3 +1970,56 @@ async def test_get_daily_activity_aggregated_with_entity_breakdown():
     # Rollups with the entity bit set must still land in their usual buckets
     assert daily.breakdown.models["gpt-4o"].metrics.spend == 18.0
     assert daily.breakdown.api_keys["key-1"].metrics.spend == 12.0
+
+
+@pytest.mark.asyncio
+async def test_aggregated_sql_is_bounded_per_grouping_level():
+    """Regression: the prisma query engine's resident memory is a high-water
+    mark set by the largest single statement it executes, and glibc never
+    returns that memory. The daily-activity GROUPING SETS statement ships one
+    row per rollup level entry; over a long window with many api_keys/models
+    that reached tens of thousands of rows in one statement and OOMKilled
+    pods. The statement must carry a per-level row cap (ROW_NUMBER filter), so
+    the engine never buffers an unbounded result set, while small levels (the
+    grand total and per-date bars) can never be crowded out by a big one.
+    """
+    captured_sql_params: dict = {}
+
+    async def _capture_query_raw(sql, *params):
+        captured_sql_params["sql"] = sql
+        captured_sql_params["params"] = params
+        return []
+
+    mock_prisma = MagicMock()
+    mock_prisma.db = MagicMock()
+    mock_prisma.db.query_raw = _capture_query_raw
+
+    await get_daily_activity_aggregated(
+        prisma_client=mock_prisma,
+        table_name="litellm_dailyuserspend",
+        entity_id_field="user_id",
+        entity_id=None,
+        entity_metadata_field=None,
+        start_date="2026-06-25",
+        end_date="2026-09-15",
+        model=None,
+        api_key=None,
+    )
+
+    sql: str = captured_sql_params["sql"]
+    params = captured_sql_params["params"]
+
+    from litellm.proxy.management_endpoints.common_daily_activity import (
+        _MAX_ROWS_PER_GROUPING_LEVEL,
+    )
+
+    # The cap is parameterized and bound to the engine-side statement
+    normalized_sql = " ".join(sql.split())
+    assert "ROW_NUMBER() OVER ( PARTITION BY group_level ORDER BY api_requests DESC NULLS LAST" in normalized_sql
+    assert "WHERE level_rank <= $" in normalized_sql
+    assert _MAX_ROWS_PER_GROUPING_LEVEL in params
+
+    # The parameterized cap is the LAST parameter (appended after the where params)
+    assert params[-1] == _MAX_ROWS_PER_GROUPING_LEVEL
+    # The cap placeholder index matches the params length
+    assert normalized_sql.endswith(f"WHERE level_rank <= ${len(params)}")

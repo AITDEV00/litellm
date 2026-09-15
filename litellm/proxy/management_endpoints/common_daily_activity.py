@@ -696,6 +696,16 @@ def _build_aggregated_sql_query(
     # is omitted on purpose: nothing in the response shape needs it once
     # all the rollups are present.
     #
+    # The statement is wrapped in a per-level row cap because the prisma
+    # query engine's resident memory is a high-water mark set by the largest
+    # single statement: an unbounded GROUPING SETS over a long window ships
+    # tens of thousands of rows to the engine at once. The cap applies per
+    # GROUPING level (not globally) so small cardinality levels — the grand
+    # total, per-date bars — can never be squeezed out by a big breakdown
+    # level. Postgres LIMIT inside a lateral applies per outer row, hence the
+    # rank-based filter: rows within a level are ordered by api_requests so
+    # the cap keeps the busiest entries and drops the tail.
+    #
     # TODO: drop the successful_requests/failed_requests aggregates (and the
     # total_successful_requests metadata they feed) once the admin UI reads SGR
     # only from LiteLLM_DailyGatewayRequests. The remaining spend, token and
@@ -709,40 +719,74 @@ def _build_aggregated_sql_query(
             custom_llm_provider,
             mcp_namespaced_tool_name,
             endpoint,
-            GROUPING(date, api_key, model, COALESCE(NULLIF(model_group, ''), model),
-                     custom_llm_provider, mcp_namespaced_tool_name,
-                     endpoint) AS group_level,
-            SUM(spend)::float AS spend,
-            {_ptu_flat_cost_select(table_name)},
-            SUM(prompt_tokens)::bigint AS prompt_tokens,
-            SUM(completion_tokens)::bigint AS completion_tokens,
-            SUM(cache_read_input_tokens)::bigint AS cache_read_input_tokens,
-            SUM(cache_creation_input_tokens)::bigint AS cache_creation_input_tokens,
-            SUM(compression_saved_tokens)::bigint AS compression_saved_tokens,
-            SUM(compression_savings_spend)::float AS compression_savings_spend,
-            SUM(prompt_caching_savings_spend)::float AS prompt_caching_savings_spend,
-            SUM(autorouter_savings_spend)::float AS autorouter_savings_spend,
-            SUM(api_requests)::bigint AS api_requests,
-            SUM(successful_requests)::bigint AS successful_requests,
-            SUM(failed_requests)::bigint AS failed_requests
-        FROM "{pg_table}"
-        WHERE {where_clause}
-        GROUP BY GROUPING SETS (
-            (date),
-            (date, api_key),
-            (date, model),
-            (date, model, api_key),
-            (date, COALESCE(NULLIF(model_group, ''), model)),
-            (date, COALESCE(NULLIF(model_group, ''), model), api_key),
-            (date, custom_llm_provider),
-            (date, custom_llm_provider, api_key),
-            (date, mcp_namespaced_tool_name),
-            (date, mcp_namespaced_tool_name, api_key),
-            (date, endpoint),
-            (date, endpoint, api_key),
-            ()
-        )
+            group_level,
+            spend,
+            ptu_flat_cost,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+            compression_saved_tokens,
+            compression_savings_spend,
+            prompt_caching_savings_spend,
+            autorouter_savings_spend,
+            api_requests,
+            successful_requests,
+            failed_requests
+        FROM (
+            SELECT
+                rollups.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY group_level
+                    ORDER BY api_requests DESC NULLS LAST, spend DESC NULLS LAST
+                ) AS level_rank
+            FROM (
+                SELECT
+                    date,
+                    api_key,
+                    model,
+                    COALESCE(NULLIF(model_group, ''), model) AS model_group,
+                    custom_llm_provider,
+                    mcp_namespaced_tool_name,
+                    endpoint,
+                    GROUPING(date, api_key, model, COALESCE(NULLIF(model_group, ''), model),
+                             custom_llm_provider, mcp_namespaced_tool_name,
+                             endpoint) AS group_level,
+                    SUM(spend)::float AS spend,
+                    {_ptu_flat_cost_select(table_name)} AS ptu_flat_cost,
+                    SUM(prompt_tokens)::bigint AS prompt_tokens,
+                    SUM(completion_tokens)::bigint AS completion_tokens,
+                    SUM(cache_read_input_tokens)::bigint AS cache_read_input_tokens,
+                    SUM(cache_creation_input_tokens)::bigint AS cache_creation_input_tokens,
+                    SUM(compression_saved_tokens)::bigint AS compression_saved_tokens,
+                    SUM(compression_savings_spend)::float AS compression_savings_spend,
+                    SUM(prompt_caching_savings_spend)::float AS prompt_caching_savings_spend,
+                    SUM(autorouter_savings_spend)::float AS autorouter_savings_spend,
+                    SUM(api_requests)::bigint AS api_requests,
+                    SUM(successful_requests)::bigint AS successful_requests,
+                    SUM(failed_requests)::bigint AS failed_requests
+                FROM "{pg_table}"
+                WHERE {where_clause}
+                GROUP BY GROUPING SETS (
+                    (date),
+                    (date, api_key),
+                    (date, model),
+                    (date, model, api_key),
+                    (date, COALESCE(NULLIF(model_group, ''), model)),
+                    (date, COALESCE(NULLIF(model_group, ''), model), api_key),
+                    (date, custom_llm_provider),
+                    (date, custom_llm_provider, api_key),
+                    (date, mcp_namespaced_tool_name),
+                    (date, mcp_namespaced_tool_name, api_key),
+                    (date, endpoint),
+                    (date, endpoint, api_key),
+                    ()
+                )
+            ) AS rollups
+        ) AS ranked
+        WHERE level_rank <= ${len(sql_params) + 1}
     """
+    sql_params.append(_MAX_ROWS_PER_GROUPING_LEVEL)
 
     return sql_query, sql_params
 
@@ -913,6 +957,14 @@ _GROUP_DATE_MCP: Final = 61  # 0b0111101
 _GROUP_DATE_MCP_API_KEY: Final = 29  # 0b0011101
 _GROUP_DATE_ENDPOINT: Final = 62  # 0b0111110
 _GROUP_DATE_ENDPOINT_API_KEY: Final = 30  # 0b0011110
+
+# Max rows one GROUPING level may ship to the prisma engine. The engine's
+# resident memory is a high-water mark set by the largest single statement it
+# executes and glibc never returns that memory, so the statement must stay
+# bounded regardless of window length. 5000 is ~18x the largest level this
+# deployment has produced (api_keys x dates), so the cap only trims
+# pathological windows.
+_MAX_ROWS_PER_GROUPING_LEVEL: Final = 5000
 
 
 def _record_to_spend_metrics(record: _GroupingSetsRow) -> SpendMetrics:

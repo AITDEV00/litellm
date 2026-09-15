@@ -39,6 +39,17 @@ router: Final = APIRouter()
 
 SPEND_LOGS_PAGINATION_COUNT_CAP: Final = 10000
 
+# Rows the end-user facet may scan out of LiteLLM_SpendLogs before DISTINCT.
+# The query engine's resident memory is a high-water mark set by the largest
+# statement it executes, so the scan must be bounded before the set is
+# deduplicated. Matches SPEND_LOGS_FACET_SCAN_CAP in management_v1/spend_logs.
+END_USER_FACET_SCAN_CAP: Final = 10000
+
+# Rows the per-page session spend/stats aggregation may scan. A single
+# long-lived session can map to tens of thousands of spend-log rows; without
+# the cap the engine buffers all of them on every logs page load.
+SPEND_LOG_SESSION_STATS_SCAN_CAP: Final = 20000
+
 _RowT = TypeVar("_RowT")
 
 
@@ -3551,11 +3562,22 @@ async def global_view_all_end_users():
     if prisma_client is None:
         raise HTTPException(status_code=500, detail={"error": "No db connected"})
 
+    # DISTINCT over the full spend-logs table is an engine-OOM hazard: the
+    # prisma engine buffers the whole deduplicated set and never returns that
+    # memory. Bound the scan to the most recent rows feeding the dropdown.
     sql_query: Final = """
-    SELECT DISTINCT end_user FROM "LiteLLM_SpendLogs"
+    SELECT DISTINCT end_user FROM (
+        SELECT end_user
+        FROM "LiteLLM_SpendLogs"
+        WHERE end_user IS NOT NULL
+        ORDER BY "startTime" DESC
+        LIMIT $1
+    ) recent
     """
 
-    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(prisma_client, sql_query)
+    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(
+        prisma_client, sql_query, END_USER_FACET_SCAN_CAP
+    )
     if db_response is None:
         return []
 
@@ -4055,9 +4077,9 @@ async def _build_ui_spend_logs_response(
         )
         if session_ids:
             # NOTE: This GROUP BY runs on every v1/UI page load. The IN clause
-            # is bounded by page_size (typically 25-50 distinct session IDs).
-            # If performance degrades at scale, consider short-lived caching or
-            # folding the count into the main query via a window function.
+            # is bounded by page_size (typically 25-50 distinct session IDs) and
+            # the scan is bounded by SPEND_LOG_SESSION_STATS_SCAN_CAP so a
+            # long-lived session cannot make the engine buffer its whole history.
             counts: Final = await _count_logs_per_session(prisma_client, session_ids)
             count_map = {r["session_id"]: r["_count"]["session_id"] for r in counts if r.get("session_id")}
 
@@ -4087,13 +4109,19 @@ async def _build_ui_spend_logs_response(
                        COALESCE(SUM(spend) FILTER (
                            WHERE call_type IN ('call_mcp_tool', 'list_mcp_tools')
                        ), 0)::double precision AS mcp_tool_call_spend
-                FROM "LiteLLM_SpendLogs"
-                WHERE session_id = ANY($1::text[])
-                  AND api_key = ANY($2::text[])
+                FROM (
+                    SELECT session_id, spend, call_type
+                    FROM "LiteLLM_SpendLogs"
+                    WHERE session_id = ANY($1::text[])
+                      AND api_key = ANY($2::text[])
+                    ORDER BY "startTime" DESC
+                    LIMIT $3
+                ) recent
                 GROUP BY session_id
                 """,
                 session_ids,
                 authorized_api_keys,
+                SPEND_LOG_SESSION_STATS_SCAN_CAP,
             )
             session_spend_map = {
                 row["session_id"]: {

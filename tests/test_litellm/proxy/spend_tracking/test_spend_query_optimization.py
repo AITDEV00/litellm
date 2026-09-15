@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 from litellm.proxy.spend_tracking.spend_tracking_utils import (
     get_spend_by_team,
     get_spend_by_team_and_customer,
@@ -499,3 +498,100 @@ async def test_global_spend_report_team_group_forwards_team_id(monkeypatch):
     params = mock_prisma.db.query_raw.call_args[0][1:]
     assert "team_x" in params, "team_id must be forwarded into the DB query params"
     assert "sl.team_id = $3" in sql, f"team query must filter on team_id. SQL was:\n{sql}"
+
+
+@pytest.mark.asyncio
+async def test_all_end_users_facet_scans_bounded_row_count(monkeypatch):
+    """Regression: /global/all_end_users ran an unbounded
+    SELECT DISTINCT end_user over LiteLLM_SpendLogs. The prisma query
+    engine's resident memory is a high-water mark set by the largest
+    statement it executes and glibc never returns that memory, so on a
+    57GB / 15M-row table each call ballooned the engine toward the pod
+    memory limit. The facet must deduplicate a bounded recent scan (inner
+    LIMIT) like SPEND_LOGS_FACET_SCAN_CAP does in management_v1/spend_logs.
+    """
+    from litellm.proxy.spend_tracking.spend_management_endpoints import (
+        END_USER_FACET_SCAN_CAP,
+        global_view_all_end_users,
+    )
+
+    mock_prisma = MagicMock()
+    mock_query_raw = AsyncMock(return_value=[{"end_user": "u1"}])
+    mock_prisma.db = MagicMock()
+    mock_prisma.db.query_raw = mock_query_raw
+
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma)
+    result = await global_view_all_end_users()
+
+    assert result == {"end_users": ["u1"]}
+    mock_query_raw.assert_called_once()
+    call_args = mock_query_raw.call_args[0]
+    sql = call_args[0]
+    params = call_args[1:]
+
+    # The deduplication happens over a bounded recent scan, never the whole table
+    assert "DISTINCT end_user FROM (" in sql, f"SQL was:\n{sql}"
+    assert "ORDER BY \"startTime\" DESC" in sql
+    assert "LIMIT $" in sql
+    # The bound is parameterized and matches the facet cap
+    assert params[-1] == END_USER_FACET_SCAN_CAP
+
+
+@pytest.mark.asyncio
+async def test_session_spend_aggregate_scans_bounded_row_count():
+    """Regression: the spend-logs UI session enrichment aggregated over every
+    LiteLLM_SpendLogs row matching the page's session_ids with no row bound.
+    One long-lived session mapping to tens of thousands of rows made the
+    prisma engine buffer them all on every page load, ratcheting its
+    high-water memory. The scan must be capped with the most recent rows.
+    """
+    from litellm.proxy.spend_tracking.spend_management_endpoints import (
+        SPEND_LOG_SESSION_STATS_SCAN_CAP,
+        _build_ui_spend_logs_response,
+    )
+
+    mock_prisma = MagicMock()
+    mock_query_raw = AsyncMock(
+        return_value=[
+            {
+                "session_id": "s1",
+                "session_total_spend": 1.5,
+                "mcp_tool_call_count": 0,
+                "mcp_tool_call_spend": 0.0,
+            }
+        ]
+    )
+    mock_prisma.db = MagicMock()
+    mock_prisma.db.query_raw = mock_query_raw
+    # the session-count group_by runs before the spend aggregate
+    mock_prisma.db.litellm_spendlogs = MagicMock()
+    mock_prisma.db.litellm_spendlogs.group_by = AsyncMock(return_value=[])
+
+    page_row = {
+        "request_id": "req-1",
+        "session_id": "s1",
+        "api_key": "key-1",
+        "spend": 0.5,
+    }
+
+    response: dict = await _build_ui_spend_logs_response(
+        prisma_client=mock_prisma,
+        data=[page_row],
+        total_records=1,
+        page=1,
+        page_size=25,
+        total_pages=1,
+        enrich_session_counts=True,
+        total_is_capped=False,
+    )
+
+    assert response["data"][0]["session_total_spend"] == 1.5
+    mock_query_raw.assert_called_once()
+    call_args = mock_query_raw.call_args[0]
+    sql = call_args[0]
+    params = call_args[1:]
+
+    # The aggregate reads from a bounded recent subquery, not the raw table
+    assert "FROM (" in sql and "LIMIT $" in sql, f"SQL was:\n{sql}"
+    assert 'ORDER BY "startTime" DESC' in sql
+    assert params[-1] == SPEND_LOG_SESSION_STATS_SCAN_CAP
