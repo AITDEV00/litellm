@@ -39,7 +39,7 @@ spec:
       secret:
         name: adeo-litellm-postgres-dev-app
   storage:
-    size: 20Gi
+    size: 60Gi
     storageClass: longhorn-crypto-global
   walStorage:
     size: 5Gi
