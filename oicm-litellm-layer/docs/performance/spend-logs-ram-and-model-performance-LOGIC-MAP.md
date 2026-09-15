@@ -150,6 +150,11 @@ timestamp key) but the claim is stale.
 3. **Proxy memory headroom** — 6.7Gi steady / 8Gi limit, OOMKills on spikes.
    The log pipeline's queues are bounded; the driver is concurrent
    request/response buffering. Raise limit to 12Gi / add replicas.
+   **Update 2026-09-15**: this item's mechanism was wrong (see
+   [Analytics Reads -> Prisma Engine OOM — Logic Map](analytics-reads-prisma-engine-oom-LOGIC-MAP.md)):
+   the recurring 12Gi OOMKills are driven by Prisma engine arena memory
+   ratcheting on dashboard analytics reads, not per-request buffering. Note
+   §4 below is the read-path half of that same root cause.
 4. **Unbounded buffers worth knowing, not urgent**: tool/autorouter lists
    (RAM), Redis buffer lists (Redis RAM + 512MB LRU evicts oldest under
    pressure), data-loss windows in redis restore paths

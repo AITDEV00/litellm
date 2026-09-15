@@ -3,8 +3,13 @@
 Phase 1 trace correcting `spend-logs-ram-and-model-performance-LOGIC-MAP.md`
 (one claim in §2 was wrong — see §3.2). Live-verified against prod
 (mlops, 2026-09-08) as `LIVE:`. All four deployed general_settings flags
-traced to their exact source semantics.
-
+traced to their exact source semantics.>
+> **Follow-up (2026-09-15)**: the steady-state OOM recurrence after this
+> fix has a separate, now-confirmed root cause — see
+> [Analytics Reads -> Prisma Engine OOM — Logic Map](analytics-reads-prisma-engine-oom-LOGIC-MAP.md).
+> That map supersedes this doc's §3.2 "per-request buffering" ranking: the
+> dominant ratchet is Prisma engine arena memory grown by dashboard
+> analytics reads, not Python-side buffering.
 ---
 
 ## 1. The four flags — exact semantics

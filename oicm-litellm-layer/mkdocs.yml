@@ -125,6 +125,7 @@ nav:
       - Before Optimization: performance/before-optimization.md
       - After Optimization: performance/after-optimization.md
       - Before/After Correct Configuration: performance/before-after-correct-configuration.md
+      - Analytics Reads -> Prisma Engine OOM — Logic Map: performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
