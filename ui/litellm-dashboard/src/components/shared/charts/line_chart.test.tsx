@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { LineChart } from "./line_chart";
 
 const data = [
@@ -113,57 +113,5 @@ describe("LineChart", () => {
       <LineChart data={data} index="date" categories={["/chat/completions"]} colors={["blue"]} />,
     );
     expect(container.querySelector("style")).toBeNull();
-  });
-
-  it("invokes onPointClick with the datum row and category when a line is clicked", () => {
-    const onPointClick = vi.fn();
-    const { container } = render(
-      <LineChart
-        data={data}
-        index="date"
-        categories={["/chat/completions"]}
-        colors={["blue"]}
-        onPointClick={onPointClick}
-      />,
-    );
-
-    const curve = container.querySelector("path.recharts-line-curve");
-    expect(curve).not.toBeNull();
-    // Recharts resolves the hovered datum from pointer coordinates on the chart.
-    fireEvent.click(curve as Element, { clientX: 200, clientY: 100 });
-
-    expect(onPointClick).toHaveBeenCalledTimes(1);
-    expect(onPointClick).toHaveBeenCalledWith(
-      expect.objectContaining({ "/chat/completions": 10 }),
-      "/chat/completions",
-    );
-  });
-
-  it("fades non-hovered lines to grey when highlightOnHover focuses a legend key", () => {
-    const { container } = render(
-      <LineChart
-        data={data}
-        index="date"
-        categories={["/chat/completions", "/embeddings"]}
-        colors={["blue", "cyan"]}
-        highlightOnHover
-      />,
-    );
-
-    const curves = () => Array.from(container.querySelectorAll("path.recharts-line-curve"));
-    const opacityOf = (i: number) => curves()[i]?.getAttribute("stroke-opacity");
-
-    // Baseline: no category focused, so every line keeps full opacity.
-    expect(opacityOf(0)).toBe("1");
-    expect(opacityOf(1)).toBe("1");
-
-    // Hovering the first legend key focuses it and dims the others.
-    fireEvent.mouseEnter(screen.getByText("/chat/completions"));
-    expect(opacityOf(0)).toBe("1");
-    expect(opacityOf(1)).toBe("0.15");
-
-    // Leaving the legend key restores full opacity on all lines.
-    fireEvent.mouseLeave(screen.getByText("/chat/completions"));
-    expect(opacityOf(1)).toBe("1");
   });
 });

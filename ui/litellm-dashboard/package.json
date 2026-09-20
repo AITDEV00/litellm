@@ -21,8 +21,7 @@
     "knip": "knip",
     "knip:ci": "knip --exclude exports,nsExports,types,nsTypes,enumMembers,classMembers,duplicates",
     "knip:fix": "knip --fix",
-    "gen:api": "node scripts/gen-api-types.mjs",
-    "extract-gating": "node scripts/extract-gating.mjs"
+    "gen:api": "node scripts/gen-api-types.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.92.0",
