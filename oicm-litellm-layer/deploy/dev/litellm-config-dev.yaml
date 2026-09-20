@@ -71,6 +71,30 @@ data:
       routing_strategy: usage-based-routing-v2
       optional_pre_call_checks:
         - enforce_model_rate_limits
+      # ---- Retry budget per exception class (preemptive, post-OOM hardening).
+      # AuthenticationError / BadRequest / ContentPolicyViolation almost never
+      # self-heal, so don't waste a retry; transient network/5xx do.
+      retry_policy:
+        InternalServerErrorRetries: 3
+        ServiceUnavailableErrorRetries: 3
+        TimeoutErrorRetries: 2
+        RateLimitErrorRetries: 2
+        AuthenticationErrorRetries: 0
+        BadRequestErrorRetries: 0
+        ContentPolicyViolationErrorRetries: 0
+      # Floor for the exponential backoff in _calculate_retry_after; the actual
+      # sleep is max(this, INITIAL_RETRY_DELAY * 2**n) plus jitter.
+      retry_after: 0.5
+      # Per-request and per-stream-chunk upper bounds so a stalled stream
+      # fails loud instead of hanging on the outer HTTP timeout. Non-streaming
+      # requests on big reasoning models can legitimately take several minutes.
+      timeout: 600
+      stream_timeout: 30
+      # Deployment health hysteresis: trip to cooldown after 3 fails, sleep 30s
+      # before retrying that deployment (default is 1 fail / 1s).
+      allowed_fails: 3
+      cooldown_time: 30
+      # Fallbacks intentionally omitted for now; to be configured separately.
     general_settings:
       use_redis_transaction_buffer: true
       # Mirror of prod (2026-09-08 decoupling). Retention knobs are inert
