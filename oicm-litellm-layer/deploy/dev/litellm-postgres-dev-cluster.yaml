@@ -1,0 +1,65 @@
+---
+# Dev-only CNPG Postgres cluster: adeo-litellm-postgres-dev
+#
+# PURPOSE
+#   A single-instance Postgres for the dev gateway so gateway runs exercise
+#   the REAL logging pipeline (spend-log writes, flush jobs, prisma engine
+#   churn) instead of the DB-less path. Throwaway data: profiling and fix
+#   validation only, nothing here is a source of truth.
+#
+# DIFF VS PROD (deploy/prod/litellm-postgres-cluster.yaml)
+#   - instances: 1 (not 3), no HA replication slots
+#   - storage: 20Gi / walStorage: 5Gi (not 100Gi / 50Gi)
+#   - storageClass: longhorn-crypto-global (encrypted, 1 replica, Delete
+#     reclaim — dev volumes are disposable; prod uses the 3-replica Retain
+#     class longhorn-rwx-crypto-retain)
+#   - resources: 1Gi request (not 2G), no PodMonitor
+#
+# NOTE
+#   The dev gateway connects via adeo-litellm-postgres-dev-rw.adeo-litellm:5432
+#   with credentials from secret litellm-db-credentials-dev (created below —
+#   CNPG syncs the litellm user's password into the managed secret
+#   adeo-litellm-postgres-dev-app; the DATABASE_URL here mirrors it).
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: adeo-litellm-postgres-dev
+  namespace: adeo-litellm
+spec:
+  description: dev-only single-instance postgres for the dev gateway
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  bootstrap:
+    initdb:
+      database: litellm
+      owner: litellm
+      # CNPG syncs the litellm role password from this managed secret; the
+      # litellm-db-credentials-dev secret used by the dev gateway mirrors it.
+      secret:
+        name: adeo-litellm-postgres-dev-app
+  storage:
+    size: 90Gi
+    storageClass: longhorn-crypto-global
+  walStorage:
+    size: 5Gi
+    storageClass: longhorn-crypto-global
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  postgresql:
+    parameters:
+      log_destination: csvlog
+      log_directory: /controller/log
+      log_filename: postgres
+      log_rotation_age: "0"
+      log_rotation_size: "0"
+      logging_collector: "on"
+      max_connections: "100"
+      shared_buffers: 128MB
+      wal_level: logical
+

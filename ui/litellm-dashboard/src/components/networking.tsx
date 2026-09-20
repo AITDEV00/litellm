@@ -1905,6 +1905,15 @@ export const modelHubCall = async (accessToken: string) => {
   }
 };
 
+export { modelPerformanceCall } from "@/components/UsagePage/components/ModelPerformance";
+export type {
+  ModelPerformanceModel,
+  ModelPerformanceResponse,
+  ModelPerformanceScope,
+  ModelPerformanceSummary,
+  ModelPerformanceTimePoint,
+} from "@/components/UsagePage/components/ModelPerformance";
+
 // Function to get allowed IPs
 export const getAllowedIPs = async (accessToken: string) => {
   try {

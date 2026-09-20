@@ -8,7 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
-import { LogEntry } from "../columns";
+import { computeThroughput, LogEntry } from "../columns";
 import { formatNumberWithCommas } from "@/utils/dataUtils";
 import { PROMPT_CACHE_CREATION_TOOLTIP, PROMPT_CACHE_READ_TOOLTIP } from "@/utils/promptCacheUsage";
 import GuardrailViewer from "../GuardrailViewer/GuardrailViewer";
@@ -453,6 +453,8 @@ function MetricsSection({ logEntry, metadata }: { logEntry: LogEntry; metadata: 
   const promptCacheReadTokens = Number(metadata?.additional_usage_values?.cache_read_input_tokens) || 0;
   const promptCacheCreationTokens = Number(metadata?.additional_usage_values?.cache_creation_input_tokens) || 0;
 
+  const throughput = computeThroughput(logEntry.completion_tokens, logEntry.request_duration_ms);
+
   const uncachedInputTokens = getUncachedInputTextTokens(metadata);
   const showAnthropicMessagesInputOutput =
     logEntry.call_type === "anthropic_messages" && uncachedInputTokens !== undefined;
@@ -491,6 +493,9 @@ function MetricsSection({ logEntry, metadata }: { logEntry: LogEntry; metadata: 
             </DescriptionItem>
             {ttftMs != null && ttftMs > 0 && (
               <DescriptionItem label="Time to First Token">{(ttftMs / 1000).toFixed(3)} s</DescriptionItem>
+            )}
+            {throughput != null && (
+              <DescriptionItem label="Throughput">{throughput.toFixed(1)} tokens/s</DescriptionItem>
             )}
 
             {showResponseCache && (

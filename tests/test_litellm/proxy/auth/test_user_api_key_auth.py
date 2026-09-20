@@ -7442,3 +7442,186 @@ async def test_claude_view_never_reinterprets_explicit_names(monkeypatch, layer)
     assert data["model"] == ("foo" if layer == "unclaimed" else encoded)
     await _normalize_claude_model(data, token, request, "/v1/messages")
     assert data["model"] == ("foo" if layer == "unclaimed" else encoded)
+
+async def test_auth_path_does_not_re_cache_team_object():
+    """Regression for multi-pod cache re-poisoning: the auth builder must NOT
+    write the team object back to cache after ``get_team_object`` returns.
+    ``get_team_object`` already caches under the canonical ``team_id:{id}`` key
+    (via ``_cache_team_object`` on DB miss, or the value is already in cache on
+    cache hit). The write-back was purely a re-poisoning mechanism: it re-wrote
+    the in-memory cache on every request, defeating ``skip_in_memory`` and
+    re-introducing stale data across pods.
+
+    Drives the real builder for a team-scoped key against a real in-memory
+    ``UserApiKeyCache`` with ``get_team_object`` mocked to return a team object
+    without side effects. After the builder runs, the team object must NOT be in
+    cache under any key, proving the write-back was removed.
+    """
+    from fastapi import Request
+    from starlette.datastructures import URL
+
+    import litellm.proxy.proxy_server as _proxy_server_mod
+    from litellm.proxy._types import LiteLLM_TeamTableCachedObj
+    from litellm.proxy.auth.user_api_key_auth import _user_api_key_auth_builder
+    from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
+    from litellm.proxy.proxy_server import hash_token
+
+    team_id = "team-lit-4000"
+    api_key = "sk-lit-4000-team-key"
+    cache = UserApiKeyCache()
+
+    team_token = UserAPIKeyAuth(token=hash_token(api_key), team_id=team_id)
+    team_obj = LiteLLM_TeamTableCachedObj(team_id=team_id)
+
+    proxy_logging_obj = MagicMock()
+    proxy_logging_obj.post_call_failure_hook = AsyncMock(return_value=None)
+    attrs = {
+        "prisma_client": MagicMock(),
+        "user_api_key_cache": cache,
+        "proxy_logging_obj": proxy_logging_obj,
+        "master_key": "sk-test-master",
+        "general_settings": {"allow_requests_on_db_unavailable": False},
+        "llm_model_list": [],
+        "llm_router": None,
+        "open_telemetry_logger": None,
+        "model_max_budget_limiter": MagicMock(),
+        "user_custom_auth": None,
+        "jwt_handler": None,
+        "litellm_proxy_admin_name": "admin",
+    }
+    originals = {a: getattr(_proxy_server_mod, a, None) for a in attrs}
+    try:
+        for k, v in attrs.items():
+            setattr(_proxy_server_mod, k, v)
+        request = Request(scope={"type": "http"})
+        request._url = URL(url="/chat/completions")
+        with (
+            patch(
+                "litellm.proxy.auth.resolvers.store.IdentityStore._resolve_key",
+                AsyncMock(return_value=team_token),
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth.get_team_object",
+                AsyncMock(return_value=team_obj),
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth._enforce_key_and_fallback_model_access",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth._return_user_api_key_auth_obj",
+                new_callable=AsyncMock,
+                return_value=team_token,
+            ),
+            patch(
+                "litellm.proxy.auth.auth_exception_handler.seed_request_identity",
+            ),
+        ):
+            await _user_api_key_auth_builder(
+                request=request,
+                api_key=f"Bearer {api_key}",
+                azure_api_key_header="",
+                anthropic_api_key_header=None,
+                google_ai_studio_api_key_header=None,
+                azure_apim_header=None,
+                request_data={},
+            )
+    finally:
+        for k, v in originals.items():
+            setattr(_proxy_server_mod, k, v)
+
+    assert cache.get_cache(key=f"team_id:{team_id}", model_type=LiteLLM_TeamTableCachedObj) is None
+    assert cache.get_cache(key=team_id) is None
+    assert cache.get_cache(key=None) is None
+
+
+
+@pytest.mark.asyncio
+async def test_auth_path_does_not_re_cache_team_object():
+    """Regression for multi-pod cache re-poisoning: the auth builder must NOT
+    write the team object back to cache after ``get_team_object`` returns.
+    ``get_team_object`` already caches under the canonical ``team_id:{id}`` key
+    (via ``_cache_team_object`` on DB miss, or the value is already in cache on
+    cache hit). The write-back was purely a re-poisoning mechanism: it re-wrote
+    the in-memory cache on every request, defeating ``skip_in_memory`` and
+    re-introducing stale data across pods.
+
+    Drives the real builder for a team-scoped key against a real in-memory
+    ``UserApiKeyCache`` with ``get_team_object`` mocked to return a team object
+    without side effects. After the builder runs, the team object must NOT be in
+    cache under any key, proving the write-back was removed.
+    """
+    from fastapi import Request
+    from starlette.datastructures import URL
+
+    import litellm.proxy.proxy_server as _proxy_server_mod
+    from litellm.proxy._types import LiteLLM_TeamTableCachedObj
+    from litellm.proxy.auth.user_api_key_auth import _user_api_key_auth_builder
+    from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
+    from litellm.proxy.proxy_server import hash_token
+
+    team_id = "team-lit-4000"
+    api_key = "sk-lit-4000-team-key"
+    cache = UserApiKeyCache()
+
+    team_token = UserAPIKeyAuth(token=hash_token(api_key), team_id=team_id)
+    team_obj = LiteLLM_TeamTableCachedObj(team_id=team_id)
+
+    proxy_logging_obj = MagicMock()
+    proxy_logging_obj.post_call_failure_hook = AsyncMock(return_value=None)
+    attrs = {
+        "prisma_client": MagicMock(),
+        "user_api_key_cache": cache,
+        "proxy_logging_obj": proxy_logging_obj,
+        "master_key": "sk-test-master",
+        "general_settings": {"allow_requests_on_db_unavailable": False},
+        "llm_model_list": [],
+        "llm_router": None,
+        "open_telemetry_logger": None,
+        "model_max_budget_limiter": MagicMock(),
+        "user_custom_auth": None,
+        "jwt_handler": None,
+        "litellm_proxy_admin_name": "admin",
+    }
+    originals = {a: getattr(_proxy_server_mod, a, None) for a in attrs}
+    try:
+        for k, v in attrs.items():
+            setattr(_proxy_server_mod, k, v)
+        request = Request(scope={"type": "http"})
+        request._url = URL(url="/chat/completions")
+        with (
+            patch(
+                "litellm.proxy.auth.resolvers.store.IdentityStore._resolve_key",
+                AsyncMock(return_value=team_token),
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth.get_team_object",
+                AsyncMock(return_value=team_obj),
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth._enforce_key_and_fallback_model_access",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "litellm.proxy.auth.user_api_key_auth._return_user_api_key_auth_obj",
+                new_callable=AsyncMock,
+                return_value=team_token,
+            ),
+            patch(
+                "litellm.proxy.auth.auth_exception_handler.seed_request_identity",
+            ),
+        ):
+            await _user_api_key_auth_builder(
+                request=request,
+                api_key=f"Bearer {api_key}",
+                azure_api_key_header="",
+                anthropic_api_key_header=None,
+                google_ai_studio_api_key_header=None,
+                azure_apim_header=None,
+                request_data={},
+            )
+    finally:
+        for k, v in originals.items():
+            setattr(_proxy_server_mod, k, v)
+
+    assert cache.get_cache(key=f"team_id:{team_id}", model_type=LiteLLM_TeamTableCachedObj) is None

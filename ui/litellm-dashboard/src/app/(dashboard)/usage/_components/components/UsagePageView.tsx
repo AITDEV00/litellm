@@ -63,6 +63,7 @@ import ModelViewToggle, { ModelViewType } from "./ModelViewToggle";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import { TOP_MODEL_LIMITS } from "./EntityUsage/TopModelView";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
 import UsageAIChatPanel from "./UsageAIChatPanel";
 import { UsageOption, UsageViewSelect } from "./UsageViewSelect/UsageViewSelect";
 
@@ -519,6 +520,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <TabsTrigger value="endpoints" className="flex-none px-3">
                       Endpoint Activity
                     </TabsTrigger>
+                    <TabsTrigger value="performance" className="flex-none px-3">
+                      Model Performance
+                    </TabsTrigger>
                   </TabsList>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={() => setIsAiChatOpen(true)}>
@@ -894,6 +898,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 </TabsContent>
                 <TabsContent value="endpoints" keepMounted>
                   <EndpointUsage userSpendData={userSpendData} />
+                </TabsContent>
+                <TabsContent value="performance" keepMounted>
+                  <ModelPerformanceView dateValue={dateValue} />
                 </TabsContent>
               </Tabs>
             </>

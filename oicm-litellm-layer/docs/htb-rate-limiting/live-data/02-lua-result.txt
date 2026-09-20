@@ -1,0 +1,2 @@
+str(now) -> FAILED
+int(now) -> OK

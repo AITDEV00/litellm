@@ -130,6 +130,9 @@ from litellm.proxy.management_helpers.object_permission_utils import (
 from litellm.proxy.management_helpers.team_member_permission_checks import (
     TeamMemberPermissionChecks,
 )
+from litellm.proxy.management_helpers.team_cache_invalidation import (
+    _invalidate_team_key_caches,
+)
 from litellm.proxy.management_helpers.team_metadata_validation import (
     TEAM_METADATA_SCHEMA_REGISTRY,
     validate_team_metadata_if_configured,
@@ -2310,6 +2313,11 @@ async def update_team(
         await sync_team_access_group_membership(prisma_client=prisma_client, team_id=team_row.team_id)
         await _refresh_cached_team(
             team_row=team_row,
+            user_api_key_cache=user_api_key_cache,
+            proxy_logging_obj=proxy_logging_obj,
+        )
+        await _invalidate_team_key_caches(
+            team_id=team_row.team_id,
             user_api_key_cache=user_api_key_cache,
             proxy_logging_obj=proxy_logging_obj,
         )
@@ -5642,6 +5650,11 @@ async def team_model_add(
         user_api_key_cache=user_api_key_cache,
         proxy_logging_obj=proxy_logging_obj,
     )
+    await _invalidate_team_key_caches(
+        team_id=updated_team.team_id,
+        user_api_key_cache=user_api_key_cache,
+        proxy_logging_obj=proxy_logging_obj,
+    )
 
     return updated_team
 
@@ -5726,6 +5739,11 @@ async def team_model_delete(
 
     await _refresh_cached_team(
         team_row=updated_team,
+        user_api_key_cache=user_api_key_cache,
+        proxy_logging_obj=proxy_logging_obj,
+    )
+    await _invalidate_team_key_caches(
+        team_id=updated_team.team_id,
         user_api_key_cache=user_api_key_cache,
         proxy_logging_obj=proxy_logging_obj,
     )

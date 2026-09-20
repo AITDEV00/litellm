@@ -891,6 +891,7 @@ class AsyncHTTPHandler:
         headers: dict | None = None,
         timeout: float | httpx.Timeout | None = None,
         stream: bool = False,
+        files: RequestFiles | None = None,
         content: _RequestContent | None = None,
     ):
         try:
@@ -1461,6 +1462,7 @@ class HTTPHandler:
         headers: dict | None = None,
         stream: bool = False,
         timeout: float | httpx.Timeout | None = None,
+        files: RequestFiles | None = None,
         content: _RequestContent | None = None,
     ):
         try:

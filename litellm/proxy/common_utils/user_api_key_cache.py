@@ -33,6 +33,14 @@ class UserApiKeyCache(DualCache):
     Stores a Redis-safe JSON payload in BOTH in-memory and Redis to avoid
     "memory returns BaseModel, Redis returns dict" format drift.
 
+    **Multi-pod consistency**: reads default to ``skip_in_memory=True``, bypassing
+    the per-pod in-memory cache and going directly to the shared Redis layer.
+    This prevents stale authorization data from being served when a mutation on
+    one pod hasn't propagated to another pod's in-memory cache. When no Redis is
+    configured, ``DualCache`` gracefully falls back to in-memory since cross-pod
+    staleness only exists with shared Redis. Callers that explicitly want
+    in-memory reads (e.g. for testing) can pass ``skip_in_memory=False``.
+
     When ``model_type`` is provided:
     - writes are serialized via ``CacheCodec.serialize(..., model_type=...)``
     - reads are deserialized via ``CacheCodec.deserialize(..., model_type)``
@@ -97,6 +105,7 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         *,
         model_type: type[T],
         **kwargs: object,
@@ -108,6 +117,7 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         model_type: None = None,
         **kwargs: object,
     ) -> Any: ...
@@ -117,15 +127,28 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         model_type: type[BaseModel] | None = None,
         **kwargs: object,
     ) -> object:
         if model_type is None and "model_type" in kwargs:
             model_type = cast(type[BaseModel] | None, kwargs.pop("model_type", None))
         cached: Final = (
-            self.key_object_cache.get_cache(key=key, parent_otel_span=parent_otel_span, local_only=local_only, **kwargs)
+            self.key_object_cache.get_cache(
+                key=key,
+                parent_otel_span=parent_otel_span,
+                local_only=local_only,
+                skip_in_memory=skip_in_memory,
+                **kwargs,
+            )
             if is_user_key_cache_key(key)
-            else super().get_cache(key=key, parent_otel_span=parent_otel_span, local_only=local_only, **kwargs)
+            else super().get_cache(
+                key=key,
+                parent_otel_span=parent_otel_span,
+                local_only=local_only,
+                skip_in_memory=skip_in_memory,
+                **kwargs,
+            )
         )
         if model_type is None:
             return cached
@@ -147,6 +170,7 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         *,
         model_type: type[T],
         **kwargs: object,
@@ -158,6 +182,7 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         model_type: None = None,
         **kwargs: object,
     ) -> Any: ...
@@ -167,6 +192,7 @@ class UserApiKeyCache(DualCache):
         key: str,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        skip_in_memory: bool = True,
         model_type: type[BaseModel] | None = None,
         **kwargs: object,
     ) -> object:
@@ -174,11 +200,19 @@ class UserApiKeyCache(DualCache):
             model_type = cast(type[BaseModel] | None, kwargs.pop("model_type", None))
         cached: Final = (
             await self.key_object_cache.async_get_cache(
-                key=key, parent_otel_span=parent_otel_span, local_only=local_only, **kwargs
+                key=key,
+                parent_otel_span=parent_otel_span,
+                local_only=local_only,
+                skip_in_memory=skip_in_memory,
+                **kwargs,
             )
             if is_user_key_cache_key(key)
             else await super().async_get_cache(
-                key=key, parent_otel_span=parent_otel_span, local_only=local_only, **kwargs
+                key=key,
+                parent_otel_span=parent_otel_span,
+                local_only=local_only,
+                skip_in_memory=skip_in_memory,
+                **kwargs,
             )
         )
         if model_type is None:

@@ -48,7 +48,7 @@ If you ever write any human-facing text (pull requests, issues, commit messages,
 - don't use →. Instead, prefer not to use arrows, and if need be, use -> instead
 - use plain, simple, everyday engineering language: the common phrase engineers actually say over rare compact phrasing, in grammatically complete sentences. When explicitly asked to use bullets or ordered lists and structure legitimately helps the reader, prefer nested bullets (any depth is fine) over dense lines in a flat structure
 
-Don't hesitate to use values in .env to get needed API keys and other secrets, as long as you never add them to conversation history, commit them, or include them in GitHub issues / PRs
+Don't hesitate to use values in .env to get needed API keys and other secrets, as long as you never add them to conversation history, commit them, or include them in GitHub issues / PRs. Exception: real cluster credentials (kubeconfig certificate-authority-data, client-certificate-data, client-key-data) may be committed in markdown files under oicm-aa-ad-cluster-interconnect/ because this is a private repo and those guides must be self-contained runbooks for cluster connection; this exception does not extend to code, config files, or any other directory
 
 Python max line length is 120, not 88
 

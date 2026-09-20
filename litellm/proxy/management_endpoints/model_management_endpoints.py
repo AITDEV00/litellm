@@ -63,6 +63,9 @@ from litellm.proxy.common_utils.encrypt_decrypt_utils import (
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.db.routing_prisma_wrapper import WriterPinnedClient
 from litellm.proxy.management_endpoints.common_utils import _is_user_team_admin
+from litellm.proxy.management_helpers.team_cache_invalidation import (
+    _invalidate_team_key_caches,
+)
 from litellm.proxy.management_endpoints.team_endpoints import (
     _refresh_cached_team,
     team_model_add,
@@ -1586,6 +1589,11 @@ async def _remove_unbacked_team_models(
     )
     await _refresh_cached_team(
         team_row=updated_team_row,
+        user_api_key_cache=user_api_key_cache,
+        proxy_logging_obj=proxy_logging_obj,
+    )
+    await _invalidate_team_key_caches(
+        team_id=updated_team_row.team_id,
         user_api_key_cache=user_api_key_cache,
         proxy_logging_obj=proxy_logging_obj,
     )

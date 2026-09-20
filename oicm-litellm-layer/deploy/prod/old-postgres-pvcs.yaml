@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: old-litellm-postgres-data
+  namespace: adeo-litellm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: longhorn-rwx-crypto-retain
+  volumeName: pvc-02ee8324-5eb1-449f-829c-2eb293218687
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: old-litellm-postgres-wal
+  namespace: adeo-litellm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: longhorn-rwx-crypto-retain
+  volumeName: pvc-3ac61ea4-bfd6-4b6e-a3c8-8e5a95c726bf
+  resources:
+    requests:
+      storage: 50Gi

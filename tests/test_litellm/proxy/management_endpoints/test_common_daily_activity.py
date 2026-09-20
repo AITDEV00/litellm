@@ -9,6 +9,7 @@ from litellm.proxy.spend_tracking.ptu_feature_flag import PTU_COST_ATTRIBUTION_E
 
 
 from litellm.proxy.management_endpoints.common_daily_activity import (
+    _MAX_ROWS_PER_GROUPING_LEVEL,
     _adjust_dates_for_timezone,
     _build_aggregated_sql_query,
     _build_entity_rollup_sql_query,
@@ -155,7 +156,6 @@ async def test_get_daily_activity_aggregated_with_endpoint_breakdown():
         "compression_saved_tokens": 0,
         "compression_savings_spend": 0.0,
         "prompt_caching_savings_spend": 0.0,
-        "gateway_injected_caching_savings_spend": 0.0,
         "autorouter_savings_spend": 0.0,
         "failed_requests": 0,
     }
@@ -455,240 +455,6 @@ async def test_get_api_key_metadata_regenerated_key_uses_most_recent_deleted_rec
 
 
 @pytest.mark.asyncio
-async def test_get_api_key_metadata_recovers_double_hashed_key_via_reverse_hash():
-    """
-    v1.99 spend logging re-hashed already-hashed api_key values when provenance was
-    missing. Usage joins DailyUserSpend.api_key to VerificationToken.token, so those
-    rows looked like key-hash-... with a null alias. Recovery asks Postgres for the
-    key whose hashed token matches the dirty value and maps it back to its alias.
-    """
-    from litellm.proxy.utils import hash_token
-
-    double_hashed = hash_token("a" * 64)
-    mock_prisma = MagicMock()
-    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(
-        return_value=[SimpleNamespace(user_id="alice", user_email="alice@example.com")]
-    )
-    mock_prisma.db.query_raw = AsyncMock(
-        return_value=[
-            {"digest": double_hashed, "key_alias": "batch-worker", "team_id": "team-1", "user_id": "alice"}
-        ]
-    )
-
-    result = await get_api_key_metadata(
-        prisma_client=mock_prisma,
-        api_keys={double_hashed},
-    )
-
-    assert result[double_hashed]["key_alias"] == "batch-worker"
-    assert result[double_hashed]["team_id"] == "team-1"
-    assert result[double_hashed]["user_email"] == "alice@example.com"
-    ((digest_sql, digests),) = [call.args for call in mock_prisma.db.query_raw.call_args_list]
-    assert '"LiteLLM_VerificationToken"' in digest_sql
-    assert digests == [double_hashed]
-
-
-@pytest.mark.asyncio
-async def test_get_api_key_metadata_permanent_miss_never_pages_tokens_or_reads_spend_logs():
-    """Without a spend-log window a dirty key no table can explain costs two digest lookups and never a token page walk."""
-    from litellm.proxy.utils import hash_token
-
-    double_hashed = hash_token("b" * 64)
-    mock_prisma = MagicMock()
-    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.query_raw = AsyncMock(return_value=[])
-
-    result = await get_api_key_metadata(
-        prisma_client=mock_prisma,
-        api_keys={double_hashed},
-    )
-
-    assert double_hashed not in result
-    issued_sql = [call.args[0] for call in mock_prisma.db.query_raw.call_args_list]
-    assert len(issued_sql) == 2
-    assert not any("LiteLLM_SpendLogs" in sql for sql in issued_sql)
-    token_lookups = (
-        mock_prisma.db.litellm_verificationtoken.find_many.call_args_list
-        + mock_prisma.db.litellm_deletedverificationtoken.find_many.call_args_list
-    )
-    assert all("take" not in call.kwargs and "skip" not in call.kwargs for call in token_lookups)
-
-
-def _spend_log_transaction(mock_prisma: MagicMock, rows: list[dict[str, str | None]]) -> AsyncMock:
-    transaction = MagicMock()
-    transaction.execute_raw = AsyncMock(return_value=0)
-    transaction.query_raw = AsyncMock(return_value=rows)
-    mock_prisma.db.tx.return_value.__aenter__.return_value = transaction
-    return transaction.query_raw
-
-
-def _spend_log_row(digest: str, key_alias: str, user_id: str) -> dict[str, str | None]:
-    return {
-        "digest": digest,
-        "first_alias": key_alias,
-        "last_alias": key_alias,
-        "first_team": None,
-        "last_team": None,
-        "first_owner": user_id,
-        "last_owner": user_id,
-    }
-
-
-@pytest.mark.asyncio
-async def test_get_api_key_metadata_permanent_miss_with_a_window_reads_spend_logs_once_within_it():
-    from litellm.proxy.utils import hash_token
-
-    double_hashed = hash_token("permanent-miss-with-window-6852")
-    window = (datetime(2024, 1, 1), datetime(2024, 1, 4))
-    mock_prisma = MagicMock()
-    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.query_raw = AsyncMock(return_value=[])
-    spend_log_query_raw = _spend_log_transaction(mock_prisma, [])
-
-    result = await get_api_key_metadata(prisma_client=mock_prisma, api_keys={double_hashed}, spend_logs_window=window)
-
-    assert double_hashed not in result
-    assert mock_prisma.db.query_raw.await_count == 2
-    ((_, digests, start, end),) = [call.args for call in spend_log_query_raw.call_args_list]
-    assert digests == [double_hashed]
-    assert (start, end) == window
-
-
-@pytest.mark.asyncio
-async def test_get_daily_activity_recovers_a_session_key_alias_from_spend_logs_around_the_page_dates():
-    from litellm.proxy.utils import hash_token
-
-    session_digest = hash_token("cli-session-daily-activity-6852")
-    records = [_daily_user_spend_record(user_id="session-user", api_key=session_digest, spend=1.5)]
-    mock_prisma = MagicMock()
-    mock_prisma.db = MagicMock()
-    mock_table = MagicMock()
-    mock_table.count = AsyncMock(return_value=len(records))
-    mock_table.find_many = AsyncMock(return_value=records)
-    mock_prisma.db.litellm_dailyuserspend = mock_table
-    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(
-        return_value=[SimpleNamespace(user_id="session-user", user_email="session@example.com")]
-    )
-
-    mock_prisma.db.query_raw = AsyncMock(return_value=[])
-    spend_log_query_raw = _spend_log_transaction(
-        mock_prisma, [_spend_log_row(session_digest, "cli-session-alias", "session-user")]
-    )
-
-    result = await get_daily_activity(
-        prisma_client=mock_prisma,
-        table_name="litellm_dailyuserspend",
-        entity_id_field="user_id",
-        entity_id=None,
-        entity_metadata_field=None,
-        start_date="2024-01-01",
-        end_date="2024-01-01",
-        model=None,
-        api_key=None,
-        page=1,
-        page_size=1000,
-    )
-
-    key_metadata = result.results[0].breakdown.api_keys[session_digest].metadata
-    assert key_metadata.key_alias == "cli-session-alias"
-    assert key_metadata.user_email == "session@example.com"
-    ((_, digests, start, end),) = [call.args for call in spend_log_query_raw.call_args_list]
-    assert digests == [session_digest]
-    assert (start, end) == (datetime(2023, 12, 31), datetime(2024, 1, 3))
-
-
-def test_key_metadata_includes_recovered_user_email():
-    from litellm.proxy.management_endpoints.common_daily_activity import _key_metadata
-
-    meta = _key_metadata(
-        {
-            "dirty-key": {
-                "key_alias": "batch-worker",
-                "team_id": "team-1",
-                "user_id": "alice",
-                "user_email": "alice@example.com",
-            }
-        },
-        "dirty-key",
-    )
-
-    assert meta.key_alias == "batch-worker"
-    assert meta.user_id == "alice"
-    assert meta.user_email == "alice@example.com"
-
-
-def test_update_breakdown_metrics_includes_user_email():
-    from litellm.proxy.management_endpoints.common_daily_activity import update_breakdown_metrics
-    from litellm.types.proxy.management_endpoints.common_daily_activity import BreakdownMetrics
-
-    breakdown = BreakdownMetrics()
-    record = SimpleNamespace(
-        api_key="dirty-key",
-        model="gpt-4o-mini",
-        model_group="grp",
-        mcp_namespaced_tool_name="srv/tool",
-        custom_llm_provider="openai",
-        endpoint="/v1/chat/completions",
-        spend=1.23,
-        prompt_tokens=1,
-        completion_tokens=1,
-        cache_read_input_tokens=0,
-        cache_creation_input_tokens=0,
-        compression_saved_tokens=0,
-        compression_savings_spend=0,
-        prompt_caching_savings_spend=0,
-        gateway_injected_caching_savings_spend=0,
-        autorouter_savings_spend=0,
-        total_tokens=2,
-        api_requests=1,
-        successful_requests=1,
-        failed_requests=0,
-        ptu_flat_cost=0.0,
-        user_id="alice",
-    )
-    api_key_metadata = {
-        "dirty-key": {
-            "key_alias": "batch-worker",
-            "team_id": "team-1",
-            "user_email": "alice@example.com",
-        }
-    }
-
-    update_breakdown_metrics(
-        breakdown,
-        record,
-        {},
-        {},
-        api_key_metadata,
-        entity_id_field="user_id",
-    )
-
-    expected = ("batch-worker", "alice@example.com")
-    top = breakdown.api_keys["dirty-key"].metadata
-    assert (top.key_alias, top.user_email) == expected
-    assert (
-        breakdown.models["gpt-4o-mini"].api_key_breakdown["dirty-key"].metadata.key_alias,
-        breakdown.models["gpt-4o-mini"].api_key_breakdown["dirty-key"].metadata.user_email,
-    ) == expected
-    assert (
-        breakdown.providers["openai"].api_key_breakdown["dirty-key"].metadata.key_alias,
-        breakdown.providers["openai"].api_key_breakdown["dirty-key"].metadata.user_email,
-    ) == expected
-    assert (
-        breakdown.entities["alice"].api_key_breakdown["dirty-key"].metadata.key_alias,
-        breakdown.entities["alice"].api_key_breakdown["dirty-key"].metadata.user_email,
-    ) == expected
-
-
-@pytest.mark.asyncio
 async def test_tag_daily_activity_metadata_totals_not_zero():
     """Test that tag daily activity returns correct metadata totals.
 
@@ -720,7 +486,6 @@ async def test_tag_daily_activity_metadata_totals_not_zero():
     mock_record_1.compression_saved_tokens = 0
     mock_record_1.compression_savings_spend = 0.0
     mock_record_1.prompt_caching_savings_spend = 0.0
-    mock_record_1.gateway_injected_caching_savings_spend = 0.0
     mock_record_1.autorouter_savings_spend = 0.0
     mock_record_1.api_requests = 10
     mock_record_1.successful_requests = 9
@@ -744,7 +509,6 @@ async def test_tag_daily_activity_metadata_totals_not_zero():
     mock_record_2.compression_saved_tokens = 0
     mock_record_2.compression_savings_spend = 0.0
     mock_record_2.prompt_caching_savings_spend = 0.0
-    mock_record_2.gateway_injected_caching_savings_spend = 0.0
     mock_record_2.autorouter_savings_spend = 0.0
     mock_record_2.api_requests = 5
     mock_record_2.successful_requests = 5
@@ -808,7 +572,6 @@ async def test_aggregated_activity_preserves_metadata_for_deleted_keys():
         "compression_saved_tokens": 0,
         "compression_savings_spend": 0.0,
         "prompt_caching_savings_spend": 0.0,
-        "gateway_injected_caching_savings_spend": 0.0,
         "autorouter_savings_spend": 0.0,
         "failed_requests": 0,
     }
@@ -850,11 +613,9 @@ async def test_aggregated_activity_preserves_metadata_for_deleted_keys():
     mock_deleted_key.token = "deleted-key-hash"
     mock_deleted_key.key_alias = "toto-test-2"
     mock_deleted_key.team_id = "69cd4b77-b095-4489-8c46-4f2f31d840a2"
-    mock_deleted_key.user_id = "deleted-key-owner"
 
     mock_prisma.db.litellm_deletedverificationtoken = MagicMock()
     mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[mock_deleted_key])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(return_value=[])
 
     result = await get_daily_activity_aggregated(
         prisma_client=mock_prisma,
@@ -875,7 +636,6 @@ async def test_aggregated_activity_preserves_metadata_for_deleted_keys():
     key_data = chat_endpoint.api_key_breakdown["deleted-key-hash"]
     assert key_data.metadata.key_alias == "toto-test-2"
     assert key_data.metadata.team_id == "69cd4b77-b095-4489-8c46-4f2f31d840a2"
-    assert key_data.metadata.user_id == "deleted-key-owner"
     assert key_data.metrics.spend == 10.0
 
 
@@ -898,7 +658,6 @@ def _daily_user_spend_record(*, user_id, api_key, spend, model="gpt-4", model_gr
         compression_saved_tokens=0,
         compression_savings_spend=0.0,
         prompt_caching_savings_spend=0.0,
-        gateway_injected_caching_savings_spend=0.0,
         autorouter_savings_spend=0.0,
         api_requests=1,
         successful_requests=1,
@@ -1212,9 +971,13 @@ class TestBuildAggregatedSqlQuery:
             "user-1",
             "bedrock/global.anthropic.claude-opus-4-8",
             "sk-test",
+            _MAX_ROWS_PER_GROUPING_LEVEL,
         ]
         assert "model = $4" in sql
         assert "api_key = $5" in sql
+        # The engine-side statement must stay bounded: the per-level row cap
+        # is bound as the final parameter.
+        assert "WHERE level_rank <= $6" in " ".join(sql.split())
 
     def test_model_group_rollups_fall_back_to_model_name(self):
         """Aggregated model_groups rollups must fall back to model for group-less rows.
@@ -1267,7 +1030,11 @@ class TestAggregatedEmptyEntityFilter:
         normalized = " ".join(sql.split())
         assert "IN ()" not in normalized
         assert '"team_id" IN' not in normalized
-        assert params == ["2026-08-01", "2026-08-19"]
+        if build is _build_entity_rollup_sql_query:
+            assert params == ["2026-08-01", "2026-08-19"]
+        else:
+            # the aggregated builder appends the per-level row cap for the engine
+            assert params == ["2026-08-01", "2026-08-19", _MAX_ROWS_PER_GROUPING_LEVEL]
 
     @pytest.mark.parametrize("build", _BUILDERS)
     def test_empty_entity_list_matches_nothing_rather_than_everything(self, build):
@@ -1298,7 +1065,17 @@ class TestAggregatedEmptyEntityFilter:
         normalized = " ".join(sql.split())
         assert '"team_id" IN ($3, $4)' in normalized
         assert "FALSE" not in normalized
-        assert params == ["2026-08-01", "2026-08-19", "team-alpha", "team-beta"]
+        if build is _build_entity_rollup_sql_query:
+            assert params == ["2026-08-01", "2026-08-19", "team-alpha", "team-beta"]
+        else:
+            # the aggregated builder appends the per-level row cap for the engine
+            assert params == [
+                "2026-08-01",
+                "2026-08-19",
+                "team-alpha",
+                "team-beta",
+                _MAX_ROWS_PER_GROUPING_LEVEL,
+            ]
 
 
 @pytest.mark.asyncio
@@ -1331,7 +1108,6 @@ async def test_get_daily_activity_aggregated_empty_result_set():
             "compression_saved_tokens": None,
             "compression_savings_spend": None,
             "prompt_caching_savings_spend": None,
-            "gateway_injected_caching_savings_spend": None,
             "autorouter_savings_spend": None,
             "api_requests": None,
             "successful_requests": None,
@@ -1376,7 +1152,6 @@ def _no_spend_record():
         compression_saved_tokens=None,
         compression_savings_spend=None,
         prompt_caching_savings_spend=None,
-        gateway_injected_caching_savings_spend=None,
         autorouter_savings_spend=None,
         api_requests=None,
         successful_requests=None,
@@ -1486,7 +1261,6 @@ def _spend_record(api_key, *, model="gpt-4o-mini-ptu", spend=0.0, ptu_flat_cost=
         compression_saved_tokens=0,
         compression_savings_spend=0,
         prompt_caching_savings_spend=0,
-        gateway_injected_caching_savings_spend=0,
         autorouter_savings_spend=0,
         total_tokens=0,
         api_requests=0,
@@ -1552,7 +1326,6 @@ def _grouping_row(
         compression_saved_tokens=0,
         compression_savings_spend=0.0,
         prompt_caching_savings_spend=0.0,
-        gateway_injected_caching_savings_spend=0.0,
         autorouter_savings_spend=0.0,
         api_requests=0,
         successful_requests=0,
@@ -1712,7 +1485,6 @@ def test_update_breakdown_metrics_covers_mcp_endpoint_and_entity(ptu_cost_attrib
         compression_saved_tokens=0,
         compression_savings_spend=0,
         prompt_caching_savings_spend=0,
-        gateway_injected_caching_savings_spend=0,
         autorouter_savings_spend=0,
         total_tokens=0,
         api_requests=0,
@@ -2071,7 +1843,7 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
     assert "SUM(ptu_flat_cost)::float" in sql
     assert params == ["2024-01-01", "2024-01-31", "key-1", "key-2"]
 
-    plain_sql, _ = _build_aggregated_sql_query(
+    plain_sql, plain_params = _build_aggregated_sql_query(
         table_name="litellm_dailyteamspend",
         entity_id_field="team_id",
         entity_id=None,
@@ -2081,6 +1853,8 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
         api_key=None,
     )
     assert "entity_id" not in plain_sql
+    # the aggregated builder binds the per-level engine row cap as its last param
+    assert plain_params[-1] == _MAX_ROWS_PER_GROUPING_LEVEL
     assert "GROUPING(date" in plain_sql
 
     empty_sql, empty_params = _build_aggregated_sql_query(
@@ -2093,7 +1867,7 @@ def test_entity_rollup_sql_query_and_api_key_list_filter():
         api_key=[],
     )
     assert "FALSE" in empty_sql
-    assert empty_params == ["2024-01-01", "2024-01-31"]
+    assert empty_params == ["2024-01-01", "2024-01-31", _MAX_ROWS_PER_GROUPING_LEVEL]
 
 
 @pytest.mark.asyncio
@@ -2116,7 +1890,6 @@ async def test_get_daily_activity_aggregated_with_entity_breakdown():
         "compression_saved_tokens": 0,
         "compression_savings_spend": 0.0,
         "prompt_caching_savings_spend": 0.0,
-        "gateway_injected_caching_savings_spend": 0.0,
         "autorouter_savings_spend": 0.0,
         "failed_requests": 0,
         "prompt_tokens": 0,
@@ -2200,45 +1973,53 @@ async def test_get_daily_activity_aggregated_with_entity_breakdown():
 
 
 @pytest.mark.asyncio
-async def test_get_api_key_metadata_resolves_session_key_via_spend_log_window():
-    from litellm.proxy.utils import hash_token
+async def test_aggregated_sql_is_bounded_per_grouping_level():
+    """Regression: the prisma query engine's resident memory is a high-water
+    mark set by the largest single statement it executes, and glibc never
+    returns that memory. The daily-activity GROUPING SETS statement ships one
+    row per rollup level entry; over a long window with many api_keys/models
+    that reached tens of thousands of rows in one statement and OOMKilled
+    pods. The statement must carry a per-level row cap (ROW_NUMBER filter), so
+    the engine never buffers an unbounded result set, while small levels (the
+    grand total and per-date bars) can never be crowded out by a big one.
+    """
+    captured_sql_params: dict = {}
 
-    session_digest = hash_token("cli-session-user-42")
+    async def _capture_query_raw(sql, *params):
+        captured_sql_params["sql"] = sql
+        captured_sql_params["params"] = params
+        return []
+
     mock_prisma = MagicMock()
-    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
-    mock_prisma.db.litellm_usertable.find_many = AsyncMock(
-        return_value=[SimpleNamespace(user_id="user-42", user_email="user42@example.com")]
-    )
+    mock_prisma.db = MagicMock()
+    mock_prisma.db.query_raw = _capture_query_raw
 
-    mock_prisma.db.query_raw = AsyncMock(return_value=[])
-    spend_log_query_raw = _spend_log_transaction(
-        mock_prisma, [_spend_log_row(session_digest, "cli-session-user-42", "user-42")]
-    )
-
-    result = await get_api_key_metadata(
+    await get_daily_activity_aggregated(
         prisma_client=mock_prisma,
-        api_keys={session_digest},
-        spend_logs_window=(datetime(2026, 9, 7), datetime(2026, 9, 10)),
+        table_name="litellm_dailyuserspend",
+        entity_id_field="user_id",
+        entity_id=None,
+        entity_metadata_field=None,
+        start_date="2026-06-25",
+        end_date="2026-09-15",
+        model=None,
+        api_key=None,
     )
 
-    assert result[session_digest]["key_alias"] == "cli-session-user-42"
-    assert result[session_digest]["user_id"] == "user-42"
-    assert result[session_digest]["user_email"] == "user42@example.com"
-    ((_, digests, start, end),) = [call.args for call in spend_log_query_raw.call_args_list]
-    assert digests == [session_digest]
-    assert (start, end) == (datetime(2026, 9, 7), datetime(2026, 9, 10))
+    sql: str = captured_sql_params["sql"]
+    params = captured_sql_params["params"]
 
+    from litellm.proxy.management_endpoints.common_daily_activity import (
+        _MAX_ROWS_PER_GROUPING_LEVEL,
+    )
 
-def test_spend_logs_window_pads_min_minus_one_day_and_max_plus_two_days():
-    from litellm.proxy.management_endpoints.common_daily_activity import _spend_logs_window
+    # The cap is parameterized and bound to the engine-side statement
+    normalized_sql = " ".join(sql.split())
+    assert "ROW_NUMBER() OVER ( PARTITION BY group_level ORDER BY api_requests DESC NULLS LAST" in normalized_sql
+    assert "WHERE level_rank <= $" in normalized_sql
+    assert _MAX_ROWS_PER_GROUPING_LEVEL in params
 
-    window = _spend_logs_window({"2026-09-08", "2026-09-05", "not-a-date"})
-
-    assert window == (datetime(2026, 9, 4), datetime(2026, 9, 10))
-
-
-def test_spend_logs_window_is_none_when_no_date_parses():
-    from litellm.proxy.management_endpoints.common_daily_activity import _spend_logs_window
-
-    assert _spend_logs_window({"garbage", ""}) is None
+    # The parameterized cap is the LAST parameter (appended after the where params)
+    assert params[-1] == _MAX_ROWS_PER_GROUPING_LEVEL
+    # The cap placeholder index matches the params length
+    assert normalized_sql.endswith(f"WHERE level_rank <= ${len(params)}")

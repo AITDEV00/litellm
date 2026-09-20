@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1.7
+
+# LiteLLM local development image with hot reload.
+#
+# Unlike the production Dockerfile (which bakes an immutable venv + built UI),
+# this image installs the source tree in editable mode and mounts the working
+# tree at runtime so every edit to litellm/ is picked up by uvicorn --reload
+# without a rebuild. The UI is served from a separately built static export;
+# for UI source work use `make litellm-ui-dev` (Next.js dev server on :3000).
+#
+# Build:
+#   docker build -f Dockerfile.dev -t litellm-dev .
+#
+# Run (from repo root):
+#   docker run --rm -it \
+#     -p 4000:4000 \
+#     -v "$PWD/litellm:/app/litellm" \
+#     -v "$PWD/oicm-litellm-layer/config/local_dev.yaml:/app/config.yaml" \
+#     -e LITELLM_MASTER_KEY=sk-1234 \
+#     litellm-dev \
+#     --config /app/config.yaml --port 4000 --detailed_debug --reload
+ARG PYTHON_IMAGE=python:3.12-slim
+
+FROM $PYTHON_IMAGE
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PRISMA_OFFLINE_MODE=true \
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}"
+
+WORKDIR /app
+
+# System deps for prisma + proxy runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        bash \
+        openssl \
+        nodejs \
+        npm \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv for dependency sync.
+RUN pip install --no-cache-dir uv
+
+# Copy only dependency metadata first for layer caching.
+COPY pyproject.toml uv.lock ./
+COPY enterprise/pyproject.toml enterprise/
+COPY litellm-proxy-extras/pyproject.toml litellm-proxy-extras/
+
+# Install third-party deps but NOT the project, so the source tree mounted at
+# /app/litellm at runtime is the live source and uvicorn --reload picks up edits.
+RUN uv sync --frozen --no-install-project --no-default-groups --no-editable \
+    --extra proxy \
+    --extra proxy-runtime \
+    --extra extra_proxy \
+    --python python3
+
+# Copy the schema for prisma generate.
+COPY schema.prisma ./
+
+EXPOSE 4000/tcp
+
+# Default command; override at runtime for reload.
+ENTRYPOINT ["litellm"]
+CMD ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]

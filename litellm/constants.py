@@ -343,6 +343,7 @@ REDIS_DAILY_END_USER_SPEND_UPDATE_BUFFER_KEY: Final = "litellm_daily_end_user_sp
 REDIS_DAILY_AGENT_SPEND_UPDATE_BUFFER_KEY: Final = "litellm_daily_agent_spend_update_buffer"
 REDIS_DAILY_TAG_SPEND_UPDATE_BUFFER_KEY: Final = "litellm_daily_tag_spend_update_buffer"
 REDIS_WINDOW_SPEND_UPDATE_BUFFER_KEY: Final = "litellm_window_spend_update_buffer"
+REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_BUFFER_KEY: Final = "litellm_model_performance_rollup_update_buffer"
 MAX_REDIS_BUFFER_DEQUEUE_COUNT: Final = int(os.getenv("MAX_REDIS_BUFFER_DEQUEUE_COUNT", 100))
 # Bounds asyncio.Queue() instances (log queues, spend update queues, etc.) to prevent unbounded memory growth
 LITELLM_ASYNCIO_QUEUE_MAXSIZE: Final = int(os.getenv("LITELLM_ASYNCIO_QUEUE_MAXSIZE", 1000))
@@ -964,6 +965,7 @@ openai_compatible_providers: Final[list] = [
     "pinstripes",  # Pinstripes - JSON-configured provider
     "darkbloom",
     "meta",  # Meta Model API (Muse Spark) - JSON-configured provider
+    "omnivoice",
     "cognition",
     "scx-ai",
 ]
@@ -1649,6 +1651,7 @@ LITELLM_UI_SESSION_DURATION: Final = os.getenv("LITELLM_UI_SESSION_DURATION", "2
 ########################### DB CRON JOB NAMES ###########################
 DB_SPEND_UPDATE_JOB_NAME: Final = "db_spend_update_job"
 DB_DAILY_TAG_SPEND_UPDATE_JOB_NAME: Final = "db_daily_tag_spend_update_job"
+DB_MODEL_PERFORMANCE_ROLLUP_UPDATE_JOB_NAME: Final = "db_model_performance_rollup_update_job"
 PROMETHEUS_EMIT_BUDGET_METRICS_JOB_NAME: Final = "prometheus_emit_budget_metrics"
 CLOUDZERO_EXPORT_USAGE_DATA_JOB_NAME: Final = "cloudzero_export_usage_data"
 MAVVRIK_FOCUS_EXPORT_JOB_NAME: Final = "mavvrik_focus_export_usage_data"
@@ -1741,6 +1744,11 @@ DEFAULT_STAGGER_WINDOW_SECONDS: Final = 300
 # The number of tag entries are higher than number of user, team entries. This leads to a higher QPS.
 # This will run tag spcific tasks at a later time to smooth QPS
 DAILY_TAG_SPEND_BATCH_MULTIPLIER: Final = 2.3
+
+# The model performance rollup drain runs at the same cadence as the daily tag
+# spend job: it is a background batcher whose latency is not latency-sensitive,
+# so a longer interval keeps QPS smooth.
+MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER: Final = 2.3
 
 DEFAULT_HEALTH_CHECK_INTERVAL: Final = int(os.getenv("DEFAULT_HEALTH_CHECK_INTERVAL", 300))  # 5 minutes
 DEFAULT_SHARED_HEALTH_CHECK_TTL: Final = int(

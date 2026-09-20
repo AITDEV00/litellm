@@ -1,0 +1,13 @@
+Defaulted container "postgres" out of: postgres, bootstrap-controller (init)
+            relname             |  size  | n_live_tup 
+--------------------------------+--------+------------
+ LiteLLM_SpendLogs              | 57 GB  |   14722000
+ LiteLLM_ModelPerformanceRollup | 342 MB |     339960
+ LiteLLM_SpendLogToolIndex      | 284 MB |    1096286
+ LiteLLM_AuditLog               | 260 MB |      84608
+ LiteLLM_DailyTagSpend          | 43 MB  |      57299
+ LiteLLM_DailyTeamSpend         | 22 MB  |      34452
+ LiteLLM_DailyOrganizationSpend | 22 MB  |      33581
+ LiteLLM_DailyUserSpend         | 20 MB  |      34446
+(8 rows)
+

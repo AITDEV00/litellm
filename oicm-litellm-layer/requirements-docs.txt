@@ -1,0 +1,6 @@
+# Documentation build dependencies — MkDocs site from docs/ + mkdocs.yml
+# Install:  python -m pip install -r requirements-docs.txt
+# Build:    mkdocs build   (outputs to ./site, gitignored)
+# Serve:    mkdocs serve   (http://localhost:8000)
+mkdocs-material>=9.5
+mkdocs-git-revision-date-localized-plugin

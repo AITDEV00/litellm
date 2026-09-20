@@ -399,6 +399,7 @@ if TYPE_CHECKING:
         BaseVectorStoreFilesConfig,
     )
     from litellm.llms.base_llm.videos.transformation import BaseVideoConfig
+    from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
     from litellm.llms.bedrock.common_utils import BedrockModelInfo
     from litellm.llms.bedrock.embed.amazon_nova_transformation import (
         AmazonNovaEmbeddingConfig,
@@ -8738,7 +8739,14 @@ class ProviderConfigManager:
             )
 
             return GeminiAudioTranscriptionConfig()
-        return None
+
+        # OICM-custom providers (Hamsa, Inception) are dispatched in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_audio_transcription_config as _oicm_get_provider_audio_transcription_config,
+        )
+
+        return _oicm_get_provider_audio_transcription_config(provider)
 
     @staticmethod
     def get_provider_responses_api_config(
@@ -9471,8 +9479,10 @@ class ProviderConfigManager:
             return ReductoParseV3Config()
 
         MistralOCRConfig: Final = litellm_utils.MistralOCRConfig
+        PaddleXOCRConfig: Final = litellm_utils.PaddleXOCRConfig
         PROVIDER_TO_CONFIG_MAP: Final = {
             litellm.LlmProviders.MISTRAL: MistralOCRConfig,
+            litellm.LlmProviders.PADDLEX: PaddleXOCRConfig,
         }
         config_class: Final = PROVIDER_TO_CONFIG_MAP.get(provider, None)
         if config_class is None:
@@ -9560,9 +9570,14 @@ class ProviderConfigManager:
     def get_provider_text_to_speech_config(
         model: str,
         provider: LlmProviders,
+        kwargs: dict[str, Any] | None = None,
     ) -> BaseTextToSpeechConfig | None:
         """
         Get text-to-speech configuration for a given provider.
+
+        For providers that support multiple TTS modes (e.g. OmniVoice with
+        voice cloning), *kwargs* is inspected to select the correct config
+        subclass.
         """
         from litellm.llms.base_llm.text_to_speech.transformation import (
             BaseTextToSpeechConfig,
@@ -9620,7 +9635,13 @@ class ProviderConfigManager:
             )
 
             return AWSPollyTextToSpeechConfig()
-        return None
+        # OICM-custom providers (Hamsa, Inception, OmniVoice) are handled in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_text_to_speech_config as _oicm_get_provider_text_to_speech_config,
+        )
+
+        return _oicm_get_provider_text_to_speech_config(provider=provider, kwargs=kwargs)
 
     @staticmethod
     def get_provider_google_genai_generate_content_config(
@@ -9655,6 +9676,30 @@ class ProviderConfigManager:
             #########################################################
             return VertexAIGoogleGenAIConfig()
         return None
+
+    @staticmethod
+    def get_provider_voice_config(
+        provider: LlmProviders,
+    ) -> Optional[BaseVoiceConfig]:
+        # OICM-custom providers (Hamsa, OmniVoice) are handled in the
+        # co-located oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_voice_config as _oicm_get_provider_voice_config,
+        )
+
+        return _oicm_get_provider_voice_config(provider)
+
+    @staticmethod
+    def get_provider_script_config(
+        provider: LlmProviders,
+    ) -> Optional[BaseTextToSpeechConfig]:
+        # OICM-custom provider (OmniVoice) is handled in the co-located
+        # oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_script_config as _oicm_get_provider_script_config,
+        )
+
+        return _oicm_get_provider_script_config(provider)
 
 
 def get_end_user_id_for_cost_tracking(

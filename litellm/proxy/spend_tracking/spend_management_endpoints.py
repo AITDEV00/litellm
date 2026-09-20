@@ -84,6 +84,12 @@ _INTERNAL_HEALTH_CHECK_API_KEYS: Final = (
     hash_token(token=LITTELM_INTERNAL_HEALTH_SERVICE_ACCOUNT_NAME),
 )
 
+# Rows the end-user facet may scan out of LiteLLM_SpendLogs before DISTINCT.
+# The query engine's resident memory is a high-water mark set by the largest
+# statement it executes, so the scan must be bounded before the set is
+# deduplicated. Matches SPEND_LOGS_FACET_SCAN_CAP in management_v1/spend_logs.
+END_USER_FACET_SCAN_CAP: Final = 10000
+
 _RowT = TypeVar("_RowT")
 
 
@@ -2394,7 +2400,7 @@ async def ui_view_spend_logs(
     ),
     sort_by: str = fastapi.Query(
         default="startTime",
-        description="Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, or ttft_ms",
+        description="Sort logs by field: spend, total_tokens, startTime, endTime, request_duration_ms, model, ttft_ms, or throughput",
     ),
     sort_order: str | None = fastapi.Query(
         default="desc",
@@ -2460,6 +2466,7 @@ async def ui_view_spend_logs(
         "request_duration_ms",
         "model",
         "ttft_ms",
+        "throughput",
     }
     if sort_by not in valid_sort_fields:
         raise ProxyException(
@@ -2802,6 +2809,9 @@ async def ui_view_spend_logs(
                 'OR "completionStartTime" = "endTime" THEN NULL '
                 'ELSE (EXTRACT(EPOCH FROM ("completionStartTime" - "startTime")) * 1000) END'
             )
+            _nulls_clause = " NULLS LAST"
+        elif order_column == "throughput":
+            _order_expr = "completion_tokens::float8 / NULLIF(request_duration_ms, 0)"
             _nulls_clause = " NULLS LAST"
         elif order_column in ("startTime", "endTime"):
             _order_expr = f'"{order_column}"'
@@ -3967,11 +3977,22 @@ async def global_view_all_end_users():
     if prisma_client is None:
         raise HTTPException(status_code=500, detail={"error": "No db connected"})
 
+    # DISTINCT over the full spend-logs table is an engine-OOM hazard: the
+    # prisma engine buffers the whole deduplicated set and never returns that
+    # memory. Bound the scan to the most recent rows feeding the dropdown.
     sql_query: Final = """
-    SELECT DISTINCT end_user FROM "LiteLLM_SpendLogs"
+    SELECT DISTINCT end_user FROM (
+        SELECT end_user
+        FROM "LiteLLM_SpendLogs"
+        WHERE end_user IS NOT NULL
+        ORDER BY "startTime" DESC
+        LIMIT $1
+    ) recent
     """
 
-    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(prisma_client, sql_query)
+    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(
+        prisma_client, sql_query, END_USER_FACET_SCAN_CAP
+    )
     if db_response is None:
         return []
 
@@ -4469,7 +4490,6 @@ async def _build_ui_spend_logs_response(
                 if (row.get("session_id") if isinstance(row, dict) else getattr(row, "session_id", None))
             }
         )
-
     session_spend_map: _SessionSpendMap = {}
     if enrich_session_counts and session_ids:
         from prisma.errors import PrismaError

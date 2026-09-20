@@ -28,6 +28,10 @@ from litellm.integrations.prometheus_helpers import (
 from litellm.integrations.prometheus_helpers.bounded_prometheus_series_tracker import (
     BoundedPrometheusSeriesTracker,
 )
+from litellm.integrations.prometheus_helpers.deployment_in_flight import (
+    DeploymentInFlightLedger,
+    DeploymentInFlightMetricsMixin,
+)
 from litellm.litellm_core_utils.core_helpers import (
     get_litellm_metadata_from_kwargs,
     get_metadata_variable_name_from_kwargs,
@@ -207,7 +211,7 @@ def _bounded_requested_model_label(requested_model: str | None, router_originate
     return UNRECOGNIZED_REQUESTED_MODEL_LABEL
 
 
-class PrometheusLogger(CustomLogger):
+class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
     # Class variables or attributes
 
     _ADDITIVE_GUARDRAIL_MODES = frozenset((GuardrailEventHooks.pre_call.value, GuardrailEventHooks.post_call.value))
@@ -257,6 +261,7 @@ class PrometheusLogger(CustomLogger):
             _custom_buckets: Final = litellm.prometheus_latency_buckets
             self.latency_buckets = tuple(_custom_buckets) if _custom_buckets is not None else LATENCY_BUCKETS
             self._bounded_prometheus_series_tracker = BoundedPrometheusSeriesTracker()
+            self._deployment_in_flight_ledger = DeploymentInFlightLedger()
 
             # Create metric factory functions
             self._counter_factory = self._create_metric_factory(Counter)
@@ -596,6 +601,13 @@ class PrometheusLogger(CustomLogger):
                 "litellm_deployment_rpm_limit",
                 "Deployment RPM limit found in config",
                 labelnames=self.get_labels_for_metric("litellm_deployment_rpm_limit"),
+            )
+
+            self.litellm_deployment_in_progress_requests = self._gauge_factory(
+                "litellm_deployment_in_progress_requests",
+                "Number of LLM API calls currently in progress per deployment",
+                labelnames=self.get_labels_for_metric("litellm_deployment_in_progress_requests"),
+                multiprocess_mode="livesum",
             )
 
             self.litellm_deployment_cooled_down = self._counter_factory(
@@ -2805,7 +2817,9 @@ class PrometheusLogger(CustomLogger):
                     _litellm_params.get("metadata") or {}
                 ).get("model_group")
 
-            llm_provider: Final = _litellm_params.get("custom_llm_provider", None)
+            llm_provider: Final = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
 
             if self._should_skip_metrics_for_invalid_key(
                 kwargs=request_kwargs,
@@ -2899,6 +2913,14 @@ class PrometheusLogger(CustomLogger):
                 label_context=_deployment_label_ctx,
             )
 
+            if deployment_selected:
+                self._reconcile_deployment_in_flight(
+                    model_id=label_model_id,
+                    litellm_model_name=standard_logging_payload.get("model", "") or label_litellm_model_name or "",
+                    api_base=_litellm_params.get("api_base", "") or label_api_base or "",
+                    api_provider=label_api_provider,
+                    delta=-1,
+                )
         except Exception as e:
             verbose_logger.debug("Prometheus Error: set_llm_deployment_failure_metrics. Exception occured - %s", e)
 
@@ -3044,9 +3066,25 @@ class PrometheusLogger(CustomLogger):
             _litellm_params: Final = request_kwargs.get("litellm_params", {}) or {}
             _metadata: Final = get_litellm_metadata_from_kwargs(request_kwargs)
             litellm_model_name: Final = request_kwargs.get("model", None)
-            llm_provider: Final = _litellm_params.get("custom_llm_provider", None)
+            llm_provider: Final = standard_logging_payload.get("custom_llm_provider", None) or _litellm_params.get(
+                "custom_llm_provider", None
+            )
             _model_info: Final = _metadata.get("model_info") or {}
-            model_id: Final = _model_info.get("id", None)
+            # model_id must be resolved consistently with the inc path and the
+            # failure dec path. Those prefer standard_logging_object["model_id"]
+            # (the stable deployment identity) and only fall back to
+            # metadata.model_info.id. Resolving it solely from metadata here
+            # leaves a permanent leak for request types where metadata.model_info
+            # is not populated at success time but standard_logging_object's
+            # model_id is: the inc counted the request, the dec no-ops on
+            # `if model_id:`, and the gauge climbs forever (observed as a frozen
+            # phantom concurrency on idle STT/TTS deployments).
+            model_id: Final = cast(
+                str | None,
+                standard_logging_payload.get("model_id")
+                or (enum_values.model_id if enum_values else None)
+                or _model_info.get("id"),
+            )
 
             if _model_info or _litellm_params:
                 self._set_deployment_tpm_rpm_limit_metrics(
@@ -3128,6 +3166,15 @@ class PrometheusLogger(CustomLogger):
                 enum_values,
                 label_context=label_context,
             )
+
+            if model_id:
+                self._reconcile_deployment_in_flight(
+                    model_id=model_id,
+                    litellm_model_name=standard_logging_payload.get("model", "") or litellm_model_name or "",
+                    api_base=_litellm_params.get("api_base", "") or api_base or "",
+                    api_provider=llm_provider or "",
+                    delta=-1,
+                )
 
             # Track deployment Latency
             response_ms: Final[timedelta] = end_time - start_time

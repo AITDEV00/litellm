@@ -66,6 +66,7 @@ from litellm.constants import (
     DEFAULT_SHARED_HEALTH_CHECK_LOCK_TTL,
     DEFAULT_SHARED_HEALTH_CHECK_TTL,
     DEFAULT_SLACK_ALERTING_THRESHOLD,
+    MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER,
     LITELLM_EMBEDDING_PROVIDERS_SUPPORTING_INPUT_ARRAY_OF_TOKENS,
     LITELLM_SETTINGS_SAFE_DB_OVERRIDES,
     LITELLM_UI_ALLOW_HEADERS,
@@ -247,6 +248,7 @@ from functools import lru_cache, partial
 
 import litellm
 import litellm._redis
+import openai
 from litellm import Router
 from litellm._logging import _redact_string, verbose_proxy_logger, verbose_router_logger
 from litellm.caching.caching import DualCache, RedisCache
@@ -307,6 +309,12 @@ from litellm.proxy._lazy_features import attach_lazy_features, reserve_lazy_slot
 from litellm.proxy._types import *
 from litellm.proxy.analytics_endpoints.analytics_endpoints import (
     router as analytics_router,
+)
+from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+    router as model_performance_router,
+)
+from litellm.proxy.model_metrics_endpoints.per_model_endpoints import (
+    router as per_model_metrics_router,
 )
 from litellm.proxy.auth.auth_checks import (
     ExperimentalUIJWTToken,
@@ -1809,6 +1817,23 @@ async def otel_request_validation_exception_handler(request: Request, exc: Reque
     return JSONResponse(
         status_code=422,
         content={"detail": jsonable_encoder(exc.errors())},
+    )
+
+
+@app.exception_handler(openai.APIStatusError)
+async def litellm_sdk_status_error_handler(request: Request, exc: openai.APIStatusError):
+    """Map LiteLLM SDK exceptions (subclasses of openai.APIStatusError, e.g.
+    BadRequestError / NotFoundError / RateLimitError raised by provider configs)
+    to their HTTP status instead of the generic 500.
+
+    Without this, a provider 4xx surfaced as "Internal server error" because
+    openai errors are neither ProxyException nor Starlette HTTPException.
+    """
+    status_code: Final = int(getattr(exc, "status_code", 500) or 500)
+    _close_dangling_otel_server_span(request, status_code, exc=exc)
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"message": str(exc), "type": type(exc).__name__}},
     )
 
 
@@ -3793,16 +3818,22 @@ def run_ollama_serve():
 
 def _get_process_rss_mb() -> float | None:
     """
-    Get process RSS memory in MB.
-    On Linux, ru_maxrss is in KB. On macOS, ru_maxrss is in bytes.
+    Get CURRENT process RSS memory in MB.
+
+    Reads /proc/self/statm (resident pages now), not ru_maxrss — ru_maxrss is
+    a high-water mark that never decreases, so a one-time spike makes the old
+    value permanently misleading for memory-creep logging.
+    On macOS /proc does not exist, so fall back to ru_maxrss (peak) there.
     """
     try:
+        if sys.platform != "darwin":
+            with open("/proc/self/statm", encoding="ascii") as statm:
+                resident_pages: Final = int(statm.read().split()[1])
+            return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
         import resource
 
         ru_maxrss: Final = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        if sys.platform == "darwin":
-            return float(ru_maxrss) / (1024 * 1024)
-        return float(ru_maxrss) / 1024
+        return float(ru_maxrss) / (1024 * 1024)
     except Exception:
         return None
 
@@ -5571,6 +5602,10 @@ class ProxyConfig:
                     from litellm.types.utils import PriorityReservationSettings
 
                     litellm.priority_reservation_settings = PriorityReservationSettings(**value)
+                elif key == "priority_reservation":
+                    litellm.priority_reservation = value
+                elif key == "priority_body_fields":
+                    litellm.priority_body_fields = value
                 elif key == "callbacks":
                     initialize_callbacks_on_proxy(
                         value=value,
@@ -9778,6 +9813,32 @@ class ProxyStartupEvent:
             misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
         )
 
+        ### MEMORY MONITOR ###
+        # Samples RSS/GC/threads/prom-series every interval and logs one
+        # structured line (mem_monitor), so memory creep is visible in
+        # container logs and Loki. When RSS grows beyond a threshold between
+        # samples, opens ONE bounded tracemalloc window and logs the top
+        # growing allocation sites. Interval 0 disables; see
+        # litellm/proxy/memory_monitor.py for the overhead design.
+        from litellm.proxy.memory_monitor import (
+            MemoryMonitor,
+            get_sample_interval_seconds,
+        )
+
+        memory_monitor_interval: Final = get_sample_interval_seconds()
+        if memory_monitor_interval > 0:
+            memory_monitor: Final = MemoryMonitor(
+                sample_interval_seconds=memory_monitor_interval
+            )
+            scheduler.add_job(
+                memory_monitor.sample,
+                "interval",
+                seconds=memory_monitor_interval,
+                id="memory_monitor_job",
+                replace_existing=True,
+                misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
+            )
+
         ### RESET BUDGET ###
         if general_settings.get("disable_reset_budget", False) is False:
             budget_reset_job: Final = ResetBudgetJob(
@@ -9826,6 +9887,26 @@ class ProxyStartupEvent:
         verbose_proxy_logger.info(
             f"Tag spend update job scheduled at {tag_spend_update_interval}s interval "
             f"({tag_spend_update_interval / batch_writing_interval:.1f}x main job interval)"
+        )
+
+        ### UPDATE MODEL PERFORMANCE ROLLUP (separate scheduler job, longer interval) ###
+        ## The rollup is a batched aggregation, not latency-sensitive; a longer
+        ## interval reduces upsert contention on LiteLLM_ModelPerformanceRollup.
+        rollup_update_interval: Final = int(batch_writing_interval * MODEL_PERFORMANCE_ROLLUP_BATCH_MULTIPLIER)
+        from litellm.proxy.utils import update_model_performance_rollup
+
+        scheduler.add_job(
+            update_model_performance_rollup,
+            "interval",
+            seconds=rollup_update_interval,
+            args=[prisma_client, proxy_logging_obj],
+            id="update_model_performance_rollup_job",
+            replace_existing=True,
+            misfire_grace_time=APSCHEDULER_MISFIRE_GRACE_TIME,
+        )
+        verbose_proxy_logger.info(
+            f"Model performance rollup update job scheduled at {rollup_update_interval}s interval "
+            f"({rollup_update_interval / batch_writing_interval:.1f}x main job interval)"
         )
 
         ### UPDATE GATEWAY REQUEST COUNTS (SGR) ###
@@ -18772,6 +18853,8 @@ app.include_router(management_v1_router)
 app.include_router(spend_management_router)
 app.include_router(caching_router)
 app.include_router(analytics_router)
+app.include_router(per_model_metrics_router)
+app.include_router(model_performance_router)
 app.include_router(callback_management_endpoints_router)
 app.include_router(debugging_endpoints_router)
 app.include_router(rust_control_plane_router)
@@ -18798,6 +18881,16 @@ app.include_router(ui_discovery_endpoints_router)
 app.include_router(agent_skills_discovery_router)
 # Eager: /models/{name}:method overlaps with the OpenAI /models endpoint.
 app.include_router(google_router)
+
+# OpenRouter-compatible model discovery (/api/v1/models).
+from litellm.proxy.openrouter_compat.routes import router as openrouter_compat_router
+
+app.include_router(openrouter_compat_router)
+
+# OICM custom voice-management routes (co-located vertical slice).
+from litellm.proxy.voice_routes import router as oicm_voice_router
+
+app.include_router(oicm_voice_router)
 
 attach_lazy_features(app)
 app.router.routes = hot_routes_first(app.router.routes)

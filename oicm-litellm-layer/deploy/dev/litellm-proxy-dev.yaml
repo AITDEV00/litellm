@@ -1,0 +1,218 @@
+---
+# Dev-only Deployment: litellm-proxy-dev
+#
+# PURPOSE
+#   A throwaway replica of the production `litellm-proxy` Deployment used to
+#   debug slow / failing requests (e.g. 30d / MTD / YTD model performance)
+#   WITHOUT touching the live traffic path. It runs the exact same image, env,
+#   config, secrets and volumes as the real replicas, so it reproduces the
+#   production code path bit-for-bit. The only difference is its label
+#   (`app: litellm-proxy-dev`), which keeps it OUT of the production
+#   `litellm-proxy` Service selector so it never receives live traffic.
+#
+# WHY THIS IS NEEDED
+#   The production replicas run `granian --num_workers 4`. Granian forks 4
+#   workers, so `kubectl exec` + a profiling run lands on an arbitrary worker
+#   and you cannot attach a debugger / cProfile / trace to a specific worker,
+#   nor can you restart one worker to pick up an instrumented code path.
+#   A single-replica (workers=1) debug deployment gives you a stable PID to
+#   attach to, log to, and restart at will.
+#
+# HOW TO USE
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/litellm-proxy-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout status deploy/litellm-proxy-dev
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm get pods -l app=litellm-proxy-dev
+#   # exec into it and run a Python probe against the real DB/config:
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm exec deploy/litellm-proxy-dev -- \
+#       python3 /app/probe_performance.py
+#   # port-forward the dev pod if you want to hit it over HTTP in isolation:
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000
+#   curl -s -H "Authorization: Bearer sk-05132025" \
+#       "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
+#
+# NOTE: The dev proxy uses its OWN master key secret `litellm-master-key-dev`
+#       (value sk-05132025), rather than the shared production
+#       `litellm-master-key`. Both prod and dev now use the same value
+#       (sk-05132025), but they use SEPARATE secrets, so a dev-only change does
+#       not touch the production secret.
+#
+# CLEANUP
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete deploy/litellm-proxy-dev
+#
+# NOTE: This intentionally has NO PodDisruptionBudget and NO Service selector
+#       matching production, so scaling it up/down or deleting it cannot affect
+#       live traffic.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy-dev
+  namespace: adeo-litellm
+  labels:
+    app: litellm-proxy-dev
+spec:
+  # Single replica, single worker: gives a stable PID to exec/attach/probe.
+  # Override to 0 when not debugging to release the node resources.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-proxy-dev
+  template:
+    metadata:
+      labels:
+        app: litellm-proxy-dev
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: litellm
+          # Same source as prod (jya0-v1.99.1) plus the analytics-read
+          # statement-bounding fix (prisma engine OOM ratchet, see
+          # docs/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md).
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.99.1
+          # Force a re-pull even though the tag (branch name) doesn't change
+          # between pushes, so a redeploy always picks up the freshly built
+          # image instead of a node-cached one with the same tag.
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key-dev
+                  key: master-key
+            - name: UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key-dev
+                  key: master-key
+            # Decouple the at-rest encryption key from the master key. The model
+            # credentials in the SHARED DB are encrypted with the ORIGINAL key
+            # (sk-1234). The dev master key is now sk-05132025 (auth only), so
+            # we pin LITELLM_SALT_KEY to the old key to keep DB decryption
+            # working on dev. Never change this alongside the dev master key.
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-salt-key-dev
+                  key: salt-key
+            # DB-ATTACHED: connects to the dev-only single-instance CNPG
+            # cluster (adeo-litellm-postgres-dev, see litellm-postgres-dev-cluster.yaml)
+            # so gateway runs exercise the real logging pipeline.
+            # allow_requests_on_db_unavailable stays on, so an outage of the
+            # dev DB degrades instead of crashing — same semantics as prod.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials-dev
+                  key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "litellm-redis.redis.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-redis-password
+                  key: password
+            - name: REDIS_CONNECTION_POOL_TIMEOUT
+              value: "10"
+            - name: UI_LOGO_PATH
+              value: /app/assets/adeo-ai-gateway.jpg
+            - name: LITELLM_FAVICON_URL
+              value: /app/assets/favicon.png
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
+          command:
+            - "litellm"
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            # SINGLE worker on the dev pod so we have ONE stable PID. The
+            # production Deployment uses --run_granian --num_workers 4.
+            - "--run_granian"
+            - "--num_workers"
+            - "1"
+            - "--use_v2_migration_resolver"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: hooks
+              mountPath: /app/litellm_hooks
+              readOnly: true
+            - name: logo
+              mountPath: /app/assets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+      volumes:
+        # Dev uses its OWN ConfigMap (litellm-config-dev) so config changes such
+        # as require_auth_for_metrics_endpoint can be tested on dev WITHOUT
+        # touching the shared production litellm-config.
+        - name: config
+          configMap:
+            name: litellm-config-dev
+        - name: hooks
+          configMap:
+            name: litellm-hooks
+        - name: logo
+          configMap:
+            name: litellm-logo
+---
+# Dev Service on a DIFFERENT port (14001) and selector (litellm-proxy-dev).
+# This never receives production traffic; it exists so you can port-forward to
+# it and hit the dev pod over HTTP in isolation.
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy-dev
+  namespace: adeo-litellm
+  labels:
+    app: litellm-proxy-dev
+spec:
+  selector:
+    app: litellm-proxy-dev
+  ports:
+    - port: 4000
+      targetPort: http
+      name: http

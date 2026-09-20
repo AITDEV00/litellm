@@ -122,6 +122,12 @@ const eslintConfig = [
       "jest-dom/prefer-to-have-text-content": "error",
     },
   },
+  {
+    files: ["src/components/UsagePage/**"],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

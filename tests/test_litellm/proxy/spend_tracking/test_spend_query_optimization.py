@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 from litellm.proxy.spend_tracking.spend_tracking_utils import (
     get_spend_by_team,
     get_spend_by_team_and_customer,
@@ -184,7 +183,6 @@ async def test_spend_logs_ui_wraps_params_in_at_time_zone_utc(monkeypatch):
         api_key=None,
         user_id=None,
         request_id=None,
-        search=None,
         start_date="2026-02-16 00:00:00",
         end_date="2026-02-16 23:59:59",
         page=1,
@@ -248,7 +246,6 @@ async def test_spend_logs_ui_uses_bounded_count_not_full_scan(monkeypatch):
         api_key=None,
         user_id=None,
         request_id=None,
-        search=None,
         start_date="2026-02-16 00:00:00",
         end_date="2026-02-16 23:59:59",
         page=1,
@@ -275,9 +272,6 @@ async def test_spend_logs_ui_uses_bounded_count_not_full_scan(monkeypatch):
     assert "COUNT(*) OVER ()" not in page_sql, (
         "the page query must not carry a window count that forces a full-window "
         f"scan. SQL was:\n{page_sql}"
-    )
-    assert "GROUP BY" not in count_sql and "DISTINCT ON" not in page_sql, (
-        "without group_by_session the endpoint must keep raw per-call pagination"
     )
 
     assert response["total"] == 137
@@ -316,7 +310,6 @@ async def test_spend_logs_ui_caps_total_for_large_result_sets(monkeypatch):
         api_key=None,
         user_id=None,
         request_id=None,
-        search=None,
         start_date="2026-02-16 00:00:00",
         end_date="2026-02-16 23:59:59",
         page=1,
@@ -362,7 +355,6 @@ async def test_spend_logs_ui_empty_page_reports_zero_total(monkeypatch):
         api_key=None,
         user_id=None,
         request_id=None,
-        search=None,
         start_date="2026-02-16 00:00:00",
         end_date="2026-02-16 23:59:59",
         page=1,
@@ -410,7 +402,6 @@ async def test_spend_logs_ui_out_of_range_page_keeps_total(monkeypatch):
         api_key=None,
         user_id=None,
         request_id=None,
-        search=None,
         start_date="2026-02-16 00:00:00",
         end_date="2026-02-16 23:59:59",
         page=99,
@@ -510,180 +501,97 @@ async def test_global_spend_report_team_group_forwards_team_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_spend_logs_ui_group_by_session_paginates_sessions(monkeypatch):
+async def test_all_end_users_facet_scans_bounded_row_count(monkeypatch):
+    """Regression: /global/all_end_users ran an unbounded
+    SELECT DISTINCT end_user over LiteLLM_SpendLogs. The prisma query
+    engine's resident memory is a high-water mark set by the largest
+    statement it executes and glibc never returns that memory, so on a
+    57GB / 15M-row table each call ballooned the engine toward the pod
+    memory limit. The facet must deduplicate a bounded recent scan (inner
+    LIMIT) like SPEND_LOGS_FACET_SCAN_CAP does in management_v1/spend_logs.
     """
-    With group_by_session=true, /spend/logs/ui must page and count SESSIONS,
-    not raw calls: the page is one representative row per session (DISTINCT
-    ON the session group key, preferring non-MCP calls, newest first), the
-    bounded count counts groups, and on the default startTime sort the page is
-    selected by keyset (no OFFSET) so deep pages do not degrade. Otherwise the
-    UI collapses a server page of N calls into fewer visible rows while the
-    footer still claims N (issue #38060).
-    """
-    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
     from litellm.proxy.spend_tracking.spend_management_endpoints import (
-        SPEND_LOGS_PAGINATION_COUNT_CAP,
-        ui_view_spend_logs,
+        END_USER_FACET_SCAN_CAP,
+        global_view_all_end_users,
     )
-
-    group_key = "COALESCE(NULLIF(session_id, ''), request_id), api_key"
-    session_rows = [
-        {"session_key": f"req-{index}", "api_key": "k", "last_activity": f"2026-02-16 10:{59 - index:02d}:00"}
-        for index in range(51)
-    ]
-    representative_rows = [
-        {"request_id": "req-1", "api_key": "k", "metadata": "{}", "session_id": None},
-        {"request_id": "req-2", "api_key": "k", "metadata": "{}", "session_id": None},
-    ]
-
-    async def mock_query_raw(sql_query, *params):
-        if "COUNT(*) AS total_count" in sql_query:
-            return [{"total_count": 60}]
-        if "DISTINCT ON" in sql_query:
-            return representative_rows
-        return session_rows
 
     mock_prisma = MagicMock()
+    mock_query_raw = AsyncMock(return_value=[{"end_user": "u1"}])
     mock_prisma.db = MagicMock()
-    mock_prisma.db.query_raw = AsyncMock(side_effect=mock_query_raw)
+    mock_prisma.db.query_raw = mock_query_raw
+
     monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma)
+    result = await global_view_all_end_users()
 
-    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin")
-    mock_request = MagicMock()
-    mock_request.url.path = "/spend/logs/ui"
+    assert result == {"end_users": ["u1"]}
+    mock_query_raw.assert_called_once()
+    call_args = mock_query_raw.call_args[0]
+    sql = call_args[0]
+    params = call_args[1:]
 
-    response = await ui_view_spend_logs(
-        request=mock_request,
-        api_key=None,
-        user_id=None,
-        request_id=None,
-        search=None,
-        start_date="2026-02-16 00:00:00",
-        end_date="2026-02-16 23:59:59",
-        page=1,
-        page_size=50,
-        sort_by="startTime",
-        sort_order="desc",
-        user_api_key_dict=auth,
-        group_by_session=True,
-        session_cursor=None,
-    )
-
-    emitted = [call[0] for call in mock_prisma.db.query_raw.call_args_list]
-    page_sql = emitted[0][0]
-    assert f"GROUP BY {group_key}" in page_sql, f"page must select sessions, not calls. SQL was:\n{page_sql}"
-    assert "OFFSET" not in page_sql, "the startTime page must be keyset-selected, not offset-selected"
-    assert emitted[0][-1] == 51, "the page query fetches page_size + 1 sessions to detect has_more"
-
-    count_call = emitted[1]
-    count_sql = count_call[0]
-    assert f"GROUP BY {group_key}" in count_sql, f"grouped total must count sessions. SQL was:\n{count_sql}"
-    assert "COUNT(*) OVER ()" not in count_sql
-    assert "LIMIT" in count_sql and "FROM (" in count_sql, "the grouped count must stay bounded"
-    assert count_call[-1] == SPEND_LOGS_PAGINATION_COUNT_CAP + 1
-
-    rep_sql = emitted[2][0]
-    assert f"DISTINCT ON ({group_key})" in rep_sql, f"page must return one row per session. SQL was:\n{rep_sql}"
-    assert f"ORDER BY {group_key}, call_type IN ('call_mcp_tool', 'list_mcp_tools'), \"startTime\" DESC" in rep_sql, (
-        "the session representative must prefer the newest non-MCP call"
-    )
-    assert "COUNT(*) OVER ()" not in rep_sql
-
-    assert [row["request_id"] for row in response["data"]] == ["req-1", "req-2"]
-    assert response["total"] == 60
-    assert response["total_is_capped"] is False
-    assert response["total_pages"] == 2
-    assert response["has_more"] is True
-    assert response["next_session_cursor"] == "2026-02-16 10:10:00|k|req-49"
+    # The deduplication happens over a bounded recent scan, never the whole table
+    assert "DISTINCT end_user FROM (" in sql, f"SQL was:\n{sql}"
+    assert "ORDER BY \"startTime\" DESC" in sql
+    assert "LIMIT $" in sql
+    # The bound is parameterized and matches the facet cap
+    assert params[-1] == END_USER_FACET_SCAN_CAP
 
 
 @pytest.mark.asyncio
-async def test_spend_logs_ui_group_by_session_offset_pages_for_other_sorts(monkeypatch):
+async def test_session_spend_aggregate_scans_bounded_row_count():
+    """Regression: the spend-logs UI session enrichment aggregated over every
+    LiteLLM_SpendLogs row matching the page's session_ids with no row bound.
+    One long-lived session mapping to tens of thousands of rows made the
+    prisma engine buffer them all on every page load, ratcheting its
+    high-water memory. The scan must be capped with the most recent rows.
     """
-    Sorting a grouped listing by a column other than startTime has no keyset
-    to resume from, so it pages the DISTINCT ON representatives with OFFSET.
-    """
-    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
-    from litellm.proxy.spend_tracking.spend_management_endpoints import ui_view_spend_logs
-
-    page_rows = [
-        {"request_id": "req-1", "metadata": "{}", "session_id": None},
-        {"request_id": "req-2", "metadata": "{}", "session_id": None},
-    ]
-    mock_prisma = _make_ui_spend_logs_mock(count_total=12, page_rows=page_rows)
-    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma)
-
-    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin")
-    mock_request = MagicMock()
-    mock_request.url.path = "/spend/logs/ui"
-
-    response = await ui_view_spend_logs(
-        request=mock_request,
-        api_key=None,
-        user_id=None,
-        request_id=None,
-        search=None,
-        start_date="2026-02-16 00:00:00",
-        end_date="2026-02-16 23:59:59",
-        page=2,
-        page_size=50,
-        sort_by="spend",
-        sort_order="desc",
-        user_api_key_dict=auth,
-        group_by_session=True,
+    from litellm.proxy.spend_tracking.spend_management_endpoints import (
+        SPEND_LOG_SESSION_STATS_SCAN_CAP,
+        _build_ui_spend_logs_response,
     )
 
-    group_key = "COALESCE(NULLIF(session_id, ''), request_id), api_key"
-    count_sql = mock_prisma.db.query_raw.call_args_list[0][0][0]
-    assert f"GROUP BY {group_key}" in count_sql
+    mock_prisma = MagicMock()
+    mock_query_raw = AsyncMock(
+        return_value=[
+            {
+                "session_id": "s1",
+                "session_total_spend": 1.5,
+                "mcp_tool_call_count": 0,
+                "mcp_tool_call_spend": 0.0,
+            }
+        ]
+    )
+    mock_prisma.db = MagicMock()
+    mock_prisma.db.query_raw = mock_query_raw
+    # the session-count group_by runs before the spend aggregate
+    mock_prisma.db.litellm_spendlogs = MagicMock()
+    mock_prisma.db.litellm_spendlogs.group_by = AsyncMock(return_value=[])
 
-    page_call = mock_prisma.db.query_raw.call_args_list[1][0]
-    page_sql = page_call[0]
-    assert f"DISTINCT ON ({group_key})" in page_sql
-    assert "ORDER BY spend DESC" in page_sql
-    assert "OFFSET" in page_sql
-    assert page_call[-2:] == (50, 50), "page 2 of 50 skips the first 50 sessions"
+    page_row = {
+        "request_id": "req-1",
+        "session_id": "s1",
+        "api_key": "key-1",
+        "spend": 0.5,
+    }
 
-    assert response["total"] == 12
-    assert "next_session_cursor" not in response
-
-
-@pytest.mark.asyncio
-async def test_spend_logs_ui_request_id_lookup_with_grouping_returns_exact_row(monkeypatch):
-    """
-    A request_id lookup with group_by_session=true must still resolve the
-    exact requested row: the filter runs before grouping, so the row is its
-    own group's representative and deep links keep working.
-    """
-    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
-    from litellm.proxy.spend_tracking.spend_management_endpoints import ui_view_spend_logs
-
-    target_row = {"request_id": "req-deep-link", "metadata": "{}", "session_id": None}
-    mock_prisma = _make_ui_spend_logs_mock(count_total=1, page_rows=[target_row])
-    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma)
-
-    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin")
-    mock_request = MagicMock()
-    mock_request.url.path = "/spend/logs/ui"
-
-    response = await ui_view_spend_logs(
-        request=mock_request,
-        api_key=None,
-        user_id=None,
-        request_id="req-deep-link",
-        search=None,
-        start_date=None,
-        end_date=None,
+    response: dict = await _build_ui_spend_logs_response(
+        prisma_client=mock_prisma,
+        data=[page_row],
+        total_records=1,
         page=1,
-        page_size=1,
-        sort_by="startTime",
-        sort_order="desc",
-        user_api_key_dict=auth,
-        group_by_session=True,
+        page_size=25,
+        total_pages=1,
+        enrich_session_counts=True,
+        total_is_capped=False,
     )
 
-    page_call = mock_prisma.db.query_raw.call_args_list[1]
-    assert "request_id = $" in page_call[0][0], "the request_id equality filter must survive grouping"
-    assert "req-deep-link" in page_call[0]
-    assert [row["request_id"] for row in response["data"]] == ["req-deep-link"]
-    assert response["total"] == 1
+    assert response["data"][0]["session_total_spend"] == 1.5
+    mock_query_raw.assert_called_once()
+    call_args = mock_query_raw.call_args[0]
+    sql = call_args[0]
+    params = call_args[1:]
+
+    # The aggregate reads from a bounded recent subquery, not the raw table
+    assert "FROM (" in sql and "LIMIT $" in sql, f"SQL was:\n{sql}"
+    assert 'ORDER BY "startTime" DESC' in sql
+    assert params[-1] == SPEND_LOG_SESSION_STATS_SCAN_CAP

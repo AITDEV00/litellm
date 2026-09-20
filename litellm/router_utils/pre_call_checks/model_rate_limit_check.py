@@ -158,6 +158,11 @@ class ModelRateLimitingCheck(CustomLogger):
             if tpm_limit is None and rpm_limit is None:
                 return deployment
 
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
+
+            if htb_priority.get() is not None:
+                return deployment
+
             dt: Final = get_utc_datetime()
             current_minute: Final = dt.strftime("%H-%M")
             tpm_key, rpm_key = self._get_cache_keys(deployment, current_minute)
@@ -237,6 +242,11 @@ class ModelRateLimitingCheck(CustomLogger):
 
             # If no limits are set, allow the request
             if tpm_limit is None and rpm_limit is None:
+                return deployment
+
+            from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
+
+            if htb_priority.get() is not None:
                 return deployment
 
             dt: Final = get_utc_datetime()

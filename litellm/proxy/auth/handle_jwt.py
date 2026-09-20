@@ -687,8 +687,9 @@ class JWTHandler:
         if ".well-known/openid-configuration" not in url:
             return url
 
+        cache_key: Final = f"litellm_oidc_discovery_{url}"
         return await self._cached_with_stale_fallback(
-            cache_key=f"litellm_oidc_discovery_{url}",
+            cache_key=cache_key,
             ttl=self._get_public_key_cache_ttl(),
             refresh=lambda: self._fetch_jwks_uri_from_discovery(url),
             log_context="an OIDC discovery lookup",
@@ -716,7 +717,7 @@ class JWTHandler:
             raise JWKSUnreachableError(f"{type(e).__name__} fetching {url} after {JWKS_FETCH_ATTEMPTS} attempts") from e
 
     async def _get_cached_value(self, cache_key: str) -> _CachedValueT | None:
-        cached: Final = await self.user_api_key_cache.async_get_cache(cache_key)
+        cached: Final = await self.user_api_key_cache.async_get_cache(cache_key, skip_in_memory=False)
         return cast("_CachedValueT | None", cached)  # cast-ok: cache reads are untyped
 
     async def _get_cached_timestamp(self, cache_key: str) -> float | None:
@@ -960,7 +961,7 @@ class JWTHandler:
 
         # Check cache first
         cache_key: Final = f"oidc_userinfo_{hashlib.sha256(token.encode()).hexdigest()}"
-        cached_userinfo: Final = await self.user_api_key_cache.async_get_cache(cache_key)
+        cached_userinfo: Final = await self.user_api_key_cache.async_get_cache(cache_key, skip_in_memory=False)
 
         if cached_userinfo is not None:
             verbose_proxy_logger.debug("Returning cached OIDC UserInfo")

@@ -1165,6 +1165,8 @@ def test_aaamodel_prices_and_context_window_json_is_valid():
                 "thinking_always_on": {"type": "boolean"},
                 "supports_mid_conversation_system": {"type": "boolean"},
                 "supports_sampling_params": {"type": "boolean"},
+                "supports_service_tier": {"type": "boolean"},
+                "supports_preset": {"type": "boolean"},
                 "supports_output_config": {"type": "boolean"},
                 "supports_speed": {"type": "boolean"},
                 "supported_audio_formats": {

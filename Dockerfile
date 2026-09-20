@@ -8,24 +8,8 @@ ARG LITELLM_RUNTIME_IMAGE=cgr.dev/chainguard/wolfi-base@sha256:e624c5d5e42382ce7
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a
 # Pinned by digest like the other base images; bump explicitly on Node upgrades.
 ARG UI_BUILD_IMAGE=node:24.19-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
-# Checksum from https://www.pgbouncer.org/downloads/ (the Wolfi repo only carries 1.24.x)
-ARG PGBOUNCER_VERSION=1.25.2
-ARG PGBOUNCER_SHA256=924ad35113fd0a71c8e2dbe85b5d03445532e2b7b37a9f8a48983beea238b332
 
 FROM $UV_IMAGE AS uvbin
-
-FROM $LITELLM_BUILD_IMAGE AS pgbouncer-builder
-ARG PGBOUNCER_VERSION
-ARG PGBOUNCER_SHA256
-USER root
-RUN apk add --no-cache build-base pkgconf libevent-dev openssl-dev curl
-WORKDIR /build
-RUN curl -fsSL -o pgbouncer.tar.gz "https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz" && \
-    echo "${PGBOUNCER_SHA256}  pgbouncer.tar.gz" | sha256sum -c - && \
-    tar xzf pgbouncer.tar.gz --strip-components=1 && \
-    ./configure --prefix=/usr/local --with-openssl=/usr && \
-    make -j"$(nproc)" pgbouncer && \
-    install -m 0755 pgbouncer /usr/local/bin/pgbouncer
 
 # Admin UI builder. Pinned to the build platform so the architecture-independent
 # Next.js static export compiles once natively even in a multi-arch build,
@@ -75,14 +59,16 @@ COPY pyproject.toml uv.lock ./
 COPY enterprise/pyproject.toml enterprise/
 COPY litellm-proxy-extras/pyproject.toml litellm-proxy-extras/
 
-# Install third-party dependencies (cached unless pyproject.toml/uv.lock change)
-RUN uv sync --frozen --no-install-project --no-install-workspace --no-default-groups --no-editable \
+# Install third-party dependencies (cached unless pyproject.toml/uv.lock change).
+# The uv cache is a cache mount so repeated builds don't re-download wheels when
+# the lockfile changes; it persists across builds on the same host.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-install-workspace --no-default-groups --no-editable \
     --extra proxy \
     --extra proxy-runtime \
     --extra extra_proxy \
     --extra semantic-router \
     --extra saml \
-    --extra bedrock-realtime \
     --python python3.13
 
 # Copy full source tree
@@ -98,13 +84,13 @@ COPY --from=ui-builder /ui/out/. litellm/proxy/_experimental/out/
 RUN sed -i 's/\r$//' docker/build_admin_ui.sh && chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
 
 # Install project and workspace packages (fast - deps already cached)
-RUN uv sync --frozen --no-default-groups --no-editable \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-default-groups --no-editable \
     --extra proxy \
     --extra proxy-runtime \
     --extra extra_proxy \
     --extra semantic-router \
     --extra saml \
-    --extra bedrock-realtime \
     --python python3.13
 
 RUN HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
@@ -119,15 +105,8 @@ FROM $LITELLM_RUNTIME_IMAGE AS runtime
 
 USER root
 
-# The base image only configures Chainguard's authenticated apk repo, which
-# requires an enterprise subscription. Add the public Wolfi repo so `apk add`
-# also works for anyone installing extra packages into a running container.
-# https://github.com/BerriAI/litellm/issues/33518
-RUN echo "https://packages.wolfi.dev/os" >> /etc/apk/repositories
-
 # node (without npm) is required by the prisma CLI at runtime
-RUN apk add --no-cache bash openssl tzdata nodejs python-3.13 libsndfile libevent
-COPY --from=pgbouncer-builder /usr/local/bin/pgbouncer /usr/local/bin/pgbouncer
+RUN apk add --no-cache bash openssl tzdata nodejs python-3.13 libsndfile
 
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \
@@ -149,6 +128,16 @@ COPY --from=builder /app/litellm/proxy/prisma_migration.py /app/litellm/proxy/pr
 # enterprise.enterprise_hooks from it)
 COPY --from=builder /app/enterprise /app/enterprise
 COPY --from=builder /app/litellm-proxy-extras /app/litellm-proxy-extras
+
+# Profiling tools for the memory-leak investigation (dev/profiler image only).
+# memray = allocation-level profiler with native stacks; py-spy = sampling
+# profiler attachable to a running process. Both are inert unless invoked.
+# Placed AFTER the venv COPY so /app/.venv exists.
+ARG INSTALL_PROFILERS=false
+RUN if [ "$INSTALL_PROFILERS" = "true" ]; then \
+        /app/.venv/bin/python -m ensurepip --upgrade 2>/dev/null || true; \
+        /app/.venv/bin/python -m pip install --no-cache-dir memray py-spy; \
+    fi
 # Prisma CLI + engines are baked under /opt/prisma, a fixed path every
 # runtime uid can read and that no cache volume mount shadows. The paths are
 # pinned via PRISMA_BINARY_CACHE_DIR / PRISMA_CLI_PATH and recorded into the

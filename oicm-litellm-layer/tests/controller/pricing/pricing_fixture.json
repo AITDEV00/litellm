@@ -1,0 +1,128 @@
+{
+    "sample_spec": {
+        "input_cost_per_token": 0.0,
+        "output_cost_per_token": 0.0,
+        "litellm_provider": "one of https://docs.litellm.ai/docs/providers",
+        "mode": "one of: chat, embedding, completion, image_generation, audio_transcription, audio_speech, image_generation, moderation, rerank, search"
+    },
+    "deepseek-chat": {
+        "cache_read_input_token_cost": 2.8e-08,
+        "input_cost_per_token": 2.8e-07,
+        "litellm_provider": "deepseek",
+        "max_input_tokens": 131072,
+        "max_output_tokens": 8192,
+        "max_tokens": 8192,
+        "mode": "chat",
+        "output_cost_per_token": 4.2e-07,
+        "source": "https://api-docs.deepseek.com/quick_start/pricing",
+        "supports_function_calling": true
+    },
+    "deepseek/deepseek-v3": {
+        "input_cost_per_token": 2.8e-07,
+        "litellm_provider": "deepseek",
+        "max_input_tokens": 131072,
+        "mode": "chat",
+        "output_cost_per_token": 4.2e-07
+    },
+    "dashscope/qwen-flash": {
+        "litellm_provider": "dashscope",
+        "max_input_tokens": 997952,
+        "mode": "chat",
+        "tiered_pricing": [
+            {
+                "input_cost_per_token": 5e-08,
+                "output_cost_per_token": 4e-07,
+                "range": [0, 256000.0]
+            },
+            {
+                "input_cost_per_token": 2.5e-07,
+                "output_cost_per_token": 2e-06,
+                "range": [256000.0, 1000000.0]
+            }
+        ]
+    },
+    "openrouter/qwen/qwen3-coder": {
+        "input_cost_per_token": 2.2e-07,
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 262100,
+        "mode": "chat",
+        "output_cost_per_token": 9.5e-07
+    },
+    "openrouter/qwen/qwen3.5-35b-a3b": {
+        "input_cost_per_token": 2.5e-07,
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 262144,
+        "mode": "chat",
+        "output_cost_per_token": 2e-06
+    },
+    "qwen.qwen3-32b-v1:0": {
+        "input_cost_per_token": 1.5e-07,
+        "litellm_provider": "bedrock_converse",
+        "max_input_tokens": 131072,
+        "mode": "chat",
+        "output_cost_per_token": 6e-07
+    },
+    "qwen.qwen3-coder-30b-a3b-v1:0": {
+        "input_cost_per_token": 1.5e-07,
+        "litellm_provider": "bedrock_converse",
+        "max_input_tokens": 262144,
+        "mode": "chat",
+        "output_cost_per_token": 6e-07
+    },
+    "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo": {
+        "litellm_provider": "together_ai",
+        "mode": "chat",
+        "supports_function_calling": true
+    },
+    "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo": {
+        "litellm_provider": "together_ai",
+        "mode": "chat",
+        "supports_function_calling": true
+    },
+    "together_ai/Qwen/Qwen2.5-32B-Instruct-Turbo": {
+        "input_cost_per_token": 7.5e-07,
+        "litellm_provider": "together_ai",
+        "mode": "chat",
+        "output_cost_per_token": 9e-07,
+        "supports_function_calling": true
+    },
+    "amazon.titan-embed-text-v1": {
+        "input_cost_per_token": 1e-07,
+        "litellm_provider": "bedrock",
+        "max_input_tokens": 8192,
+        "max_tokens": 8192,
+        "mode": "embedding",
+        "output_cost_per_token": 0.0
+    },
+    "1024-x-1024/dall-e-2": {
+        "input_cost_per_pixel": 2.4414e-07,
+        "litellm_provider": "openai",
+        "mode": "image_generation",
+        "output_cost_per_pixel": 0.0
+    },
+    "gpt-4o": {
+        "input_cost_per_token": 2.5e-06,
+        "litellm_provider": "openai",
+        "max_input_tokens": 128000,
+        "mode": "chat",
+        "output_cost_per_token": 1e-05
+    },
+    "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF": {
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "litellm_provider": "lemonade",
+        "mode": "chat"
+    },
+    "fallback_generalizations": {
+        "rules": [
+            {
+                "name": "claude-family-baseline",
+                "pattern": "claude-[a-z]+-\\d+(?:[-.]\\d+)?(?:-\\d{8})?",
+                "model_info": {
+                    "mode": "chat",
+                    "max_input_tokens": 200000
+                }
+            }
+        ]
+    }
+}

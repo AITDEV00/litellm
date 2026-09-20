@@ -1,0 +1,181 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+
+metadata:
+  name: adeo-litellm-postgres
+  namespace: adeo-litellm
+
+spec:
+  description: adeo-litellm database cluster recovered from previous mlops PostgreSQL data
+
+  instances: 1
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+
+  postgresUID: 26
+  postgresGID: 26
+
+  enablePDB: true
+  enableSuperuserAccess: true
+
+  failoverDelay: 0
+
+  logLevel: info
+
+  maxSyncReplicas: 0
+  minSyncReplicas: 0
+
+  affinity:
+    podAntiAffinityType: preferred
+
+  # ------------------------------------------------------------
+  # RECOVERY
+  # ------------------------------------------------------------
+  #
+  # Corrected cold snapshots:
+  #
+  # PGDATA:
+  #   litellm-recovery-data-v1
+  #
+  # WAL:
+  #   litellm-recovery-wal-v1
+  #
+  # DO NOT replace this with initdb.
+  #
+  bootstrap:
+    recovery:
+      volumeSnapshots:
+        storage:
+          name: litellm-recovery-data-v1
+          kind: VolumeSnapshot
+          apiGroup: snapshot.storage.k8s.io
+
+        walStorage:
+          name: litellm-recovery-wal-v1
+          kind: VolumeSnapshot
+          apiGroup: snapshot.storage.k8s.io
+
+      database: oicm
+      owner: oicm
+
+  # ------------------------------------------------------------
+  # MONITORING
+  # ------------------------------------------------------------
+
+  monitoring:
+    disableDefaultQueries: false
+    enablePodMonitor: true
+
+  # ------------------------------------------------------------
+  # POSTGRESQL
+  # ------------------------------------------------------------
+
+  postgresql:
+    parameters:
+      archive_mode: "on"
+      archive_timeout: "5min"
+
+      dynamic_shared_memory_type: "posix"
+
+      full_page_writes: "on"
+
+      log_destination: "csvlog"
+      log_directory: "/controller/log"
+      log_filename: "postgres"
+      log_rotation_age: "0"
+      log_rotation_size: "0"
+      log_truncate_on_rotation: "false"
+      logging_collector: "on"
+
+      max_connections: "200"
+
+      max_parallel_workers: "32"
+      max_replication_slots: "32"
+      max_worker_processes: "32"
+
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+
+      shared_buffers: "256MB"
+      shared_memory_type: "mmap"
+
+      ssl_max_protocol_version: "TLSv1.3"
+      ssl_min_protocol_version: "TLSv1.3"
+
+      wal_keep_size: "512MB"
+      wal_level: "logical"
+      wal_log_hints: "on"
+
+      wal_receiver_timeout: "5s"
+      wal_sender_timeout: "5s"
+
+    shared_preload_libraries:
+      - pg_stat_statements
+
+    syncReplicaElectionConstraint:
+      enabled: false
+
+  # ------------------------------------------------------------
+  # PRIMARY MANAGEMENT
+  # ------------------------------------------------------------
+
+  primaryUpdateMethod: restart
+  primaryUpdateStrategy: unsupervised
+
+  # ------------------------------------------------------------
+  # REPLICATION
+  # ------------------------------------------------------------
+
+  replicationSlots:
+    highAvailability:
+      enabled: true
+      slotPrefix: _cnpg_
+
+    synchronizeReplicas:
+      enabled: true
+
+    updateInterval: 30
+
+  # ------------------------------------------------------------
+  # RESOURCES
+  # ------------------------------------------------------------
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2G
+
+    limits:
+      cpu: "1"
+      memory: 2G
+
+  # ------------------------------------------------------------
+  # TIMEOUTS
+  # ------------------------------------------------------------
+
+  smartShutdownTimeout: 180
+  startDelay: 30
+  stopDelay: 100
+  switchoverDelay: 3600
+
+  # ------------------------------------------------------------
+  # PGDATA
+  #
+  # IMPORTANT:
+  # Temporary 1-replica encrypted StorageClass is intentional
+  # during recovery to avoid Longhorn replica scheduling failures.
+  # ------------------------------------------------------------
+
+  storage:
+    storageClass: longhorn-rwx-crypto-retain-recovery
+    size: 100Gi
+    resizeInUseVolumes: true
+
+  # ------------------------------------------------------------
+  # WAL
+  # ------------------------------------------------------------
+
+  walStorage:
+    storageClass: longhorn-rwx-crypto-retain-recovery
+    size: 50Gi
+    resizeInUseVolumes: true

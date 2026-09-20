@@ -125,6 +125,7 @@ _custom_logger_compatible_callbacks_literal = Literal[
     "litellm_agent",
     "dynamic_rate_limiter",
     "dynamic_rate_limiter_v3",
+    "dynamic_rate_limiter_v3_htb",
     "langsmith",
     "prometheus",
     "otel",
@@ -516,6 +517,8 @@ priority_reservation: Optional[Dict[str, Union[float, "PriorityReservationDict"]
 # Only declare for type checking - at runtime __getattr__ handles it
 if TYPE_CHECKING:
     priority_reservation_settings: Optional["PriorityReservationSettings"] = None
+
+priority_body_fields: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 ######## Networking Settings ########
@@ -2357,6 +2360,17 @@ def __getattr__(name: str) -> Any:
 
             _globals["_service_logger"] = litellm._service_logger
         return _globals["_service_logger"]
+
+    # Lazy load OICM voice/script SDK functions (co-located slice in endpoints/voice)
+    if name in ["acreate_voice", "create_voice", "ascript", "script"]:
+        from litellm.endpoints.voice.main import (
+            acreate_voice,
+            ascript,
+            create_voice,
+            script,
+        )
+
+        return locals()[name]
 
     # Lazy load evals module functions
     if name in [
