@@ -86,7 +86,7 @@ spec:
           # Same source as prod (jya0-v1.99.1) plus the analytics-read
           # statement-bounding fix (prisma engine OOM ratchet, see
           # docs/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md).
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.99.1
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.102.0
           # Force a re-pull even though the tag (branch name) doesn't change
           # between pushes, so a redeploy always picks up the freshly built
           # image instead of a node-cached one with the same tag.
