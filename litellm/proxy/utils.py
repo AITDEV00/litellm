@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import deque
 from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -26,10 +27,17 @@ from litellm.constants import (
     DEFAULT_MODEL_CREATED_AT_TIME,
     LITELLM_LOGGING_NO_UPSTREAM_LLM_CALL,
     MAX_TEAM_LIST_LIMIT,
-    SPEND_LOG_QUEUE_MAX_BYTES,
     SPEND_LOG_WRITE_BATCH_MAX_BYTES,
     SPEND_LOG_WRITE_BATCH_MAX_ROWS,
 )
+
+# Row-count bound for the spend-log queue. Replaces the byte-budget accounting
+# (SPEND_LOG_QUEUE_MAX_BYTES), which legitimized unknown-row-length writes until
+# the size-estimation `safe_dumps` churn dominated CPU and per-worker memory.
+# 50K rows * ~2KB typical = ~100MB ceiling, dropped somewhere between the
+# Postgres-outage rps peak and the slowest observed worker accumulation rate.
+SPEND_LOG_QUEUE_MAX_ROWS: Final = int(os.getenv("SPEND_LOG_QUEUE_MAX_ROWS", "50000"))
+
 from litellm.proxy._types import (
     CommonProxyErrors,
     ProxyErrorTypes,
@@ -144,8 +152,6 @@ from litellm.proxy.db.prisma_client import (
 )
 from litellm.proxy.db.routing_prisma_wrapper import RoutingPrismaWrapper
 from litellm.proxy.db.spend_log_batching import (
-    spend_log_queue_within_budget,
-    spend_log_row_bytes,
     spend_log_write_batches,
 )
 from litellm.proxy.db.token_auth import (
@@ -3989,10 +3995,9 @@ class _StaleReadEngine:
 
 
 class PrismaClient:
-    spend_log_transactions: list = []
+    spend_log_transactions: deque = deque(maxlen=SPEND_LOG_QUEUE_MAX_ROWS)
     _spend_log_transactions_lock = asyncio.Lock()
     spend_log_flush_requested: "asyncio.Event | None" = None
-    spend_log_queue_bytes: ClassVar[int] = 0
     spend_logs_queue_monitor_task: "asyncio.Task[None] | None" = None
     tool_usage_transactions: list["ToolUsageTransaction"] = []
     _tool_usage_transactions_lock = asyncio.Lock()
@@ -6711,31 +6716,20 @@ async def enqueue_spend_logs(
     logs: Sequence[Mapping[str, object]],
     *,
     at_head: bool = False,
-    max_bytes: int = SPEND_LOG_QUEUE_MAX_BYTES,
 ) -> None:
-    """Queue spend logs for the next flush, held under ``SPEND_LOG_QUEUE_MAX_BYTES``.
+    """Queue spend logs for the next flush, held under ``SPEND_LOG_QUEUE_MAX_ROWS``.
 
     ``at_head`` replays a batch the DB refused, so it flushes before the logs
-    that piled up during the outage. Past the budget the oldest logs are
-    dropped, which keeps a long outage from growing the queue until the pod
-    dies.
+    that piled up during the outage. Past the cap the oldest logs are dropped
+    (``deque(maxlen=...)`` semantics), which keeps a long outage from growing
+    the queue until the pod dies.
     """
-    added: Final = sum(spend_log_row_bytes(row) for row in logs)
+    rows: Final[tuple[Mapping[str, object], ...]] = tuple(logs)
     async with prisma_client._spend_log_transactions_lock:
-        queued: Final = (
-            tuple(logs) + tuple(prisma_client.spend_log_transactions)
-            if at_head
-            else tuple(prisma_client.spend_log_transactions) + tuple(logs)
-        )
-        kept, kept_bytes = spend_log_queue_within_budget(queued, PrismaClient.spend_log_queue_bytes + added, max_bytes)
-        prisma_client.spend_log_transactions[:] = kept
-        PrismaClient.spend_log_queue_bytes = kept_bytes
-    if len(kept) < len(queued):
-        verbose_proxy_logger.error(
-            "Spend tracking - spend log queue is at its %d byte budget; dropped the %d oldest spend logs",
-            max_bytes,
-            len(queued) - len(kept),
-        )
+        if at_head:
+            prisma_client.spend_log_transactions.extendleft(reversed(rows))
+        else:
+            prisma_client.spend_log_transactions.extend(rows)
 
 
 def request_spend_log_flush(prisma_client: PrismaClient) -> None:
@@ -6765,15 +6759,13 @@ async def _wait_for_spend_log_flush_request(flush_requested: asyncio.Event, inte
 async def dequeue_spend_logs(prisma_client: PrismaClient, limit: int) -> list[dict[str, object]]:
     """Take up to ``limit`` of the oldest queued spend logs off the queue.
 
-    Every enqueue and dequeue goes through this pair so the byte total the
+    Every enqueue and dequeue goes through this pair so the row count the
     queue is bounded by stays in step with what the queue actually holds.
     """
     async with prisma_client._spend_log_transactions_lock:
-        popped: Final = prisma_client.spend_log_transactions[:limit]
-        prisma_client.spend_log_transactions[:] = prisma_client.spend_log_transactions[limit:]
-        PrismaClient.spend_log_queue_bytes = max(
-            0, PrismaClient.spend_log_queue_bytes - sum(spend_log_row_bytes(row) for row in popped)
-        )
+        popped: Final = list(prisma_client.spend_log_transactions)[:limit]
+        for _ in range(min(limit, len(prisma_client.spend_log_transactions))):
+            prisma_client.spend_log_transactions.popleft()
     return popped
 
 
