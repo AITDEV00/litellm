@@ -109,8 +109,11 @@ data:
       # Per-request and per-stream-chunk upper bounds so a stalled stream
       # fails loud instead of hanging on the outer HTTP timeout. Non-streaming
       # requests on big reasoning models can legitimately take several minutes.
+      # stream_timeout must exceed the LONGEST legitimate silence from sglang
+      # (which buffers tokens under load and emits them late), not just the
+      # average chunk gap. 300s covers Kimi-K3 deep-thinking batches.
       timeout: 600
-      stream_timeout: 30
+      stream_timeout: 300
       # Deployment health hysteresis: trip to cooldown after 3 fails, sleep 30s
       # before retrying that deployment (default is 1 fail / 1s).
       allowed_fails: 3
@@ -380,6 +383,17 @@ spec:
                   key: password
             - name: REDIS_CONNECTION_POOL_TIMEOUT
               value: "10"
+            # Per-request stream trace (opt-in). Records chunk timing, gaps,
+            # and terminal state per stream to JSONL so we can answer
+            # "client disconnect vs. server stall" without packet capture.
+            # NOTE: /tmp is emptyDir on prod (no PVC) so traces die with the pod;
+            # for durable captures route NODE_LOG or stdout via fluent-bit.
+            - name: LITELLM_STREAM_TRACE_PATH
+              value: "/tmp/stream_traces.jsonl"
+            # Only record gap samples above this threshold; below it, chunk
+            # flow is normal. 500ms buckets match the dev tuning.
+            - name: LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS
+              value: "500"
             - name: UI_LOGO_PATH
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
