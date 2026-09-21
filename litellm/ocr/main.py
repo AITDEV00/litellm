@@ -13,6 +13,24 @@ from litellm.rust_bridge.ocr_lifecycle import select
 
 __all__ = ("aocr", "convert_file_document_to_url_document", "get_mime_type", "ocr")
 
+# Providers with a native Rust OCR handler. Anything else falls back to the
+# legacy Python path (litellm.ocr.legacy), which dispatches via lazy provider
+# configs (e.g. PaddleXOCRConfig for paddlex).
+_RUST_OCR_PROVIDERS: Final = frozenset({"mistral", "azure_ai", "vertex_ai"})
+
+
+def _request_provider(request: LiteLLMOcrRequest) -> str | None:
+    if request.custom_llm_provider:
+        return request.custom_llm_provider
+    if "/" in request.model:
+        return request.model.split("/", 1)[0]
+    return None
+
+
+def _should_use_native(request: LiteLLMOcrRequest) -> bool:
+    provider: Final = _request_provider(request)
+    return provider is not None and provider in _RUST_OCR_PROVIDERS
+
 
 def _bind_request(
     model: str,
@@ -48,7 +66,7 @@ def ocr(
     **kwargs: object,  # kwargs-ok: preserve the public OCR call shape
 ) -> OCRResponse | Coroutine[object, object, OCRResponse]:
     request: Final = _public_request("ocr", args, kwargs)
-    native: Final = select(request) if rust_ocr_enabled() else None
+    native: Final = select(request) if rust_ocr_enabled() and _should_use_native(request) else None
     if native is not None:
         try:
             return cast(  # cast-ok: False selects the synchronous result
@@ -64,7 +82,7 @@ def ocr(
 
 async def aocr(*args: object, **kwargs: object) -> OCRResponse:  # kwargs-ok: preserve the public OCR call shape
     request: Final = _public_request("aocr", args, kwargs)
-    native: Final = select(request) if rust_ocr_enabled() else None
+    native: Final = select(request) if rust_ocr_enabled() and _should_use_native(request) else None
     if native is not None:
         try:
             return await cast(  # cast-ok: True selects the asynchronous result
