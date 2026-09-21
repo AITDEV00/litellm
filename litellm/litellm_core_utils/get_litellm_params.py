@@ -57,6 +57,10 @@ OPTIONAL_KWARGS_KEYS: Final = (
             "itpm",
             "otpm",
             "use_xai_oauth",
+            # Hamsa API surface selector (native vs v1). Read from
+            # litellm_params by hamsa config classes when building URLs.
+            # Never part of the provider request body.
+            "api_surface",
         }
     )
     | AWS_CREDENTIAL_KWARGS_KEYS
