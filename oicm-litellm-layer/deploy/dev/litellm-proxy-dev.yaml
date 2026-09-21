@@ -138,6 +138,14 @@ spec:
                   key: password
             - name: REDIS_CONNECTION_POOL_TIMEOUT
               value: "10"
+            # Per-request stream trace (opt-in). Records chunk timing, gaps,
+            # and terminal state per stream to JSONL so we can answer
+            # "client disconnect vs. server stall" without packet capture.
+            - name: LITELLM_STREAM_TRACE_PATH
+              value: "/tmp/stream_traces.jsonl"
+            # Only log gaps >= 500ms; below that, chunk flow is normal.
+            - name: LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS
+              value: "500"
             - name: UI_LOGO_PATH
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL

@@ -44,6 +44,7 @@ from .core_helpers import map_finish_reason, process_response_headers
 from .exception_mapping_utils import exception_type
 from .llm_response_utils.get_api_base import get_api_base
 from .rules import Rules
+from .stream_tracer import StreamEndKind, begin_trace, is_enabled as _stream_trace_enabled
 
 # Constants for special delta attribute names
 AUDIO_ATTRIBUTE: Final = "audio"
@@ -319,6 +320,16 @@ class CustomStreamWrapper:
         }
 
         self._post_streaming_hooks: list | None = None
+
+        _request_id: Final = (
+            self.logging_obj.model_call_details.get("id") if self.logging_obj else None
+        ) or (self.response_id or str(uuid.uuid4()))
+        self._stream_tracer = begin_trace(
+            request_id=_request_id,
+            model=self.model or "",
+            provider=self.custom_llm_provider or "",
+            api_base=_api_base or "",
+        )
 
     def _check_max_streaming_duration(self) -> None:
         """Raise litellm.Timeout if the stream has exceeded LITELLM_MAX_STREAMING_DURATION_SECONDS."""
@@ -2198,6 +2209,21 @@ class CustomStreamWrapper:
                         # Add MCP metadata to final chunk if present (after hooks)
                         processed_chunk = self._add_mcp_metadata_to_final_chunk(processed_chunk)
 
+                    if self._stream_tracer is not None:
+                        _chunk_chars: Final = (
+                            len(processed_chunk.choices[0].delta.content or "")
+                            if processed_chunk.choices
+                            and isinstance(processed_chunk.choices[0], StreamingChoices)
+                            and processed_chunk.choices[0].delta
+                            else 0
+                        )
+                        _finish: Final = (
+                            processed_chunk.choices[0].finish_reason
+                            if processed_chunk.choices and isinstance(processed_chunk.choices[0], StreamingChoices)
+                            else None
+                        )
+                        self._stream_tracer.record_chunk(chars=_chunk_chars, finish_reason=_finish)
+
                     return processed_chunk
                 raise StopAsyncIteration
             else:  # temporary patch for non-aiohttp async calls
@@ -2224,8 +2250,14 @@ class CustomStreamWrapper:
                         self.chunks.append(processed_chunk)
                         return processed_chunk
         except (StopAsyncIteration, StopIteration):
+            if self._stream_tracer is not None:
+                self._stream_tracer.record_end("success")
             return await self._finalize_completed_stream(cache_hit=cache_hit)
         except httpx.TimeoutException as e:  # if httpx read timeout error occues
+            if self._stream_tracer is not None:
+                self._stream_tracer.record_end(
+                    "upstream_timeout", error_type=type(e).__name__, error_msg=str(e)[:500]
+                )
             traceback_exception = traceback.format_exc()
             ## ADD DEBUG INFORMATION - E.G. LITELLM REQUEST TIMEOUT
             traceback_exception += f"\nLiteLLM Default Request Timeout - {litellm.request_timeout}"
@@ -2237,10 +2269,18 @@ class CustomStreamWrapper:
                 )
             self._handle_stream_fallback_error(e)
         except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+            if self._stream_tracer is not None:
+                self._stream_tracer.record_end(
+                    "provider_error", error_type=type(e).__name__, error_msg=str(e)[:500]
+                )
             if self.received_finish_reason is None:
                 self._log_stream_failure_and_raise(e)
             return await self._finalize_completed_stream(cache_hit=cache_hit)
         except Exception as e:
+            if self._stream_tracer is not None:
+                self._stream_tracer.record_end(
+                    "stream_error", error_type=type(e).__name__, error_msg=str(e)[:500]
+                )
             self._log_stream_failure_and_raise(e)
 
     async def _finalize_completed_stream(self, cache_hit: bool) -> "ModelResponseStream":
