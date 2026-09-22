@@ -126,12 +126,13 @@ data:
       # including indexes+TOAST — the 50Gi data volume filled on 2026-09-08
       # with no retention (see incidents/2026-09-08-postgres-disk-full-...).
       maximum_spend_logs_retention_period: "60d"
-      # Run the retention job 4x/day (default 1x) and lift the per-run drain
-      # cap from 500K to 2M rows, so a traffic-burst day cannot outrun
-      # cleanup between alert cycles. All three knobs are re-read per run,
-      # so they can also be changed live from the Admin UI.
-      maximum_spend_logs_retention_interval: "6h"
-      maximum_spend_logs_cleanup_max_batches: 2000
+      # Run the retention job hourly (was 6h) and lift the per-run drain cap
+      # from 2M to 20M rows so a burst day cannot outrun cleanup between
+      # alert cycles. All knobs are re-read per run and can also be changed
+      # live from the Admin UI.
+      maximum_spend_logs_retention_interval: "1h"
+      maximum_spend_logs_cleanup_batch_size: 1000
+      maximum_spend_logs_cleanup_max_batches: 20000
       maximum_spend_logs_cleanup_run_budget: "20m"
       # Decouple gateway availability from Postgres (2026-09-08 incident:
       # flush-retry CPU churn starved the event loop until liveness timed

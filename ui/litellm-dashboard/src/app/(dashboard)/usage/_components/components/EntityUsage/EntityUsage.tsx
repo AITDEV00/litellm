@@ -45,6 +45,8 @@ import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView
 import KeyActivityPanel from "@/components/UsagePage/components/KeyActivityPanel";
 import TopModelView from "./TopModelView";
 import TeamUserSpendCard from "./TeamUserSpendCard";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
+import type { ModelPerformanceScope } from "@/components/UsagePage/components/ModelPerformance";
 
 interface EntityMetrics {
   metrics: {
@@ -129,6 +131,24 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
 
   const startTime = useMemo(() => (dateValue.from ? new Date(dateValue.from) : null), [dateValue.from]);
   const endTime = useMemo(() => (dateValue.to ? new Date(dateValue.to) : null), [dateValue.to]);
+
+  const modelPerformanceScope = useMemo<ModelPerformanceScope>(() => {
+    if (!entityId) return {};
+    switch (entityType) {
+      case "team":
+        return { teamId: entityId };
+      case "organization":
+        return { organizationId: entityId };
+      case "customer":
+        return { endUserId: entityId };
+      case "agent":
+        return { agentId: entityId };
+      case "user":
+        return { userId: entityId };
+      default:
+        return {};
+    }
+  }, [entityType, entityId]);
 
   const entityFilterArg = useMemo(() => {
     if (entityType === "user") return selectedTags.length > 0 ? selectedTags[0] : null;
@@ -648,6 +668,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <ActivityMetrics modelMetrics={modelMetrics} hidePromptCachingMetrics={entityType === "agent"} />
         </>
       ),
+    },
+    {
+      key: "performance",
+      label: "Model Performance",
+      content: <ModelPerformanceView scope={modelPerformanceScope} accessToken={accessToken} dateValue={dateValue} />,
     },
     ...(showAgentBreakdown
       ? [{ key: "agents", label: "Agent Activity", content: <ActivityMetrics modelMetrics={agentMetrics} /> }]
