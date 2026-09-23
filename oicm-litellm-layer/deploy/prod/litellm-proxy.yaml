@@ -121,19 +121,12 @@ data:
       # Fallbacks intentionally omitted for now; to be configured separately.
     general_settings:
       use_redis_transaction_buffer: true
-      # Prune LiteLLM_SpendLogs rows older than 60 days (bounded batched
-      # deletes, single pod via Redis lock). Sizing: ~13M rows ≈ 62 GB
-      # including indexes+TOAST — the 50Gi data volume filled on 2026-09-08
-      # with no retention (see incidents/2026-09-08-postgres-disk-full-...).
-      maximum_spend_logs_retention_period: "60d"
-      # Run the retention job hourly (was 6h) and lift the per-run drain cap
-      # from 2M to 20M rows so a burst day cannot outrun cleanup between
-      # alert cycles. All knobs are re-read per run and can also be changed
-      # live from the Admin UI.
+      # Native PG partitioning: upstream creates daily partitions and drops
+      # them at retention. 999d means upstream never drops; the janitor
+      # CronJob owns actual retention (pressure-based, 60d floor).
+      use_spend_logs_partitioning: true
+      maximum_spend_logs_retention_period: "999d"
       maximum_spend_logs_retention_interval: "1h"
-      maximum_spend_logs_cleanup_batch_size: 1000
-      maximum_spend_logs_cleanup_max_batches: 20000
-      maximum_spend_logs_cleanup_run_budget: "20m"
       # Decouple gateway availability from Postgres (2026-09-08 incident:
       # flush-retry CPU churn starved the event loop until liveness timed
       # out and pods restarted). With this on: auth falls back to cached

@@ -94,10 +94,10 @@ spec:
   stopDelay: 100
   storage:
     resizeInUseVolumes: true
-    size: 100Gi
-    storageClass: longhorn-rwx-crypto-retain
+    size: 200Gi
+    storageClass: longhorn-rwx-crypto-retain-recovery
   switchoverDelay: 3600
   walStorage:
     resizeInUseVolumes: true
     size: 50Gi
-    storageClass: longhorn-rwx-crypto-retain
+    storageClass: longhorn-rwx-crypto-retain-recovery
