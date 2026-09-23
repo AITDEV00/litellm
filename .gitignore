@@ -151,3 +151,7 @@ crash.*.log
 ui/litellm-dashboard/out/
 litellm.log
 litellm/proxy/_experimental/out/
+
+oicm-litellm-layer/scripts/model-server-onboarding-no-work/
+oicm-litellm-layer/scripts/vllm-0.20.0/
+oicm-litellm-layer/scripts/vllm-0.20.0-no-work/

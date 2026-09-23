@@ -102,8 +102,12 @@ data:
       use_redis_transaction_buffer: true
       # Mirror of prod (2026-09-08 decoupling). Retention knobs are inert
       # without a DB but kept identical so dev matches prod exactly.
-      maximum_spend_logs_retention_period: "60d"
-      maximum_spend_logs_retention_interval: "1h"
+      # TEMPORARILY bumped to "1m" for a SpendLogCleanup registration probe on
+      # dev (2026-09-22). Job is supposed to fire every ~60s. Switch back to
+      # "1h" (and match prod) once we've observed it fire.
+      use_spend_logs_partitioning: true
+      maximum_spend_logs_retention_period: "999d"
+      maximum_spend_logs_retention_interval: "1m"
       maximum_spend_logs_cleanup_batch_size: 1000
       maximum_spend_logs_cleanup_max_batches: 20000
       maximum_spend_logs_cleanup_run_budget: "20m"

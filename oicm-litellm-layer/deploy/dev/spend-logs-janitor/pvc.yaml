@@ -1,0 +1,18 @@
+---
+# Archive PVC holds the per-partition custom-format dumps that the janitor
+# writes and the restore script reads. Reclaim policy Retain so scaling the
+# janitor down or removing its cron doesn't destroy history.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spend-logs-archive
+  namespace: adeo-litellm
+  labels:
+    app.kubernetes.io/component: spend-logs-archival
+    app.kubernetes.io/part-of: litellm-dev
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: longhorn-crypto-retain
+  resources:
+    requests:
+      storage: 30Gi

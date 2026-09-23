@@ -1,0 +1,285 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spend-logs-janitor-scripts
+  namespace: adeo-litellm
+  labels:
+    app.kubernetes.io/component: spend-logs-janitor
+data:
+  janitor.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    ARCHIVE_ROOT="${ARCHIVE_ROOT:-/archive}"
+    MASTER_TABLE="${MASTER_TABLE:-LiteLLM_SpendLogs}"
+    ARCHIVE_LEDGER="${ARCHIVE_LEDGER:-LiteLLM_SpendLogsArchiveLedger}"
+    RETENTION_DAYS="${RETENTION_DAYS:-60}"
+    RETENTION_FLOOR_HOURS="${RETENTION_FLOOR_HOURS:-24}"
+    PRESSURE_THRESHOLD_BYTES="${PRESSURE_THRESHOLD_BYTES:-0}"
+    ARCHIVE_MIN_FREE_GB="${ARCHIVE_MIN_FREE_GB:-5}"
+    DB_HOST="${DB_HOST:?required}"
+    DB_PORT="${DB_PORT:-5432}"
+    DB_NAME="${DB_NAME:?required}"
+    DB_USER="${DB_USER:?required}"
+    export PGPASSWORD="${DB_PASSWORD:?required}"
+    export PGCONNECT_TIMEOUT=10
+
+    log() { printf '[janitor] %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+    fail() {
+        local msg="$1"
+        log "ERROR: ${msg}"
+        # Write last_error to the ledger if we're mid-partition so the next
+        # operator can see why it stalled without needing kubectl logs.
+        # Double single quotes for SQL escaping; ${var//'/''} doesn't parse in bash.
+        if [[ -n "${CURRENT_PARTITION:-}" ]]; then
+            local escaped_msg
+            escaped_msg=$(printf '%s' "${msg}" | sed "s/'/''/g")
+            run_psql -d "$DB_NAME" \
+                -c "UPDATE \"${ARCHIVE_LEDGER}\" SET last_error = '${escaped_msg}', transitioned_at = now() WHERE partition_name = '${CURRENT_PARTITION}'" \
+                || true
+        fi
+        exit 1
+    }
+
+    PSQL="psql"
+    PGDUMP="pg_dump"
+    PGRESTORE="pg_restore"
+
+    run_psql() {
+        PGOPTIONS="-c lock_timeout=15s -c statement_timeout=5min" \
+          "${PSQL}" -q -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$@"
+    }
+
+    RETENTION_DAYS_INT="${RETENTION_DAYS%d}"
+    log "archive tick days=${RETENTION_DAYS_INT} threshold=${PRESSURE_THRESHOLD_BYTES}"
+
+    # Pre-flight: master table must exist and be partitioned. Silent no-op is
+    # the canonical cron failure mode; refuse to run quietly.
+    MASTER_IS_PARTITIONED=$(
+        run_psql -d "$DB_NAME" -Atc \
+            "SELECT count(*) FROM pg_class WHERE relname = '${MASTER_TABLE}' AND relkind = 'p'"
+    )
+    if [[ "${MASTER_IS_PARTITIONED}" != "1" ]]; then
+        fail "master table ${MASTER_TABLE} is not partitioned (relkind != p); refusing to run"
+    fi
+
+    # Register eligible partitions. Only under disk pressure: archive the
+    # oldest partitions past the 24h floor until pressure clears, but never
+    # go below RETENTION_DAYS. Upstream LiteLLM owns partition creation.
+    DB_SIZE=$(run_psql -d "$DB_NAME" -Atc "SELECT pg_database_size(current_database())")
+    UNDER_PRESSURE=0
+    [[ "${DB_SIZE}" -gt "${PRESSURE_THRESHOLD_BYTES}" ]] && UNDER_PRESSURE=1
+
+    if [[ "${UNDER_PRESSURE}" == "1" ]]; then
+        log "disk pressure detected ($(numfmt --to=iec ${DB_SIZE}) > $(numfmt --to=iec ${PRESSURE_THRESHOLD_BYTES})); archiving oldest partitions"
+        REGISTER_SQL=$(mktemp /tmp/janitor-register-XXXXXX.sql)
+        printf '%s\n' \
+            "WITH parts AS (" \
+            "    SELECT cls.relname AS partition_name," \
+            "           pg_get_expr(cls.relpartbound, cls.oid, true) AS bound_expr" \
+            "    FROM pg_partition_tree(format('public.%I', '${MASTER_TABLE}')::regclass) p" \
+            "    JOIN pg_class cls ON cls.oid = p.relid" \
+            "    WHERE p.isleaf AND cls.relkind = 'r'" \
+            "      AND cls.relname <> '${MASTER_TABLE}_pdefault'" \
+            ")," \
+            "parsed AS (" \
+            "    SELECT partition_name," \
+            "           (regexp_match(bound_expr, \$\$FROM \\('([^']+)'\\) TO \\('([^']+)'\\)\$\$))[1]::timestamptz AS bound_lower," \
+            "           (regexp_match(bound_expr, \$\$FROM \\('([^']+)'\\) TO \\('([^']+)'\\)\$\$))[2]::timestamptz AS bound_upper" \
+            "    FROM parts" \
+            ")" \
+            "INSERT INTO \"${ARCHIVE_LEDGER}\" (partition_name, bound_lower, bound_upper, state)" \
+            "SELECT partition_name, bound_lower, bound_upper, 'eligible'" \
+            "FROM parsed" \
+            "WHERE bound_upper < now() - make_interval(hours => ${RETENTION_FLOOR_HOURS})" \
+            "ON CONFLICT (partition_name) DO NOTHING;" \
+            > "${REGISTER_SQL}"
+        run_psql -d "$DB_NAME" -f "${REGISTER_SQL}"
+        rm -f "${REGISTER_SQL}"
+    fi
+
+    # Only act under disk pressure. No pressure = nothing to archive.
+    # Under pressure: drain oldest first, but never go below RETENTION_DAYS.
+    CURRENT_PARTITION=""
+    if [[ "${UNDER_PRESSURE}" == "1" ]]; then
+        CURRENT_PARTITION=$(
+            run_psql -d "$DB_NAME" -Atc "
+                SELECT partition_name
+                FROM \"${ARCHIVE_LEDGER}\"
+                WHERE state IN ('eligible','detached','dumped','verified')
+                  AND bound_upper < now() - make_interval(days => ${RETENTION_DAYS_INT})
+                ORDER BY bound_upper
+                LIMIT 1"
+        )
+
+        if [[ -z "${CURRENT_PARTITION}" ]]; then
+            log "WARNING: disk pressure persists but all remaining partitions are under ${RETENTION_DAYS_INT}d; increase archive PVC size or reduce PRESSURE_THRESHOLD_BYTES"
+        fi
+    fi
+
+    if [[ -z "${CURRENT_PARTITION}" ]]; then
+        log "no work; exiting"
+        exit 0
+    fi
+    log "working on ${CURRENT_PARTITION}"
+
+    read_state() {
+        run_psql -d "$DB_NAME" -Atc \
+            "SELECT state FROM \"${ARCHIVE_LEDGER}\" WHERE partition_name = '${CURRENT_PARTITION}'"
+    }
+    set_state() {
+        run_psql -d "$DB_NAME" -c \
+            "UPDATE \"${ARCHIVE_LEDGER}\" SET state='$1', transitioned_at=now(), last_error=NULL WHERE partition_name='${CURRENT_PARTITION}'"
+    }
+
+    STATE="$(read_state)"
+    DUMPFILE="${ARCHIVE_ROOT}/${CURRENT_PARTITION}.dump"
+    log "ledger state: ${STATE}"
+
+    case "${STATE}" in
+        eligible)
+            log "DETACH ${CURRENT_PARTITION}"
+            if ! run_psql -d "$DB_NAME" -c \
+                    "ALTER TABLE \"${MASTER_TABLE}\" DETACH PARTITION \"${CURRENT_PARTITION}\""; then
+                fail "detach failed"
+            fi
+            set_state detached
+            log "Detached"
+            ;;
+        detached)
+            # Guard: refuse to dump if the archive PVC is nearly full.
+            avail_gb=$(df --output=avail -BG "${ARCHIVE_ROOT}" | awk 'NR==2 {gsub(/G/,""); print $1}')
+            if [[ "${avail_gb}" -lt "${ARCHIVE_MIN_FREE_GB}" ]]; then
+                fail "archive PVC has ${avail_gb}Gi free (< ${ARCHIVE_MIN_FREE_GB}Gi); refusing to dump more"
+            fi
+            log "DUMP ${CURRENT_PARTITION} -> ${DUMPFILE}"
+            rows_at_dump=$(run_psql -d "$DB_NAME" -Atc "SELECT count(*) FROM \"${CURRENT_PARTITION}\"") || fail "count failed"
+            if ! "${PGDUMP}" --format=custom --table="\"${CURRENT_PARTITION}\"" --file="${DUMPFILE}" \
+                    "host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${DB_NAME}"; then
+                fail "pg_dump failed"
+            fi
+            sha=$(sha256sum "${DUMPFILE}" | awk '{print $1}')
+            size=$(stat -c %s "${DUMPFILE}")
+            run_psql -d "$DB_NAME" -c "
+                UPDATE \"${ARCHIVE_LEDGER}\"
+                SET state='dumped', artifact_uri='${DUMPFILE}', artifact_sha256='${sha}',
+                    artifact_size_bytes=${size}, rows_at_dump=${rows_at_dump},
+                    transitioned_at=now(), last_error=NULL
+                WHERE partition_name='${CURRENT_PARTITION}'"
+            log "Dumped ${rows_at_dump} rows, ${size} bytes, sha256=${sha}"
+            ;;
+        dumped)
+            log "VERIFY ${DUMPFILE}"
+            verify_db="janitor_verify"
+            run_psql -d postgres -c "CREATE DATABASE ${verify_db} WITH TEMPLATE template0" || fail "create verify db"
+            if ! "${PGRESTORE}" --exit-on-error "--dbname=host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${verify_db}" "${DUMPFILE}"; then
+                run_psql -d postgres -c "DROP DATABASE IF EXISTS ${verify_db}"
+                fail "pg_restore failed"
+            fi
+            restored_rows=$(run_psql -d "${verify_db}" -Atc "SELECT count(*) FROM \"${CURRENT_PARTITION}\"")
+            run_psql -d postgres -c "DROP DATABASE ${verify_db}"
+            rows_at_dump=$(run_psql -d "$DB_NAME" -Atc \
+                "SELECT rows_at_dump FROM \"${ARCHIVE_LEDGER}\" WHERE partition_name='${CURRENT_PARTITION}'")
+            if [[ "${restored_rows}" != "${rows_at_dump}" ]]; then
+                fail "restore row-count mismatch: ${restored_rows} != ${rows_at_dump}"
+            fi
+            set_state verified
+            log "Verified (${restored_rows} rows)"
+            ;;
+        verified)
+            log "DROP ${CURRENT_PARTITION}"
+            if ! run_psql -d "$DB_NAME" -c "DROP TABLE \"${CURRENT_PARTITION}\" RESTRICT"; then
+                fail "drop failed"
+            fi
+            set_state dropped
+            log "Dropped"
+            ;;
+        *)
+            log "state '${STATE}' has no action"
+            exit 0
+            ;;
+    esac
+    log "done."
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spend-logs-janitor
+  namespace: adeo-litellm
+  labels:
+    app.kubernetes.io/component: spend-logs-janitor
+spec:
+  # spike pace: 1m. Change to */5 * * * * or hourly after soak.
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: spend-logs-janitor
+        spec:
+          restartPolicy: Never
+          # root required to write to the longhorn-retain archive PVC.
+          securityContext:
+            runAsUser: 0
+            fsGroup: 0
+          containers:
+            - name: janitor
+              # 17.5 is pre-cached on the CNPG postgres node; avoids external pull.
+              image: ghcr.io/cloudnative-pg/postgresql:17.5
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: ARCHIVE_ROOT
+                  value: /archive
+                - name: MASTER_TABLE
+                  value: LiteLLM_SpendLogs
+                - name: ARCHIVE_LEDGER
+                  value: LiteLLM_SpendLogsArchiveLedger
+                - name: RETENTION_DAYS
+                  value: "60"
+                - name: RETENTION_FLOOR_HOURS
+                  value: "24"
+                - name: PRESSURE_THRESHOLD_BYTES
+                  value: "21474836480"
+                - name: DB_HOST
+                  value: adeo-litellm-postgres-dev-rw
+                - name: DB_PORT
+                  value: "5432"
+                - name: DB_NAME
+                  value: litellm
+                - name: DB_USER
+                  value: litellm
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: adeo-litellm-postgres-dev-app
+                      key: password
+              command: ["/bin/bash", "/scripts/janitor.sh"]
+              volumeMounts:
+                - name: archive
+                  mountPath: /archive
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          volumes:
+            - name: archive
+              persistentVolumeClaim:
+                claimName: spend-logs-archive
+            - name: scripts
+              configMap:
+                name: spend-logs-janitor-scripts
+                defaultMode: 0755
