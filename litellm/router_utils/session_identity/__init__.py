@@ -9,7 +9,6 @@ See ``docs/session-identity/IMPLEMENTATION-PLAN.md`` and the module docstrings.
 
 from litellm.router_utils.session_identity.config import SessionIdentityConfig
 from litellm.router_utils.session_identity.hash_chain import (
-    chain_continuation,
     chunk_chain,
     declared_id,
     root_seed,
@@ -25,7 +24,6 @@ __all__ = [
     "SessionIdentityConfig",
     "SessionIdentityResolver",
     "SessionIdentityStore",
-    "chain_continuation",
     "chunk_chain",
     "declared_id",
     "root_seed",

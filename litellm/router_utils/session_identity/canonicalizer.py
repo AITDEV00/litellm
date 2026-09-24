@@ -13,12 +13,17 @@ conversation and must move when the conversation grows:
   bytes
 - image/detail and other structured content blocks render via their stable
   sorted-key JSON
+
+Uses orjson (a prod dependency, ~4x faster than stdlib json.dumps for large
+payloads) with OPT_SORT_KEYS for deterministic ordering, mirroring
+json.dumps(..., sort_keys=True).
 """
 
-import json
+import orjson
 from typing import Any, Final
 
 _NUL: Final = b"\x00"
+_ORJSON_OPTIONS: Final = orjson.OPT_SORT_KEYS | orjson.OPT_NAIVE_UTC
 
 
 def _seg(buf: bytearray, surface: str, role: str, text: str) -> None:
@@ -31,11 +36,16 @@ def _seg(buf: bytearray, surface: str, role: str, text: str) -> None:
     buf.extend(_NUL)
 
 
+def _default(value: Any) -> str:
+    """Fallback for exotic values (datetime, Decimal, ...), mirroring default=str."""
+    return str(value)
+
+
 def _seg_json(buf: bytearray, surface: str, role: str, value: Any) -> None:
     """JSON segment with sorted keys, mirroring llm-d's segJSON()."""
     if value is None:
         return
-    _seg(buf, surface, role, json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
+    _seg(buf, surface, role, orjson.dumps(value, option=_ORJSON_OPTIONS, default=_default).decode())
 
 
 def _content_text(content: Any) -> str | None:

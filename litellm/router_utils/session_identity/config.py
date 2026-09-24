@@ -22,16 +22,6 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
 @dataclass(frozen=True, slots=True)
 class SessionIdentityConfig:
     enabled: bool
@@ -40,8 +30,6 @@ class SessionIdentityConfig:
     ttl_seconds: int
     common_prefix_threshold: int
     cache_salt: str
-    max_declared_history_bytes: int
-    min_chain_hashes_to_infer: float
 
     @classmethod
     def from_env(cls) -> "SessionIdentityConfig":
@@ -52,6 +40,4 @@ class SessionIdentityConfig:
             ttl_seconds=_env_int("SESSION_IDENTITY_TTL_SECONDS", SESSION_IDENTITY_DEFAULT_TTL_SECONDS),
             common_prefix_threshold=_env_int("SESSION_IDENTITY_COMMON_PREFIX_THRESHOLD", 3),
             cache_salt=os.getenv("SESSION_IDENTITY_CACHE_SALT", ""),
-            max_declared_history_bytes=_env_int("SESSION_IDENTITY_MAX_HISTORY_BYTES", 262_144),
-            min_chain_hashes_to_infer=_env_float("SESSION_IDENTITY_MIN_CHAIN_HASHES", 0.0),
         )

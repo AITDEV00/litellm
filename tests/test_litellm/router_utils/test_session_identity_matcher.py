@@ -19,8 +19,6 @@ def _config(**overrides) -> SessionIdentityConfig:
         ttl_seconds=3600,
         common_prefix_threshold=3,
         cache_salt="",
-        max_declared_history_bytes=262_144,
-        min_chain_hashes_to_infer=0.0,
     )
     defaults.update(overrides)
     return SessionIdentityConfig(**defaults)
@@ -36,11 +34,6 @@ def _big_messages(seed: str, extra_user: str | None = None) -> list[dict]:
     if extra_user:
         messages.append({"role": "user", "content": f"{extra_user} " * 80})
     return messages
-
-
-@pytest.fixture
-def dual_cache():
-    return DualCache()
 
 
 @pytest.mark.asyncio

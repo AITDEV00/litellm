@@ -21,8 +21,6 @@ def _config(**overrides) -> SessionIdentityConfig:
         ttl_seconds=3600,
         common_prefix_threshold=3,
         cache_salt="",
-        max_declared_history_bytes=262_144,
-        min_chain_hashes_to_infer=0.0,
     )
     defaults.update(overrides)
     return SessionIdentityConfig(**defaults)

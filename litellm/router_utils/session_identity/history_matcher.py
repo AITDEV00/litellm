@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from litellm.router_utils.session_identity.canonicalizer import canonicalize_chat
 from litellm.router_utils.session_identity.hash_chain import (
-    chain_continuation,
     chunk_chain,
     root_seed,
     synthesized_session_id,
@@ -123,30 +122,3 @@ class HistoryMatcher:
         await self.store.teach(
             chain=chain, session_id=session_id, model_group=model_group, scope=scope
         )
-
-    async def extend_lineage(
-        self,
-        prior_chain: list[str],
-        new_turn: dict,
-        model_group: str,
-        scope: str,
-        session_id: str,
-    ) -> list[str]:
-        """
-        Grow one remembered lineage with a turn that did not resend history.
-
-        Not used by the Chat Completions path (clients resend full history);
-        kept for server-side-history surfaces.
-        """
-        stream_new = canonicalize_chat(new_turn)
-        extended = chain_continuation(
-            stream=stream_new,
-            prior_chain=prior_chain,
-            seed=root_seed(model_group, self.config.cache_salt),
-            chunk_size=self.config.chunk_size_bytes,
-            max_chunks=self.config.max_chain_hashes,
-        )
-        await self.store.teach(
-            chain=extended, session_id=session_id, model_group=model_group, scope=scope
-        )
-        return extended

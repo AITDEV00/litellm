@@ -7,18 +7,19 @@ sessions. A position many sessions have served is not evidence that two
 requests belong to the same conversation, so the matcher must ignore it and
 resolve on the distinguishing conversation suffix.
 
-The tracker learns lazily from traffic: when teaching a lineage records a hash
-that is already bound to a *different* session, that hash's common counter is
-incremented. A hash whose counter reaches ``threshold`` (distinct sessions) is
-treated as common and excluded from matching. Sessions whose entire chain is
-common resolve to nothing, which is the correct behavior - without
-distinguishing content there is no affinity signal.
+The tracker learns lazily from traffic: each hash's counter is incremented
+atomically via ``DualCache.async_increment_cache`` (a Redis INCR on the shared
+backend) whenever a lineage teach binds that hash to a session other than the
+one first bound to it. A hash whose counter reaches ``threshold`` (distinct
+sessions) is treated as common and excluded from matching. Sessions whose
+entire chain is common resolve to nothing, which is the correct behavior -
+without distinguishing content there is no affinity signal.
 
 State lives in the same shared cache as the lineage store so the learned
 common set is consistent across LiteLLM pods.
 """
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 from litellm.constants import SESSION_IDENTITY_COMMON_HASH_PREFIX
 
@@ -39,14 +40,16 @@ class CommonPrefixTracker:
         # shared prefix is shared across callers too.
         return f"{SESSION_IDENTITY_COMMON_HASH_PREFIX}:{model_group}:{chain_hash}"
 
-    async def _get(self, key: str) -> dict[str, Any] | None:
+    def _first_key(self, chain_hash: str, model_group: str, scope: str) -> str:
+        """Which session first bound this hash (used to dedupe counter increments)."""
+        return f"{self._key(chain_hash, model_group, scope)}:first"
+
+    async def _get(self, key: str) -> int | None:
         try:
             value = await self.store.cache.async_get_cache(key=key)
         except Exception:
             return None
-        if isinstance(value, dict):
-            return value
-        return None
+        return int(value) if isinstance(value, (int, float)) else None
 
     async def observe(
         self,
@@ -58,32 +61,34 @@ class CommonPrefixTracker:
         """
         Update common-hash counters while teaching a lineage.
 
-        For each hash: read what sessions it is bound to; if the stored
-        session differs from the one being taught, the hash is shared by more
-        than one session, so bump its counter. Also rewrites the hash's
-        session binding if absent (teach() writes it too; this keeps the
-        counter read and the binding write adjacent).
+        One batched read of all first-session bindings, then for each hash
+        either record this session as first (counter 1) or atomically INCR the
+        counter when the first session differs. A re-teach of the same session
+        is a no-op.
         """
-        for chain_hash in chain:
-            key = self._key(chain_hash, model_group, scope)
-            current = await self._get(key)
-            if current is None:
-                await self.store.cache.async_set_cache(
-                    key, {"count": 1, "first_session": session_id}, ttl=_COMMON_TTL
-                )
+        if not chain:
+            return
+        first_keys = [self._first_key(h, model_group, scope) for h in chain]
+        try:
+            firsts = await self.store.cache.async_batch_get_cache(keys=first_keys)
+        except Exception:
+            return
+        if not firsts:
+            return
+        for chain_hash, first in zip(chain, firsts):
+            count_key = self._key(chain_hash, model_group, scope)
+            first_key = self._first_key(chain_hash, model_group, scope)
+            if first is None:
+                await self.store.cache.async_set_cache(first_key, session_id, ttl=_COMMON_TTL)
+                await self.store.cache.async_set_cache(count_key, 1, ttl=_COMMON_TTL)
                 continue
-            if current.get("first_session") == session_id:
+            if str(first) == session_id:
                 continue
-            count = int(current.get("count", 1)) + 1
-            await self.store.cache.async_set_cache(
-                key, {"count": count, "first_session": current.get("first_session")}, ttl=_COMMON_TTL
-            )
+            await self.store.cache.async_increment_cache(count_key, 1, ttl=_COMMON_TTL)
 
     async def is_common(self, chain_hash: str, model_group: str, scope: str) -> bool:
-        current = await self._get(self._key(chain_hash, model_group, scope))
-        if current is None:
-            return False
-        return int(current.get("count", 0)) >= self.threshold
+        count = await self._get(self._key(chain_hash, model_group, scope))
+        return count is not None and count >= self.threshold
 
     async def filter_common(
         self,
@@ -92,8 +97,17 @@ class CommonPrefixTracker:
         scope: str,
     ) -> list[str]:
         """Drop chain hashes that many sessions share, keeping distinguishing ones."""
-        result: list[str] = []
-        for chain_hash in chain:
-            if not await self.is_common(chain_hash, model_group, scope):
-                result.append(chain_hash)
-        return result
+        if not chain:
+            return []
+        keys = [self._key(h, model_group, scope) for h in chain]
+        try:
+            counts = await self.store.cache.async_batch_get_cache(keys=keys)
+        except Exception:
+            return list(chain)
+        if not counts:
+            return list(chain)
+        return [
+            h
+            for h, count in zip(chain, counts)
+            if not (isinstance(count, (int, float)) and int(count) >= self.threshold)
+        ]
