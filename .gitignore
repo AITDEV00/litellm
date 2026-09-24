@@ -155,3 +155,5 @@ litellm/proxy/_experimental/out/
 oicm-litellm-layer/scripts/model-server-onboarding-no-work/
 oicm-litellm-layer/scripts/vllm-0.20.0/
 oicm-litellm-layer/scripts/vllm-0.20.0-no-work/
+oicm-litellm-layer/downloaded_sources/
+oicm-litellm-layer/litellm_session_identity_upstream_sources.zip
