@@ -123,3 +123,25 @@ class SessionIdentityStore:
         except Exception as e:  # noqa: BLE001  # fail-open: caller decides if an unpersisted lineage is fatal
             verbose_logger.warning("session_identity: lineage teach failed (%d keys): %s", len(cache_list), e)
             return False
+
+    async def teach_authoritative(
+        self, chain: tuple[bytes, ...], session_id: str, model_group: str, scope: str
+    ) -> bool:
+        """Teach an authoritative (explicit/header) id's grown history without
+        rewriting the whole lineage each turn.
+
+        Looks up existing lineage once. Same id + append-only continuation writes
+        only the appended suffix; an exact repeat refreshes the deepest node's
+        TTL. A different id, a fork/compaction, or no match rewrites the full
+        chain under the authoritative id (it supersedes any prior lineage)."""
+        if not chain:
+            return True
+        match: Final = await self.lookup(chain=chain, model_group=model_group, scope=scope)
+        start_index = 0  # rebind-ok: narrowed to the continuation suffix when one is found
+        if match is not None and match.session_id == session_id and match.is_continuation():
+            start_index = match.matched_depth  # rebind-ok: narrowed to the continuation suffix
+            if start_index >= len(chain):
+                start_index = len(chain) - 1  # rebind-ok: exact repeat refreshes only the deepest node
+        return await self.teach(
+            chain=chain, session_id=session_id, model_group=model_group, scope=scope, start_index=start_index
+        )

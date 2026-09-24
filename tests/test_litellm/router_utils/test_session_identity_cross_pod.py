@@ -144,3 +144,50 @@ async def test_redis_write_failure_means_not_persisted():
 
     out = await _hook(resolver, {"model": MODEL, "messages": _big("boom"), "metadata": {}})
     assert "litellm_session_id_inferred" not in out["metadata"]  # fail-open: no inferred id
+
+
+@pytest.mark.asyncio
+async def test_teach_authoritative_incremental_suffix(dual_cache):
+    """A growing conversation under the same id writes only the appended suffix,
+    not the whole lineage each turn."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
+
+    store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
+    chain1 = build_chain(request=project_request({"messages": _big("t1"), "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+    assert await store.teach_authoritative(chain=chain1, session_id="sess-t", model_group=MODEL, scope="s")
+
+    grown = _big("t1") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
+    chain2 = build_chain(request=project_request({"messages": grown, "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+
+    captured: list = []
+    original_write = store._write
+
+    async def _spy(cache_list):
+        captured.append(len(cache_list))
+        return await original_write(cache_list)
+
+    store._write = _spy
+    assert await store.teach_authoritative(chain=chain2, session_id="sess-t", model_group=MODEL, scope="s")
+    assert captured and captured[0] < len(chain2)  # wrote a suffix, not the full chain
+
+
+@pytest.mark.asyncio
+async def test_teach_authoritative_sid_switch_full_teach(dual_cache):
+    """A different authoritative id over the same history rewrites the FULL
+    lineage under the new id (it supersedes any prior lineage)."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
+
+    store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
+    chain = build_chain(request=project_request({"messages": _big("t2"), "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+    assert await store.teach_authoritative(chain=chain, session_id="synthetic-old", model_group=MODEL, scope="s")
+
+    captured: list = []
+    original_write = store._write
+
+    async def _spy(cache_list):
+        captured.append(len(cache_list))
+        return await original_write(cache_list)
+
+    store._write = _spy
+    assert await store.teach_authoritative(chain=chain, session_id="real-new", model_group=MODEL, scope="s")
+    assert captured and captured[0] == len(chain)  # full teach under the new id
