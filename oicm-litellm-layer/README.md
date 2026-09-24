@@ -71,10 +71,12 @@ helm install litellm deploy/charts/litellm-helm/ \
 # 3. Deploy the discovery controller
 kubectl apply -f deploy/prod/discovery-controller.yaml
 
-# 4. Apply the embedding patch (optional, for vLLM embedding extra_body)
-cd /home/adeo/litellm
-git apply ../oicm-litellm-layer/patches/embedding-extra-body.patch
 ```
+
+Note: the old embedding `extra_body` patch is no longer needed. Upstream
+litellm now passes vLLM embedding `extra_body` params (e.g.
+`truncate_prompt_tokens`) through natively, and the patch file no longer
+applies. See `docs/components/patches.md`.
 
 ## Repository Layout
 
@@ -86,7 +88,7 @@ git apply ../oicm-litellm-layer/patches/embedding-extra-body.patch
 ├── CHANGELOG.md           release history
 ├── controller/            discovery controller source (component #1)
 ├── hooks/                 LiteLLM proxy plugins (components #3, #4)
-├── patches/               embedding extra-body patch (component #6)
+├── patches/               retired fork patches (see docs/components/patches.md)
 ├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress)
 ├── decor/                 UI assets (logos, favicon)
 ├── examples/              usage examples

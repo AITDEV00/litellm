@@ -1,5 +1,10 @@
 # Upstream Merge Technique — Reliable & Repeatable (v1.97.0 +)
 
+> **Note on versions**: this doc was written during the v1.97.0 merge, so the
+> worked examples reference v1.97.0 hashes and files. The sequence itself is
+> version-independent: substitute the tag you are merging. Per-merge lessons
+> live in their own sections at the bottom (v1.99.1 → v1.102.0 is there too).
+
 > **Problem**: The OICM fork carries custom work on a long-lived branch
 > (`jya0-v<X>.0`). The custom work is deliberately **refactored into co-located
 > vertical slices** so upstream merges touch as few custom lines as possible. But
@@ -300,3 +305,57 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   actually boots the debug gateway and serves a model request with `sk-1234`
   before considering the merge done. The `openrouter` crash only surfaced at
   gateway startup, not in any import test.
+
+---
+
+## Post-merge drop audit (run before declaring the merge done)
+
+The v1.99.1 → v1.102.0 merge was performed with the direction reversed (first
+parent was an upstream commit and the old custom branch was merged in), which
+silently dropped custom-side files that upstream had also deleted or rewritten.
+The restore commits after that merge (hamsa `api_surface`, OCR provider gate,
+UI Model Performance mounts) each fixed a clobber that this audit would have
+caught on merge day. Before pushing a merge, run:
+
+```bash
+# 1. Deleted files: was anything deleted that only existed on the custom side?
+git diff --name-status <old-custom-head> HEAD -- litellm/ tests/ | grep '^D' | \
+while read _ f; do
+  git cat-file -e "95293834e8:$f" 2>/dev/null || echo "CUSTOM-ONLY FILE DELETED: $f"
+done   # replace 95293834e8 with the upstream base commit
+
+# 2. Custom markers: every marker in oicm-slices.md must still resolve
+python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
+
+# 3. Superseded vs dropped: for each deleted custom file, find whether an
+#    upstream replacement exists (same test names, renamed module) before
+#    restoring. Restore the file, do not blind-copy.
+```
+
+Restoring a custom test that upstream superseded (renamed or restructured) will
+fail against current behavior; adapt imports to the new module paths or drop
+the file if upstream's replacement covers the same assertions.
+
+## Lessons Learned (v1.99.1 → v1.102.0)
+
+- **Direction violation is recoverable but expensive.** The merge landed with
+  upstream as first parent; `--ours`/`--theirs` then meant the opposite of what
+  the resolver assumed, and custom-only files that upstream had also deleted
+  were silently dropped. Ten custom test files were lost this way.
+- **The audit that matters most is deleted custom-only files.** File-content
+  conflicts were resolved fine; the losses were whole files the merge removed
+  because both sides touched the same paths. Compare deletions against the
+  upstream base, not just conflict counts.
+- **Superseded custom tests should be dropped, not restored.** Upstream rewrote
+  `test_tool_call_streaming_transformation.py` (fc_ item-id prefix behavior),
+  the rust OCR bridge (lifecycle/configuration split), and the autoroute
+  settings module (merge_claude_settings refactor); restoring the old tests
+  against the new code fails. Verify coverage exists in the upstream
+  replacement first.
+- **Embedding `extra_body` patch is retired.** Upstream now passes vLLM
+  embedding `extra_body` through `get_optional_params_embeddings` natively;
+  `patches/embedding-extra-body.patch` no longer applies and was removed.
+- **Re-verify every post-merge restore commit.** The three "fix(...): restore"
+  commits after this merge were all merge clobbers found days later in
+  production or code review. The drop audit above exists so the next merge
+  finds them on merge day.

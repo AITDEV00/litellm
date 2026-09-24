@@ -5,6 +5,60 @@ reverse chronological order (newest first).
 
 ---
 
+## 2026-09-24
+
+### Post-merge drop audit: restored custom tests lost in the v1.99.1 → v1.102.0 merge
+
+The v1.99.1 merge into jya0-v1.102.0 landed with the direction reversed
+(upstream as first parent), which silently deleted ten custom-side files that
+upstream had also touched. The three `fix(...): restore` commits after the merge
+(hamsa `api_surface`, OCR provider gate, UI Model Performance mounts) each fixed
+a clobber found days later. This audit compared deletions against the upstream
+base and classified each loss as either dropped (restored) or superseded
+(dropped on purpose).
+
+Restored (pass against current tree):
+
+- `tests/llm_translation/test_bedrock_embedding_pricing.py` (Titan Embed V2
+  price regression)
+- `tests/test_litellm/test_bedrock_extended_beta_models.py`,
+  `test_bedrock_nemotron_super.py`, `test_bedrock_usgov_haiku_1hr_cache.py`
+  (bedrock model-map regressions)
+- `tests/test_litellm/ocr/test_ocr_azure_document_intelligence_api_base.py`
+  (adapted: `_prepare_ocr_request` moved to `litellm/ocr/legacy.py`,
+  `_rust_bridge_api_base` replaced by the DI provider-config routing)
+- `tests/pass_through_tests/ruby_passthrough_tests/` (Gemfile, lock, spec)
+
+Superseded by upstream (not restored; upstream replacements cover the same
+assertions):
+
+- `tests/test_litellm/responses/litellm_completion_transformation/
+  test_tool_call_streaming_transformation.py` (replaced by
+  `test_streaming_iterator_transformation.py`, fc_ item-id prefix behavior)
+- `tests/test_litellm/ocr/test_rust_bridge.py` (replaced by
+  `tests/test_litellm/rust_bridge/test_configuration.py` +
+  `test_ocr_lifecycle.py` after the native lifecycle rework)
+- `tests/test_litellm/proxy/client/cli/autoroute/test_settings.py` (the
+  `merge_claude_settings_static_token` module was refactored upstream into
+  `claude_settings.merge_claude_settings`; covered by `test_claude_settings.py`)
+- `tests/test_litellm/test__types.py` (duplicate of the upstream
+  `proxy/test__types.py` which already covers the TeamMembership regression)
+- `litellm/llms/together_ai/chat.py` (restructured upstream into
+  `together_ai/chat/transformation.py` with an equivalent recursion guard)
+
+Also retired `patches/embedding-extra-body.patch`: upstream now passes vLLM
+embedding `extra_body` through `get_optional_params_embeddings` natively
+(verified end to end; the patch no longer applies). See
+`docs/components/patches.md`.
+
+Docs updated: `docs/techniques/upstream_merge_technique.md` (post-merge drop
+audit procedure + v1.102 lessons), `docs/oicm-slices.md` (hamsa `api_surface`,
+OCR gate, stream tracer slices), `docs/components/patches.md`,
+`docs/architecture/IMPLEMENTATION_PLAN.md`, `docs/deployment.md`,
+`docs/structure.md`, `README.md`.
+
+---
+
 ## 2026-07-08
 
 ### Discovery controller rewrite: VSA refactor, dedup fix, concurrent batch HTTP

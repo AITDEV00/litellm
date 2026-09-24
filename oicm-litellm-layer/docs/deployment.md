@@ -16,7 +16,9 @@ Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rol
 | `deploy/prod/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `mlops` |
 | `deploy/dev/litellm-proxy-dev.yaml` | Dev variant of the proxy (extended logs, `--reload`) | `mlops` |
 | `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `mlops` |
-| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `v1.96.2` | `mlops` |
+| `deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml` | Rollback manifest pinned to image `jya0-v1.97.0` (newest) | `mlops` |
+| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `jya0-v1.96.2` | `mlops` |
+| `deploy/rollback/litellm-proxy-rollback-key.yaml` | Secret for rollback apply | `mlops` |
 
 ## Apply
 

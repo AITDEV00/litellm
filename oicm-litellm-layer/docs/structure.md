@@ -52,7 +52,7 @@ oicm-litellm-layer/
 │   ├── CLONE-LOGIC-MAP.md
 │   └── VSA-PLAN.md
 │
-├── patches/                ← fork patches against upstream litellm
+├── patches/                ← retired fork patches (see docs/components/patches.md)
 │   └── embedding-extra-body.patch
 │
 ├── decor/                  ← images/assets (logo, favicon)
@@ -68,7 +68,8 @@ oicm-litellm-layer/
 │   │   ├── litellm-proxy-dev.yaml        ← dev proxy variant
 │   │   └── discovery-controller-dev.yaml ← dev (read-only) controller variant
 │   └── rollback/                      ← rollback manifests pinned to specific versions
-│       └── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image v1.96.2
+│       ├── litellm-proxy-rollback-jya0-v1.97.0.yaml ← pinned to image jya0-v1.97.0
+│       └── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2
 │
 ├── docs/                   ← human/agent documentation (this site + existing)
 │   ├── index.md            ← THIS page (mkdocs home)
@@ -143,7 +144,7 @@ oicm-litellm-layer/
 | Add/edit a callback hook | `hooks/*.py` |
 | Add a custom route | `custom-routes/` |
 | Deploy / apply / rollout | `deploy/*.yaml` (see `docs/deployment.md`) |
-| Apply an upstream patch | `patches/embedding-extra-body.patch` |
+| Apply an upstream patch | none active (see `docs/components/patches.md`) |
 | Run local proxy | `config/local_dev.yaml` via `Makefile` |
 | Generate / serve mock model data | `mock-data/` |
 | Apply the wildcard TLS cert | `docs/SSL/` runbooks + scripts |

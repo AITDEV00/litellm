@@ -15,8 +15,9 @@
 > test instead of failing in production.
 
 This page is the **single source of truth for where OICM custom code now lives**
-after the `v1.97.0` merge, what pattern each slice follows, and how it is wired
-into the runtime. If you are about to edit an OICM feature, start here.
+after the `v1.97.0` merge (last fully audited against the `v1.102.0` tree), what
+pattern each slice follows, and how it is wired into the runtime. If you are
+about to edit an OICM feature, start here.
 
 ---
 
@@ -135,6 +136,33 @@ Not a new slice; an OICM scheduler job (`update_model_performance_rollup`) that
 aggregates model-performance reads into coarse SQL buckets. In the `v1.97.0`
 merge it was **kept alongside** upstream's new SGR `flush_gateway_requests` job
 (both present in `proxy_server.py`).
+
+### Hamsa `api_surface` passthrough — `litellm/litellm_core_utils/get_litellm_params.py`
+
+Four-line allowlist entry (`api_surface` in `OPTIONAL_KWARGS_KEYS`) so the
+DB-stamped `litellm_params.api_surface=v1` reaches
+`HamsaTextToSpeechConfig.get_complete_url`. The v1.99.1 merge clobbered this and
+it was restored in commit `147a4e93b6`; without it the URL builder defaults to
+the native `/tts/stream` surface, which the current hamsa pod does not expose
+(HTTP 405). Check this line survives every merge that touches
+`get_litellm_params.py`.
+
+### Rust OCR provider gate — `litellm/ocr/main.py`
+
+`_RUST_OCR_PROVIDERS` frozenset plus `_should_use_native()` gate so only
+mistral/azure_ai/vertex_ai OCR requests take the native Rust bridge and paddlex
+keeps the legacy Python dispatch. The v1.99.1 merge dropped the gate (every OCR
+request hit rust and raised `invalid provider: paddlex`); restored in commit
+`031043b779`. Wiring is asserted by `test_oicm_drop_detection.py` companion
+checks in `tests/test_litellm/ocr/`.
+
+### Per-request stream tracing — `litellm/litellm_core_utils/stream_tracer.py`
+
+JSONL writer (env-gated via `LITELLM_STREAM_TRACE_PATH`) recording
+start/first_chunk/chunk/end with TTFC and per-chunk gaps, wired into
+`CustomStreamWrapper`. Added after the v1.99.1 merge for the Kimi-K3 mid-stream
+investigation; see `incidents/2026-09-21-kimi-k3-midstream-stop/` for usage and
+caveats.
 
 ---
 

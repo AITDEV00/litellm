@@ -324,7 +324,7 @@ async def async_pre_call_hook(
 
 ### Limitation: embedding requests
 
-The embedding handler (`hosted_vllm/embedding/transformation.py`) does NOT merge `extra_body` into the HTTP request body. This hook cannot help for embeddings. See the 5-line fork patch in `patches/embedding-extra-body.patch`.
+Upstream litellm now flattens `extra_body` for hosted_vLLM embeddings into the request body natively (verified against the v1.102.0 tree), so the old fork patch is retired and this hook is not needed for embeddings either. See `docs/components/patches.md`.
 
 ### File structure
 
@@ -409,27 +409,14 @@ config/
 
 ---
 
-## Component #6: Embedding Patch (Optional Fork)
+## Component #6: Embedding Patch (Retired)
 
-### What it does
-Adds `extra_body` merge support to the hosted_vllm embedding handler. Without this, vLLM-specific embedding params (like `truncate_prompt_tokens`) are silently dropped.
-
-### The patch (5 lines)
-
-In `litellm/llms/hosted_vllm/embedding/transformation.py`, after `map_openai_params`:
-
-```python
-# Merge extra_body for vLLM-specific embedding params
-extra_body = non_default_params.pop("extra_body", None)
-if extra_body and isinstance(extra_body, dict):
-    optional_params.update(extra_body)
-```
+A v1.92.0-era fork patch added `extra_body` merge support to the hosted_vllm embedding handler so vLLM-specific params (like `truncate_prompt_tokens`) were not silently dropped. Upstream has since implemented this natively and the patch no longer applies; it has been removed. See `docs/components/patches.md` for the history.
 
 ### File structure
 
 ```
-patches/
-└── embedding-extra-body.patch
+patches/   (removed - no active fork patches)
 ```
 
 ---
@@ -492,8 +479,7 @@ oicm-litellm-layer/
 ├── config/
 │   └── litellm_config.yaml            # Component #5: LiteLLM proxy config
 │
-├── patches/
-│   └── embedding-extra-body.patch     # Component #6: 5-line embedding fix
+├── patches/                           # Component #6: retired, see docs/components/patches.md
 │
 └── deploy/
     ├── discovery-controller.yaml      # K8s manifests for controller
