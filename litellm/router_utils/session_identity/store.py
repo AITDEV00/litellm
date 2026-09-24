@@ -66,7 +66,13 @@ class SessionIdentityStore:
             client: Final = self._redis.init_async_client()
             async with client.pipeline(transaction=False) as pipe:
                 for key, value in cache_list:
-                    pipe.set(name=key, value=_json.dumps(value), ex=self.ttl_seconds)
+                    # match the read path: RedisCache applies its namespace to
+                    # reads, so writes must too or teach/lookup disagree on keys.
+                    pipe.set(
+                        name=self._redis.check_and_fix_namespace(key=key),
+                        value=_json.dumps(value),
+                        ex=self.ttl_seconds,
+                    )
                 results: Final = await pipe.execute()
             for r in results:
                 if isinstance(r, Exception):
@@ -141,7 +147,9 @@ class SessionIdentityStore:
         if match is not None and match.session_id == session_id and match.is_continuation():
             start_index = match.matched_depth  # rebind-ok: narrowed to the continuation suffix
             if start_index >= len(chain):
-                start_index = len(chain) - 1  # rebind-ok: exact repeat refreshes only the deepest node
+                # exact repeat: refresh the last CONTENT node plus the terminal,
+                # since the content node is the bridge a later continuation needs.
+                start_index = max(0, len(chain) - 2)  # rebind-ok: refresh the tail nodes
         return await self.teach(
             chain=chain, session_id=session_id, model_group=model_group, scope=scope, start_index=start_index
         )

@@ -191,3 +191,89 @@ async def test_teach_authoritative_sid_switch_full_teach(dual_cache):
     store._write = _spy
     assert await store.teach_authoritative(chain=chain, session_id="real-new", model_group=MODEL, scope="s")
     assert captured and captured[0] == len(chain)  # full teach under the new id
+
+
+@pytest.mark.asyncio
+async def test_redis_namespace_teach_lookup_consistent():
+    """With a Redis namespace configured, teach writes and lookup reads must use
+    the SAME namespaced key, or the lineage is invisible to reads."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
+
+    server = fakeredis.FakeServer()
+    rc = RedisCache(host="fake", port=6379, namespace="test-namespace")
+    rc.init_async_client = lambda: fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    cache = DualCache(redis_cache=rc)
+    store = SessionIdentityStore(cache=cache, ttl_seconds=3600)
+
+    chain = build_chain(request=project_request({"messages": _big("ns"), "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+    assert await store.teach(chain=chain, session_id="sess-ns", model_group=MODEL, scope="s")
+    hit = await store.lookup(chain=chain, model_group=MODEL, scope="s")
+    assert hit is not None and hit.session_id == "sess-ns"
+
+
+@pytest.mark.asyncio
+async def test_jwt_users_isolated_scopes(dual_cache):
+    """Two no-key JWT users (different user_id) must NOT share a lineage scope:
+    identical history from each resolves to different synthesized ids."""
+    resolver = _resolver(dual_cache)
+
+    class JWTAlice:
+        api_key = None
+        user_id = "alice"
+
+    class JWTBob:
+        api_key = None
+        user_id = "bob"
+
+    out_a = await _hook(resolver, {"model": MODEL, "messages": _big("jwt"), "metadata": {}}, key=JWTAlice())
+    out_b = await _hook(resolver, {"model": MODEL, "messages": _big("jwt"), "metadata": {}}, key=JWTBob())
+    assert out_a["metadata"]["session_id"] != out_b["metadata"]["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_declared_conversation_incremental_teach(dual_cache):
+    """A growing declared (prompt_cache_key) conversation writes only the
+    appended suffix each turn, not the whole lineage (the O(n^2) fix)."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
+
+    store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
+    resolver = _resolver(dual_cache)
+    resolver._store = store
+
+    await _hook(resolver, {"model": MODEL, "messages": _big("dc"), "prompt_cache_key": "chat-1", "metadata": {}})
+    grown = _big("dc") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
+    chain2 = build_chain(request=project_request({"messages": grown, "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+
+    captured: list = []
+    original_write = store._write
+
+    async def _spy(cache_list):
+        captured.append(len(cache_list))
+        return await original_write(cache_list)
+
+    store._write = _spy
+    await _hook(resolver, {"model": MODEL, "messages": grown, "prompt_cache_key": "chat-1", "metadata": {}})
+    assert captured and captured[0] < len(chain2)  # suffix, not the full chain
+
+
+@pytest.mark.asyncio
+async def test_exact_repeat_refreshes_content_and_terminal(dual_cache):
+    """An exact-repeat request refreshes the last CONTENT node plus the terminal,
+    so the content bridge a later continuation needs keeps its TTL."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
+
+    store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
+    chain = build_chain(request=project_request({"messages": _big("er"), "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
+    assert await store.teach(chain=chain, session_id="sess-er", model_group=MODEL, scope="s")
+
+    captured: list = []
+    original_write = store._write
+
+    async def _spy(cache_list):
+        captured.append(len(cache_list))
+        return await original_write(cache_list)
+
+    store._write = _spy
+    assert await store.teach_authoritative(chain=chain, session_id="sess-er", model_group=MODEL, scope="s")
+    # exact repeat: refreshes the tail (last content + terminal), a small non-empty write
+    assert captured and 0 < captured[0] <= 2

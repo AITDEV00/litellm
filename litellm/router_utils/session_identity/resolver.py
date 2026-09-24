@@ -60,6 +60,9 @@ _META_POLICY_GENERATED: Final = "litellm_session_id_policy_generated"
 
 _GENERATED_KEYS: Final = frozenset({"session_id", SESSION_ID_GENERATED_METADATA_KEY})
 
+# explicit/header ids larger than this are not shadow-taught into lineage
+_MAX_TEACH_ID_LEN: Final = 4096
+
 
 class SessionIdentityResolver(CustomLogger):
     def __init__(self, config: SessionIdentityConfig | None = None, cache: "DualCache | None" = None):
@@ -82,16 +85,25 @@ class SessionIdentityResolver(CustomLogger):
 
     @staticmethod
     def _caller_scope(user_api_key_dict: "UserAPIKeyAuth") -> str:
-        # UserAPIKeyAuth.api_key is already the hashed token, the same value
-        # DeploymentAffinityCheck scopes its pins with; used directly.
-        api_key: Final = user_api_key_dict.api_key
-        return str(api_key) if api_key else "anonymous"
+        # Scope by virtual key, else authenticated JWT user id (matching
+        # DeploymentAffinityCheck's caller identity), else anonymous. Without the
+        # user_id fallback, two no-key JWT users would share one lineage scope.
+        api_key: Final = getattr(user_api_key_dict, "api_key", None)
+        if api_key:
+            return f"key:{api_key}"
+        user_id: Final = getattr(user_api_key_dict, "user_id", None)
+        if user_id:
+            return f"user:{user_id}"
+        return "anonymous"
 
     async def _shadow_teach(
         self, store: SessionIdentityStore, chain: tuple[bytes, ...], model_group: str, scope: str, session_id: str
     ) -> None:
         """Record an explicit/header id's grown history (incremental, best-effort),
-        so a later request that drops the id recovers the same affinity identity."""
+        so a later request that drops the id recovers the same affinity identity.
+        Absurdly large ids are skipped: each lineage node would store a copy."""
+        if len(session_id) > _MAX_TEACH_ID_LEN:
+            return
         try:
             await store.teach_authoritative(chain=chain, session_id=session_id, model_group=model_group, scope=scope)
         except Exception as e:  # noqa: BLE001  # fail-open: teaching must never block a request
@@ -178,13 +190,25 @@ class SessionIdentityResolver(CustomLogger):
         # if it doesn't, fail open rather than pin an unrecoverable session id.
         if chain:
             try:
-                persisted: Final = await store.teach(
-                    chain=chain,
-                    session_id=resolution.session_id,
-                    model_group=model_group,
-                    scope=scope,
-                    start_index=resolution.matched_depth,
-                )
+                if resolution.source == "declared":
+                    # declared ids are authoritative: incremental suffix teach
+                    persisted: Final = await store.teach_authoritative(
+                        chain=chain, session_id=resolution.session_id, model_group=model_group, scope=scope
+                    )
+                else:
+                    # history/synthesized: teach from the matched prefix; an exact
+                    # repeat refreshes the last content node + terminal (the
+                    # content node is the bridge a later continuation needs).
+                    start_index: Final = (
+                        min(resolution.matched_depth, max(0, len(chain) - 2)) if resolution.source == "history" else 0
+                    )
+                    persisted: Final = await store.teach(
+                        chain=chain,
+                        session_id=resolution.session_id,
+                        model_group=model_group,
+                        scope=scope,
+                        start_index=start_index,
+                    )
                 if resolution.source == "synthesized" and not persisted:
                     verbose_logger.warning(
                         "session_identity: synthesized lineage not persisted; routing without an inferred id"

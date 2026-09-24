@@ -202,5 +202,5 @@ class IdentityResolution:
 
     session_id: str
     matched_depth: int
-    source: Literal["explicit", "declared", "history", "synthesized", "none"]
+    source: Literal["declared", "history", "synthesized"]
     declared: str | None = None

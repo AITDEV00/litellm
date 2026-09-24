@@ -3,7 +3,7 @@ Session-identity inference for deployment affinity.
 
 Resolves or infers a stable per-conversation session id for requests that carry
 none, so the existing ``DeploymentAffinityCheck`` session-affinity pin can keep
-a conversation on the replica that holds its vLLM prefix KV cache.
+a conversation on the replica that holds its local prefix/KV cache.
 
 Public integration surface only: wire ``SessionIdentityResolver`` into
 ``litellm_settings.callbacks`` and tune with ``SessionIdentityConfig``. The
