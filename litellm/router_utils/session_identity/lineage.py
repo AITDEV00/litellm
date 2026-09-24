@@ -66,16 +66,23 @@ def _fold(state: bytes, event: HashEvent) -> bytes:
 def _chunk_bounds(payload: bytes, chunk_size: int) -> tuple[tuple[int, int], ...]:
     """(start, end) byte windows for each full rune-safe chunk of ``payload``."""
 
-    def bounds() -> Iterator[tuple[int, int]]:
-        i = 0
-        while i + chunk_size + _UTF8_MAX_CONTINUATION <= len(payload):
-            end = i + chunk_size
-            while end < i + chunk_size + _UTF8_MAX_CONTINUATION and payload[end] & 0xC0 == 0x80:
-                end += 1
-            yield (i, end)
-            i = end
+    def rune_end(start: int) -> int:
+        # advance past UTF-8 continuation bytes (10xxxxxx) to the next lead byte
+        base: Final = start + chunk_size
+        skip: Final = next(
+            (k for k in range(_UTF8_MAX_CONTINUATION) if payload[base + k] & 0xC0 != 0x80),
+            _UTF8_MAX_CONTINUATION,
+        )
+        return base + skip
 
-    return tuple(bounds())
+    def bounds(start: int) -> Iterator[tuple[int, int]]:
+        if start + chunk_size + _UTF8_MAX_CONTINUATION > len(payload):
+            return
+        end: Final = rune_end(start)
+        yield (start, end)
+        yield from bounds(end)
+
+    return tuple(bounds(0))
 
 
 def _chunk_events(payload: bytes, chunk_size: int) -> Iterator[HashEvent]:

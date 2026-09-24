@@ -14,7 +14,7 @@ a single authoritative pipeline; teaching is best-effort, failures are logged.
 import hashlib
 import logging
 from collections.abc import Mapping
-from typing import Any, Final
+from typing import TYPE_CHECKING, Final
 
 from litellm.constants import SESSION_IDENTITY_CACHE_KEY_PREFIX
 from litellm.router_utils.session_identity.lineage import LineageMatch
@@ -24,6 +24,9 @@ from litellm.router_utils.session_identity.views import (
     parse_lineage_record,
 )
 
+if TYPE_CHECKING:
+    from litellm.caching.dual_cache import DualCache
+
 verbose_logger: Final = logging.getLogger("litellm")
 
 _DEFAULT_TTL: Final = 86_400  # 24h idle, aligned with deployment_affinity_ttl_seconds
@@ -31,7 +34,7 @@ _LOOKUP_BATCH: Final = 128  # reverse-search window
 
 
 class SessionIdentityStore:
-    def __init__(self, cache: Any, ttl_seconds: int = _DEFAULT_TTL):
+    def __init__(self, cache: "DualCache", ttl_seconds: int = _DEFAULT_TTL):
         self.cache: Final = cache
         self._writer: LineageCacheWriter = cache
         self._redis: LineageCacheReader | None = getattr(cache, "redis_cache", None)

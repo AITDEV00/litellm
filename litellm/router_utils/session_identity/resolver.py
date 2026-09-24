@@ -27,7 +27,7 @@ metadata bucket (copy-on-write). Covers only the OpenAI chat surface
 """
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING, Final
 
 from litellm.constants import SESSION_ID_GENERATED_METADATA_KEY
 from litellm.integrations.custom_logger import CustomLogger
@@ -42,6 +42,10 @@ from litellm.router_utils.session_identity.lineage import (
 )
 from litellm.router_utils.session_identity.store import SessionIdentityStore
 from litellm.router_utils.session_identity.views import RequestView, project_request
+
+if TYPE_CHECKING:
+    from litellm.caching.dual_cache import DualCache
+    from litellm.proxy._types import UserAPIKeyAuth
 
 verbose_logger: Final = logging.getLogger("litellm")
 
@@ -58,13 +62,13 @@ _GENERATED_KEYS: Final = frozenset({"session_id", SESSION_ID_GENERATED_METADATA_
 
 
 class SessionIdentityResolver(CustomLogger):
-    def __init__(self, config: SessionIdentityConfig | None = None, cache: Any = None):
+    def __init__(self, config: SessionIdentityConfig | None = None, cache: "DualCache | None" = None):
         self.config: Final = config or SessionIdentityConfig()
         self._store: SessionIdentityStore | None = (
             SessionIdentityStore(cache=cache, ttl_seconds=self.config.ttl_seconds) if cache is not None else None
         )
 
-    def _store_for(self, cache: Any) -> SessionIdentityStore | None:
+    def _store_for(self, cache: "DualCache") -> SessionIdentityStore | None:
         if not self.config.enabled or cache is None:
             return None
         if self._store is None or self._store.cache is not cache:
@@ -77,10 +81,10 @@ class SessionIdentityResolver(CustomLogger):
         return model if isinstance(model, str) and model else "unknown"
 
     @staticmethod
-    def _caller_scope(user_api_key_dict: Any) -> str:
+    def _caller_scope(user_api_key_dict: "UserAPIKeyAuth") -> str:
         # UserAPIKeyAuth.api_key is already the hashed token, the same value
         # DeploymentAffinityCheck scopes its pins with; used directly.
-        api_key: Final = getattr(user_api_key_dict, "api_key", None)
+        api_key: Final = user_api_key_dict.api_key
         return str(api_key) if api_key else "anonymous"
 
     async def _shadow_teach(
@@ -128,7 +132,9 @@ class SessionIdentityResolver(CustomLogger):
             source="synthesized",
         )
 
-    async def async_pre_call_hook(self, user_api_key_dict: Any, cache: Any, data: dict, call_type: str) -> dict:
+    async def async_pre_call_hook(
+        self, user_api_key_dict: "UserAPIKeyAuth", cache: "DualCache", data: dict, call_type: str
+    ) -> dict:
         if call_type not in _SUPPORTED_CALL_TYPES:
             return data
         store: Final = self._store_for(cache)
