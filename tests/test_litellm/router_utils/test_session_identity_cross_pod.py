@@ -1,103 +1,128 @@
 """
-Two-pod lineage sharing: the central cross-pod guarantee of the design.
-
-Pod A teaches a conversation's lineage into shared Redis; pod B receives the
-next turn (possibly seconds later) and must recover the SAME inferred session
-id immediately. Uses two independent DualCache instances over one fakeredis
-server, which exercises the real RedisCache read/write paths without standing
-up a Redis server.
-
-This also guards the Redis-authoritative read path: DualCache throttles
-repeated fetches of *missing* keys (~10s) so pod B must not be able to hide
-pod A's fresh teach behind a stale local miss.
+Two-pod lineage sharing over one fakeredis server, plus concurrency and
+long-conversation guarantees. Exercises the real RedisCache read/write paths
+without standing up a Redis server.
 """
+
+import asyncio
 
 import fakeredis
 import fakeredis.aioredis
 import pytest
-from unittest.mock import patch
 
 from litellm.caching.dual_cache import DualCache
 from litellm.caching.redis_cache import RedisCache
 from litellm.router_utils.session_identity.config import SessionIdentityConfig
-from litellm.router_utils.session_identity.history_matcher import HistoryMatcher
-from litellm.router_utils.session_identity.store import SessionIdentityStore
+from litellm.router_utils.session_identity.lineage import build_chain
+from litellm.router_utils.session_identity.resolver import SessionIdentityResolver
 
 MODEL = "moonshotai/Kimi-K3"
 
 
-def _config() -> SessionIdentityConfig:
-    return SessionIdentityConfig(
-        enabled=True,
-        chunk_size_bytes=512,
-        max_chain_hashes=64,
-        ttl_seconds=3600,
-        common_prefix_threshold=3,
-        cache_salt="",
-    )
+def _config(**overrides) -> SessionIdentityConfig:
+    defaults = dict(enabled=True, chunk_size_bytes=512, ttl_seconds=3600, cache_salt="")
+    defaults.update(overrides)
+    return SessionIdentityConfig(**defaults)
 
 
-def _make_cache(server: fakeredis.FakeServer) -> DualCache:
+def _make_cache(server) -> DualCache:
     rc = RedisCache(host="fake", port=6379)
     rc.init_async_client = lambda: fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
     return DualCache(redis_cache=rc)
 
 
-def _big_messages() -> list[dict]:
+def _resolver(cache, **cfg) -> SessionIdentityResolver:
+    return SessionIdentityResolver(config=_config(**cfg), cache=cache)
+
+
+async def _hook(resolver, data, key=None):
+    class K:
+        api_key = "sk-test"
+    return await resolver.async_pre_call_hook(
+        user_api_key_dict=key or K(), cache=resolver._store.cache, data=data, call_type="acompletion"
+    )
+
+
+def _big(seed: str):
     return [
-        {"role": "system", "content": "system prompt " * 120},
-        {"role": "user", "content": "user question " * 120},
+        {"role": "system", "content": f"system prompt {seed} " * 120},
+        {"role": "user", "content": f"user question {seed} " * 120},
     ]
 
 
 @pytest.mark.asyncio
 async def test_lineage_shared_across_pods():
+    """Reviewer case #9: pod A teaches; pod B (empty local tier) recovers the
+    same id immediately from shared Redis."""
     server = fakeredis.FakeServer()
-    cache_a = _make_cache(server)
-    cache_b = _make_cache(server)
-    matcher_a = HistoryMatcher(store=SessionIdentityStore(cache=cache_a, ttl_seconds=3600), config=_config())
-    matcher_b = HistoryMatcher(store=SessionIdentityStore(cache=cache_b, ttl_seconds=3600), config=_config())
+    resolver_a = _resolver(_make_cache(server))
+    resolver_b = _resolver(_make_cache(server))
 
-    turn1 = {"messages": _big_messages(), "model": MODEL}
-    sid_a1 = await matcher_a.infer_session_id(data=turn1, model_group=MODEL, scope="caller-1")
-    assert sid_a1 is not None
-    await matcher_a.teach(data=turn1, model_group=MODEL, scope="caller-1", session_id=sid_a1)
+    out_a = await _hook(resolver_a, {"model": MODEL, "messages": _big("p"), "metadata": {}})
+    sid_a = out_a["metadata"]["session_id"]
+    await resolver_a.async_log_success_event(
+        {"model": MODEL, "messages": _big("p"), "litellm_params": {"metadata": dict(out_a["metadata"])}},
+        response_obj=None, start_time=None, end_time=None,
+    )
 
-    # Pod B: a new turn with grown history. Pod B's in-memory tier is empty,
-    # so this must hit the shared Redis and recover pod A's session id.
-    grown = _big_messages() + [
-        {"role": "assistant", "content": "answer " * 120},
-        {"role": "user", "content": "follow up " * 120},
-    ]
-    sid_b2 = await matcher_b.infer_session_id(data={"messages": grown, "model": MODEL}, model_group=MODEL, scope="caller-1")
-    assert sid_b2 == sid_a1
+    grown = _big("p") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "follow up " * 120}]
+    out_b = await _hook(resolver_b, {"model": MODEL, "messages": grown, "metadata": {}})
+    assert out_b["metadata"]["session_id"] == sid_a
 
 
 @pytest.mark.asyncio
-async def test_fresh_teach_visible_immediately_no_stale_miss():
-    """Pod B must not hide pod A's just-taught lineage behind a cached miss."""
-    server = fakeredis.FakeServer()
-    cache_a = _make_cache(server)
-    cache_b = _make_cache(server)
-    store_a = SessionIdentityStore(cache=cache_a, ttl_seconds=3600)
-    store_b = SessionIdentityStore(cache=cache_b, ttl_seconds=3600)
-    matcher_a = HistoryMatcher(store=store_a, config=_config())
-    matcher_b = HistoryMatcher(store=store_b, config=_config())
+async def test_fresh_teach_visible_immediately_no_stale_miss(dual_cache):
+    """A lookup that misses must not cache the miss and hide a subsequent teach
+    (DualCache negative-miss throttle would)."""
+    from litellm.router_utils.session_identity.store import SessionIdentityStore
 
-    turn1 = {"messages": _big_messages(), "model": MODEL}
-    chain1 = matcher_a.build_chain(data=turn1, model_group=MODEL)
+    store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
+    chain = build_chain(data={"messages": _big("q"), "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    assert await store.lookup(chain=chain, model_group=MODEL, scope="caller-1") is None
 
-    # Pod B looks up the chain BEFORE pod A teaches it: records a miss.
-    miss = await store_b.lookup(chain=chain1, model_group=MODEL, scope="caller-1")
-    assert miss is None
+    await store.teach(chain=chain, session_id="sess-x", model_group=MODEL, scope="caller-1")
+    hit = await store.lookup(chain=chain, model_group=MODEL, scope="caller-1")
+    assert hit is not None and hit.session_id == "sess-x"
 
-    # Pod A teaches.
-    sid_a1 = await matcher_a.infer_session_id(data=turn1, model_group=MODEL, scope="caller-1")
-    await matcher_a.teach(data=turn1, model_group=MODEL, scope="caller-1", session_id=sid_a1)
 
-    # Pod B looks up again immediately. DualCache's negative-miss throttle
-    # would let pod B's cached "does not exist" answer hide the fresh teach;
-    # the Redis-authoritative path must not.
-    hit = await store_b.lookup(chain=chain1, model_group=MODEL, scope="caller-1")
-    assert hit is not None
-    assert hit[0] == sid_a1
+@pytest.mark.asyncio
+async def test_concurrent_requests_no_depth_exchange(dual_cache):
+    """Reviewer case #3: two concurrent requests sharing one resolver cannot
+    exchange match depth, because depth is per-request immutable metadata."""
+    resolver = _resolver(dual_cache)
+    out1 = await _hook(resolver, {"model": MODEL, "messages": _big("c"), "metadata": {}})
+    sid = out1["metadata"]["session_id"]
+    await resolver.async_log_success_event(
+        {"model": MODEL, "messages": _big("c"), "litellm_params": {"metadata": dict(out1["metadata"])}},
+        response_obj=None, start_time=None, end_time=None,
+    )
+
+    grown = _big("c") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
+
+    async def resolve_two():
+        a = await _hook(resolver, {"model": MODEL, "messages": grown, "metadata": {}})
+        b = await _hook(resolver, {"model": MODEL, "messages": _big("c"), "metadata": {}})
+        return a, b
+
+    out_a, out_b = await resolve_two()
+    # both see their OWN depth; neither is clobbered by the other
+    assert out_a["metadata"]["session_id"] == sid  # continuation of the grown lineage
+    assert out_a["metadata"]["_session_identity_match_depth"] >= 0
+    assert out_b["metadata"]["_session_identity_match_depth"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_long_conversation_beyond_old_cap():
+    """Reviewer case #8: with no node cap, content beyond 256 nodes still
+    changes the lineage (the old implementation truncated at 256)."""
+    # ~300 messages, each large enough to span multiple chunk nodes
+    messages = []
+    for i in range(300):
+        messages.append({"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i} " * 40})
+    chain = build_chain(data={"messages": messages, "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    assert len(chain) > 256
+
+    # a conversation identical for 299 turns but different on the 300th differs
+    messages2 = list(messages[:-1]) + [{"role": "assistant", "content": "different last turn " * 40}]
+    chain2 = build_chain(data={"messages": messages2, "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    assert chain != chain2

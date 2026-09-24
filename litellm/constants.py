@@ -1488,8 +1488,6 @@ INTERNAL_CALL_ORIGIN_METADATA_KEY: Final = "internal_call_origin"
 SESSION_ID_GENERATED_METADATA_KEY: Final = "litellm_session_id_generated"
 SESSION_ID_OMITTED_METADATA_KEY: Final = "litellm_session_id_omitted"
 SESSION_IDENTITY_CACHE_KEY_PREFIX: Final = "session_identity:v1"
-SESSION_IDENTITY_COMMON_HASH_PREFIX: Final = "session_identity:common:v1"
-SESSION_IDENTITY_COMMON_CANDIDATES_PREFIX: Final = "session_identity:common_candidates:v1"
 # Lineage must outlive the deployment-affinity pin (86400s in prod/dev yaml) or a
 # resumed conversation gets a new id while the old pin still exists and goes unreachable.
 SESSION_IDENTITY_DEFAULT_TTL_SECONDS: Final = 86_400  # 24h, aligned with deployment_affinity_ttl_seconds
