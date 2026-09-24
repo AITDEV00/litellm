@@ -20,7 +20,6 @@ from litellm.constants import SESSION_IDENTITY_CACHE_KEY_PREFIX
 from litellm.router_utils.session_identity.lineage import LineageMatch
 from litellm.router_utils.session_identity.views import (
     LineageCacheReader,
-    LineageCacheWriter,
     parse_lineage_record,
 )
 
@@ -36,9 +35,12 @@ _LOOKUP_BATCH: Final = 128  # reverse-search window
 class SessionIdentityStore:
     def __init__(self, cache: "DualCache", ttl_seconds: int = _DEFAULT_TTL):
         self.cache: Final = cache
-        self._writer: LineageCacheWriter = cache
-        self._redis: LineageCacheReader | None = getattr(cache, "redis_cache", None)
-        self._memory: LineageCacheReader | None = getattr(cache, "in_memory_cache", None)
+        # Both read AND write go to the concrete backend, never the DualCache:
+        # DualCache.async_set_cache_pipeline catches backend exceptions and logs
+        # them without re-raising, so a write through it cannot prove it
+        # persisted. teach().persisted must be truthful, so writes bypass it.
+        self._redis: Final = getattr(cache, "redis_cache", None)
+        self._memory: Final = getattr(cache, "in_memory_cache", None)
         self.ttl_seconds = ttl_seconds
 
     def _key(self, node_hex: str, model_group: str, scope: str) -> str:
@@ -51,6 +53,28 @@ class SessionIdentityStore:
 
     def _reader(self) -> LineageCacheReader | None:
         return self._redis if self._redis is not None else self._memory
+
+    async def _write(self, cache_list: tuple[tuple[str, object], ...]) -> None:
+        """Persist ``cache_list`` to the active backend, raising on failure.
+
+        Redis: raw client pipeline, raising on any per-command error. In-memory:
+        its own pipeline, which propagates. Either path surfaces failure, unlike
+        the DualCache wrapper."""
+        import json as _json
+
+        if self._redis is not None:
+            client: Final = self._redis.init_async_client()
+            async with client.pipeline(transaction=False) as pipe:
+                for key, value in cache_list:
+                    pipe.set(name=key, value=_json.dumps(value), ex=self.ttl_seconds)
+                results: Final = await pipe.execute()
+            for r in results:
+                if isinstance(r, Exception):
+                    raise r
+        elif self._memory is not None:
+            await self._memory.async_set_cache_pipeline(cache_list=list(cache_list), ttl=self.ttl_seconds)
+        else:
+            raise RuntimeError("session_identity: no cache backend to teach to")
 
     async def lookup(self, chain: tuple[bytes, ...], model_group: str, scope: str) -> LineageMatch | None:
         reader: Final = self._reader()
@@ -94,7 +118,7 @@ class SessionIdentityStore:
         if not cache_list:
             return True
         try:
-            await self._writer.async_set_cache_pipeline(cache_list=cache_list, ttl=self.ttl_seconds)
+            await self._write(cache_list)
             return True
         except Exception as e:  # noqa: BLE001  # fail-open: caller decides if an unpersisted lineage is fatal
             verbose_logger.warning("session_identity: lineage teach failed (%d keys): %s", len(cache_list), e)

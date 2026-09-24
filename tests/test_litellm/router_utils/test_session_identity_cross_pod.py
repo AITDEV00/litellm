@@ -120,3 +120,27 @@ async def test_long_conversation_beyond_old_cap():
     messages2 = list(messages[:-1]) + [{"role": "assistant", "content": "different last turn " * 40}]
     chain2 = build_chain(request=project_request({"messages": messages2, "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
     assert chain != chain2
+
+
+@pytest.mark.asyncio
+async def test_redis_write_failure_means_not_persisted():
+    """The DualCache swallows backend write errors, so teach() must write to the
+    concrete Redis backend directly. When that backend's pipeline raises, a
+    synthesized request must receive NO inferred id (fail-open), not a falsely
+    claimed-persisted one."""
+    server = fakeredis.FakeServer()
+    cache = _make_cache(server)
+    resolver = _resolver(cache)
+
+    class _Boom:
+        def pipeline(self, transaction=False):
+            raise ConnectionError("redis down")
+
+        async def execute(self):
+            raise ConnectionError("redis down")
+
+    # poison the raw client the store will obtain from the redis backend
+    cache.redis_cache.init_async_client = lambda: _Boom()
+
+    out = await _hook(resolver, {"model": MODEL, "messages": _big("boom"), "metadata": {}})
+    assert "litellm_session_id_inferred" not in out["metadata"]  # fail-open: no inferred id

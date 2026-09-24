@@ -75,14 +75,14 @@ def _chunk_bounds(payload: bytes, chunk_size: int) -> tuple[tuple[int, int], ...
         )
         return base + skip
 
-    def bounds(start: int) -> Iterator[tuple[int, int]]:
-        if start + chunk_size + _UTF8_MAX_CONTINUATION > len(payload):
-            return
-        end: Final = rune_end(start)
-        yield (start, end)
-        yield from bounds(end)
+    def bounds() -> Iterator[tuple[int, int]]:
+        start = 0  # rebind-ok: loop cursor over the payload, advanced to each chunk end
+        while start + chunk_size + _UTF8_MAX_CONTINUATION <= len(payload):
+            end: Final = rune_end(start)
+            yield (start, end)
+            start = end  # rebind-ok: loop cursor over the payload, not accumulated state
 
-    return tuple(bounds(0))
+    return tuple(bounds())
 
 
 def _chunk_events(payload: bytes, chunk_size: int) -> Iterator[HashEvent]:

@@ -68,7 +68,3 @@ CacheBatchResult: TypeAlias = Mapping[str, object] | Sequence[object] | None
 
 class LineageCacheReader(Protocol):
     async def async_batch_get_cache(self, cache_keys: Sequence[str]) -> CacheBatchResult: ...
-
-
-class LineageCacheWriter(Protocol):
-    async def async_set_cache_pipeline(self, cache_list: Sequence[tuple[str, object]], ttl: int) -> None: ...
