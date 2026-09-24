@@ -3851,6 +3851,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jsonpath-python"
+version = "1.1.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/18/4ca8742534a5993ff383f7602e325ce2d5d7cc93d72ac5e1cdedbea8a458/jsonpath_python-1.1.6.tar.gz", hash = "sha256:dded9932b4ec41fb8726e09c83afa4e6be618f938c2db287cc2a81723c639671", size = 88178, upload-time = "2026-05-07T01:26:34.482Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/8a/1270a6803bd821cbfcdda387eaa13cb41a7b1f7b9bd145979b3bfb9d6cb7/jsonpath_python-1.1.6-py3-none-any.whl", hash = "sha256:a1c50afd8d3fbbaf47a4873bc890dcb3c15da96f5c020327977d844d8731a2d4", size = 14453, upload-time = "2026-05-07T01:26:33.306Z" },
+]
+
+[[package]]
 name = "jsonpickle"
 version = "3.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4434,6 +4443,7 @@ proxy = [
     { name = "litellm-proxy-extras" },
     { name = "loguru" },
     { name = "mcp" },
+    { name = "openrouter" },
     { name = "orjson" },
     { name = "polars" },
     { name = "pyjwt" },
@@ -4638,6 +4648,7 @@ requires-dist = [
     { name = "numpydoc", marker = "extra == 'utils'", specifier = ">=1.8.0,<2.0" },
     { name = "nvidia-riva-client", marker = "extra == 'stt-nvidia-riva'", specifier = ">=2.15.0" },
     { name = "openai", specifier = ">=2.20.0,<3.0.0" },
+    { name = "openrouter", marker = "extra == 'proxy'", specifier = ">=1.2.0,<2.0" },
     { name = "opentelemetry-api", marker = "extra == 'proxy-runtime'", specifier = "==1.28.0" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'proxy-runtime'", specifier = "==1.28.0" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'proxy-runtime'", specifier = "==0.49b0" },
@@ -5906,6 +5917,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/82/af/fe2d7618d6eae6fb3a82766a44ed87cd8d6d82b4564ed1c7cfb0f6378e91/openapi_spec_validator-0.7.2.tar.gz", hash = "sha256:cc029309b5c5dbc7859df0372d55e9d1ff43e96d678b9ba087f7c56fc586f734", size = 36855, upload-time = "2025-06-07T14:48:56.299Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/27/dd/b3fd642260cb17532f66cc1e8250f3507d1e580483e209dc1e9d13bd980d/openapi_spec_validator-0.7.2-py3-none-any.whl", hash = "sha256:4bbdc0894ec85f1d1bea1d6d9c8b2c3c8d7ccaa13577ef40da9c006c9fd0eb60", size = 39713, upload-time = "2025-06-07T14:48:54.077Z" },
+]
+
+[[package]]
+name = "openrouter"
+version = "1.2.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "jsonpath-python" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/89/ec90b7df3230a4a9bce76d08e0856fadf62149937b5fab66d8a21ba42c7b/openrouter-1.2.10.tar.gz", hash = "sha256:9178a00babdf097cd6c34d06974ef5538277e8ef53dedd6c0bccc25bcc4af634", size = 500010, upload-time = "2026-09-21T03:27:40.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/e8/48df1fc9527c24238acaf543a17172e251603181e14b3b935fac3857cb19/openrouter-1.2.10-py3-none-any.whl", hash = "sha256:efd56e86ebab9b10328f3cee6cd6c69216ca3c9ed328c0df5f2f6051ba8b45b9", size = 1075458, upload-time = "2026-09-21T03:27:39.009Z" },
 ]
 
 [[package]]
