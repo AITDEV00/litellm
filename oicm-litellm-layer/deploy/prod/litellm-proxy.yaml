@@ -90,8 +90,15 @@ data:
       #   default_priority: 0.50
     router_settings:
       routing_strategy: usage-based-routing-v2
+      # Sticky sessions: a conversation keeps landing on the replica that served
+      # its earlier turns so vLLM prefix KV cache is reused instead of
+      # re-prefilled on a second replica. Only pins callers that send a stable
+      # session id (x-litellm-session-id header or metadata.session_id);
+      # everyone else routes normally. Idle TTL, refreshed on every request.
       optional_pre_call_checks:
         - enforce_model_rate_limits
+        - session_affinity
+      deployment_affinity_ttl_seconds: 86400
       # ---- Retry budget per exception class (preemptive, post-OOM hardening).
       # AuthenticationError / BadRequest / ContentPolicyViolation almost never
       # self-heal, so don't waste a retry; transient network/5xx do.

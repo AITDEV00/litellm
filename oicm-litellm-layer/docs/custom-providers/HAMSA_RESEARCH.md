@@ -439,22 +439,22 @@ This is a request/response pattern (send complete audio, get text back), not a s
 
 ### 6.4 Key Difference: Cloud vs Self-Hosted
 
-| Feature | Cloud API | Self-Hosted |
-|---------|-----------|-------------|
-| STT REST endpoint | `POST /v1/realtime/stt` | `POST /transcribe` |
-| STT REST request | `{audioBase64, language}` | `{audio, lang, gender_detection, ...}` |
-| STT REST response | `{text}` | `{text, gender, eos, processing_time, duration, ...}` |
-| WebSocket endpoint | `wss://api.tryhamsa.com/v1/realtime/ws` | `ws://host:8080/ws` |
-| WebSocket STT | Request/response (send full audio, get text) | Streaming VAD (send PCM chunks, get segment transcriptions) |
-| WebSocket auth | `?api_key=` query param | `api_key` field in handshake JSON (Fernet-encrypted) |
-| WebSocket message format | `{type: "stt", payload: {audioBase64, ...}}` | `{type: "handshake", api_key, options}` then binary PCM |
-| VAD | Server-side, not exposed | Client streams PCM, server VAD triggers transcription |
-| Gender detection | Not in cloud STT | Supported (returns gender per segment) |
-| Speaker identification | Not in cloud STT | Supported (returns speaker_info) |
-| Wake word | Not in cloud STT | Supported (wake_word_match, similarity_score) |
-| Noise cancellation | Not in cloud STT | Supported (Krisp, configurable) |
-| Dialect/language switcher | In voice agents, not raw STT | `lang: "auto"` |
-| TTS | `POST /v1/realtime/tts-stream` | Not in self-hosted STT pod |
+| Feature                   | Cloud API                                      | Self-Hosted                                                 |
+| ------------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| STT REST endpoint         | `POST /v1/realtime/stt`                      | `POST /transcribe`                                        |
+| STT REST request          | `{audioBase64, language}`                    | `{audio, lang, gender_detection, ...}`                    |
+| STT REST response         | `{text}`                                     | `{text, gender, eos, processing_time, duration, ...}`     |
+| WebSocket endpoint        | `wss://api.tryhamsa.com/v1/realtime/ws`      | `ws://host:8080/ws`                                       |
+| WebSocket STT             | Request/response (send full audio, get text)   | Streaming VAD (send PCM chunks, get segment transcriptions) |
+| WebSocket auth            | `?api_key=` query param                      | `api_key` field in handshake JSON (Fernet-encrypted)      |
+| WebSocket message format  | `{type: "stt", payload: {audioBase64, ...}}` | `{type: "handshake", api_key, options}` then binary PCM   |
+| VAD                       | Server-side, not exposed                       | Client streams PCM, server VAD triggers transcription       |
+| Gender detection          | Not in cloud STT                               | Supported (returns gender per segment)                      |
+| Speaker identification    | Not in cloud STT                               | Supported (returns speaker_info)                            |
+| Wake word                 | Not in cloud STT                               | Supported (wake_word_match, similarity_score)               |
+| Noise cancellation        | Not in cloud STT                               | Supported (Krisp, configurable)                             |
+| Dialect/language switcher | In voice agents, not raw STT                   | `lang: "auto"`                                            |
+| TTS                       | `POST /v1/realtime/tts-stream`               | Not in self-hosted STT pod                                  |
 
 ## 7. hamsa_livekit Plugin (from GitHub repo)
 
@@ -542,17 +542,17 @@ Response (verbose_json format):
 
 ### 8.2 Mapping: Self-Hosted Hamsa to OpenAI Transcription
 
-| OpenAI Field | Hamsa Self-Hosted | Status |
-|-------------|-------------------|--------|
-| `file` (multipart upload) | `audio` (base64 in JSON) | Adapter converts multipart file to base64 |
-| `model` | Not applicable (single model) | Can be ignored or mapped to "hamsa-stt" |
-| `language` | `lang` ("auto" or specific) | Direct mapping |
-| `prompt` | `prompt` | Direct mapping |
-| `response_format: json` | `{text}` from response | Direct mapping |
-| `response_format: verbose_json` | Not supported | Would need to fabricate segments/duration |
-| `response_format: text/srt/vtt` | Not supported | Would need to format output |
-| `temperature` | Not supported | Ignored |
-| `timestamp_granularities` | Not supported | Ignored |
+| OpenAI Field                      | Hamsa Self-Hosted             | Status                                    |
+| --------------------------------- | ----------------------------- | ----------------------------------------- |
+| `file` (multipart upload)       | `audio` (base64 in JSON)    | Adapter converts multipart file to base64 |
+| `model`                         | Not applicable (single model) | Can be ignored or mapped to "hamsa-stt"   |
+| `language`                      | `lang` ("auto" or specific) | Direct mapping                            |
+| `prompt`                        | `prompt`                    | Direct mapping                            |
+| `response_format: json`         | `{text}` from response      | Direct mapping                            |
+| `response_format: verbose_json` | Not supported                 | Would need to fabricate segments/duration |
+| `response_format: text/srt/vtt` | Not supported                 | Would need to format output               |
+| `temperature`                   | Not supported                 | Ignored                                   |
+| `timestamp_granularities`       | Not supported                 | Ignored                                   |
 
 **Functionality lost in REST adapter**:
 
@@ -580,18 +580,18 @@ Server -> Client: response.done
 
 ### 8.4 Mapping: Self-Hosted Hamsa WebSocket to OpenAI Realtime
 
-| OpenAI Realtime | Hamsa WebSocket | Status |
-|----------------|-----------------|--------|
-| `session.update` | `handshake` with options | Partial: Hamsa options map to some session config |
-| `input_audio_buffer.append` (base64) | Binary PCM chunks | Adapter must decode base64 to binary PCM |
-| `input_audio_buffer.commit` | Not needed (VAD auto-detects) | Different paradigm |
-| `response.create` | Not needed (VAD auto-triggers) | Different paradigm |
-| `response.audio_transcript.delta` | `transcription` message | Adapter translates format |
-| `response.audio.delta` (TTS) | Not supported | Hamsa STT pod has no TTS |
-| Turn detection (server VAD) | Silero VAD | Both use VAD, but different implementations |
-| Interruption handling | Not supported | Would need adapter logic |
-| Function calling / tools | Not supported | Not applicable to STT-only |
-| Multiple modalities (text + audio) | STT only | Hamsa STT pod has no TTS/LLM |
+| OpenAI Realtime                        | Hamsa WebSocket                | Status                                            |
+| -------------------------------------- | ------------------------------ | ------------------------------------------------- |
+| `session.update`                     | `handshake` with options     | Partial: Hamsa options map to some session config |
+| `input_audio_buffer.append` (base64) | Binary PCM chunks              | Adapter must decode base64 to binary PCM          |
+| `input_audio_buffer.commit`          | Not needed (VAD auto-detects)  | Different paradigm                                |
+| `response.create`                    | Not needed (VAD auto-triggers) | Different paradigm                                |
+| `response.audio_transcript.delta`    | `transcription` message      | Adapter translates format                         |
+| `response.audio.delta` (TTS)         | Not supported                  | Hamsa STT pod has no TTS                          |
+| Turn detection (server VAD)            | Silero VAD                     | Both use VAD, but different implementations       |
+| Interruption handling                  | Not supported                  | Would need adapter logic                          |
+| Function calling / tools               | Not supported                  | Not applicable to STT-only                        |
+| Multiple modalities (text + audio)     | STT only                       | Hamsa STT pod has no TTS/LLM                      |
 
 **Functionality lost in WebSocket adapter**:
 
@@ -668,6 +668,7 @@ WS URL:   ws://s-9c57bce9-0583-4bf7-9443-08825220a231.adeo.svc.cluster.local:808
 ```
 
 The internal service accepts:
+
 - REST: `x-api-key` header with Fernet-encrypted key. Returns 200 with transcription JSON.
 - WS: `api_key` field in handshake JSON. Returns `handshake_ack` with `status: "authenticated"`.
 
@@ -679,6 +680,7 @@ WS URL:   wss://inference.adeoaiengine.ecouncil.ae/models/9c57bce9-0583-4bf7-944
 ```
 
 The external inference proxy at `inference.adeoaiengine.ecouncil.ae` has its own auth layer that is incompatible with the Hamsa Fernet key:
+
 - REST with `x-api-key` header: returns `{"detail":"Authorization header is missing","status_code":401}`
 - REST with `Authorization: Bearer <key>`: returns `{"detail":"Invalid API key","status_code":401}`
 - REST with `Authorization: Token <key>`: returns `{"detail":"Invalid Authorization header","status_code":401}`
@@ -688,6 +690,7 @@ The external inference proxy at `inference.adeoaiengine.ecouncil.ae` has its own
 ### 10.3 Internal Service Path Discovery
 
 The internal service has different paths for REST vs WS:
+
 - `/transcribe` (REST POST) - works, returns transcription JSON
 - `/ws` (WebSocket) - works, returns `handshake_ack`
 - `/ws/ws` (WebSocket) - returns HTTP 403
@@ -696,6 +699,7 @@ The internal service has different paths for REST vs WS:
 ### 10.4 Protocol Conversion
 
 When the model is registered with a `wss://` or `ws://` api_base (as is natural for a WS-based service), REST calls need protocol conversion:
+
 - `ws://` to `http://` for REST
 - `wss://` to `https://` for REST (with SSL verification disabled for internal certs)
 - Keep `ws://` or `wss://` for WS
@@ -703,6 +707,7 @@ When the model is registered with a `wss://` or `ws://` api_base (as is natural 
 ### 10.5 SSL Considerations
 
 The internal cluster service uses HTTP (no TLS), so no SSL context needed. If using the external `wss://` URL, SSL certificate verification fails because the cluster uses internal/self-signed certs. Disable verification with:
+
 ```python
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
@@ -714,6 +719,7 @@ ctx.verify_mode = ssl.CERT_NONE
 ### 11.1 Model Registration
 
 The model is registered in the LiteLLM DB with:
+
 ```json
 {
   "model_name": "tryhamsa-stt",
@@ -731,6 +737,7 @@ The model is registered in the LiteLLM DB with:
 ```
 
 Key fields:
+
 - `use_in_pass_through: true` - enables `get_available_deployment_for_pass_through()` to resolve this model
 - `custom_llm_provider: "custom"` - marks it as a custom provider, not a known LLM provider
 - `mode: "audio_transcription"` - tags the call type for logging
@@ -763,10 +770,12 @@ general_settings:
 ```
 
 With `include_subpath: true`:
+
 - `POST /hamsa/transcribe` forwards to `http://s-...:8080/transcribe`
 - `POST /hamsa/any-route` forwards to `http://s-...:8080/any-route`
 
 **Limitations of the built-in system for Hamsa:**
+
 1. The `target` is static. It does NOT resolve from the LiteLLM model registry, so no RPM/TPM/priority/cooldown/load-balancing from the router.
 2. WebSocket pass-through exists (`create_websocket_passthrough_route`) but the config-based registration only registers HTTP routes, not WS.
 3. No support for Hamsa's handshake `api_key` injection (the Fernet key must be injected into the first JSON message, not sent as an HTTP header).
@@ -778,6 +787,7 @@ LiteLLM has provider-specific pass-through endpoints (`/anthropic/{endpoint:path
 ### 11.5 Recommended Architecture: Prefix-Scoped Catch-All
 
 Register a prefix-scoped catch-all route (e.g. `/tryhamsa/{endpoint:path}`) that:
+
 1. Reads `model` from query param or body
 2. Calls `get_available_deployment_for_pass_through(model)` for RPM/TPM/priority
 3. Forwards the captured subpath to `api_base + subpath`
@@ -785,6 +795,7 @@ Register a prefix-scoped catch-all route (e.g. `/tryhamsa/{endpoint:path}`) that
 This avoids route conflicts with existing LiteLLM routes, provides model-registry-based rate limiting, and doesn't hardcode route paths like `/transcribe` or `/ws`.
 
 **REST flow:**
+
 ```
 POST /tryhamsa/transcribe?model=tryhamsa-stt
   -> user_api_key_auth
@@ -793,6 +804,7 @@ POST /tryhamsa/transcribe?model=tryhamsa-stt
 ```
 
 **WS flow (requires handshake injection):**
+
 ```
 WS /tryhamsa/ws?model=tryhamsa-stt
   -> user_api_key_auth_websocket (via subprotocol)
@@ -814,6 +826,7 @@ curl -sk -X POST https://litellm.ecouncil.ae/custom/audio/transcriptions \
 ```
 
 Response:
+
 ```json
 {
   "text": " Hello.",
