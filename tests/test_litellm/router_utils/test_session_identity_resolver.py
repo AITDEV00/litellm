@@ -59,7 +59,10 @@ async def test_explicit_metadata_session_id_untouched(dual_cache):
 
 
 @pytest.mark.asyncio
-async def test_generated_marker_skips(dual_cache):
+async def test_generated_marker_replaced_with_inferred_id(dual_cache):
+    """Policy-generated ids are ignored by DeploymentAffinityCheck, so the
+    resolver must treat them as absent and infer a real id, preserving the
+    generated value for logging under a side key."""
     resolver = _resolver(dual_cache)
     data = {
         "model": MODEL,
@@ -67,7 +70,14 @@ async def test_generated_marker_skips(dual_cache):
         "metadata": {"session_id": "generated-uuid", SESSION_ID_GENERATED_METADATA_KEY: True},
     }
     out = await resolver.async_pre_call_hook(user_api_key_dict=_Key(), cache=dual_cache, data=data, call_type="acompletion")
-    assert "litellm_session_id_inferred" not in out["metadata"]
+    md = out["metadata"]
+    assert md["litellm_session_id_inferred"] is True
+    assert md["litellm_session_id_policy_generated"] == "generated-uuid"
+    assert md["session_id"] != "generated-uuid"
+    assert md["session_id"]  # non-empty inferred id
+    # generated marker must stay set so downstream logging still knows the
+    # original id was policy-minted
+    assert md[SESSION_ID_GENERATED_METADATA_KEY] is True
 
 
 @pytest.mark.asyncio

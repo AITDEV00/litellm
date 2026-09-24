@@ -38,16 +38,33 @@ class SessionIdentityStore:
         Returns (session_id, matched_depth) for the deepest chain hash with a
         stored mapping, or None. Chain position i proves byte-prefix identity
         through chunk i, so the deepest hit is the lineage the request
-        continues; the common-prefix discriminator decides whether that hit is
-        a real signal before this is trusted (see prefix_discriminator).
+        continues.
+
+        Reads are Redis-authoritative when Redis is attached: the DualCache's
+        own batch path throttles repeated fetches of *missing* keys
+        (``redis_batch_cache_expiry``, ~10s), which would let one pod's stale
+        "this hash does not exist" answer hide another pod's fresh teach for
+        seconds. Lineage discovery needs the shared backend's answer now, so
+        we read it directly and backfill positive hits into the local tier.
         """
         if not chain:
             return None
         keys = [self._key(h, model_group, scope) for h in reversed(chain)]
+        results: list[Any] | None = None
         try:
-            results = await self.cache.async_batch_get_cache(keys=keys)
+            if self.cache.redis_cache is not None:
+                redis_result = await self.cache.redis_cache.async_batch_get_cache(keys)
+                if redis_result:
+                    results = [redis_result.get(k) for k in keys]
+                    # backfill positive hits so subsequent local reads are fast
+                    if self.cache.in_memory_cache is not None:
+                        for key, value in zip(keys, results):
+                            if value is not None:
+                                await self.cache.in_memory_cache.async_set_cache(key, value, ttl=self.ttl_seconds)
+            elif self.cache.in_memory_cache is not None:
+                results = await self.cache.in_memory_cache.async_batch_get_cache(keys)
         except Exception:
-            results = None
+            return None
         if not results:
             return None
         for depth_from_end, value in enumerate(results):
@@ -60,14 +77,31 @@ class SessionIdentityStore:
             return session_id, matched
         return None
 
-    async def teach(self, chain: list[str], session_id: str, model_group: str, scope: str) -> None:
-        """Record every chain hash -> session mapping. Idempotent; refreshes TTL."""
+    async def teach(
+        self,
+        chain: list[str],
+        session_id: str,
+        model_group: str,
+        scope: str,
+        start_index: int = 0,
+    ) -> None:
+        """
+        Record chain hashes -> session mapping. Idempotent; refreshes TTL.
+
+        ``start_index`` lets a growing conversation write only its NEW chain
+        nodes: a match at depth d means nodes 0..d-1 are already recorded
+        under this session id, so a normal turn appending one message writes
+        O(new-turn-size) nodes instead of O(full-history-size).
+        """
         if not chain or not session_id:
             return
         payload = {"session_id": session_id, "chain_len": len(chain)}
         cache_list = [
-            (self._key(chain_hash, model_group, scope), payload) for chain_hash in chain
+            (self._key(chain_hash, model_group, scope), payload)
+            for chain_hash in chain[start_index:]
         ]
+        if not cache_list:
+            return
         try:
             await self.cache.async_set_cache_pipeline(cache_list=cache_list, ttl=self.ttl_seconds)
         except Exception:

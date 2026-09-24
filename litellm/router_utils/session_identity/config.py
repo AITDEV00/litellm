@@ -11,6 +11,11 @@ from dataclasses import dataclass
 
 from litellm.constants import SESSION_IDENTITY_DEFAULT_TTL_SECONDS
 
+# Affinity pins idle TTL in production is 7 days; lineage must outlive the pin
+# or the resolver forgets "history -> session id" while the pin still exists
+# (then a resumed conversation gets a NEW id and the old pin is unreachable).
+# Keep the default aligned; operators override via SESSION_IDENTITY_TTL_SECONDS.
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -35,8 +40,8 @@ class SessionIdentityConfig:
     def from_env(cls) -> "SessionIdentityConfig":
         return cls(
             enabled=os.getenv("SESSION_IDENTITY_ENABLED", "false").strip().lower() in ("true", "1", "yes"),
-            chunk_size_bytes=_env_int("SESSION_IDENTITY_CHUNK_SIZE_BYTES", 512),
-            max_chain_hashes=_env_int("SESSION_IDENTITY_MAX_CHAIN_HASHES", 64),
+            chunk_size_bytes=_env_int("SESSION_IDENTITY_CHUNK_SIZE_BYTES", 2048),
+            max_chain_hashes=_env_int("SESSION_IDENTITY_MAX_CHAIN_HASHES", 256),
             ttl_seconds=_env_int("SESSION_IDENTITY_TTL_SECONDS", SESSION_IDENTITY_DEFAULT_TTL_SECONDS),
             common_prefix_threshold=_env_int("SESSION_IDENTITY_COMMON_PREFIX_THRESHOLD", 3),
             cache_salt=os.getenv("SESSION_IDENTITY_CACHE_SALT", ""),

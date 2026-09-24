@@ -104,10 +104,17 @@ class SessionIdentityResolver(CustomLogger):
             return data
 
         _bucket_name, metadata = get_or_create_metadata_bucket(data)
-        if isinstance(metadata.get("session_id"), str) and metadata.get("session_id"):
+        # A session_id the proxy minted per request (apply_missing_session_id_policy
+        # with "generate") is deliberately ignored by DeploymentAffinityCheck, so
+        # treat it as absent and infer a real one. Preserve the generated id for
+        # logging under a side key rather than losing it.
+        existing = metadata.get("session_id")
+        generated = bool(metadata.get("litellm_session_id_generated"))
+        if isinstance(existing, str) and existing and not generated:
             return data  # client-supplied: affinity already uses it
-        if metadata.get("litellm_session_id_generated"):
-            return data  # per-request policy id; affinity ignores these
+        if generated and existing:
+            metadata["litellm_session_id_policy_generated"] = existing
+            metadata.pop("session_id", None)
         if isinstance(data.get("litellm_session_id"), str) and data.get("litellm_session_id"):
             return data  # session/vendor header id: already recognized
 

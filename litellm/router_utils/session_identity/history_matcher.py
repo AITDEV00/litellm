@@ -71,8 +71,13 @@ class HistoryMatcher:
         )
         if match is None:
             return None
-        session_id, _matched_depth = match
+        session_id, matched_depth = match
+        # remember how much of this chain is already recorded, so teach()
+        # writes only the newly appended nodes
+        self._last_match_depth = matched_depth
         return session_id
+
+    _last_match_depth: int = 0
 
     async def infer_session_id(
         self,
@@ -120,5 +125,10 @@ class HistoryMatcher:
             chain=chain, model_group=model_group, scope=scope, session_id=session_id
         )
         await self.store.teach(
-            chain=chain, session_id=session_id, model_group=model_group, scope=scope
+            chain=chain,
+            session_id=session_id,
+            model_group=model_group,
+            scope=scope,
+            start_index=self._last_match_depth,
         )
+        self._last_match_depth = 0
