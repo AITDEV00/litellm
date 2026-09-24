@@ -231,3 +231,10 @@ class SessionIdentityResolver(CustomLogger):
             **({_META_POLICY_GENERATED: existing} if generated and isinstance(existing, str) else {}),
         }
         return {**data, metadata_key: new_metadata}
+
+
+# Proxy callback loader entry point: litellm_settings.callbacks dotted paths
+# must resolve to a CustomLogger instance, not a class. Constructed with no
+# cache; the real DualCache is bound per-request in _store_for, and config
+# (SESSION_IDENTITY_ENABLED, TTL, ...) is read from env at import.
+proxy_handler_instance: Final = SessionIdentityResolver()

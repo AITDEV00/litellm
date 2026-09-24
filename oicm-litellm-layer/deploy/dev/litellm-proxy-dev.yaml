@@ -150,6 +150,13 @@ spec:
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
               value: /app/assets/favicon.png
+            # Opt-in gate for the SessionIdentityResolver callback (registered in
+            # litellm-config-dev). TTL must outlive deployment_affinity_ttl_seconds
+            # (86400) so lineage outlives the affinity pin; both default to 86400.
+            - name: SESSION_IDENTITY_ENABLED
+              value: "true"
+            - name: SESSION_IDENTITY_TTL_SECONDS
+              value: "86400"
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
           command:

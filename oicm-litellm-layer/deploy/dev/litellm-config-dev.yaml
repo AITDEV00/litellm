@@ -45,6 +45,12 @@ data:
         - dynamic_rate_limiter_v3_htb
         - litellm_hooks.priority_bridge.priority_bridge
         - prometheus
+        # Infers/stamps metadata.session_id for no-client-id traffic so
+        # session_affinity can pin a conversation to one replica (prefix KV reuse).
+        # The loader needs an instance, not a class: proxy_handler_instance is a
+        # module-level singleton whose cache binds per-request. Enabled via
+        # SESSION_IDENTITY_ENABLED=true on the dev pod.
+        - litellm.router_utils.session_identity.resolver.proxy_handler_instance
       require_auth_for_metrics_endpoint: true
       priority_reservation:
         prior1: 0.50
