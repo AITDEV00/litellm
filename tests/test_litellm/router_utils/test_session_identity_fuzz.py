@@ -8,7 +8,12 @@ invariants hold for arbitrary inputs.
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from litellm.router_utils.session_identity.lineage import build_chain
+from litellm.router_utils.session_identity.lineage import build_chain as _build_chain
+from litellm.router_utils.session_identity.views import project_request
+
+
+def build_chain(data, model_group, cache_salt, chunk_size):
+    return _build_chain(request=project_request(data), model_group=model_group, cache_salt=cache_salt, chunk_size=chunk_size)
 
 MODEL = "m"
 

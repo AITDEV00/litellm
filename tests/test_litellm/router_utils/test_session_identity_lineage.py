@@ -8,12 +8,13 @@ from litellm.router_utils.session_identity.lineage import (
     scoped_declared_session_id,
     synthesized_session_id,
 )
+from litellm.router_utils.session_identity.views import project_request
 
 MODEL = "moonshotai/Kimi-K3"
 
 
 def _chain(messages, **body):
-    return build_chain(data={"messages": messages, **body}, model_group=MODEL, cache_salt="", chunk_size=512)
+    return build_chain(request=project_request({"messages": messages, **body}), model_group=MODEL, cache_salt="", chunk_size=512)
 
 
 def _big(seed: str, extra=None):
@@ -69,23 +70,23 @@ def test_tool_array_reorder_same_lineage():
         {"type": "function", "function": {"name": "search", "parameters": {}}},
     ]
     msgs = [{"role": "user", "content": "hi"}]
-    a = build_chain(data={"messages": msgs, "tools": tools}, model_group=MODEL, cache_salt="", chunk_size=512)
-    b = build_chain(data={"messages": msgs, "tools": list(reversed(tools))}, model_group=MODEL, cache_salt="", chunk_size=512)
+    a = build_chain(request=project_request({"messages": msgs, "tools": tools}), model_group=MODEL, cache_salt="", chunk_size=512)
+    b = build_chain(request=project_request({"messages": msgs, "tools": list(reversed(tools))}), model_group=MODEL, cache_salt="", chunk_size=512)
     assert a == b
 
 
 def test_declared_id_namespaced():
-    assert declared_id({"prompt_cache_key": "abc"}) == "prompt_cache_key\x00abc"
-    assert declared_id({"conversation": "conv-1"}) == "conversation\x00conv-1"
-    assert declared_id({"prompt_cache_key": ""}) is None
-    assert declared_id({"prompt_cache_key": 123}) is None
-    assert declared_id({}) is None
-    assert declared_id({"prompt_cache_key": "a", "conversation": "b"}) == "prompt_cache_key\x00a"
+    assert declared_id(project_request({"prompt_cache_key": "abc"})) == "prompt_cache_key\x00abc"
+    assert declared_id(project_request({"conversation": "conv-1"})) == "conversation\x00conv-1"
+    assert declared_id(project_request({"prompt_cache_key": ""})) is None
+    assert declared_id(project_request({"prompt_cache_key": 123})) is None
+    assert declared_id(project_request({})) is None
+    assert declared_id(project_request({"prompt_cache_key": "a", "conversation": "b"})) == "prompt_cache_key\x00a"
 
 
 def test_declared_id_long_value_distinct():
-    a = declared_id({"conversation": "x" * 300 + "a"})
-    b = declared_id({"conversation": "x" * 300 + "b"})
+    a = declared_id(project_request({"conversation": "x" * 300 + "a"}))
+    b = declared_id(project_request({"conversation": "x" * 300 + "b"}))
     assert a is not None and b is not None and a != b
 
 

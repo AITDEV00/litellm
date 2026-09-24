@@ -9,28 +9,28 @@ at the frame boundary. Large payloads are then chunked in rune-safe windows;
 every frame emits a boundary checkpoint so a short new turn always advances
 the chain. A terminal node anchors the whole request.
 
-Resolution is fork-aware, replacing the old shared-prefix counter. The store
-records ``chain_len`` at teach time; a lookup returning the deepest matched
-node lets us classify the incoming request:
+Resolution is fork-aware. The store records ``chain_len`` at teach time; a
+lookup returning the deepest matched node classifies the incoming request:
 
 - matched_depth >= taught_chain_len - 1  ->  exact repeat or append-only
   continuation; reuse the stored session id.
 - matched_depth <  taught_chain_len - 1  ->  the request diverged before the
-  stored conversation ended (a fork, e.g. an unrelated chat sharing only the
-  leading system prompt); mint a fresh synthetic id.
+  stored conversation ended (a fork); mint a fresh synthetic id.
 
-This removes the chicken-and-egg failure of counting distinct sessions on a
-shared prefix: merely sharing a long beginning is never enough, the match must
-reach the end of the previously taught conversation.
-
-Only this service reads these keys, so digests are stdlib sha256.
+The chain is built functionally: each frame expands to an immutable stream of
+hash events, folded left-to-right with ``itertools.accumulate`` over a single
+immutable accumulator. No local mutation or rebinding. Only this service reads
+these keys, so digests are stdlib sha256.
 """
 
 import hashlib
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Final, Literal
+from itertools import accumulate
+from itertools import chain as _flatten
+from typing import Final, Literal, TypeAlias
 
-from litellm.router_utils.session_identity.canonicalizer import canonical_frames
+from litellm.router_utils.session_identity.views import RequestView
 
 _UTF8_MAX_CONTINUATION: Final = 3  # utf8.UTFMax - 1: continuation bytes a boundary may skip
 _MAX_DECLARED_ID_LEN: Final = 256
@@ -39,6 +39,10 @@ _FRAME_START: Final = b"frame-start"
 _FRAME_CHUNK: Final = b"frame-chunk"
 _FRAME_END: Final = b"frame-end"
 _TERMINAL: Final = b"terminal"
+
+# A hash event: the digest parts folded into the running state for one node.
+HashEvent: TypeAlias = tuple[bytes, ...]
+Frame: TypeAlias = tuple[str, str, bytes]
 
 
 def root_seed(model_group: str, cache_salt: str) -> bytes:
@@ -51,62 +55,75 @@ def _field(raw: bytes) -> bytes:
     return len(raw).to_bytes(8, "little") + raw
 
 
-def _digest(*parts: bytes) -> bytes:
-    d = hashlib.sha256()
-    for part in parts:
+def _fold(state: bytes, event: HashEvent) -> bytes:
+    d: Final = hashlib.sha256()
+    d.update(state)
+    for part in event:
         d.update(part)
     return d.digest()
 
 
-def build_chain(
-    data: dict,
-    model_group: str,
-    cache_salt: str,
-    chunk_size: int,
-) -> list[bytes]:
-    """
-    Running chain of digest nodes for one request body.
+def _chunk_bounds(payload: bytes, chunk_size: int) -> tuple[tuple[int, int], ...]:
+    """(start, end) byte windows for each full rune-safe chunk of ``payload``."""
 
-    Deterministic for identical input. Returns raw digest bytes (the store
-    hex-encodes at the Redis boundary). No node cap: the chain length is
-    bounded by the request's own content, so very long agent contexts keep
-    influencing identity instead of being silently truncated.
-    """
-    frames = canonical_frames(data)
-    if not frames or chunk_size <= 0:
-        return []
-
-    nodes: list[bytes] = []
-    prev = root_seed(model_group, cache_salt)
-
-    for frame_kind, role, payload in frames:
-        # Commit the frame's identity before any content bytes so two large
-        # payloads differing only in role/kind diverge at the first chunk node.
-        prev = _digest(prev, _FRAME_START, _field(frame_kind.encode()), _field(role.encode()))
-        nodes.append(prev)
-
+    def bounds() -> Iterator[tuple[int, int]]:
         i = 0
         while i + chunk_size + _UTF8_MAX_CONTINUATION <= len(payload):
             end = i + chunk_size
             while end < i + chunk_size + _UTF8_MAX_CONTINUATION and payload[end] & 0xC0 == 0x80:
                 end += 1
-            prev = _digest(prev, _FRAME_CHUNK, payload[i:end])
-            nodes.append(prev)
+            yield (i, end)
             i = end
 
-        # Boundary checkpoint over the remaining (sub-chunk) tail only; the full
-        # chunks above are already folded in, so the payload is never hashed twice.
-        tail = payload[i:]
-        prev = _digest(prev, _FRAME_END, _field(tail), len(payload).to_bytes(8, "little"))
-        nodes.append(prev)
-
-    # Terminal node: anchors the whole request so a new trailing turn moves the
-    # deepest node. The frame count keeps "[a][bc]" distinct from "[a][b][c]".
-    nodes.append(_digest(prev, _TERMINAL, len(frames).to_bytes(4, "little")))
-    return nodes
+    return tuple(bounds())
 
 
-def declared_id(data: dict) -> str | None:
+def _chunk_events(payload: bytes, chunk_size: int) -> Iterator[HashEvent]:
+    """Rune-safe chunk events for a large payload, plus its end checkpoint."""
+    bounds: Final = _chunk_bounds(payload, chunk_size)
+    for start, end in bounds:
+        yield (_FRAME_CHUNK, payload[start:end])
+    consumed: Final = bounds[-1][1] if bounds else 0
+    yield (_FRAME_END, _field(payload[consumed:]), len(payload).to_bytes(8, "little"))
+
+
+def _frame_events(frame: Frame, chunk_size: int) -> Iterator[HashEvent]:
+    """Events for one frame: start checkpoint, content chunks, end checkpoint."""
+    frame_kind, role, payload = frame
+    yield (_FRAME_START, _field(frame_kind.encode()), _field(role.encode()))
+    if len(payload) > chunk_size:
+        yield from _chunk_events(payload, chunk_size)
+    else:
+        yield (_FRAME_END, _field(payload), len(payload).to_bytes(8, "little"))
+
+
+def build_chain(request: RequestView, model_group: str, cache_salt: str, chunk_size: int) -> tuple[bytes, ...]:
+    """
+    Running chain of digest nodes for one request.
+
+    Deterministic for identical input. Returns raw digest bytes (the store
+    hex-encodes at the Redis boundary). No node cap: the chain length is
+    bounded by the request's own content.
+    """
+    from litellm.router_utils.session_identity.canonicalizer import canonical_frames
+
+    frames: Final = canonical_frames(request)
+    if not frames or chunk_size <= 0:
+        return ()
+
+    terminal: Final = (_TERMINAL, len(frames).to_bytes(4, "little"))
+    # from_iterable flattens the per-frame event generators into one event
+    # stream; chain then appends the single terminal event (kept as a 1-tuple so
+    # it is yielded whole, not flattened).
+    events: Final = _flatten(
+        _flatten.from_iterable(_frame_events(frame, chunk_size) for frame in frames),
+        (terminal,),
+    )
+    # accumulate yields the seed first; drop it and keep the per-event nodes.
+    return tuple(accumulate(events, _fold, initial=root_seed(model_group, cache_salt)))[1:]
+
+
+def declared_id(request: RequestView) -> str | None:
     """
     The client's own name for this session, from body fields that name a
     session across turns. ``previous_response_id`` is deliberately absent: it
@@ -116,21 +133,19 @@ def declared_id(data: dict) -> str | None:
     values cannot alias each other, or None. Long values are hashed rather than
     truncated so two ids sharing a prefix do not collapse onto one lineage.
     """
-    for key in ("prompt_cache_key", "conversation"):
-        value = data.get(key)
-        if not isinstance(value, str) or not value:
-            continue
-        if len(value) > _MAX_DECLARED_ID_LEN:
-            value = hashlib.sha256(value.encode()).hexdigest()
-        return f"{key}\x00{value}"
-    return None
+    candidates: Final = (("prompt_cache_key", request.get("prompt_cache_key")), ("conversation", request.get("conversation")))
+    return next(
+        (
+            f"{key}\x00{hashlib.sha256(value.encode()).hexdigest() if len(value) > _MAX_DECLARED_ID_LEN else value}"
+            for key, value in candidates
+            if isinstance(value, str) and value
+        ),
+        None,
+    )
 
 
 def scoped_declared_session_id(declared: str, model_group: str, scope: str) -> str:
-    """
-    Deterministic session id for a declared conversation name. Needs no Redis:
-    the same declared name re-resolves to the same id across requests and pods.
-    """
+    """Deterministic session id for a declared conversation name; no Redis needed."""
     return hashlib.sha256(
         b"litellm-session-declared-v1\x00"
         + scope.encode()
@@ -141,14 +156,9 @@ def scoped_declared_session_id(declared: str, model_group: str, scope: str) -> s
     ).hexdigest()[:32]
 
 
-def synthesized_session_id(chain: list[bytes], model_group: str, scope: str) -> str:
-    """
-    Stable id for a fresh lineage, derived from its deepest node.
-
-    Deterministic per lineage: the same conversation re-resolves to the same id
-    across requests and pods without storing a separate id mapping.
-    """
-    deepest = chain[-1].hex() if chain else "empty"
+def synthesized_session_id(chain: tuple[bytes, ...], model_group: str, scope: str) -> str:
+    """Stable id for a fresh lineage, derived from its deepest node."""
+    deepest: Final = chain[-1].hex() if chain else "empty"
     return hashlib.sha256(
         b"session_identity\x00" + deepest.encode() + b"\x00" + model_group.encode() + b"\x00" + scope.encode()
     ).hexdigest()[:32]
@@ -184,10 +194,3 @@ class IdentityResolution:
     matched_depth: int
     source: Literal["explicit", "declared", "history", "synthesized", "none"]
     declared: str | None = None
-
-
-def classify(chain: list[bytes], match: LineageMatch | None) -> LineageMatch | None:
-    """Return ``match`` only when it represents a genuine continuation."""
-    if match is None:
-        return None
-    return match if match.is_continuation() else None

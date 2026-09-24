@@ -142,13 +142,9 @@ async def test_shared_prefix_fork_gets_fresh_id(dual_cache):
     conv_a = {"model": MODEL, "messages": [{"role": "system", "content": shared}, {"role": "user", "content": "question A " * 100}], "metadata": {}}
     conv_b = {"model": MODEL, "messages": [{"role": "system", "content": shared}, {"role": "user", "content": "question B " * 100}], "metadata": {}}
 
+    # A's pre-call hook teaches its lineage synchronously
     out_a = await _hook(resolver, conv_a)
     sid_a = out_a["metadata"]["session_id"]
-    # A completes a turn, teaching its lineage
-    await resolver.async_log_success_event(
-        {"model": MODEL, "messages": conv_a["messages"], "litellm_params": {"metadata": dict(out_a["metadata"])}},
-        response_obj=None, start_time=None, end_time=None,
-    )
 
     # B shares the prefix but is a different conversation: must not reuse A's id
     out_b = await _hook(resolver, conv_b)
@@ -163,10 +159,6 @@ async def test_continuation_recovers_id(dual_cache):
     resolver = _resolver(dual_cache)
     out1 = await _hook(resolver, {"model": MODEL, "messages": _big_messages(), "metadata": {}})
     sid = out1["metadata"]["session_id"]
-    await resolver.async_log_success_event(
-        {"model": MODEL, "messages": _big_messages(), "litellm_params": {"metadata": dict(out1["metadata"])}},
-        response_obj=None, start_time=None, end_time=None,
-    )
 
     grown = _big_messages() + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "follow up " * 120}]
     out2 = await _hook(resolver, {"model": MODEL, "messages": grown, "metadata": {}})
@@ -181,10 +173,6 @@ async def test_compaction_gets_new_id(dual_cache):
     resolver = _resolver(dual_cache)
     out1 = await _hook(resolver, {"model": MODEL, "messages": _big_messages(), "metadata": {}})
     sid1 = out1["metadata"]["session_id"]
-    await resolver.async_log_success_event(
-        {"model": MODEL, "messages": _big_messages(), "litellm_params": {"metadata": dict(out1["metadata"])}},
-        response_obj=None, start_time=None, end_time=None,
-    )
 
     compacted = [{"role": "system", "content": "Summary of prior conversation. " * 50}, {"role": "user", "content": "next"}]
     out2 = await _hook(resolver, {"model": MODEL, "messages": compacted, "metadata": {}})

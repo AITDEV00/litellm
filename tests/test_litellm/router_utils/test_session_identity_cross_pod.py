@@ -14,6 +14,7 @@ from litellm.caching.dual_cache import DualCache
 from litellm.caching.redis_cache import RedisCache
 from litellm.router_utils.session_identity.config import SessionIdentityConfig
 from litellm.router_utils.session_identity.lineage import build_chain
+from litellm.router_utils.session_identity.views import project_request
 from litellm.router_utils.session_identity.resolver import SessionIdentityResolver
 
 MODEL = "moonshotai/Kimi-K3"
@@ -58,12 +59,9 @@ async def test_lineage_shared_across_pods():
     resolver_a = _resolver(_make_cache(server))
     resolver_b = _resolver(_make_cache(server))
 
+    # pod A's pre-call hook teaches its lineage synchronously
     out_a = await _hook(resolver_a, {"model": MODEL, "messages": _big("p"), "metadata": {}})
     sid_a = out_a["metadata"]["session_id"]
-    await resolver_a.async_log_success_event(
-        {"model": MODEL, "messages": _big("p"), "litellm_params": {"metadata": dict(out_a["metadata"])}},
-        response_obj=None, start_time=None, end_time=None,
-    )
 
     grown = _big("p") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "follow up " * 120}]
     out_b = await _hook(resolver_b, {"model": MODEL, "messages": grown, "metadata": {}})
@@ -77,7 +75,7 @@ async def test_fresh_teach_visible_immediately_no_stale_miss(dual_cache):
     from litellm.router_utils.session_identity.store import SessionIdentityStore
 
     store = SessionIdentityStore(cache=dual_cache, ttl_seconds=3600)
-    chain = build_chain(data={"messages": _big("q"), "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    chain = build_chain(request=project_request({"messages": _big("q"), "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
     assert await store.lookup(chain=chain, model_group=MODEL, scope="caller-1") is None
 
     await store.teach(chain=chain, session_id="sess-x", model_group=MODEL, scope="caller-1")
@@ -87,15 +85,11 @@ async def test_fresh_teach_visible_immediately_no_stale_miss(dual_cache):
 
 @pytest.mark.asyncio
 async def test_concurrent_requests_no_depth_exchange(dual_cache):
-    """Reviewer case #3: two concurrent requests sharing one resolver cannot
-    exchange match depth, because depth is per-request immutable metadata."""
+    """Reviewer case #3: two concurrent requests sharing one resolver resolve
+    independently — no shared mutable matcher state leaks between them."""
     resolver = _resolver(dual_cache)
     out1 = await _hook(resolver, {"model": MODEL, "messages": _big("c"), "metadata": {}})
     sid = out1["metadata"]["session_id"]
-    await resolver.async_log_success_event(
-        {"model": MODEL, "messages": _big("c"), "litellm_params": {"metadata": dict(out1["metadata"])}},
-        response_obj=None, start_time=None, end_time=None,
-    )
 
     grown = _big("c") + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
 
@@ -105,10 +99,10 @@ async def test_concurrent_requests_no_depth_exchange(dual_cache):
         return a, b
 
     out_a, out_b = await resolve_two()
-    # both see their OWN depth; neither is clobbered by the other
-    assert out_a["metadata"]["session_id"] == sid  # continuation of the grown lineage
-    assert out_a["metadata"]["_session_identity_match_depth"] >= 0
-    assert out_b["metadata"]["_session_identity_match_depth"] >= 0
+    # the grown conversation continues the same lineage; the identical resend
+    # hits the lineage the first request taught, both recovering the same id
+    assert out_a["metadata"]["session_id"] == sid
+    assert out_b["metadata"]["session_id"] == sid
 
 
 @pytest.mark.asyncio
@@ -119,10 +113,10 @@ async def test_long_conversation_beyond_old_cap():
     messages = []
     for i in range(300):
         messages.append({"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i} " * 40})
-    chain = build_chain(data={"messages": messages, "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    chain = build_chain(request=project_request({"messages": messages, "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
     assert len(chain) > 256
 
     # a conversation identical for 299 turns but different on the 300th differs
     messages2 = list(messages[:-1]) + [{"role": "assistant", "content": "different last turn " * 40}]
-    chain2 = build_chain(data={"messages": messages2, "model": MODEL}, model_group=MODEL, cache_salt="", chunk_size=512)
+    chain2 = build_chain(request=project_request({"messages": messages2, "model": MODEL}), model_group=MODEL, cache_salt="", chunk_size=512)
     assert chain != chain2
