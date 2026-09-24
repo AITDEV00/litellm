@@ -1490,7 +1490,9 @@ SESSION_ID_OMITTED_METADATA_KEY: Final = "litellm_session_id_omitted"
 SESSION_IDENTITY_CACHE_KEY_PREFIX: Final = "session_identity:v1"
 SESSION_IDENTITY_COMMON_HASH_PREFIX: Final = "session_identity:common:v1"
 SESSION_IDENTITY_COMMON_CANDIDATES_PREFIX: Final = "session_identity:common_candidates:v1"
-SESSION_IDENTITY_DEFAULT_TTL_SECONDS: Final = 604_800  # 7 days, aligned with prod deployment_affinity_ttl_seconds
+# Lineage must outlive the deployment-affinity pin (86400s in prod/dev yaml) or a
+# resumed conversation gets a new id while the old pin still exists and goes unreachable.
+SESSION_IDENTITY_DEFAULT_TTL_SECONDS: Final = 86_400  # 24h, aligned with deployment_affinity_ttl_seconds
 LITELLM_TRUNCATED_PAYLOAD_FIELD: Final = "litellm_truncated"
 LITELLM_TRUNCATION_DB_SAFEGUARD_NOTE: Final = (
     "Truncation is a DB storage safeguard. "

@@ -66,7 +66,12 @@ async def test_lookup_finds_deepest_continuation(dual_cache):
     turn2 = {"messages": _big_messages("s2", extra_user="follow up"), "model": MODEL}
     chain1 = matcher.build_chain(data=turn1, model_group=MODEL)
     chain2 = matcher.build_chain(data=turn2, model_group=MODEL)
-    assert chain2[: len(chain1)] == chain1
+    # frame-aware chain: every message is a boundary checkpoint, plus a terminal
+    # node per request. The grown conversation shares ALL of the shorter chain's
+    # non-terminal nodes as a prefix; its terminal differs only because the
+    # terminal anchors the whole (longer) request.
+    assert chain2[: len(chain1) - 1] == chain1[:-1]
+    assert len(chain2) > len(chain1)
 
     await store.teach(chain=chain2, session_id="sess-2", model_group=MODEL, scope=SCOPE)
 
@@ -98,11 +103,28 @@ async def test_infer_session_id_stable_for_same_conversation(dual_cache):
 
 
 @pytest.mark.asyncio
-async def test_small_request_infers_nothing(dual_cache):
-    """A tiny request produces no complete chunk, so no id is inferred."""
+async def test_small_request_infers_immediately(dual_cache):
+    """Frame-aware checkpoints: even a tiny request gets a distinguishing node,
+    so a conversation is identifiable from its first turn (the frame-chain
+    contract) instead of only after 2KB of content accumulates."""
     matcher = HistoryMatcher(store=SessionIdentityStore(cache=dual_cache), config=_config())
     data = {"messages": [{"role": "user", "content": "hi"}], "model": MODEL}
-    assert await matcher.infer_session_id(data=data, model_group=MODEL, scope=SCOPE) is None
+    assert await matcher.infer_session_id(data=data, model_group=MODEL, scope=SCOPE) is not None
+
+
+@pytest.mark.asyncio
+async def test_short_turns_distinguish_conversations(dual_cache):
+    """Two conversations differing only in a short latest turn must resolve to
+    different ids immediately (the whole point of frame checkpoints)."""
+    matcher = HistoryMatcher(store=SessionIdentityStore(cache=dual_cache), config=_config())
+    base = {"messages": _big_messages("s9"), "model": MODEL}
+    conv_a = {"messages": _big_messages("s9") + [{"role": "user", "content": "a"}], "model": MODEL}
+    conv_b = {"messages": _big_messages("s9") + [{"role": "user", "content": "b"}], "model": MODEL}
+    sid_base = await matcher.infer_session_id(data=base, model_group=MODEL, scope=SCOPE)
+    sid_a = await matcher.infer_session_id(data=conv_a, model_group=MODEL, scope=SCOPE)
+    sid_b = await matcher.infer_session_id(data=conv_b, model_group=MODEL, scope=SCOPE)
+    assert sid_a != sid_b
+    assert sid_a is not None and sid_b is not None
 
 
 @pytest.mark.asyncio

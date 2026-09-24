@@ -22,18 +22,29 @@ json.dumps(..., sort_keys=True).
 import orjson
 from typing import Any, Final
 
-_NUL: Final = b"\x00"
 _ORJSON_OPTIONS: Final = orjson.OPT_SORT_KEYS | orjson.OPT_NAIVE_UTC
 
 
+def _field(buf: bytearray, s: str) -> None:
+    """
+    One length-prefixed field, mirroring llm-d's field() (chunk.go).
+
+    Framing is length-prefixed, not delimiter-terminated: a client that embeds
+    a NUL (or any other delimiter) in its own message text could otherwise mint
+    a fake frame boundary and make its request hash as if it continued another
+    session's history. Length-prefixing makes the boundary unforgeable
+    regardless of what bytes the client sends.
+    """
+    encoded = s.encode()
+    buf.extend(len(encoded).to_bytes(10, "little"))  # varint slot, same role as Go's binary.PutUvarint buffer
+    buf.extend(encoded)
+
+
 def _seg(buf: bytearray, surface: str, role: str, text: str) -> None:
-    """Framed segment: surface NUL role NUL text NUL, mirroring llm-d's seg()."""
-    buf.extend(surface.encode())
-    buf.extend(_NUL)
-    buf.extend(role.encode())
-    buf.extend(_NUL)
-    buf.extend(text.encode())
-    buf.extend(_NUL)
+    """Framed segment: surface, role, text as three length-prefixed fields, mirroring llm-d's seg()."""
+    _field(buf, surface)
+    _field(buf, role)
+    _field(buf, text)
 
 
 def _default(value: Any) -> str:
@@ -88,3 +99,32 @@ def canonicalize_chat(data: dict) -> bytes:
             if tool_calls:
                 _seg_json(buf, "chat", role + "/tool_calls", tool_calls)
     return bytes(buf)
+
+
+def canonical_frames(data: dict) -> list[tuple[str, str, bytes]]:
+    """
+    Request as ordered canonical frames ``[(frame_kind, role, content_bytes)]``
+    for the frame-aware hash chain. Tools first, then messages, matching the
+    engine's view. Content bytes are the same framed segments
+    ``canonicalize_chat`` produces per unit, but emitted per logical frame so
+    the chain can checkpoint message boundaries.
+    """
+    frames: list[tuple[str, str, bytes]] = []
+    tools = data.get("tools")
+    if tools:
+        frames.append(("tools", "", orjson.dumps(tools, option=_ORJSON_OPTIONS, default=_default)))
+
+    messages = data.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", ""))
+            content = message.get("content")
+            text = _content_text(content)
+            payload = text.encode() if isinstance(text, str) else orjson.dumps(content, option=_ORJSON_OPTIONS, default=_default)
+            frames.append(("msg", role, payload))
+            tool_calls = message.get("tool_calls")
+            if tool_calls:
+                frames.append(("msg", role + "/tool_calls", orjson.dumps(tool_calls, option=_ORJSON_OPTIONS, default=_default)))
+    return frames

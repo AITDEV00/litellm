@@ -2,47 +2,32 @@
 Environment-tunable knobs for session-identity inference.
 
 All optional; defaults match the implementation plan doc
-(``docs/session-identity/IMPLEMENTATION-PLAN.md``). Read once at callback
-construction, not per request.
+(``docs/session-identity/IMPLEMENTATION-PLAN.md``). Backed by pydantic-settings
+(a prod dependency), so values parse/validate at callback construction with a
+clear error on a bad env var instead of silently falling back.
+
+TTL must outlive the deployment-affinity pin (86400s in the prod/dev yaml):
+a shorter lineage TTL makes the resolver forget "history -> session id" while
+the pin still exists, and the resumed conversation gets a NEW id while the old
+pin is unreachable.
 """
 
-import os
-from dataclasses import dataclass
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from litellm.constants import SESSION_IDENTITY_DEFAULT_TTL_SECONDS
 
-# Affinity pins idle TTL in production is 7 days; lineage must outlive the pin
-# or the resolver forgets "history -> session id" while the pin still exists
-# (then a resumed conversation gets a NEW id and the old pin is unreachable).
-# Keep the default aligned; operators override via SESSION_IDENTITY_TTL_SECONDS.
 
+class SessionIdentityConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SESSION_IDENTITY_", frozen=True)
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-@dataclass(frozen=True, slots=True)
-class SessionIdentityConfig:
-    enabled: bool
-    chunk_size_bytes: int
-    max_chain_hashes: int
-    ttl_seconds: int
-    common_prefix_threshold: int
-    cache_salt: str
+    enabled: bool = False
+    chunk_size_bytes: int = Field(default=2048, ge=256, le=16384)
+    max_chain_hashes: int = Field(default=256, ge=8)
+    ttl_seconds: int = Field(default=SESSION_IDENTITY_DEFAULT_TTL_SECONDS, ge=60)
+    common_prefix_threshold: int = Field(default=3, ge=2)
+    cache_salt: str = ""
 
     @classmethod
     def from_env(cls) -> "SessionIdentityConfig":
-        return cls(
-            enabled=os.getenv("SESSION_IDENTITY_ENABLED", "false").strip().lower() in ("true", "1", "yes"),
-            chunk_size_bytes=_env_int("SESSION_IDENTITY_CHUNK_SIZE_BYTES", 2048),
-            max_chain_hashes=_env_int("SESSION_IDENTITY_MAX_CHAIN_HASHES", 256),
-            ttl_seconds=_env_int("SESSION_IDENTITY_TTL_SECONDS", SESSION_IDENTITY_DEFAULT_TTL_SECONDS),
-            common_prefix_threshold=_env_int("SESSION_IDENTITY_COMMON_PREFIX_THRESHOLD", 3),
-            cache_salt=os.getenv("SESSION_IDENTITY_CACHE_SALT", ""),
-        )
+        return cls()

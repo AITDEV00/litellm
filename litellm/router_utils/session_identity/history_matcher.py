@@ -10,9 +10,9 @@ shared map instead of a per-router DashMap.
 
 from typing import TYPE_CHECKING
 
-from litellm.router_utils.session_identity.canonicalizer import canonicalize_chat
+from litellm.router_utils.session_identity.canonicalizer import canonical_frames
+from litellm.router_utils.session_identity.frame_chain import frame_chain
 from litellm.router_utils.session_identity.hash_chain import (
-    chunk_chain,
     root_seed,
     synthesized_session_id,
 )
@@ -39,11 +39,22 @@ class HistoryMatcher:
         )
 
     def build_chain(self, data: dict, model_group: str, seed: bytes | None = None) -> list[str]:
-        """Content chain for a request body. Deterministic for identical input."""
+        """
+        Content chain for a request body. Deterministic for identical input.
+
+        Frame-aware (message-boundary checkpoints): a short new turn always
+        advances the chain, so a conversation is distinguishable immediately
+        rather than only once a new 2KB chunk fills. See frame_chain.py.
+        """
         if seed is None:
             seed = root_seed(model_group, self.config.cache_salt)
-        stream = canonicalize_chat(data)
-        return chunk_chain(stream, seed, self.config.chunk_size_bytes, self.config.max_chain_hashes)
+        frames = canonical_frames(data)
+        return frame_chain(
+            frames=frames,
+            seed=seed,
+            chunk_size=self.config.chunk_size_bytes,
+            max_nodes=self.config.max_chain_hashes,
+        )
 
     async def resolve(
         self,
