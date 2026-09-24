@@ -33,6 +33,7 @@ _RECORD_GAPS_EV: Final = int(os.getenv("LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS", 
 if _ENABLED:
     from loguru import logger as _loguru
 
+    _loguru.remove(0)
     _loguru.add(
         _PATH,
         rotation=_MAX_BYTES,
@@ -40,8 +41,9 @@ if _ENABLED:
         enqueue=True,
         format="{message}",
         level="INFO",
+        filter=lambda record: record["extra"].get("_stream_trace", False),
     )
-    _emit_fn = _loguru.info
+    _emit_fn = lambda msg: _loguru.bind(_stream_trace=True).info(msg)
 else:
     _emit_fn = lambda _: None  # noqa: E731
 
