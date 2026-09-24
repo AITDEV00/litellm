@@ -57,6 +57,15 @@ OCR gate, stream tracer slices), `docs/components/patches.md`,
 `docs/architecture/IMPLEMENTATION_PLAN.md`, `docs/deployment.md`,
 `docs/structure.md`, `README.md`.
 
+Follow-up to the same audit: the merge technique sequence was rewritten to be
+copy-pasteable with `$NEW_TAG` / `$CUSTOM_BRANCH` / `$OLD_CUSTOM_HEAD` /
+`$UPSTREAM_BASE` set once up front, the correct merge direction shown as an
+explicit do/don't pair (checkout the custom branch, merge the tag in; both
+direction-flipped variants documented as wrong), a runtime direction check
+added while conflicts are unresolved (`git rev-parse HEAD MERGE_HEAD`), and the
+drop audit promoted from an appendix into mandatory Step 5 with a second query
+that catches deletions carrying custom edits. Steps renumbered 0-7.
+
 ---
 
 ## 2026-07-08

@@ -12,11 +12,14 @@
 > resolution silently drops a custom feature (a dropped argument, a deleted
 > slice, a lost re-export) that only surfaces later in tests or at runtime.
 
-> **Solution:** A deterministic sequence of git commands that (1) refreshes the
-> staging branch from upstream, (2) merges the upstream **tag directly into the
-> existing custom branch** (never the reverse), (3) resolves each conflict by
-> class, (4) runs a drop-detection + lint-budget gate, and (5) commits a proper
-> two-parent merge commit and pushes.
+> **Solution:** A deterministic sequence of git commands that (0) untracks
+> regenerable artifacts once per branch, (1) records the pre-merge SHAs and
+> refreshes the staging branch from upstream, (2) merges the upstream **tag
+> directly into the existing custom branch while the custom branch is checked
+> out** (never the reverse), (3) resolves each conflict by class, (4) verifies
+> compile + drop-detection wiring, (5) audits files the merge deleted, (6)
+> ratchets lint budgets, and (7) commits a proper two-parent merge commit
+> (first parent = custom) and pushes.
 
 ---
 
@@ -41,12 +44,35 @@ The upstream merge runs **in the opposite direction** from a classic
 - Do **not** delete the branch and recreate it from the tag. That loses the
   merge-parent history that lets CI and future merges see exactly what was custom.
 
+**Correct — exactly this:**
+
+```bash
+git checkout jya0-v1.102.0        # the CUSTOM branch, checked out
+git merge v1.102.0                # merge the upstream TAG into it
+```
+
+**Wrong — either of these produced the v1.102.0 clobber:**
+
+```bash
+git checkout -b tmp v1.102.0      # starting FROM the upstream tag ...
+git merge jya0-v1.102.0           # ... then merging the custom branch in
+```
+
+...or deleting/recreating `jya0-v1.102.0` from the tag. Both put the upstream
+commit in the first-parent slot: `--ours`/`--theirs` then mean the opposite of
+what the resolver assumes, and every path upstream deleted since the previous
+merge deletes the custom copy with it.
+
 Verify the parents right after the merge resolves:
 
 ```bash
 git show --no-patch --format="%P" HEAD   # <ours> <upstream-tag>
 git merge-base HEAD <old-head>           # should == <old-head> (our side is linear)
 ```
+
+First parent must be the **custom** tip and second the **upstream** tag. If the
+first parent resolves to an upstream/BerriAI commit, the direction flipped:
+stop and redo the merge from the custom branch before resolving anything.
 
 ---
 
@@ -58,13 +84,28 @@ git merge-base HEAD <old-head>           # should == <old-head> (our side is lin
 | Piped `git merge` aborts via SIGPIPE | `git merge \| head` kills git mid-merge | Step 2: never pipe a merge |
 | Took the wrong side of a shared-file conflict | Dropped `Final:` annotation, dropped a custom handler block | Step 4: py_compile + re-diff |
 | Multi-line edit lost leading indentation | `Final:` annotation re-edit dropped 8/12 spaces | Step 4: `py_compile` every resolved file |
-| Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 5: `test_oicm_drop_detection.py` |
-| Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted | Step 5: `make lint-budget-update` |
+| Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
+| Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
+| Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted | Step 6: `make lint-budget-update` |
 | **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
 ---
 
 ## The Sequence
+
+Set these once before starting; every later step references them:
+
+```bash
+NEW_TAG=v1.103.0                                          # upstream tag being merged in
+CUSTOM_BRANCH=jya0-v1.102.0                               # the custom branch merging INTO
+git fetch upstream --tags
+OLD_CUSTOM_HEAD=$(git rev-parse $CUSTOM_BRANCH)           # pre-merge custom tip
+UPSTREAM_BASE=$(git merge-base $CUSTOM_BRANCH $NEW_TAG)   # common ancestor
+```
+
+`OLD_CUSTOM_HEAD` and `UPSTREAM_BASE` are inputs to the Step 5 drop audit and
+cannot be reconstructed reliably after the merge. Record them (or keep the
+terminal open) before going further.
 
 ### Step 0 — Make generated `out/` unconflicted (do this once, per branch)
 
@@ -106,7 +147,7 @@ conflicts.
 ### Step 1 — Refresh `litellm_internal_staging` from upstream
 
 ```bash
-git fetch upstream
+git fetch upstream --tags
 git checkout litellm_internal_staging
 git merge --ff-only upstream/litellm_internal_staging
 ```
@@ -114,13 +155,25 @@ git merge --ff-only upstream/litellm_internal_staging
 ### Step 2 — Merge the target tag into the custom branch
 
 ```bash
-git checkout jya0-v1.97.0
-git merge v1.97.0          # merge the TAG in, ours = jya0-v1.97.0
+git checkout $CUSTOM_BRANCH
+git merge $NEW_TAG         # merge the TAG in; ours = $CUSTOM_BRANCH
 ```
 
-> **Trap — never pipe a `git merge`.** `git merge v1.97.0 | tail` aborts the
+While the merge is in progress (conflicts present), confirm the direction has
+not flipped — `HEAD` must still be the custom tip and `MERGE_HEAD` the tag:
+
+```bash
+git rev-parse HEAD         # must equal $OLD_CUSTOM_HEAD
+git rev-parse MERGE_HEAD   # must be the upstream tag
+```
+
+If either is wrong, `git merge --abort` and restart from `$CUSTOM_BRANCH`.
+Resolving a flipped merge drops custom-only files silently (Step 5 exists
+because this actually happened in v1.102.0).
+
+> **Trap — never pipe a `git merge`.** `git merge $NEW_TAG | tail` aborts the
 > merge midway with a SIGPIPE, leaving a half-written index. If you must view
-> partial output, redirect to a file: `git merge v1.97.0 > /tmp/merge.log 2>&1`.
+> partial output, redirect to a file: `git merge $NEW_TAG > /tmp/merge.log 2>&1`.
 
 > Expect hundreds of conflicts. The `out/` untrack commit (Step 0) turned the
 > bulk into trivial take-ours deletions; the rest are the 22 real source files.
@@ -145,7 +198,7 @@ Classify each conflict:
   the upstream file. Do this for all 489 `out/` paths.
 - **Lint budget files** (`basedpyright-code-budget.json`,
   `ruff-strict-budget.json`, `type-discipline-budget.json`) — take ours, then
-  ratchet in Step 5.
+  ratchet in Step 6.
 - **Real source files** — merge line by line, **always keeping the OICM custom
   logic** and carrying the upstream structural/typing changes across. The full
   list of custom-kept resolutions in v1.97.0:
@@ -202,7 +255,44 @@ python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
 > `prometheus_api.py`, `handle_jwt.py` x2, `user_api_key_cache.py` x2,
 > `proxy.py`, `router.py`). **Always run `py_compile` on every touched file.**
 
-### Step 5 — Lint budget ratchet (mandatory post-merge)
+### Step 5 — Drop audit: files the merge deleted (mandatory post-merge)
+
+Conflict resolution cannot catch whole files the merge deleted outright because
+both sides touched the same paths; the v1.102.0 merge lost ten custom test
+files that way. Run before committing (works on the resolved working tree, or
+after the merge commit by adding `HEAD` to the diff):
+
+```bash
+# 1. Deleted files that never existed upstream (pure custom additions)
+git diff --name-status $OLD_CUSTOM_HEAD -- litellm/ tests/ ui/ oicm-litellm-layer/ | grep '^D' | \
+while read _ f; do
+  git cat-file -e "$UPSTREAM_BASE:$f" 2>/dev/null || echo "CUSTOM-ONLY FILE DELETED: $f"
+done
+
+# 2. Deleted files that carried custom edits over the base (upstream deleted
+#    the file; the custom changes to it died with it)
+git diff --name-status $OLD_CUSTOM_HEAD -- litellm/ tests/ ui/ | grep '^D' | \
+while read _ f; do
+  git cat-file -e "$UPSTREAM_BASE:$f" 2>/dev/null || continue
+  git diff --quiet $UPSTREAM_BASE $OLD_CUSTOM_HEAD -- "$f" 2>/dev/null || \
+    echo "DELETED WITH CUSTOM EDITS: $f"
+done
+```
+
+Every hit needs a classification before you act:
+
+- **Subject still exists** (the feature, pricing entry, or helper the test
+  imports survived) → restore from `$OLD_CUSTOM_HEAD`
+  (`git checkout $OLD_CUSTOM_HEAD -- <path>`), adapting imports for any module
+  that moved.
+- **Upstream superseded it** (module renamed/restructured, replacement covers
+  the same assertions) → do **not** restore; note the replacement in the merge
+  PR so the deletion is a decision, not an accident.
+
+Blind-restoring a superseded test fails against current behavior; three of the
+ten v1.102.0 losses were in that class (see Lessons Learned at the bottom).
+
+### Step 6 — Lint budget ratchet (mandatory post-merge)
 
 Per `CLAUDE.md`, the three budget files are **ratcheted down** so lint ceilings
 don't leave stale headroom after the merge. Run once on a clean working tree:
@@ -229,26 +319,30 @@ git commit -m "chore(lint): ratchet budgets after v1.97.0 merge"
 > uncommitted image-tag bump), the ratchet measures them too. Commit the merge
 > resolution to a clean tree, or stash the unrelated change, before running.
 
-### Step 6 — Re-apply manifest change, commit & push
+### Step 7 — Commit the merge & push
 
 ```bash
 # Re-apply a stashed debug-manifest image-tag bump if any
-git stash pop            # e.g. 'bump debug manifest to jya0-v1.97.0'
+git stash pop            # e.g. 'bump debug manifest to jya0-v1.102.0'
 
 # Commit the merge (reuses the auto-generated message)
 git add -A
 git commit --no-edit     # parents: <ours> <upstream-tag>
 
-git push origin jya0-v1.97.0
+git push origin $CUSTOM_BRANCH
 ```
 
-Verify the final state:
+Verify the final state — the parent order one last time:
 
 ```bash
+git show --no-patch --format="%P" HEAD    # first parent MUST be $OLD_CUSTOM_HEAD
 git log --oneline -5                      # merge, then budget/manifest commits
-git rev-parse HEAD origin/jya0-v1.97.0    # must be identical (fully pushed)
+git rev-parse HEAD origin/$CUSTOM_BRANCH  # must be identical (fully pushed)
 git status --short                        # clean tree
 ```
+
+If the first parent is not `$OLD_CUSTOM_HEAD`, the direction flipped; see the
+Merge direction section above and redo before pushing.
 
 ---
 
@@ -259,11 +353,11 @@ a regression you introduced before hunting it:
 
 ```bash
 # baseline A: does it fail on the tag you merged from?
-git worktree add /tmp/base v1.97.0
+git worktree add /tmp/base $NEW_TAG
 cd /tmp/base && python -m pytest <test> -q
 
 # baseline B: does it fail on the pre-merge custom branch?
-git worktree add /tmp/old 2690149502
+git worktree add /tmp/old $OLD_CUSTOM_HEAD
 cd /tmp/old && python -m pytest <test> -q
 
 git worktree remove /tmp/base --force && git worktree remove /tmp/old --force && git worktree prune
@@ -308,33 +402,15 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
 
 ---
 
-## Post-merge drop audit (run before declaring the merge done)
+## How the v1.102.0 merge went wrong (case study)
 
 The v1.99.1 → v1.102.0 merge was performed with the direction reversed (first
 parent was an upstream commit and the old custom branch was merged in), which
 silently dropped custom-side files that upstream had also deleted or rewritten.
 The restore commits after that merge (hamsa `api_surface`, OCR provider gate,
-UI Model Performance mounts) each fixed a clobber that this audit would have
-caught on merge day. Before pushing a merge, run:
-
-```bash
-# 1. Deleted files: was anything deleted that only existed on the custom side?
-git diff --name-status <old-custom-head> HEAD -- litellm/ tests/ | grep '^D' | \
-while read _ f; do
-  git cat-file -e "95293834e8:$f" 2>/dev/null || echo "CUSTOM-ONLY FILE DELETED: $f"
-done   # replace 95293834e8 with the upstream base commit
-
-# 2. Custom markers: every marker in oicm-slices.md must still resolve
-python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
-
-# 3. Superseded vs dropped: for each deleted custom file, find whether an
-#    upstream replacement exists (same test names, renamed module) before
-#    restoring. Restore the file, do not blind-copy.
-```
-
-Restoring a custom test that upstream superseded (renamed or restructured) will
-fail against current behavior; adapt imports to the new module paths or drop
-the file if upstream's replacement covers the same assertions.
+UI Model Performance mounts) each fixed a clobber that the Step 5 audit would
+have caught on merge day. The audit is now a mandatory sequence step; the
+lessons below record what each class of loss looked like.
 
 ## Lessons Learned (v1.99.1 → v1.102.0)
 
@@ -357,5 +433,5 @@ the file if upstream's replacement covers the same assertions.
   `patches/embedding-extra-body.patch` no longer applies and was removed.
 - **Re-verify every post-merge restore commit.** The three "fix(...): restore"
   commits after this merge were all merge clobbers found days later in
-  production or code review. The drop audit above exists so the next merge
+  production or code review. The Step 5 drop audit exists so the next merge
   finds them on merge day.
