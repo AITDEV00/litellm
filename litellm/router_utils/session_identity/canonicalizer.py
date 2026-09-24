@@ -1,0 +1,80 @@
+"""
+Canonical serialization of a Chat Completions request into the byte stream the
+hash chain is built over.
+
+Port of the llm-d contentStream framing (chunk.go), reduced to the OpenAI chat
+surface LiteLLM routes. The stream must be stable across requests of the same
+conversation and must move when the conversation grows:
+
+- tools render ahead of the messages, in the order the engine sees them, with
+  sorted-key JSON so tool-schema dict ordering cannot split one lineage in two
+- every message is framed as surface, role, then content, then tool_calls, so
+  "role A + content B" can never run into "role A + content BC" as the same
+  bytes
+- image/detail and other structured content blocks render via their stable
+  sorted-key JSON
+"""
+
+import json
+from typing import Any, Final
+
+_NUL: Final = b"\x00"
+
+
+def _seg(buf: bytearray, surface: str, role: str, text: str) -> None:
+    """Framed segment: surface NUL role NUL text NUL, mirroring llm-d's seg()."""
+    buf.extend(surface.encode())
+    buf.extend(_NUL)
+    buf.extend(role.encode())
+    buf.extend(_NUL)
+    buf.extend(text.encode())
+    buf.extend(_NUL)
+
+
+def _seg_json(buf: bytearray, surface: str, role: str, value: Any) -> None:
+    """JSON segment with sorted keys, mirroring llm-d's segJSON()."""
+    if value is None:
+        return
+    _seg(buf, surface, role, json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _content_text(content: Any) -> str | None:
+    """Text of a message content field; None when it is structured."""
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (list, dict)):
+        return None  # structured blocks render as JSON below
+    return str(content)
+
+
+def canonicalize_chat(data: dict) -> bytes:
+    """
+    Byte stream for a Chat Completions request body.
+
+    ``data`` is the proxy request dict: ``messages``, ``tools`` and any
+    extra body fields the caller declared (prompt_cache_key is deliberately
+    excluded - it names the session, it must not decide the chain).
+    """
+    buf = bytearray()
+    tools = data.get("tools")
+    if tools:
+        _seg_json(buf, "chat", "tools", tools)
+
+    messages = data.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", ""))
+            content = message.get("content")
+            text = _content_text(content)
+            if text is None:
+                _seg_json(buf, "chat", role, content)
+            else:
+                _seg(buf, "chat", role, text)
+            tool_calls = message.get("tool_calls")
+            if tool_calls:
+                _seg_json(buf, "chat", role + "/tool_calls", tool_calls)
+    return bytes(buf)

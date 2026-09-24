@@ -1487,6 +1487,9 @@ ROUTING_REQUEST_TAGS_METADATA_KEY: Final = "_routing_request_tags"
 INTERNAL_CALL_ORIGIN_METADATA_KEY: Final = "internal_call_origin"
 SESSION_ID_GENERATED_METADATA_KEY: Final = "litellm_session_id_generated"
 SESSION_ID_OMITTED_METADATA_KEY: Final = "litellm_session_id_omitted"
+SESSION_IDENTITY_CACHE_KEY_PREFIX: Final = "session_identity:v1"
+SESSION_IDENTITY_COMMON_HASH_PREFIX: Final = "session_identity:common:v1"
+SESSION_IDENTITY_DEFAULT_TTL_SECONDS: Final = 86_400
 LITELLM_TRUNCATED_PAYLOAD_FIELD: Final = "litellm_truncated"
 LITELLM_TRUNCATION_DB_SAFEGUARD_NOTE: Final = (
     "Truncation is a DB storage safeguard. "
