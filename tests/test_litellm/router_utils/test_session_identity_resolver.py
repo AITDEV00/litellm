@@ -211,3 +211,45 @@ async def test_inferred_id_creates_affinity_pin_end_to_end(dual_cache):
 
     narrowed = await dep.async_filter_deployments(model=MODEL, healthy_deployments=deployments, messages=None, request_kwargs=request_kwargs)
     assert [d["model_info"]["id"] for d in narrowed] == ["dep-bbb"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_id_shadow_taught_and_recovered(dual_cache):
+    """A client that sends an explicit session id gets its history taught under
+    that id; a later request that drops the id recovers the SAME id via history."""
+    resolver = _resolver(dual_cache)
+    out1 = await _hook(resolver, {"model": MODEL, "messages": _big_messages(), "metadata": {"session_id": "ABC"}})
+    assert out1["metadata"]["session_id"] == "ABC"  # explicit id passes through
+
+    # turn 2 drops the explicit id but grows history: recovers ABC, not a new id
+    grown = _big_messages() + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
+    out2 = await _hook(resolver, {"model": MODEL, "messages": grown, "metadata": {}})
+    assert out2["metadata"]["session_id"] == "ABC"
+
+
+@pytest.mark.asyncio
+async def test_declared_id_shadow_taught_and_recovered(dual_cache):
+    """A declared prompt_cache_key gets its history taught; a later request
+    without the declared field recovers the SAME deterministic id via history."""
+    resolver = _resolver(dual_cache)
+    out1 = await _hook(resolver, {"model": MODEL, "messages": _big_messages(), "prompt_cache_key": "chat-9", "metadata": {}})
+    sid = out1["metadata"]["session_id"]
+    assert out1["metadata"]["_session_identity_source"] == "declared"
+
+    grown = _big_messages() + [{"role": "assistant", "content": "answer " * 120}, {"role": "user", "content": "next " * 120}]
+    out2 = await _hook(resolver, {"model": MODEL, "messages": grown, "metadata": {}})  # declared field dropped
+    assert out2["metadata"]["session_id"] == sid
+
+
+@pytest.mark.asyncio
+async def test_synthesized_teach_failure_fails_open(dual_cache, monkeypatch):
+    """A fresh synthesized id is only recoverable if its lineage persists. If the
+    teach write fails, the resolver must NOT pin an unrecoverable id."""
+    resolver = _resolver(dual_cache)
+
+    async def _failing_teach(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(resolver._store, "teach", _failing_teach)
+    out = await _hook(resolver, {"model": MODEL, "messages": _big_messages(), "metadata": {}})
+    assert "litellm_session_id_inferred" not in out["metadata"]  # no inferred id stamped

@@ -59,7 +59,7 @@ class SessionIdentityStore:
             keys = [self._key(node.hex(), model_group, scope) for node in reversed(chain[lo:hi])]
             try:
                 raw = await reader.async_batch_get_cache(keys)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # fail-open: a cache miss routes normally
                 verbose_logger.warning("session_identity: lineage lookup failed: %s", e)
                 return None
             if not raw:
@@ -78,14 +78,21 @@ class SessionIdentityStore:
                 )
         return None
 
-    async def teach(self, chain: tuple[bytes, ...], session_id: str, model_group: str, scope: str, start_index: int = 0) -> None:
+    async def teach(
+        self, chain: tuple[bytes, ...], session_id: str, model_group: str, scope: str, start_index: int = 0
+    ) -> bool:
+        """Write chain nodes -> session. Returns True when persisted (or nothing
+        to write), False when the backend write failed. Failures are logged, not
+        raised: the caller decides whether an unpersisted lineage is fatal."""
         if not chain or not session_id:
-            return
+            return True
         payload: Final = {"session_id": session_id, "chain_len": len(chain)}
         cache_list: Final = tuple((self._key(node.hex(), model_group, scope), payload) for node in chain[start_index:])
         if not cache_list:
-            return
+            return True
         try:
             await self._writer.async_set_cache_pipeline(cache_list=cache_list, ttl=self.ttl_seconds)
-        except Exception as e:
+            return True
+        except Exception as e:  # noqa: BLE001  # fail-open: caller decides if an unpersisted lineage is fatal
             verbose_logger.warning("session_identity: lineage teach failed (%d keys): %s", len(cache_list), e)
+            return False

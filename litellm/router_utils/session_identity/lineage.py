@@ -133,7 +133,10 @@ def declared_id(request: RequestView) -> str | None:
     values cannot alias each other, or None. Long values are hashed rather than
     truncated so two ids sharing a prefix do not collapse onto one lineage.
     """
-    candidates: Final = (("prompt_cache_key", request.get("prompt_cache_key")), ("conversation", request.get("conversation")))
+    candidates: Final = (
+        ("prompt_cache_key", request.get("prompt_cache_key")),
+        ("conversation", request.get("conversation")),
+    )
     return next(
         (
             f"{key}\x00{hashlib.sha256(value.encode()).hexdigest() if len(value) > _MAX_DECLARED_ID_LEN else value}"

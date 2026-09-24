@@ -25,22 +25,24 @@ def _json_bytes(value: object) -> bytes:
     return orjson.dumps(value, option=_ORJSON_OPTIONS)
 
 
-def _tool_sort_key(tool: object) -> tuple[str, str]:
+def _tool_sort_key(tool: object) -> tuple[str, str, bytes]:
+    """(type, name, canonical blob) — the blob both tie-breaks same-named tools
+    and is reused for the final payload, so each tool is serialized exactly once."""
     if isinstance(tool, dict):
         ttype: Final = str(tool.get("type", ""))
         fn: Final = tool.get("function")
         name: Final = str(fn.get("name", "")) if isinstance(fn, dict) else ""
-        return (ttype, name)
-    return ("", "")
+        return (ttype, name, _json_bytes(tool))
+    return ("", "", _json_bytes(tool))
 
 
-def _sorted_tools(tools: object) -> tuple[object, ...]:
-    """Tools name-sorted so array reordering does not split a lineage. Sorting
-    reads only type/name; the canonical bytes are dumped once by the caller, not
-    per-tool inside the sort key."""
+def _canonical_tools_payload(tools: object) -> bytes:
+    """Tools name-sorted (so array reordering does not split a lineage) with the
+    full canonical schema as tie-breaker, serialized once each and embedded."""
     if not isinstance(tools, list):
-        return (tools,)
-    return tuple(sorted(tools, key=_tool_sort_key))
+        return _json_bytes(tools)
+    blobs: Final = tuple(sorted(_tool_sort_key(t) for t in tools))
+    return _json_bytes(tuple(orjson.Fragment(blob) for _t, _n, blob in blobs))
 
 
 def _content_bytes(content: object) -> bytes:
@@ -71,9 +73,7 @@ def _message_frames(message: MessageView) -> Iterator[Frame]:
 def canonical_frames(request: RequestView) -> FrameSeq:
     """Ordered canonical frames in engine order: tools first, then messages."""
     tools: Final = request.get("tools")
-    tool_frames: Final[tuple[Frame, ...]] = (
-        (("tools", "", _json_bytes(_sorted_tools(tools))),) if tools else ()
-    )
+    tool_frames: Final[tuple[Frame, ...]] = (("tools", "", _canonical_tools_payload(tools)),) if tools else ()
     messages: Final = request.get("messages") or ()
     message_frames: Final = _flatten.from_iterable(_message_frames(m) for m in messages)
     return tool_frames + tuple(message_frames)

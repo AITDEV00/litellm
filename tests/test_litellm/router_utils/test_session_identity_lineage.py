@@ -75,6 +75,22 @@ def test_tool_array_reorder_same_lineage():
     assert a == b
 
 
+def test_same_named_tools_tiebreak_by_schema():
+    """Two tools with the same type+name but different schemas must not collapse
+    onto one lineage: the canonical blob is the deterministic tie-breaker, so
+    reordering them must NOT change identity but differing content must."""
+    msgs = [{"role": "user", "content": "hi"}]
+    tool_a = {"type": "function", "function": {"name": "search", "parameters": {"type": "string"}}}
+    tool_b = {"type": "function", "function": {"name": "search", "parameters": {"type": "object"}}}
+    forward = build_chain(request=project_request({"messages": msgs, "tools": [tool_a, tool_b]}), model_group=MODEL, cache_salt="", chunk_size=512)
+    reverse = build_chain(request=project_request({"messages": msgs, "tools": [tool_b, tool_a]}), model_group=MODEL, cache_salt="", chunk_size=512)
+    # reorder must be stable (deterministic), NOT depend on input order
+    assert forward == reverse
+    # but a same-named pair with different schema differs from one with identical schema
+    dup = build_chain(request=project_request({"messages": msgs, "tools": [tool_a, tool_a]}), model_group=MODEL, cache_salt="", chunk_size=512)
+    assert forward != dup
+
+
 def test_declared_id_namespaced():
     assert declared_id(project_request({"prompt_cache_key": "abc"})) == "prompt_cache_key\x00abc"
     assert declared_id(project_request({"conversation": "conv-1"})) == "conversation\x00conv-1"

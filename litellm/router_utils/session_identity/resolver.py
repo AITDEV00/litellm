@@ -83,7 +83,26 @@ class SessionIdentityResolver(CustomLogger):
         api_key: Final = getattr(user_api_key_dict, "api_key", None)
         return str(api_key) if api_key else "anonymous"
 
-    async def _resolve(self, store: SessionIdentityStore, request: RequestView, model_group: str, scope: str) -> IdentityResolution | None:
+    async def _shadow_teach(
+        self, store: SessionIdentityStore, request: RequestView, model_group: str, scope: str, session_id: str
+    ) -> None:
+        """Record history under an explicit/header session id (best-effort), so a
+        later request that drops the id recovers the same affinity identity."""
+        try:
+            chain: Final = build_chain(
+                request=request,
+                model_group=model_group,
+                cache_salt=self.config.cache_salt,
+                chunk_size=self.config.chunk_size_bytes,
+            )
+            if chain:
+                await store.teach(chain=chain, session_id=session_id, model_group=model_group, scope=scope)
+        except Exception as e:  # noqa: BLE001  # fail-open: teaching must never block a request
+            verbose_logger.warning("session_identity: shadow teach failed: %s", e)
+
+    async def _resolve(
+        self, store: SessionIdentityStore, request: RequestView, model_group: str, scope: str
+    ) -> IdentityResolution | None:
         declared: Final = declared_id(request)
         if declared is not None:
             return IdentityResolution(
@@ -92,7 +111,12 @@ class SessionIdentityResolver(CustomLogger):
                 source="declared",
                 declared=declared,
             )
-        chain: Final = build_chain(request=request, model_group=model_group, cache_salt=self.config.cache_salt, chunk_size=self.config.chunk_size_bytes)
+        chain: Final = build_chain(
+            request=request,
+            model_group=model_group,
+            cache_salt=self.config.cache_salt,
+            chunk_size=self.config.chunk_size_bytes,
+        )
         if not chain:
             return None
         match: Final = await store.lookup(chain=chain, model_group=model_group, scope=scope)
@@ -111,45 +135,64 @@ class SessionIdentityResolver(CustomLogger):
         if store is None:
             return data
 
+        try:
+            request: Final = project_request(data)
+        except Exception as e:  # noqa: BLE001  # fail-open: inference must never block a request
+            verbose_logger.warning("session_identity: request projection failed, routing normally: %s", e)
+            return data
+        model_group: Final = self._model_group(request)
+        scope: Final = self._caller_scope(user_api_key_dict)
+
         metadata_key, metadata = get_or_create_metadata_bucket(data)
         existing: Final = metadata.get("session_id")
         generated: Final = bool(metadata.get(SESSION_ID_GENERATED_METADATA_KEY))
+        header_id: Final = data.get("litellm_session_id")
+
+        # Every selection teaches its history, so a later request that loses its
+        # id can still recover the same affinity identity (vLLM Router #219).
         if isinstance(existing, str) and existing and not generated:
+            await self._shadow_teach(store, request, model_group, scope, existing)
             return data  # client-supplied: affinity already uses it
-        if isinstance(data.get("litellm_session_id"), str) and data.get("litellm_session_id"):
+        if isinstance(header_id, str) and header_id:
+            await self._shadow_teach(store, request, model_group, scope, header_id)
             return data  # session/vendor header id: already recognized
 
         try:
-            request: Final = project_request(data)
-        except Exception as e:
-            verbose_logger.warning("session_identity: request projection failed, routing normally: %s", e)
-            return data
-
-        model_group: Final = self._model_group(request)
-        scope: Final = self._caller_scope(user_api_key_dict)
-        try:
             resolution: Final = await self._resolve(store=store, request=request, model_group=model_group, scope=scope)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # fail-open: inference must never block a request
             verbose_logger.warning("session_identity: resolution failed, routing normally: %s", e)
             return data
 
         if resolution is None or not resolution.session_id:
             return data
 
-        # Teach synchronously so the next request's pre-call lookup sees it.
-        # Declared ids need no lineage (they re-resolve without Redis); explicit
-        # ids already solve affinity. Only history/synthesized lineages are stored.
-        if resolution.source in ("history", "synthesized"):
-            try:
-                chain: Final = build_chain(
-                    request=request, model_group=model_group, cache_salt=self.config.cache_salt, chunk_size=self.config.chunk_size_bytes
+        # Teach synchronously so the next request's pre-call lookup sees it. A
+        # fresh synthesized identity is only recoverable if this write persists;
+        # if it doesn't, fail open rather than pin an unrecoverable session id.
+        try:
+            chain: Final = build_chain(
+                request=request,
+                model_group=model_group,
+                cache_salt=self.config.cache_salt,
+                chunk_size=self.config.chunk_size_bytes,
+            )
+            if chain:
+                persisted: Final = await store.teach(
+                    chain=chain,
+                    session_id=resolution.session_id,
+                    model_group=model_group,
+                    scope=scope,
+                    start_index=resolution.matched_depth,
                 )
-                if chain:
-                    await store.teach(
-                        chain=chain, session_id=resolution.session_id, model_group=model_group, scope=scope, start_index=resolution.matched_depth
+                if resolution.source == "synthesized" and not persisted:
+                    verbose_logger.warning(
+                        "session_identity: synthesized lineage not persisted; routing without an inferred id"
                     )
-            except Exception as e:
-                verbose_logger.warning("session_identity: teach failed: %s", e)
+                    return data
+        except Exception as e:  # noqa: BLE001  # fail-open: teaching must never block a request
+            verbose_logger.warning("session_identity: teach failed: %s", e)
+            if resolution.source == "synthesized":
+                return data
 
         removals: Final = _GENERATED_KEYS if generated else frozenset()
         new_metadata: Final = {
