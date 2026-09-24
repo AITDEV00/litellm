@@ -63,6 +63,12 @@ data:
         - dynamic_rate_limiter_v3_htb
         - litellm_hooks.priority_bridge.priority_bridge
         - prometheus
+        # Infers/stamps metadata.session_id for no-client-id traffic so
+        # session_affinity can pin a conversation to one replica (prefix KV reuse).
+        # The loader needs an instance, not a class: proxy_handler_instance is a
+        # module-level singleton whose cache binds per-request. Enabled via
+        # SESSION_IDENTITY_ENABLED=true on the Deployment env.
+        - litellm.router_utils.session_identity.resolver.proxy_handler_instance
       # Require auth on the /metrics scrape endpoint. Prometheus keeps scraping
       # because the ServiceMonitor (litellm-servicemonitor.yaml) presents the
       # master key as a bearer token.
@@ -399,6 +405,13 @@ spec:
               value: /app/assets/adeo-ai-gateway.jpg
             - name: LITELLM_FAVICON_URL
               value: /app/assets/favicon.png
+            # Opt-in gate for the SessionIdentityResolver callback (registered in
+            # litellm-config). TTL must outlive deployment_affinity_ttl_seconds
+            # (86400) so lineage outlives the affinity pin; both default to 86400.
+            - name: SESSION_IDENTITY_ENABLED
+              value: "true"
+            - name: SESSION_IDENTITY_TTL_SECONDS
+              value: "86400"
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
           command:
