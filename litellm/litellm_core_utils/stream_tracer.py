@@ -10,59 +10,40 @@ PVC/Loki/CloudWatch to answer:
   * Per-chunk gap times — the exact distribution before a timeout fired.
   * Terminal state: success / client_abort / upstream_timeout / provider_error.
 
-The hot path is a single dataclass + one json.dumps + one file.write per
-chunk — no awaits, no locks, no metrics stubs. The file is opened once per
-process and flushed via line-buffered IO so it survives SIGKILL minus the
-last ~4KiB.
+Uses loguru with enqueue=True for async buffered writes and rotation
+to cap the file at LITELLM_STREAM_TRACE_MAX_BYTES (default 42MB).
 """
 
 from __future__ import annotations
 
-import atexit
 import datetime
 import json
 import os
-import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import IO, Final, Literal
+from typing import Final, Literal
 
 StreamEndKind = Literal["success", "client_abort", "upstream_timeout", "provider_error", "stream_error", "unknown"]
 
 _ENABLED: Final = bool(os.getenv("LITELLM_STREAM_TRACE_PATH"))
 _PATH: Final = os.getenv("LITELLM_STREAM_TRACE_PATH", "")
+_MAX_BYTES: Final = int(os.getenv("LITELLM_STREAM_TRACE_MAX_BYTES", str(42 * 1024 * 1024)))
 _RECORD_GAPS_EV: Final = int(os.getenv("LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS", "0"))  # 0 = record every chunk
 
-_lock: Final = threading.Lock()
-_writer: IO[str] | None = None
-
-
-def _open_writer() -> IO[str]:
-    # append + line-buffered so a tail follows live
-    return open(_PATH, "a", buffering=1, encoding="utf-8")
-
-
-def _writer_or_raise() -> IO[str]:
-    global _writer
-    with _lock:
-        if _writer is None:
-            _writer = _open_writer()
-        return _writer
-
-
-def _close_writer() -> None:
-    global _writer
-    with _lock:
-        if _writer is not None:
-            try:
-                _writer.flush()
-                _writer.close()
-            finally:
-                _writer = None
-
-
 if _ENABLED:
-    atexit.register(_close_writer)
+    from loguru import logger as _loguru
+
+    _loguru.add(
+        _PATH,
+        rotation=_MAX_BYTES,
+        retention=1,
+        enqueue=True,
+        format="{message}",
+        level="INFO",
+    )
+    _emit_fn = _loguru.info
+else:
+    _emit_fn = lambda _: None  # noqa: E731
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +137,7 @@ class _StreamTracer:
 
     def _emit(self, event: StreamEvent) -> None:
         try:
-            _writer_or_raise().write(json.dumps(asdict(event), default=str) + "\n")
+            _emit_fn(json.dumps(asdict(event), default=str))
         except OSError:
             pass  # disk full / rotated away — do not break streaming
 
