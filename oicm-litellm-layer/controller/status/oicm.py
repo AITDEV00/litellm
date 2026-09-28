@@ -1,14 +1,9 @@
-"""OICM REST client.
+"""OICM-backed ``StatusSource``.
 
-Reads deployment status/health/run facts from the OICM platform. Facts are
-returned as raw dicts; normalization into OicmStatusSnapshot lives in
-``status_builder`` so this module stays transport-only.
-
-Auth: the OICM tenant is the Keycloak realm. Authenticate against the tenant's
-own realm + client (realm == client == tenant name). Token is cached and
-refreshed proactively; a single 401 triggers one refresh + one retry. The grant
-type is configurable so client-credentials can replace password grant later
-without touching call sites.
+Owns the OICM REST transport (auth, token lifecycle, retries) and validates
+responses into the typed ``models`` at the boundary. Everything OICM-specific —
+the tenant-realm auth recipe, the URL layout, the ``_version``/``_updated_at``
+wire names — is confined here; swap this one class to change backends.
 """
 
 from __future__ import annotations
@@ -20,7 +15,7 @@ from typing import Any, Optional
 
 import httpx
 
-from .config import (
+from ..config import (
     OICM_AUTH_GRANT_TYPE,
     OICM_AUTH_URL,
     OICM_BASE_URL,
@@ -31,6 +26,13 @@ from .config import (
     OICM_TIMEOUT,
     OICM_USERNAME,
 )
+from .base import StatusSource
+from .models import (
+    OicmDeployment,
+    OicmDeploymentHealth,
+    OicmStatusDetail,
+    OicmWorkloadRun,
+)
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -38,7 +40,7 @@ logger = logging.getLogger("oicm-discovery")
 _TOKEN_REFRESH_MARGIN_SECONDS = 30.0
 
 
-class OicmClient:
+class OicmStatusSource(StatusSource):
     def __init__(
         self,
         base_url: str = OICM_BASE_URL,
@@ -99,7 +101,7 @@ class OicmClient:
         self._token = None
         self._token_expiry = 0.0
 
-    async def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+    async def _get(self, path: str, params: Optional[dict[str, str]] = None) -> Any:
         async with self._semaphore, httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
             # Two attempts: the first 401 invalidates the cached token and retries once.
             resp: Optional[httpx.Response] = None
@@ -117,31 +119,34 @@ class OicmClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def get_deployment(self, workspace_id: str, workload_id: str) -> dict[str, Any]:
-        return await self._get(f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}")
+    def _deployment_path(self, workspace_id: str, workload_id: str) -> str:
+        return f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}"
 
-    async def get_deployment_health(self, workspace_id: str, workload_id: str) -> dict[str, Any]:
-        return await self._get(f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}/health")
+    async def get_deployment(self, workspace_id: str, workload_id: str) -> OicmDeployment:
+        raw = await self._get(self._deployment_path(workspace_id, workload_id))
+        return OicmDeployment.model_validate(raw)
+
+    async def get_deployment_health(
+        self, workspace_id: str, workload_id: str
+    ) -> OicmDeploymentHealth:
+        raw = await self._get(f"{self._deployment_path(workspace_id, workload_id)}/health")
+        return OicmDeploymentHealth.model_validate(raw)
 
     async def get_workload_run(
         self, workspace_id: str, workload_id: str, workload_run_id: str
-    ) -> dict[str, Any]:
-        return await self._get(
+    ) -> Optional[OicmWorkloadRun]:
+        raw = await self._get(
             f"/api/v1/workspaces/{workspace_id}/workloads/{workload_id}/workload_runs/{workload_run_id}"
         )
-
-    async def list_deployments(self, workspace_id: str) -> dict[str, Any]:
-        return await self._get(f"/api/v1/workspaces/{workspace_id}/deployments")
-
-    async def get_inference_metrics_meta(self, workspace_id: str, workload_id: str) -> dict[str, Any]:
-        return await self._get(
-            f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}/inference_metrics_meta"
+        if not isinstance(raw, dict) or "id" not in raw:
+            return None
+        raw = dict(raw)
+        raw["status_detail"] = tuple(
+            OicmStatusDetail.model_validate(e) for e in raw.get("status_detail") or ()
         )
+        return OicmWorkloadRun.model_validate(raw)
 
-    async def get_inference_metrics(
-        self, workspace_id: str, workload_id: str, metric_id: str, start: str
-    ) -> Any:
-        return await self._get(
-            f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}/inference_metrics",
-            params={"metric_id": metric_id, "start": start},
-        )
+    async def list_deployments(self, workspace_id: str) -> list[OicmDeployment]:
+        raw = await self._get(f"/api/v1/workspaces/{workspace_id}/deployments")
+        items = raw.get("items", []) if isinstance(raw, dict) else []
+        return [OicmDeployment.model_validate(item) for item in items]
