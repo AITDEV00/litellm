@@ -27,12 +27,7 @@ from ..config import (
     OICM_USERNAME,
 )
 from .base import StatusSource
-from .models import (
-    OicmDeployment,
-    OicmDeploymentHealth,
-    OicmStatusDetail,
-    OicmWorkloadRun,
-)
+from .models import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -157,10 +152,6 @@ class OicmStatusSource(StatusSource):
         )
         if not isinstance(raw, dict) or "id" not in raw:
             return None
-        raw = dict(raw)
-        raw["status_detail"] = tuple(
-            OicmStatusDetail.model_validate(e) for e in raw.get("status_detail") or ()
-        )
         return OicmWorkloadRun.model_validate(raw)
 
     async def list_deployments(self, workspace_id: str) -> list[OicmDeployment]:

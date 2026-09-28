@@ -50,13 +50,7 @@ def build_snapshot(
         WorkloadStatus, workload_run.workload_status if workload_run else None
     )
 
-    available_replicas = None
-    if workload_run:
-        available_replicas = sum(
-            1
-            for e in workload_run.status_detail
-            if e.kind == "Pod" and isinstance(e.metadata, dict) and e.metadata.get("ready")
-        ) or None
+    available_replicas = workload_run.ready_pod_count if workload_run else None
 
     status_changed_at = previous.status_changed_at if previous else None
     if previous is None or previous.source_status != source_status:

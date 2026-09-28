@@ -151,3 +151,11 @@ class OicmWorkloadRun(BaseModel):
     workspace_id: Optional[str] = None
     workload_status: Optional[str] = None
     status_detail: tuple[OicmStatusDetail, ...] = ()
+
+    @property
+    def ready_pod_count(self) -> int:
+        return sum(
+            1
+            for e in self.status_detail
+            if e.kind == KIND_POD and isinstance(e.metadata, dict) and e.metadata.get("ready")
+        )
