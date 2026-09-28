@@ -109,6 +109,30 @@ spec:
             # Flip this back to "true" to return to log-only mode.
             - name: CONTROLLER_READ_ONLY
               value: "false"
+            # OICM status API. Non-secret connection config is inline; the
+            # service-account credentials come from the oicm-status-api Secret
+            # (created out-of-band, never committed). Used by the OicmClient
+            # (M1) to read deployment status/health for gateway_status.
+            - name: OICM_BASE_URL
+              value: "https://oicm.adeoaiengine.ecouncil.ae"
+            - name: OICM_AUTH_URL
+              value: "https://auth-oicm.adeoaiengine.ecouncil.ae"
+            - name: OICM_REALM
+              value: "adeo"
+            - name: OICM_CLIENT_ID
+              value: "adeo"
+            - name: OICM_AUTH_GRANT_TYPE
+              value: "password"
+            - name: OICM_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-status-api
+                  key: username
+            - name: OICM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-status-api
+                  key: password
           resources:
             requests:
               cpu: 50m

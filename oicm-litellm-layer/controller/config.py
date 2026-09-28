@@ -56,7 +56,27 @@ CONTROLLER_READ_ONLY = os.getenv("CONTROLLER_READ_ONLY", "false").lower() in (
 
 WORKLOAD_TYPE_LABEL = "oip/workload-type"
 WORKLOAD_ID_LABEL = "oip/workload-id"
+WORKLOAD_RUN_ID_LABEL = "oip/workload-run-id"
+WORKSPACE_ID_LABEL = "oip/workspace-id"
 MODEL_DEPLOYMENT_TYPE = "model_deployment"
+
+# OICM status API (gateway_status source). The tenant is the Keycloak realm:
+# authenticate against realm == client == tenant name. Credentials come from a
+# K8s secret in-cluster; empty locally.
+OICM_BASE_URL = os.getenv("OICM_BASE_URL", "https://oicm.adeoaiengine.ecouncil.ae")
+OICM_AUTH_URL = os.getenv("OICM_AUTH_URL", "https://auth-oicm.adeoaiengine.ecouncil.ae")
+OICM_REALM = os.getenv("OICM_REALM", "adeo")
+OICM_CLIENT_ID = os.getenv("OICM_CLIENT_ID", "adeo")
+OICM_USERNAME = os.getenv("OICM_USERNAME", "")
+OICM_PASSWORD = os.getenv("OICM_PASSWORD", "")
+OICM_AUTH_GRANT_TYPE = os.getenv("OICM_AUTH_GRANT_TYPE", "password")
+OICM_TIMEOUT = float(os.getenv("OICM_TIMEOUT", "20"))
+OICM_CONCURRENCY = int(os.getenv("OICM_CONCURRENCY", "20"))
+OICM_STATUS_ENABLED = os.getenv("OICM_STATUS_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (
     "true",

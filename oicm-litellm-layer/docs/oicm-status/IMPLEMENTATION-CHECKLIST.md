@@ -91,10 +91,20 @@ On OICM timeout/5xx: retain last snapshot, do not advance `observed_at`, log the
 
 ### Step 13 [L] — Replace the `/endpoints` debug body with official OpenRouter schema
 Edit `litellm/proxy/openrouter_compat/models_service.py::get_model_endpoints` (currently returns a custom dict at lines ~84-130) and `routes/models.py`.
-- Add the official types to the OpenRouter schema boundary (see `docs/openrouter/litellm_openrouter_models_design.md`): `PublicEndpoint`, `ListEndpointsResponse`, `EndpointStatus`, `Pricing`, `PercentileStats`, `Quantization`, `ProviderName`.
-- Verify the installed OpenRouter SDK: which `PublicEndpoint` fields are required vs optional, whether the generated base tolerates extension properties, and whether absent metrics may be omitted or must be `null`. If subclassing is fragile, compose `GatewayPublicEndpoint` instead.
+
+**Package confirmed**: `openrouter==1.1.28` (Speakeasy-generated) is installed at `.venv/.../openrouter/`, declared in `pyproject.toml` (`openrouter>=1.2.0,<2.0` — note installed 1.1.28 is below the floor, reconcile this). The existing boundary is `litellm/proxy/openrouter_compat/openrouter_schema/models.py`, which re-exports official SDK component models with a docstring "Only the mapper layer uses these." Add a sibling `openrouter_schema/endpoints.py` re-exporting, all present in `openrouter/components/`:
+- `publicendpoint.PublicEndpoint` + `Pricing` (nested; `completion`/`prompt` required strings, the rest Optional)
+- `listendpointsresponse.ListEndpointsResponse` (fields: `architecture`, `created`, `description`, `endpoints`, `id`, `name`) + its nested `Architecture`
+- `endpointstatus.EndpointStatus` = `Union[Literal[0,-1,-2,-3,-5,-10], UnrecognizedInt]`
+- `percentilestats.PercentileStats` (`p50,p75,p90,p99` floats, all required)
+- `quantization.Quantization`, `providername.ProviderName`, `parameter.Parameter` (Literal unions)
+
+**`PublicEndpoint` required vs optional** (confirmed from source): required = `context_length, latency_last_30m, max_completion_tokens, max_prompt_tokens, model_id, model_name, name, pricing, provider_name, quantization, supported_parameters, supports_implicit_caching, tag, throughput_last_30m, uptime_last_1d, uptime_last_30m, uptime_last_5m`; Optional = `status`, `supports_voice_cloning`. Note `latency_last_30m / throughput_last_30m / uptime_* / max_*_tokens / quantization` are typed `Nullable[...]` — the model_serializer drops them from JSON when `None` (nullable fields), so **absent metrics serialize as omitted, not null**; the historical fields can be left `None` in M2 cleanly. `pricing` itself is required (only `completion`+`prompt` inside it are).
+
+The generated base uses a `@model_serializer` that strips `UNSET_SENTINEL` and None-nullable fields, so unknown extra keys are not part of the contract — attach `gateway_status` by **composition**, not subclassing (build a wrapper that serializes the official `PublicEndpoint` then adds the `gateway_status` key).
+
 - Confirm `get_model_endpoints` resolves the **individual deployments** (`model.deployments` → `DeploymentDescriptor`, already present) — one LiteLLM/OICM deployment = one `PublicEndpoint`.
-- Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry.
+- Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry; absent `latency_last_30m` is omitted from JSON, not `null`.
 
 ### Step 14 [L] — Implement `OpenRouterEndpointsMapper`
 Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mapping/openrouter.py::OpenRouterModelMapper`). Input: one `DeploymentDescriptor` + its `model_info.oicm` + optional telemetry. Output: `PublicEndpoint` + `gateway_status`.
@@ -155,8 +165,8 @@ Expose genuine instantaneous data only (`requests.running`, `requests.queued`, `
 ## Milestone 3 — Historical OpenRouter statistics
 
 ### Step 24 [L] — Omit what you can't honestly provide
-Do NOT populate `uptime_last_5m/30m/1d`, `latency_last_30m.p90`, `throughput_last_30m.p50` from a single instantaneous scrape (wrong semantics). Leave absent/null if the DTO allows.
-- Test: those fields absent/null in M2 responses.
+Do NOT populate `uptime_last_5m/30m/1d`, `latency_last_30m.p90`, `throughput_last_30m.p50` from a single instantaneous scrape (wrong semantics). The DTO allows this cleanly: those fields are `Nullable[...]` and the serializer **omits them from JSON when `None`** (confirmed in `PublicEndpoint.serialize_model`), so leave them `None` in M2 — they won't appear as `null`.
+- Test: those fields absent (not `null`) in M2 responses; SDK still parses.
 
 ### Step 25 [L] — Real rolling stats from Prometheus/Thanos
 If full OpenRouter fidelity is wanted, query genuine 30-min windows (`histogram_quantile`, `increase`, `rate`) from the cluster's Prometheus/Thanos, then populate `latency_last_30m` / `throughput_last_30m` / `uptime_*`.
