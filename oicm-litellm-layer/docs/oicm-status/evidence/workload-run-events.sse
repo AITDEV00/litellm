@@ -1,0 +1,198 @@
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled up replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d from 0 to 1","first_seen":"2026-09-02T12:35:58Z","last_seen":"2026-09-02T12:35:58Z"}
+
+data:{"object_name":"pvc-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"PersistentVolumeClaim","count":1,"event_reason":"Provisioning","event_type":"Normal","event_message":"External provisioner is provisioning volume for claim \"adeo/pvc-061fbb9d-c138-4800-8f69-a091fcaed7d8\"","first_seen":"2026-09-02T12:35:58Z","last_seen":"2026-09-02T12:35:58Z"}
+
+data:{"object_name":"pvc-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"PersistentVolumeClaim","count":1,"event_reason":"ExternalProvisioning","event_type":"Normal","event_message":"Waiting for a volume to be created either by the external provisioner 'driver.longhorn.io' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.","first_seen":"2026-09-02T12:35:58Z","last_seen":"2026-09-02T12:35:58Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulCreate","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","first_seen":"2026-09-02T12:35:58Z","last_seen":"2026-09-02T12:35:58Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Scheduled","event_type":"Normal","event_message":"Successfully assigned adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6 to adeo-gpu-01","first_seen":"2026-09-02T12:36:00Z","last_seen":"2026-09-02T12:36:00Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":4,"event_reason":"FailedScheduling","event_type":"Warning","event_message":"Cannot schedule: insufficient resources or node mismatch","first_seen":"2026-09-02T12:35:58Z","last_seen":"2026-09-02T12:36:00Z"}
+
+data:{"object_name":"pvc-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"PersistentVolumeClaim","count":1,"event_reason":"ProvisioningSucceeded","event_type":"Normal","event_message":"Successfully provisioned volume pvc-2379bfb1-d940-4b14-89a9-4f48a8593f7f","first_seen":"2026-09-02T12:36:00Z","last_seen":"2026-09-02T12:36:00Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"SuccessfulAttachVolume","event_type":"Normal","event_message":"AttachVolume.Attach succeeded for volume \"pvc-2379bfb1-d940-4b14-89a9-4f48a8593f7f\"","first_seen":"2026-09-02T12:36:21Z","last_seen":"2026-09-02T12:36:21Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\"","first_seen":"2026-09-02T12:36:22Z","last_seen":"2026-09-02T12:36:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T12:36:22Z","last_seen":"2026-09-02T12:36:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T12:36:22Z","last_seen":"2026-09-02T12:36:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"AddedInterface","event_type":"Normal","event_message":"Add eth0 [10.42.8.10/32] from cilium","first_seen":"2026-09-02T12:36:22Z","last_seen":"2026-09-02T12:36:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\" in 80ms (80ms including waiting). Image size: 78004650 bytes.","first_seen":"2026-09-02T12:36:22Z","last_seen":"2026-09-02T12:36:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 2.487s (2.487s including waiting). Image size: 12535782646 bytes.","first_seen":"2026-09-02T12:37:30Z","last_seen":"2026-09-02T12:37:30Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":2,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T12:37:30Z","last_seen":"2026-09-02T12:43:35Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 90ms (90ms including waiting). Image size: 12535782646 bytes.","first_seen":"2026-09-02T12:43:35Z","last_seen":"2026-09-02T12:43:35Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":2,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\"","first_seen":"2026-09-02T12:37:27Z","last_seen":"2026-09-02T12:43:35Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":2,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T12:37:30Z","last_seen":"2026-09-02T12:43:36Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":26,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-02T12:36:21Z","last_seen":"2026-09-02T12:58:40Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled down replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d from 1 to 0","first_seen":"2026-09-02T12:58:49Z","last_seen":"2026-09-02T12:58:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulDelete","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","first_seen":"2026-09-02T12:58:49Z","last_seen":"2026-09-02T12:58:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":1,"event_reason":"Killing","event_type":"Normal","event_message":"Container is being stopped","first_seen":"2026-09-02T12:58:49Z","last_seen":"2026-09-02T12:58:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-65f8bfc5d-plth6","object_kind":"Pod","count":2,"event_reason":"Unhealthy","event_type":"Warning","event_message":"Health check failed","first_seen":"2026-09-02T12:39:37Z","last_seen":"2026-09-02T12:59:03Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled up replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6 from 0 to 1","first_seen":"2026-09-02T12:59:20Z","last_seen":"2026-09-02T12:59:20Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulCreate","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","first_seen":"2026-09-02T12:59:20Z","last_seen":"2026-09-02T12:59:20Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Scheduled","event_type":"Normal","event_message":"Successfully assigned adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx to adeo-gpu-01","first_seen":"2026-09-02T12:59:20Z","last_seen":"2026-09-02T12:59:20Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"AddedInterface","event_type":"Normal","event_message":"Add eth0 [10.42.8.183/32] from cilium","first_seen":"2026-09-02T12:59:21Z","last_seen":"2026-09-02T12:59:21Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T12:59:22Z","last_seen":"2026-09-02T12:59:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\" in 74ms (74ms including waiting). Image size: 78004650 bytes.","first_seen":"2026-09-02T12:59:22Z","last_seen":"2026-09-02T12:59:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\"","first_seen":"2026-09-02T12:59:22Z","last_seen":"2026-09-02T12:59:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T12:59:22Z","last_seen":"2026-09-02T12:59:22Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 91ms (91ms including waiting). Image size: 12535782646 bytes.","first_seen":"2026-09-02T12:59:23Z","last_seen":"2026-09-02T12:59:23Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T12:59:23Z","last_seen":"2026-09-02T12:59:23Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\"","first_seen":"2026-09-02T12:59:23Z","last_seen":"2026-09-02T12:59:23Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T12:59:24Z","last_seen":"2026-09-02T12:59:24Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Unhealthy","event_type":"Warning","event_message":"Health check failed","first_seen":"2026-09-02T13:01:24Z","last_seen":"2026-09-02T13:01:24Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":11,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-02T12:59:21Z","last_seen":"2026-09-02T13:06:31Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled down replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6 from 1 to 0","first_seen":"2026-09-02T13:06:49Z","last_seen":"2026-09-02T13:06:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","object_kind":"Pod","count":1,"event_reason":"Killing","event_type":"Normal","event_message":"Container is being stopped","first_seen":"2026-09-02T13:06:49Z","last_seen":"2026-09-02T13:06:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulDelete","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-69fbb47d6-8zvwx","first_seen":"2026-09-02T13:06:49Z","last_seen":"2026-09-02T13:06:49Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled up replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6 from 0 to 1","first_seen":"2026-09-02T13:06:51Z","last_seen":"2026-09-02T13:06:51Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulCreate","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","first_seen":"2026-09-02T13:06:51Z","last_seen":"2026-09-02T13:06:51Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Scheduled","event_type":"Normal","event_message":"Successfully assigned adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx to adeo-gpu-01","first_seen":"2026-09-02T13:06:51Z","last_seen":"2026-09-02T13:06:51Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"AddedInterface","event_type":"Normal","event_message":"Add eth0 [10.42.8.69/32] from cilium","first_seen":"2026-09-02T13:06:52Z","last_seen":"2026-09-02T13:06:52Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\" in 78ms (78ms including waiting). Image size: 78004650 bytes.","first_seen":"2026-09-02T13:06:53Z","last_seen":"2026-09-02T13:06:53Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T13:06:53Z","last_seen":"2026-09-02T13:06:53Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\"","first_seen":"2026-09-02T13:06:53Z","last_seen":"2026-09-02T13:06:53Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T13:06:53Z","last_seen":"2026-09-02T13:06:53Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\"","first_seen":"2026-09-02T13:06:54Z","last_seen":"2026-09-02T13:06:54Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 1.94s (1.94s including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-02T13:06:56Z","last_seen":"2026-09-02T13:06:56Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T13:06:56Z","last_seen":"2026-09-02T13:06:56Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T13:06:57Z","last_seen":"2026-09-02T13:06:57Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Unhealthy","event_type":"Warning","event_message":"Health check failed","first_seen":"2026-09-02T13:09:20Z","last_seen":"2026-09-02T13:09:20Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":15,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-02T13:06:52Z","last_seen":"2026-09-02T13:18:21Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulDelete","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","first_seen":"2026-09-02T13:18:36Z","last_seen":"2026-09-02T13:18:36Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6-h25vx","object_kind":"Pod","count":1,"event_reason":"Killing","event_type":"Normal","event_message":"Container is being stopped","first_seen":"2026-09-02T13:18:36Z","last_seen":"2026-09-02T13:18:36Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled down replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-5d69c78ff6 from 1 to 0","first_seen":"2026-09-02T13:18:36Z","last_seen":"2026-09-02T13:18:36Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulCreate","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","first_seen":"2026-09-02T13:18:39Z","last_seen":"2026-09-02T13:18:39Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Scheduled","event_type":"Normal","event_message":"Successfully assigned adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2 to adeo-gpu-01","first_seen":"2026-09-02T13:18:39Z","last_seen":"2026-09-02T13:18:39Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8","object_kind":"Deployment","count":1,"event_reason":"ScalingReplicaSet","event_type":"Normal","event_message":"Scaled up replica set j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569 from 0 to 1","first_seen":"2026-09-02T13:18:39Z","last_seen":"2026-09-02T13:18:39Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"AddedInterface","event_type":"Normal","event_message":"Add eth0 [10.42.8.32/32] from cilium","first_seen":"2026-09-02T13:18:39Z","last_seen":"2026-09-02T13:18:39Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T13:18:40Z","last_seen":"2026-09-02T13:18:40Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\"","first_seen":"2026-09-02T13:18:40Z","last_seen":"2026-09-02T13:18:40Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\" in 76ms (76ms including waiting). Image size: 78004650 bytes.","first_seen":"2026-09-02T13:18:40Z","last_seen":"2026-09-02T13:18:40Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T13:18:40Z","last_seen":"2026-09-02T13:18:40Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 91ms (91ms including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-02T13:18:42Z","last_seen":"2026-09-02T13:18:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\"","first_seen":"2026-09-02T13:18:42Z","last_seen":"2026-09-02T13:18:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-02T13:18:42Z","last_seen":"2026-09-02T13:18:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-02T13:18:42Z","last_seen":"2026-09-02T13:18:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"Unhealthy","event_type":"Warning","event_message":"Health check failed","first_seen":"2026-09-02T13:21:00Z","last_seen":"2026-09-02T13:21:00Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":10255,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-02T13:18:39Z","last_seen":"2026-09-11T12:13:55Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"NodeNotReady","event_type":"Warning","event_message":"Node is not ready","first_seen":"2026-09-11T12:17:42Z","last_seen":"2026-09-11T12:17:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"TaintManagerEviction","event_type":"Normal","event_message":"Marking for deletion Pod adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","first_seen":"2026-09-11T12:22:42Z","last_seen":"2026-09-11T12:22:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569","object_kind":"ReplicaSet","count":1,"event_reason":"SuccessfulCreate","event_type":"Normal","event_message":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","first_seen":"2026-09-11T12:22:43Z","last_seen":"2026-09-11T12:22:43Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"FailedMount","event_type":"Warning","event_message":"Failed to mount volume (object \"adeo\"/\"kube-root-ca.crt\" not registered)","first_seen":"2026-09-11T12:24:41Z","last_seen":"2026-09-11T12:24:41Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":1,"event_reason":"UnexpectedAdmissionError","event_type":"Warning","event_message":"Allocate failed due to no healthy devices present; cannot allocate unhealthy devices nvidia.com/mig-2g.35gb, which is unexpected","first_seen":"2026-09-11T12:24:41Z","last_seen":"2026-09-11T12:24:41Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-xqdw2","object_kind":"Pod","count":2,"event_reason":"FailedMount","event_type":"Warning","event_message":"Failed to mount volume (driver name driver.longhorn.io not found in the list of registered CSI drivers)","first_seen":"2026-09-11T12:24:41Z","last_seen":"2026-09-11T12:24:42Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":88,"event_reason":"FailedScheduling","event_type":"Warning","event_message":"Cannot schedule: insufficient resources or node mismatch","first_seen":"2026-09-11T12:22:43Z","last_seen":"2026-09-11T12:57:45Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":2,"event_reason":"FailedScheduling","event_type":"Warning","event_message":"Cannot schedule: insufficient resources or node mismatch","first_seen":"2026-09-11T13:00:47Z","last_seen":"2026-09-11T13:03:14Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":14,"event_reason":"FailedScheduling","event_type":"Warning","event_message":"Cannot schedule: insufficient resources or node mismatch","first_seen":"2026-09-11T13:06:21Z","last_seen":"2026-09-11T13:12:52Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Scheduled","event_type":"Normal","event_message":"Successfully assigned adeo/j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt to adeo-gpu-01","first_seen":"2026-09-11T13:13:26Z","last_seen":"2026-09-11T13:13:26Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"SuccessfulAttachVolume","event_type":"Normal","event_message":"AttachVolume.Attach succeeded for volume \"pvc-2379bfb1-d940-4b14-89a9-4f48a8593f7f\"","first_seen":"2026-09-11T13:14:10Z","last_seen":"2026-09-11T13:14:10Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"FailedMount","event_type":"Warning","event_message":"Failed to mount volume (code = InvalidArgument desc = volume pvc-2379bfb1-d940-4b14-89a9-4f48a8593f7f hasn't been attached yet)","first_seen":"2026-09-11T13:14:11Z","last_seen":"2026-09-11T13:14:11Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-11T13:14:12Z","last_seen":"2026-09-11T13:14:12Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\" in 79ms (79ms including waiting). Image size: 78004650 bytes.","first_seen":"2026-09-11T13:14:12Z","last_seen":"2026-09-11T13:14:12Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/init-image:release-1.10.1\"","first_seen":"2026-09-11T13:14:12Z","last_seen":"2026-09-11T13:14:12Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"AddedInterface","event_type":"Normal","event_message":"Add eth0 [10.42.8.165/32] from cilium","first_seen":"2026-09-11T13:14:12Z","last_seen":"2026-09-11T13:14:12Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-11T13:14:13Z","last_seen":"2026-09-11T13:14:13Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 97ms (97ms including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-11T13:14:14Z","last_seen":"2026-09-11T13:14:14Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 90ms (90ms including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-11T13:14:18Z","last_seen":"2026-09-11T13:14:18Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 82ms (82ms including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-11T13:14:33Z","last_seen":"2026-09-11T13:14:33Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":4,"event_reason":"BackOff","event_type":"Warning","event_message":"Container backing off due to repeated crashes","first_seen":"2026-09-11T13:14:22Z","last_seen":"2026-09-11T13:14:50Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":4,"event_reason":"Pulling","event_type":"Normal","event_message":"Pulling image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\"","first_seen":"2026-09-11T13:14:14Z","last_seen":"2026-09-11T13:15:04Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":1,"event_reason":"Pulled","event_type":"Normal","event_message":"Successfully pulled image \"registry.gitlab.com/openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq\" in 92ms (92ms including waiting). Image size: 12535783575 bytes.","first_seen":"2026-09-11T13:15:04Z","last_seen":"2026-09-11T13:15:04Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":4,"event_reason":"Created","event_type":"Normal","event_message":"Container created successfully","first_seen":"2026-09-11T13:14:14Z","last_seen":"2026-09-11T13:15:04Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":4,"event_reason":"Started","event_type":"Normal","event_message":"Container started successfully","first_seen":"2026-09-11T13:14:18Z","last_seen":"2026-09-11T13:15:06Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":3,"event_reason":"Unhealthy","event_type":"Warning","event_message":"Health check failed","first_seen":"2026-09-11T13:17:14Z","last_seen":"2026-09-11T13:17:52Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":19,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (registry-credentials, gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-11T13:14:12Z","last_seen":"2026-09-11T13:19:51Z"}
+
+data:{"object_name":"j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt","object_kind":"Pod","count":19485,"event_reason":"FailedToRetrieveImagePullSecret","event_type":"Warning","event_message":"Unable to retrieve some image pull secrets (gitlab-registry-credentials); attempting to pull the image may not succeed.","first_seen":"2026-09-11T13:24:35Z","last_seen":"2026-09-28T13:45:09Z"}
+

@@ -1,0 +1,75 @@
+{
+  "id": "061fbb9d-c138-4800-8f69-a091fcaed7d8",
+  "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c",
+  "name": "microsoft/VibeVoice-ASR",
+  "deployment_type": "External Sources",
+  "model_version_id": null,
+  "registered_model_id": null,
+  "model_id": null,
+  "custom_docker_image": null,
+  "deployment_template_id": null,
+  "model_server": {
+    "model_server_id": "bd30362c-50a2-4ad9-9470-5c0597a108f8",
+    "name": "vLLM",
+    "tag": "vllm-0.27.01-cu129-vibevoice-awq",
+    "args": null,
+    "developer_mode": true,
+    "developer_args": "--max-model-len 65536 --max-num-seqs 16 --gpu-memory-utilization 0.85 --no-enable-prefix-caching --enable-chunked-prefill"
+  },
+  "enable_auto_scaling": false,
+  "auto_scaling_options": null,
+  "replicas": 1,
+  "inference_task": "Automatic Speech Recognition",
+  "resources": {
+    "use_gpu": true,
+    "accelerator": "H200",
+    "accelerator_count": 1,
+    "cpu": 8,
+    "memory": 32,
+    "storage": 32,
+    "accelerator_slice": "mig-2g.35gb",
+    "number_of_nodes": null
+  },
+  "status": "Ready",
+  "error_msg": null,
+  "inference_url": "https://inference.adeoaiengine.ecouncil.ae/models/061fbb9d-c138-4800-8f69-a091fcaed7d8/proxy/v1",
+  "internal_inference_url": "http://api-gateway-service.mlops.svc.cluster.local:8080/models/061fbb9d-c138-4800-8f69-a091fcaed7d8/proxy/v1/audio/transcriptions",
+  "env_vars": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "KMP_AFFINITY": "granularity=fine,compact,1,0",
+    "TOKENIZERS_PARALLELISM": "false"
+  },
+  "extra_args": null,
+  "use_lora_adapters": false,
+  "lora_adapters": [],
+  "model_server_snapshot": {
+    "id": "bd30362c-50a2-4ad9-9470-5c0597a108f8",
+    "name": "vLLM",
+    "tag": "vllm-0.27.01-cu129-vibevoice-awq",
+    "family": "vLLM",
+    "devices": {
+      "nvidia": "openinnovationai/platform/mlops/mlops-serving/adeo-vllm:0.27.01-cu129-vibevoice-awq"
+    },
+    "task_types": [
+      "Text Generation",
+      "Image-Text-to-Text",
+      "Text Embedding",
+      "Text Ranking",
+      "Automatic Speech Recognition"
+    ],
+    "health_check_endpoint": "/health"
+  },
+  "custom_model_server": null,
+  "external_sources": {
+    "obs": {
+      "secret_blueprint_id": "e1dc626b-87f2-4cc3-8641-ec082f982677",
+      "bucket_name": "oicm-adeo-oicm-models",
+      "obs_directory": "models/lemuriandezapada/VibeVoice-ASR-awq-int4",
+      "endpoint": "https://minio-api.adeoaiengine.ecouncil.ae/",
+      "region": null,
+      "selected_files": null
+    },
+    "hf": null
+  }
+}

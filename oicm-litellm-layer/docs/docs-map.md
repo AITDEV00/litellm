@@ -27,6 +27,8 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Deployment-status feasibility | `docs/oicm-status/OICM-STATUS-FEASIBILITY.md` |
+| Question-by-question answers | `docs/oicm-status/FEASIBILITY-ANSWERS.md` |
+| Implementation checklist | `docs/oicm-status/IMPLEMENTATION-CHECKLIST.md` |
 | Write-access blocker (resolved) | `docs/oicm-write-access-blocked.md` |
 
 ## Admin API

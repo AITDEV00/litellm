@@ -64,9 +64,9 @@ No machine-readable schema is served: `/openapi.json`, `/docs`, `/redoc` all ret
 
 ### Confirmed non-routes (404 both with and without auth)
 
-`/api/v1/deployments/{id}`, `/api/v1/deployments/{id}/health`, `/api/v1/workspaces/{ws}/deployments` (list), `/api/v1/workspaces/{ws}/model_deployments`, `/api/v1/workspaces/{ws}/workloads/{wid}/runs/{rid}`, `/api/v1/workspaces/{ws}/workload_runs/{rid}`, `/api/v1/models`, `/api/v1/users/me`, `/api/v1/me/workspaces`, `/api/v1/workspaces/{ws}/members`, and the bare nouns `/api/v1/{workloads,workspaces,deployments,clusters,nodes,gpus,metrics,tasks,runs,endpoints,providers,registries,images,keys,users,tenants,inference}`.
+`/api/v1/deployments/{id}`, `/api/v1/deployments/{id}/health`, `/api/v1/workspaces/{ws}/model_deployments`, `/api/v1/workspaces/{ws}/workloads/{wid}/runs/{rid}`, `/api/v1/workspaces/{ws}/workload_runs/{rid}`, `/api/v1/models`, `/api/v1/users/me`, `/api/v1/me/workspaces`, `/api/v1/workspaces/{ws}/members`, and the bare nouns `/api/v1/{workloads,workspaces,deployments,clusters,nodes,gpus,metrics,tasks,runs,endpoints,providers,registries,images,keys,users,tenants,inference}`.
 
-The single-workspace status API, if it is going to work, is the `/api/v1/workspaces/{ws}/deployments/{id}/...` family. There is no cross-workspace deployment list endpoint, which matters for the controller design (see below).
+The single-workspace status API is the `/api/v1/workspaces/{ws}/deployments/{id}/...` family, plus `GET /api/v1/workspaces/{ws}/deployments` (list, confirmed 200 — see `evidence/deployments-list.json`). There is no cross-workspace deployment list endpoint, which matters for the controller design (see below).
 
 ## Phase 0 question A — is IAM fixed?
 

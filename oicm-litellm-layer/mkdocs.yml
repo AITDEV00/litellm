@@ -164,4 +164,6 @@ nav:
       - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md
   - OICM Status:
       - Feasibility Study: oicm-status/OICM-STATUS-FEASIBILITY.md
+      - Feasibility Answers: oicm-status/FEASIBILITY-ANSWERS.md
+      - Implementation Checklist: oicm-status/IMPLEMENTATION-CHECKLIST.md
   - Docs Map: docs-map.md

@@ -1,0 +1,5 @@
+{
+  "is_health_check_supported": true,
+  "is_ready": false,
+  "message": "Deployment is not ready"
+}
