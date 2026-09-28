@@ -64,7 +64,7 @@ class OicmClient:
         self._token_expiry: float = 0.0
         self._auth_lock = asyncio.Lock()
 
-    async def _authenticate(self) -> None:
+    async def _authenticate(self) -> str:
         url = f"{self.auth_url}/realms/{self.realm}/protocol/openid-connect/token"
         async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
             resp = await client.post(
@@ -85,6 +85,7 @@ class OicmClient:
         expires_in = float(body.get("expires_in", 300))
         self._token = token
         self._token_expiry = time.monotonic() + expires_in - _TOKEN_REFRESH_MARGIN_SECONDS
+        return token
 
     async def _ensure_token(self) -> str:
         if self._token and time.monotonic() < self._token_expiry:
@@ -92,32 +93,29 @@ class OicmClient:
         async with self._auth_lock:
             if self._token and time.monotonic() < self._token_expiry:
                 return self._token
-            await self._authenticate()
-            return self._token  # type: ignore[return-value]
+            return await self._authenticate()
 
     def _invalidate_token(self) -> None:
         self._token = None
         self._token_expiry = 0.0
 
     async def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
-        async with self._semaphore:
-            async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
+        async with self._semaphore, httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
+            # Two attempts: the first 401 invalidates the cached token and retries once.
+            resp: Optional[httpx.Response] = None
+            for attempt in range(2):
                 token = await self._ensure_token()
                 resp = await client.get(
                     f"{self.base_url}{path}",
                     headers={"Authorization": f"Bearer {token}"},
                     params=params,
                 )
-                if resp.status_code == 401:
-                    self._invalidate_token()
-                    token = await self._ensure_token()
-                    resp = await client.get(
-                        f"{self.base_url}{path}",
-                        headers={"Authorization": f"Bearer {token}"},
-                        params=params,
-                    )
-                resp.raise_for_status()
-                return resp.json()
+                if resp.status_code != 401 or attempt == 1:
+                    break
+                self._invalidate_token()
+            assert resp is not None  # the loop always runs at least once
+            resp.raise_for_status()
+            return resp.json()
 
     async def get_deployment(self, workspace_id: str, workload_id: str) -> dict[str, Any]:
         return await self._get(f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}")
