@@ -40,6 +40,68 @@ logger = logging.getLogger("oicm-discovery")
 _TOKEN_REFRESH_MARGIN_SECONDS = 30.0
 
 
+class _OicmTokenAuth(httpx.Auth):
+    """Keycloak password-grant bearer auth with proactive refresh + one 401 retry.
+
+    Implements the httpx.Auth contract: attaches the cached bearer token, and on
+    a 401 refreshes once and re-issues the request. Keeps token plumbing out of
+    the request path. Never logs the token or password.
+    """
+
+    requires_response_body = True
+
+    def __init__(
+        self,
+        *,
+        auth_url: str,
+        realm: str,
+        client_id: str,
+        username: str,
+        password: str,
+        grant_type: str,
+        timeout: float,
+    ):
+        self._token_url = f"{auth_url}/realms/{realm}/protocol/openid-connect/token"
+        self._payload = {
+            "client_id": client_id,
+            "username": username,
+            "password": password,
+            "grant_type": grant_type,
+            "scope": "openid",
+        }
+        self._timeout = timeout
+        self._token: Optional[str] = None
+        self._token_expiry: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def _fetch_token(self) -> str:
+        async with self._lock:
+            if self._token and time.monotonic() < self._token_expiry:
+                return self._token
+            async with httpx.AsyncClient(timeout=self._timeout, verify=False) as client:
+                resp = await client.post(self._token_url, data=self._payload)
+                resp.raise_for_status()
+                body = resp.json()
+            token = body.get("access_token")
+            if not token:
+                raise RuntimeError("OICM auth response missing access_token")
+            self._token = token
+            self._token_expiry = (
+                time.monotonic() + float(body.get("expires_in", 300)) - _TOKEN_REFRESH_MARGIN_SECONDS
+            )
+            return token
+
+    async def async_auth_flow(self, request: httpx.Request):
+        request.headers["Authorization"] = f"Bearer {await self._fetch_token()}"
+        response = yield request
+        if response.status_code != 401:
+            return
+        # Refresh once and retry the request with the new token.
+        self._token = None
+        request.headers["Authorization"] = f"Bearer {await self._fetch_token()}"
+        yield request
+
+
 class OicmStatusSource(StatusSource):
     def __init__(
         self,
@@ -54,68 +116,23 @@ class OicmStatusSource(StatusSource):
         concurrency: int = OICM_CONCURRENCY,
     ):
         self.base_url = base_url.rstrip("/")
-        self.auth_url = auth_url.rstrip("/")
-        self.realm = realm
-        self.client_id = client_id
-        self._username = username
-        self._password = password
-        self.grant_type = grant_type
         self.timeout = timeout
         self._semaphore = asyncio.Semaphore(concurrency)
-        self._token: Optional[str] = None
-        self._token_expiry: float = 0.0
-        self._auth_lock = asyncio.Lock()
-
-    async def _authenticate(self) -> str:
-        url = f"{self.auth_url}/realms/{self.realm}/protocol/openid-connect/token"
-        async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
-            resp = await client.post(
-                url,
-                data={
-                    "client_id": self.client_id,
-                    "username": self._username,
-                    "password": self._password,
-                    "grant_type": self.grant_type,
-                    "scope": "openid",
-                },
-            )
-            resp.raise_for_status()
-            body = resp.json()
-        token = body.get("access_token")
-        if not token:
-            raise RuntimeError("OICM auth response missing access_token")
-        expires_in = float(body.get("expires_in", 300))
-        self._token = token
-        self._token_expiry = time.monotonic() + expires_in - _TOKEN_REFRESH_MARGIN_SECONDS
-        return token
-
-    async def _ensure_token(self) -> str:
-        if self._token and time.monotonic() < self._token_expiry:
-            return self._token
-        async with self._auth_lock:
-            if self._token and time.monotonic() < self._token_expiry:
-                return self._token
-            return await self._authenticate()
-
-    def _invalidate_token(self) -> None:
-        self._token = None
-        self._token_expiry = 0.0
+        self._auth = _OicmTokenAuth(
+            auth_url=auth_url.rstrip("/"),
+            realm=realm,
+            client_id=client_id,
+            username=username,
+            password=password,
+            grant_type=grant_type,
+            timeout=timeout,
+        )
 
     async def _get(self, path: str, params: Optional[dict[str, str]] = None) -> Any:
-        async with self._semaphore, httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
-            # Two attempts: the first 401 invalidates the cached token and retries once.
-            resp: Optional[httpx.Response] = None
-            for attempt in range(2):
-                token = await self._ensure_token()
-                resp = await client.get(
-                    f"{self.base_url}{path}",
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=params,
-                )
-                if resp.status_code != 401 or attempt == 1:
-                    break
-                self._invalidate_token()
-            assert resp is not None  # the loop always runs at least once
+        async with self._semaphore, httpx.AsyncClient(
+            timeout=self.timeout, verify=False, auth=self._auth
+        ) as client:
+            resp = await client.get(f"{self.base_url}{path}", params=params)
             resp.raise_for_status()
             return resp.json()
 
