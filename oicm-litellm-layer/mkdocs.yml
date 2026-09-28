@@ -162,4 +162,6 @@ nav:
   - OpenRouter:
       - Models Design: openrouter/litellm_openrouter_models_design.md
       - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md
+  - OICM Status:
+      - Feasibility Study: oicm-status/OICM-STATUS-FEASIBILITY.md
   - Docs Map: docs-map.md

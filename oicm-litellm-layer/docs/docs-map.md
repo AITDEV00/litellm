@@ -22,6 +22,13 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Pricing logic map | `docs/model-pricing/PRICING-LOGIC-MAP.md` |
 | Pricing matching plan | `docs/model-pricing/PRICING-MATCHING-PLAN.md` |
 
+## OICM Status
+
+| Doc | Location |
+|-----|----------|
+| Deployment-status feasibility | `docs/oicm-status/OICM-STATUS-FEASIBILITY.md` |
+| Write-access blocker (resolved) | `docs/oicm-write-access-blocked.md` |
+
 ## Admin API
 
 | Doc | Location |
