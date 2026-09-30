@@ -111,10 +111,14 @@ KEYS=$(fetch_keys)
 # Qualification. An object qualifies when its access list contains at least one
 # trigger id and does not already contain the target id.
 # ---------------------------------------------------------------------------
+# Exact membership, not jq contains(): contains on strings is substring-based,
+# so ["zai-org/GLM-5.3-Flash"] | contains(["zai-org/GLM-5.3"]) is true and would
+# wrongly mark the target as already granted whenever a prefix-sharing sibling
+# exists in the list.
 JQ_FILTER='
   .[]
   | (.models // []) as $ms
-  | select( any($ms[]; . as $m | $T | contains([$m])) and ($ms | contains([$A]) | not) )
+  | select( any($ms[]; . as $m | $T | any(. == $m)) and ($ms | any(. == $A) | not) )
   | { level: $level,
       id: .[$idfield],
       name: .[$namefield],

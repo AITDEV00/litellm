@@ -48,10 +48,18 @@ KIND_LEADER_WORKER_SET: Final = "LeaderWorkerSet"
 def is_deployment_available(
     status_detail: tuple[dict[str, object], ...], is_multinode_inference: bool
 ) -> bool:
-    """Mirror OICM ``DeploymentService.__is_deployment_available``.
+    """Serving availability derived from a workload run's ``status_detail``.
 
-    Multi-node: any LeaderWorkerSet entry whose metadata.available is truthy.
-    Single-node: any Pod entry (v1) with a node assigned and metadata.ready.
+    Mirrors OICM ``DeploymentService.__is_deployment_available`` in intent:
+    multi-node = any LeaderWorkerSet entry with ``metadata.available``; single-node
+    = any Pod with a node assigned and ``metadata.ready``.
+
+    Deliberately does NOT require the Pod's ``apiVersion == "v1"``. OICM's own
+    check does, but the OICM API currently returns ``apiVersion: null`` for every
+    ``status_detail`` entry, which makes OICM's availability (and hence
+    ``/health.is_ready``) report False for every deployment. A Running pod on a
+    node with ``ready: true`` is serving; ``apiVersion`` is not populated by this
+    API, so it must not be a precondition.
     """
 
     def _meta(entry: dict[str, object]) -> dict[str, object]:
@@ -65,7 +73,6 @@ def is_deployment_available(
         )
     return any(
         e.get("kind") == KIND_POD
-        and e.get("apiVersion") == "v1"
         and bool(e.get("node"))
         and bool(_meta(e).get("ready"))
         for e in status_detail
@@ -82,6 +89,12 @@ class OicmStatusSnapshot:
 
     Facts only. No presentation words ("online"/"degraded"); that mapping lives
     in LiteLLM's GatewayStateResolver.
+
+    ``is_ready`` is the OICM ``/health`` readiness boolean. It is ADVISORY ONLY:
+    OICM recomputes it from a celery task that fires only on deploy/scale/run
+    lifecycle events (no periodic sweep), so it lags real pod state after a
+    self-heal. Use ``serving_available`` (computed from the workload run's
+    ``status_detail``, the live signal) for the availability decision instead.
     """
 
     workspace_id: str
@@ -92,11 +105,16 @@ class OicmStatusSnapshot:
     workload_status: Optional[WorkloadStatus]
 
     health_supported: bool
-    is_ready: Optional[bool]
+    is_ready: Optional[bool]  # advisory only; see serving_available
     health_message: Optional[str]
 
     desired_replicas: Optional[int]
     available_replicas: Optional[int]
+
+    # Serving availability computed from the workload run's status_detail (the
+    # accurate, continuously-updated signal), NOT from /health.is_ready (stale).
+    # None when no workload run is known.
+    serving_available: Optional[bool]
 
     error_msg: Optional[str]
 

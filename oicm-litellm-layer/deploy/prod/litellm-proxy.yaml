@@ -452,11 +452,12 @@ spec:
               memory: 2Gi
             limits:
               cpu: "4"
-              # 12Gi (was 8Gi): steady-state RSS grows ~1.6Gi/day under real
-              # traffic and OOMKilled at 8Gi twice in one week (2026-09-05/07).
-              # Root cause under investigation via mem_monitor logging; this
-              # raises time-to-OOM from ~3 days to ~6 days.
-              memory: 12Gi
+              # 16Gi (was 12Gi): 4 granian workers hold ~2.5GB each + master +
+              # non-Python overhead = ~11-12GB steady state, right at the old
+              # 12Gi limit. Any transient spike (GC pause, retry burst to dead
+              # backends) OOMKilled the pod (11 restarts in 2 days). 16Gi gives
+              # ~4Gi headroom while the dead-backend churn is addressed.
+              memory: 16Gi
       volumes:
         - name: config
           configMap:
