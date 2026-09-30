@@ -7,8 +7,10 @@
 >
 > Companion docs: `retention-flags-and-oom-LOGIC-MAP-v2.md` (09-08 DB-incident
 > OOM), `spend-logs-ram-and-model-performance-LOGIC-MAP.md` (write path + known
-> slow reads). This map covers the **read path that kills pods** — a distinct
-> root cause from both prior incidents.
+> slow reads), and `routing-strategy-sync-task-leak-oom-LOGIC-MAP.md` (the
+> 2026-09-30 asyncio task-leak OOM cause — pods kept OOMKilling after THIS fix
+> shipped because that was a second, independent driver). This map covers the
+> **read path that kills pods** — a distinct root cause from the others.
 
 ---
 
