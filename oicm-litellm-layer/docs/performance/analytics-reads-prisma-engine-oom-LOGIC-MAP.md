@@ -3,7 +3,7 @@
 > **Technique**: [Logic Mapping](../techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. Phase 1 (Trace) + Phase 2 (Test) complete;
 > live-verified against prod (`adeo-litellm`, 2026-09-15). Evidence files in
-> [`live-data/`](./live-data/).
+> [`live-data/README.md`](live-data/README.md).
 >
 > Companion docs: `retention-flags-and-oom-LOGIC-MAP-v2.md` (09-08 DB-incident
 > OOM), `spend-logs-ram-and-model-performance-LOGIC-MAP.md` (write path + known

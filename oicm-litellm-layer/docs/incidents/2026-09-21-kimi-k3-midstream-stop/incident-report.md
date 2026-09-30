@@ -82,10 +82,11 @@ request because the cancel path from HTTP-connection-lost to inference
 abort is not wired through. Both sides think the other is fine.
 
 **Instrumentation trail (live now on dev):**
-- [litellm/litellm_core_utils/stream_tracer.py](litellm/litellm_core_utils/stream_tracer.py)
+- `litellm/litellm_core_utils/stream_tracer.py` (in the co-located litellm
+  source tree, `../../` relative to this layer)
   writes JSON Lines to `${LITELLM_STREAM_TRACE_PATH}` with per-chunk
   timing. Toggle via env vars; default OFF.
-- [litellm/litellm_core_utils/streaming_handler.py](litellm/litellm_core_utils/streaming_handler.py)
+- `litellm/litellm_core_utils/streaming_handler.py`
   hooks the `CustomStreamWrapper.__anext__` chokepoint so every
   hosted_vllm/OpenAI/Anthropic stream is traced.
 

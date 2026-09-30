@@ -86,17 +86,26 @@ nav:
   - Home: index.md
   - Structure: structure.md
   - Credentials & Secrets: credentials.md
+  - Incidents:
+      - Postgres Disk Full (2026-09-08): incidents/2026-09-08-postgres-disk-full/incident-report.md
+      - Postgres Disk Full (2026-09-08) — Executive Summary: incidents/2026-09-08-postgres-disk-full/executive-summary.md
+      - Postgres Disk Full (2026-09-08) — Resolutions: incidents/2026-09-08-postgres-disk-full/resolutions.md
+      - Kimi-K3 Mid-Stream Stop (2026-09-21): incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md
+      - Spend-Log Cleanup Not Running (2026-09-21): incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
   - Components:
       - Discovery Controller: components/controller.md
       - Config: components/config.md
       - Hooks: components/hooks.md
       - Custom Routes: components/custom-routes.md
+      - Custom Routes — Clone Logic Map: custom-routes-plans/CLONE-LOGIC-MAP.md
+      - Custom Routes — VSA Plan: custom-routes-plans/VSA-PLAN.md
       - Patches: components/patches.md
       - OICM Custom Code (Vertical Slices): oicm-slices.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
       - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
+      - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
@@ -116,8 +125,14 @@ nav:
       - Priority Queue Evidence: htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
       - Priority Queue Results Summary: htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
       - Priority Behaviour: htb-rate-limiting/priority_behaviour.md
+      - Lua Window-Value Bug — Live Validation Artifacts: htb-rate-limiting/live-data/README.md
   - Performance:
       - Executive Summary: performance/executive-summary.md
+      - Analytics Reads -> Prisma Engine OOM — Logic Map: performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
+      - Analytics Evidence (live-data): performance/live-data/README.md
+      - Spend-Log Retention Flags + OOM — Logic Map v2: performance/retention-flags-and-oom-LOGIC-MAP-v2.md
+      - Spend Logs + RAM + Model Performance — Logic Map: performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md
+      - Routing-Strategy Sync-Task Leak -> OOM — Logic Map: performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
       - Model Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
@@ -125,9 +140,8 @@ nav:
       - Before Optimization: performance/before-optimization.md
       - After Optimization: performance/after-optimization.md
       - Before/After Correct Configuration: performance/before-after-correct-configuration.md
-      - Analytics Reads -> Prisma Engine OOM — Logic Map: performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
-      - Routing-Strategy Sync-Task Leak -> OOM — Logic Map: performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
-  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
+  - Reports:
+      - ADEOGPT Model Performance (7d): reports/ADEOGPT-MODEL-PERFORMANCE.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
@@ -140,6 +154,7 @@ nav:
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
       - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
+      - Gateway Field-Drop Investigation: custom-providers/gateway-field-drop-investigation.md
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
       - HAMSA STT & TTS Guide: usage-guides/HAMSA_STT_TTS_GUIDE.md
@@ -147,6 +162,7 @@ nav:
       - Inception TTS/STT Guide: usage-guides/INCEPTION_TTS_STT_GUIDE.md
       - OmniVoice TTS Guide: usage-guides/OMNIVOICE_TTS_GUIDE.md
       - Qwen Vision Guide: usage-guides/QWEN_VISION_GUIDE.md
+      - VibeVoice ASR Guide: usage-guides/VIBEVOICE_ASR_GUIDE.md
   - Dashboard & Planning:
       - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
       - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md
@@ -157,6 +173,7 @@ nav:
   - Discovery Controller:
       - README: discovery-controller/README.md
       - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
+  - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Model Pricing:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
       - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
@@ -167,4 +184,5 @@ nav:
       - Feasibility Study: oicm-status/OICM-STATUS-FEASIBILITY.md
       - Feasibility Answers: oicm-status/FEASIBILITY-ANSWERS.md
       - Implementation Checklist: oicm-status/IMPLEMENTATION-CHECKLIST.md
+      - OICM Write Access Blocked (403): oicm-write-access-blocked.md
   - Docs Map: docs-map.md

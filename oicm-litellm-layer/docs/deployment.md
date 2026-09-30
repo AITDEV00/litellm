@@ -9,16 +9,26 @@ Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rol
 
 | Manifest | Resources | Applies to |
 |----------|-----------|-----------|
-| `deploy/prod/litellm-proxy.yaml` | Deployment `litellm-proxy`, Secret `litellm-master-key`, Secret `litellm-db-credentials`, ConfigMap `litellm-config`, ConfigMap `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `mlops` |
-| `deploy/prod/discovery-controller.yaml` | Deployment `oicm-discovery-controller` + RBAC + ServiceAccount | `mlops` |
-| `deploy/prod/litellm-redis.yaml` | Redis StatefulSet | `mlops` |
-| `deploy/prod/litellm-ingress.yaml` | Ingress | `mlops` |
-| `deploy/prod/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `mlops` |
-| `deploy/dev/litellm-proxy-dev.yaml` | Dev variant of the proxy (extended logs, `--reload`) | `mlops` |
-| `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `mlops` |
-| `deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml` | Rollback manifest pinned to image `jya0-v1.97.0` (newest) | `mlops` |
-| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `jya0-v1.96.2` | `mlops` |
-| `deploy/rollback/litellm-proxy-rollback-key.yaml` | Secret for rollback apply | `mlops` |
+| `deploy/prod/litellm-proxy.yaml` | Deployment `litellm-proxy`, Secret `litellm-master-key`, Secret `litellm-db-credentials`, ConfigMap `litellm-config`, ConfigMap `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `adeo-litellm` |
+| `deploy/prod/discovery-controller.yaml` | Deployment `oicm-discovery-controller` + RBAC + ServiceAccount | `adeo-litellm` (+ ClusterRole bindings reaching `adeo`) |
+| `deploy/prod/litellm-redis.yaml` | Redis StatefulSet | `redis` |
+| `deploy/prod/litellm-ingress.yaml` | Ingress | `adeo-litellm` |
+| `deploy/prod/litellm-servicemonitor.yaml` | Prometheus ServiceMonitor | `adeo-litellm` |
+| `deploy/prod/litellm-network-policy-to-adeo.yaml` | NetworkPolicy (controller -> `adeo` namespace) | `adeo` |
+| `deploy/prod/litellm-postgres-cluster.yaml` | CNPG Postgres cluster | `adeo-litellm` |
+| `deploy/prod/litellm-postgres-recovery.yaml` | Postgres recovery resources | `adeo-litellm` |
+| `deploy/prod/old-postgres-pvcs.yaml` | Old Postgres PVCs (recovery leftovers) | `adeo-litellm` |
+| `deploy/prod/spend-logs-janitor/` | Spend-logs janitor CronJob + PVC + scripts | `adeo-litellm` |
+| `deploy/dev/litellm-proxy-dev.yaml` | Dev variant of the proxy (extended logs, `--reload`) | `adeo-litellm` |
+| `deploy/dev/litellm-config-dev.yaml` | Dev ConfigMap (separate from prod so config changes are testable on dev) | `adeo-litellm` |
+| `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `adeo-litellm` |
+| `deploy/dev/litellm-postgres-dev-cluster.yaml` | Dev Postgres cluster | `adeo-litellm` |
+| `deploy/dev/litellm-servicemonitor-dev.yaml` | Dev ServiceMonitor | `adeo-litellm` |
+| `deploy/dev/spend-logs-janitor/` | Dev janitor (adds README) | `adeo-litellm` |
+| `deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml` | Rollback manifest pinned to image `jya0-v1.97.0` (newest) | `adeo-litellm` |
+| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `jya0-v1.96.2` | `adeo-litellm` |
+| `deploy/rollback/litellm-proxy-rollback-key.yaml` | Secret for rollback apply | `adeo-litellm` |
+| `deploy/rollback/discovery-controller-rollback-key.yaml` | Secret for controller rollback apply | `adeo-litellm` |
 
 ## Apply
 
@@ -41,10 +51,10 @@ change a Secret value, **you must restart the Deployment** for running pods to
 pick up the new value. Kubernetes does not auto-restart on secret change.
 
 ```bash
-kubectl -n mlops rollout restart deployment/litellm-proxy
-kubectl -n mlops rollout restart deployment/oicm-discovery-controller
-kubectl -n mlops rollout status deployment/litellm-proxy
-kubectl -n mlops rollout status deployment/oicm-discovery-controller
+kubectl -n adeo-litellm rollout restart deployment/litellm-proxy
+kubectl -n adeo-litellm rollout restart deployment/oicm-discovery-controller
+kubectl -n adeo-litellm rollout status deployment/litellm-proxy
+kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller
 ```
 
 !!! danger "Rotating the master key breaks both"

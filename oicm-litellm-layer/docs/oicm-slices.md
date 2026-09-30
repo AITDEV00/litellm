@@ -161,7 +161,7 @@ checks in `tests/test_litellm/ocr/`.
 JSONL writer (env-gated via `LITELLM_STREAM_TRACE_PATH`) recording
 start/first_chunk/chunk/end with TTFC and per-chunk gaps, wired into
 `CustomStreamWrapper`. Added after the v1.99.1 merge for the Kimi-K3 mid-stream
-investigation; see `incidents/2026-09-21-kimi-k3-midstream-stop/` for usage and
+investigation; see `docs/incidents/2026-09-21-kimi-k3-midstream-stop/` for usage and
 caveats.
 
 ---

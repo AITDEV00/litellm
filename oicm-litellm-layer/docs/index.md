@@ -30,8 +30,6 @@ oicm-litellm-layer/
 ├── controller/         ← discovery controller (component #1)
 ├── config/             ← LiteLLM proxy configs
 ├── hooks/              ← LiteLLM callbacks / hooks (components #3, #4)
-├── custom-routes/      ← custom route plugins
-├── patches/            ← fork patches against upstream litellm
 ├── deploy/             ← Kubernetes manifests (apply these)
 └── ...                 ← full map on the Structure page
 ```

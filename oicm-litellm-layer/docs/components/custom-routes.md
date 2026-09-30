@@ -7,8 +7,8 @@ pass-through / custom route extension points.
 
 | File | Purpose |
 |------|---------|
-| `custom-routes/CLONE-LOGIC-MAP.md` | Logic map of cloned routes |
-| `custom-routes/VSA-PLAN.md` | Vertical-slice architecture plan for custom routes |
+| `docs/custom-routes-plans/CLONE-LOGIC-MAP.md` | Logic map of cloned routes |
+| `docs/custom-routes-plans/VSA-PLAN.md` | Vertical-slice architecture plan for custom routes |
 
 ## Docs
 

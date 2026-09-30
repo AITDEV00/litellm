@@ -88,20 +88,22 @@ applies. See `docs/components/patches.md`.
 ├── CHANGELOG.md           release history
 ├── controller/            discovery controller source (component #1)
 ├── hooks/                 LiteLLM proxy plugins (components #3, #4)
-├── patches/               retired fork patches (see docs/components/patches.md)
-├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress)
+├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress, postgres)
 ├── decor/                 UI assets (logos, favicon)
 ├── examples/              usage examples
-├── scripts/               helper scripts (htb_test, etc.)
+├── scripts/               helper scripts (htb_test, onboarding bundles, etc.)
 ├── benchmarks/            benchmark scripts (bench_2replicas, bench_after, bench_final, bench_minimax_vision)
+├── tests/                 controller + hooks tests
 └── docs/
     ├── admin-api/             LiteLLM proxy admin REST API reference
+    ├── custom-routes-plans/   custom-route logic map + VSA plan
     ├── htb-rate-limiting/     HTB priority-based rate limiting design and behaviour
-    ├── performance/           gateway performance reports (before/after optimization)
+    ├── incidents/             dated incident reports
+    ├── performance/           gateway performance + OOM logic maps (before/after optimization)
     ├── dashboard-plan/        dashboard extension proposal (concurrency, top consumers)
     ├── techniques/            reusable analysis techniques (logic mapping, code smells)
     ├── runbooks/              operational runbooks (datasource validation, mkdocs setup)
     ├── cache-invalidation/    cache invalidation design + testing
     ├── architecture/          integration-layer implementation plan
-    └── ...                    full map on docs/docs-map.md
+    └── ...                    full map on docs/structure.md and docs/docs-map.md
 ```

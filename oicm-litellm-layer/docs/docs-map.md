@@ -31,6 +31,14 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Implementation checklist | `docs/oicm-status/IMPLEMENTATION-CHECKLIST.md` |
 | Write-access blocker (resolved) | `docs/oicm-write-access-blocked.md` |
 
+## Incidents
+
+| Doc | Location |
+|-----|----------|
+| Postgres disk-full (2026-09-08) | `docs/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions) |
+| Kimi-K3 mid-stream stop (2026-09-21) | `docs/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md` |
+| Spend-log cleanup not running (2026-09-21) | `docs/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md` |
+
 ## Admin API
 
 | Doc | Location |
@@ -83,6 +91,24 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Executive summary | `docs/performance/executive-summary.md` |
 | Before / after | `docs/performance/before-optimization.md`, `after-optimization.md` |
 | Perf recovery / session notes | `docs/performance/model-performance-perf-recovery.md` |
+| Analytics reads -> prisma engine OOM logic map | `docs/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md` |
+| Prisma OOM live-data evidence | `docs/performance/live-data/` (README indexes the artifacts) |
+| Retention flags + OOM logic map v2 | `docs/performance/retention-flags-and-oom-LOGIC-MAP-v2.md` |
+| Spend logs + RAM logic map | `docs/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md` |
+| Routing-strategy sync-task leak OOM logic map | `docs/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md` |
+
+## Custom routes
+
+| Doc | Location |
+|-----|----------|
+| Clone route logic map | `docs/custom-routes-plans/CLONE-LOGIC-MAP.md` |
+| Missing-routes VSA plan | `docs/custom-routes-plans/VSA-PLAN.md` |
+
+## Session identity
+
+| Doc | Location |
+|-----|----------|
+| Session-id resolver implementation plan | `docs/session-identity/IMPLEMENTATION-PLAN.md` |
 
 ## Techniques
 

@@ -9,10 +9,14 @@ to open to edit a given thing.
 ```
 oicm-litellm-layer/
 ├── README.md               ← project overview + architecture diagram
-├── CHANGELOG.md            ← change history
+├── CHANGELOG.md            ← change history (newest first)
+├── CLAUDE.md               ← layer coding guidelines (docs nav rules)
 ├── Makefile                ← build/push/deploy targets
-├── pyproject.toml          ← Python project config
-├── mkdocs.yml              ← THIS documentation site's config
+├── pyproject.toml          ← Python project config (oicm-discovery entry point)
+├── mkdocs.yml              ← THIS documentation site's config (nav = registry)
+├── requirements-docs.txt   ← docs-site build deps (mkdocs + material)
+├── Dockerfile.dev          ← local dev container
+├── docker-compose.dev.yml  ← local dev stack
 ├── .python-version
 ├── .env.datasource         ← local datasource env (see example)
 ├── .env.datasource.example
@@ -32,9 +36,11 @@ oicm-litellm-layer/
 │   │   └── submariner_imports.py
 │   ├── fallbacks/          ← fallback service
 │   │   ├── client.py  service.py
-│   └── pricing/            ← model pricing resolution
-│       ├── aggregator.py  matchers.py  models.py  normalizer.py
-│       ├── resolver.py  source.py  utils.py
+│   ├── pricing/            ← model pricing resolution
+│   │   ├── aggregator.py  matchers.py  models.py  normalizer.py
+│   │   ├── resolver.py  source.py  utils.py
+│   └── status/             ← OICM status → LiteLLM status mapping
+│       ├── base.py  builder.py  models.py  oicm.py
 │
 ├── config/                 ← component #5: LiteLLM PROXY CONFIG
 │   ├── litellm_config.yaml   ← production config (deployed as ConfigMap)
@@ -48,35 +54,38 @@ oicm-litellm-layer/
 │   ├── priority_bridge.py      ← HTB priority bridge
 │   └── __init__.py
 │
-├── custom-routes/          ← custom route plugins
-│   ├── CLONE-LOGIC-MAP.md
-│   └── VSA-PLAN.md
-│
-├── patches/                ← retired fork patches (see docs/components/patches.md)
-│   └── embedding-extra-body.patch
-│
 ├── decor/                  ← images/assets (logo, favicon)
 │
 ├── deploy/                 ← KUBERNETES MANIFESTS (grouped by environment)
 │   ├── prod/                          ← production manifests (apply these)
-│   │   ├── litellm-proxy.yaml              ← proxy Deployment + Secret + ConfigMap + Service + PDB
-│   │   ├── discovery-controller.yaml       ← controller Deployment + RBAC + ServiceAccount
+│   │   ├── litellm-proxy.yaml              ← proxy Deployment + Secrets +
+│   │   │                                      ConfigMaps + Service + PDB
+│   │   ├── discovery-controller.yaml       ← controller Deployment + RBAC + SA
 │   │   ├── litellm-redis.yaml              ← Redis StatefulSet
 │   │   ├── litellm-ingress.yaml            ← ingress
-│   │   └── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
-│   ├── dev/                           ← dev/profiling variants (see debug_pod technique)
-│   │   ├── litellm-proxy-dev.yaml        ← dev proxy variant
-│   │   └── discovery-controller-dev.yaml ← dev (read-only) controller variant
-│   └── rollback/                      ← rollback manifests pinned to specific versions
+│   │   ├── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
+│   │   ├── litellm-network-policy-to-adeo.yaml
+│   │   ├── litellm-postgres-cluster.yaml
+│   │   ├── litellm-postgres-recovery.yaml
+│   │   ├── old-postgres-pvcs.yaml
+│   │   └── spend-logs-janitor/             ← CronJob + PVC + scripts/sql
+│   ├── dev/                           ← dev variants (proxy, controller,
+│   │   │                                  config, postgres, servicemonitor,
+│   │   │                                  + spend-logs-janitor/)
+│   └── rollback/                      ← rollback manifests pinned to versions
 │       ├── litellm-proxy-rollback-jya0-v1.97.0.yaml ← pinned to image jya0-v1.97.0
-│       └── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2
+│       ├── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2
+│       ├── litellm-proxy-rollback-key.yaml ← Secret for rollback apply
+│       └── discovery-controller-rollback-key.yaml
 │
-├── docs/                   ← human/agent documentation (this site + existing)
-│   ├── index.md            ← THIS page (mkdocs home)
+├── docs/                   ← ALL documentation (this site; mkdocs.yml nav is the
+│   │                          registry — every .md must appear in nav)
+│   ├── index.md            ← mkdocs home (quick navigator)
 │   ├── structure.md
 │   ├── credentials.md
 │   ├── deployment.md
 │   ├── docs-map.md
+│   ├── oicm-slices.md
 │   ├── components/
 │   │   ├── controller.md
 │   │   ├── config.md
@@ -85,13 +94,17 @@ oicm-litellm-layer/
 │   │   └── patches.md
 │   ├── admin-api/          ← LiteLLM admin REST API guides
 │   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
+│   ├── custom-routes-plans/ ← custom-route logic map + VSA implementation plan
 │   ├── dashboard-plan/     ← dashboard/frontend analysis
 │   ├── discovery-controller/
-│   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue
+│   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue (+ live-data/ artifacts)
+│   ├── incidents/          ← dated incident reports (one dir per incident)
 │   ├── model-pricing/      ← pricing logic maps
-│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen)
-│   ├── performance/        ← performance before/after + session recovery notes
+│   ├── oicm-status/        ← status-API feasibility + evidence artifacts
+│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen, VibeVoice)
+│   ├── performance/        ← performance before/after + OOM logic maps (+ live-data/ evidence)
 │   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
+│   ├── session-identity/   ← session-id resolver implementation plan
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)
 │   ├── architecture/       ← integration-layer implementation plan
@@ -111,8 +124,17 @@ oicm-litellm-layer/
 ├── scripts/                ← helper scripts
 │   ├── get_master_key.py       ← prints the master key from deploy/prod/litellm-proxy.yaml (single source)
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
-│   ├── htb_test.py  htb_test_v2.py
-│   └── port-forward-datasources.sh
+│   ├── port-forward-datasources.sh ← datasource local-validation port-forwards
+│   ├── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
+│   ├── htb_test.py  htb_test_v2.py ← HTB limiter live tests
+│   ├── backfill_hosted_vllm_spend.py  ← spend backfill after model onboarding
+│   ├── rebuild_daily_spend_rollups.py ← daily-spend rollup rebuild
+│   ├── add_model_if_has_refs.sh ← add model only if price refs exist
+│   ├── remove_dangling_model_refs.sh ← clean dangling model references
+│   ├── probe_oicm_status_api.py ← OICM status API probe
+│   ├── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
+│   ├── vllm-0.20.0-no-work/ ← same bundle, no-work variant
+│   └── model-server-onboarding-no-work/ ← generic onboarding bundle
 │
 ├── benchmarks/             ← benchmark scripts
 │   ├── bench_after.py  bench_final.py  bench_2replicas.py  bench_minimax_vision.py
@@ -131,6 +153,11 @@ oicm-litellm-layer/
 │   │   └── pricing/        ← pricing tests
 │   └── hooks/
 │       └── test_priority_bridge.py
+│
+└── downloaded_sources/     ← git-ignored; pinned upstream source trees kept
+                               locally for reference (litellm_v1.102.0,
+                               vllm_router_pr217, sglang_reference,
+                               llmd_issue1980_pr14)
 ```
 
 ## What maps to what task
@@ -142,10 +169,11 @@ oicm-litellm-layer/
 | Edit controller env defaults | `controller/config.py` |
 | Edit LiteLLM proxy settings | `config/litellm_config.yaml` |
 | Add/edit a callback hook | `hooks/*.py` |
-| Add a custom route | `custom-routes/` |
+| Review a custom-route plan | `docs/custom-routes-plans/*` (implementation code lives in the litellm source tree per the VSA plan) |
 | Deploy / apply / rollout | `deploy/*.yaml` (see `docs/deployment.md`) |
 | Apply an upstream patch | none active (see `docs/components/patches.md`) |
 | Run local proxy | `config/local_dev.yaml` via `Makefile` |
 | Generate / serve mock model data | `mock-data/` |
 | Apply the wildcard TLS cert | `docs/SSL/` runbooks + scripts |
 | Find a doc | `docs/docs-map.md` |
+| Read an incident report | `docs/incidents/<date>-<slug>/` |
