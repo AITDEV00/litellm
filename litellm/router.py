@@ -1331,6 +1331,10 @@ class Router:
             litellm.callbacks = [c for c in litellm.callbacks if id(c) not in selector_ids]
         if isinstance(litellm.input_callback, list):
             litellm.input_callback = [c for c in litellm.input_callback if id(c) not in selector_ids]
+        for selector in selectors:
+            dispose = getattr(selector, "dispose", None)
+            if dispose is not None:
+                dispose()
 
     def _apply_updated_routing_strategy_args(self) -> None:
         """
@@ -2314,6 +2318,9 @@ class Router:
                 litellm.logging_callback_manager.remove_callback_from_list_by_object(
                     litellm.callbacks, cb, require_self=False
                 )
+                dispose: Final = getattr(cb, "dispose", None)
+                if dispose is not None:
+                    dispose()
 
     def print_deployment(self, deployment: dict):
         """
@@ -12201,7 +12208,11 @@ class Router:
                                 )
                             rebuild_routing_groups = True
                     elif var == "routing_strategy_args":
-                        routing_args_updated = True
+                        # DB-stored router_settings always carries this key, so a
+                        # no-op reconcile would otherwise rebuild the selector and
+                        # spawn a fresh sync task on every config sync. Only a real
+                        # change may rebuild.
+                        routing_args_updated = value != self.routing_strategy_args
                     setattr(self, var, value)
             else:
                 verbose_router_logger.debug("Setting %s is not allowed", var)

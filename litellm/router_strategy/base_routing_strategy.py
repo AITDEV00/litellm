@@ -10,7 +10,7 @@ from typing import Final
 from litellm._logging import verbose_router_logger
 from litellm.caching.caching import DualCache
 from litellm.caching.redis_cache import RedisPipelineIncrementOperation, log_redis_failure
-from litellm.constants import DEFAULT_REDIS_SYNC_INTERVAL
+from litellm.constants import DEFAULT_REDIS_SYNC_INTERVAL, ROUTING_STRATEGY_IN_MEMORY_KEYS_MAX
 
 
 class BaseRoutingStrategy(ABC):
@@ -42,12 +42,29 @@ class BaseRoutingStrategy(ABC):
 
     async def cleanup(self):
         """Cleanup method to be called when shutting down"""
-        if self._sync_task is not None:
-            self._sync_task.cancel()
+        task: asyncio.Task[None] | None = self._sync_task
+        self._sync_task = None
+        if task is not None:
+            task.cancel()
             try:
-                await self._sync_task
+                await task
             except asyncio.CancelledError:
                 pass
+
+    def dispose(self) -> None:
+        """Stop this strategy's periodic sync task without awaiting it.
+
+        Called when a routing-strategy selector is replaced (routing strategy
+        change, args update, routing-group rebuild). The task's ``while True``
+        loop runs forever otherwise, so the selector and everything it pins
+        (DualCache, increment queue, key set) leak on every rebuild. Cancellation
+        suffices: CancelledError is a BaseException, so it escapes the loop's
+        ``except Exception`` and the task ends at its next await.
+        """
+        task: asyncio.Task[None] | None = self._sync_task
+        self._sync_task = None
+        if task is not None and not task.done():
+            task.cancel()
 
     async def _increment_value_list_in_current_window(
         self, increment_list: list[tuple[str, int]], ttl: int
@@ -152,6 +169,8 @@ class BaseRoutingStrategy(ABC):
             self.redis_increment_operation_queue = []
 
     def add_to_in_memory_keys_to_update(self, key: str):
+        if len(self.in_memory_keys_to_update) >= ROUTING_STRATEGY_IN_MEMORY_KEYS_MAX:
+            return
         self.in_memory_keys_to_update.add(key)
 
     def get_key_pattern_to_sync(self) -> str | None:
@@ -191,10 +210,7 @@ class BaseRoutingStrategy(ABC):
                 return
 
             # 2. Fetch all current provider spend from Redis to update in-memory cache
-            cache_keys: Final = (
-                self.get_in_memory_keys_to_update()
-            )  # if no pattern OR redis cache does not support scan_iter, use in-memory keys
-
+            cache_keys: Final = self.get_in_memory_keys_to_update()
             cache_keys_list: Final = list(cache_keys)
 
             # 1. Snapshot in-memory before
@@ -226,6 +242,14 @@ class BaseRoutingStrategy(ABC):
                 #     os._exit(1)
                 #     raise Exception(f"Redis is behind in-memory cache for key: {key}. This should not happen, since we should be updating redis with in-memory cache.")
                 await self.dual_cache.in_memory_cache.async_set_cache(key=key, value=merged)
+
+            # 4. Difference out what this pass synced: keys added concurrently
+            # while it ran, and every key of a failed pass, stay for the next
+            # tick. Without this the set never shrank, so per-minute rpm/tpm keys
+            # accumulated for the life of the selector and every 0.1s tick
+            # re-read the entire history.
+            synced: Final = frozenset(cache_keys_list)
+            self.in_memory_keys_to_update = set(self.in_memory_keys_to_update) - synced
 
         except Exception as e:
             verbose_router_logger.exception("Error syncing in-memory cache with Redis: %s", e)

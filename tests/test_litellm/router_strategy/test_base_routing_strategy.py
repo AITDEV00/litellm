@@ -128,8 +128,10 @@ async def test_sync_in_memory_spend_with_redis(base_strategy, mock_dual_cache):
         for call in set_cache_calls
     )
 
-    # Verify cache keys still exist
-    assert len(base_strategy.in_memory_keys_to_update) == 1
+    # A successful sync consumes the pending keys: the next tick must start from
+    # an empty set instead of re-reading (and eventually only re-reading) every
+    # key ever touched. Keys survive only when the sync raises.
+    assert len(base_strategy.in_memory_keys_to_update) == 0
 
 
 @pytest.mark.asyncio
@@ -162,3 +164,88 @@ async def test_push_refused_by_the_open_circuit_breaker_is_not_logged_as_an_erro
 
     assert caplog.records == []
     assert base_strategy.redis_increment_operation_queue == []
+
+
+def _sync_task_count() -> int:
+    return sum(
+        1
+        for task in asyncio.all_tasks()
+        if task.get_coro().__qualname__ == "BaseRoutingStrategy.periodic_sync_in_memory_spend_with_redis"
+    )
+
+
+async def _wait_until(predicate, timeout: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, "condition not reached before timeout"
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_replacing_a_batching_strategy_stops_its_sync_task(mock_dual_cache):
+    """Selector rebuilds must not strand the previous selector's sync task.
+
+    Reproduces the prod OOM chain: every routing_strategy_args reconcile built a
+    new LowestTPMLoggingHandler_v2 and left the old one's ``while True`` sync
+    task running forever, accumulating ~3.2 immortal tasks/minute/worker until
+    the pod OOMKilled (1126 live tasks observed in prod).
+    """
+    from litellm.router_strategy.lowest_tpm_rpm_v2 import LowestTPMLoggingHandler_v2
+
+    first = LowestTPMLoggingHandler_v2(router_cache=mock_dual_cache, routing_args={})
+    await _wait_until(lambda: _sync_task_count() == 1)
+
+    first.dispose()
+
+    await _wait_until(lambda: _sync_task_count() == 0)
+    assert first._sync_task is None
+
+    # dispose() is idempotent and safe on a fresh strategy with no task
+    first.dispose()
+    replacement = LowestTPMLoggingHandler_v2(router_cache=mock_dual_cache, routing_args={})
+    replacement.dispose()
+    await _wait_until(lambda: _sync_task_count() == 0)
+
+
+@pytest.mark.asyncio
+async def test_key_set_survives_failed_sync_and_caps_at_limit(mock_dual_cache):
+    """Keys must survive a raising sync (retry next tick) but never grow unboundedly.
+
+    The old sync read the non-resetting key set, so per-minute rpm/tpm keys
+    accumulated for the life of the selector; the cap bounds the Redis-down
+    window where every tick raises and the set can never drain.
+    """
+    from litellm.constants import ROUTING_STRATEGY_IN_MEMORY_KEYS_MAX
+
+    strategy = BaseRoutingStrategy(
+        dual_cache=mock_dual_cache,
+        should_batch_redis_writes=False,
+        default_sync_interval=1,
+    )
+    strategy.in_memory_keys_to_update = {"key1"}
+
+    mock_dual_cache.in_memory_cache.async_batch_get_cache.side_effect = RuntimeError("redis down")
+    # the sync swallows its own exceptions (logs them); the point is the keys
+    # it had NOT yet flushed survive for the next tick
+    await strategy._sync_in_memory_spend_with_redis()
+    assert "key1" in strategy.in_memory_keys_to_update
+
+    for i in range(ROUTING_STRATEGY_IN_MEMORY_KEYS_MAX + 5):
+        strategy.add_to_in_memory_keys_to_update(f"key{i}")
+    assert len(strategy.in_memory_keys_to_update) <= ROUTING_STRATEGY_IN_MEMORY_KEYS_MAX
+
+
+@pytest.mark.asyncio
+async def test_cleanup_disposes_the_sync_task(mock_dual_cache):
+    """The pre-existing shutdown path must still work alongside dispose()."""
+    strategy = BaseRoutingStrategy(
+        dual_cache=mock_dual_cache,
+        should_batch_redis_writes=True,
+        default_sync_interval=1,
+    )
+    await _wait_until(lambda: _sync_task_count() == 1)
+
+    await strategy.cleanup()
+
+    await _wait_until(lambda: _sync_task_count() == 0)
+    assert strategy._sync_task is None

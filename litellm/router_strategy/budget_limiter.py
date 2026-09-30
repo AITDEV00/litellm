@@ -109,7 +109,9 @@ class RouterBudgetLimiting(CustomLogger):
     ):
         self.dual_cache = dual_cache
         self.redis_increment_operation_queue: list[RedisPipelineIncrementOperation] = []
-        asyncio.create_task(self.periodic_sync_in_memory_spend_with_redis())
+        self._sync_task: asyncio.Task[None] | None = asyncio.create_task(
+            self.periodic_sync_in_memory_spend_with_redis()
+        )
         self.provider_budget_config: GenericBudgetConfigType | None = provider_budget_config
         self.deployment_budget_config: GenericBudgetConfigType | None = None
         self.tag_budget_config: GenericBudgetConfigType | None = None
@@ -120,6 +122,20 @@ class RouterBudgetLimiting(CustomLogger):
         # Add self to litellm callbacks if it's a list
         if isinstance(litellm.callbacks, list):
             litellm.logging_callback_manager.add_litellm_callback(self)
+
+    def dispose(self) -> None:
+        """Stop this limiter's periodic sync task without awaiting it.
+
+        Called when the limiter is dropped from every live router's callbacks;
+        without this the ``while True`` sync task outlives the limiter and pins
+        its DualCache and increment queue forever. Cancellation suffices:
+        CancelledError is a BaseException, so it escapes the loop's
+        ``except Exception`` and the task ends at its next await.
+        """
+        task: asyncio.Task[None] | None = self._sync_task
+        self._sync_task = None
+        if task is not None and not task.done():
+            task.cancel()
 
     async def async_filter_deployments(
         self,
