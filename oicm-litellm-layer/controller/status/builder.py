@@ -11,15 +11,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, TypeVar
 
-from ..status.models import (
-    DeploymentStatus,
-    OicmDeployment,
-    OicmDeploymentHealth,
-    OicmStatusSnapshot,
-    OicmWorkloadRun,
-    WorkloadStatus,
-    is_deployment_available,
-)
+from .availability import is_deployment_available
+from .snapshot import DeploymentStatus, OicmStatusSnapshot, WorkloadStatus
+from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
 
 _E = TypeVar("_E", bound=Enum)
 
@@ -31,6 +25,19 @@ def _enum_or_none(enum_cls: type[_E], value: Optional[str]) -> Optional[_E]:
         return enum_cls(value)
     except ValueError:
         return None
+
+
+def _serving_available(
+    source_status: Optional[DeploymentStatus],
+    workload_run: Optional[OicmWorkloadRun],
+) -> Optional[bool]:
+    # Terminal non-serving state: definitively not available, regardless of
+    # whether a (deleted/completed) run with status_detail still exists.
+    if source_status in (DeploymentStatus.STOPPED, DeploymentStatus.FAILED):
+        return False
+    if workload_run is None:
+        return None
+    return is_deployment_available(workload_run.status_detail)
 
 
 def build_snapshot(
@@ -51,23 +58,6 @@ def build_snapshot(
         WorkloadStatus, workload_run.workload_status if workload_run else None
     )
 
-    available_replicas = workload_run.ready_pod_count if workload_run else None
-
-    serving_available: Optional[bool] = None
-    if source_status in (DeploymentStatus.STOPPED, DeploymentStatus.FAILED):
-        # Terminal non-serving state: definitively not available, regardless of
-        # whether a (deleted/completed) run with status_detail still exists.
-        serving_available = False
-    elif workload_run is not None:
-        detail_dicts = tuple(e.model_dump() for e in workload_run.status_detail)
-        # Try the multi-node branch first (LeaderWorkerSet), then single-node
-        # (Pod). is_deployment_available with multinode=True only matches
-        # LeaderWorkerSet; with False it only matches Pods, so OR-ing both is
-        # correct for either topology without needing a topology flag.
-        serving_available = is_deployment_available(
-            detail_dicts, True
-        ) or is_deployment_available(detail_dicts, False)
-
     status_changed_at = previous.status_changed_at if previous else None
     if previous is None or previous.source_status != source_status:
         status_changed_at = observed
@@ -82,8 +72,8 @@ def build_snapshot(
         is_ready=health.is_ready if health else None,
         health_message=health.message if health else None,
         desired_replicas=deployment.replicas,
-        available_replicas=available_replicas,
-        serving_available=serving_available,
+        available_replicas=workload_run.ready_pod_count if workload_run else None,
+        serving_available=_serving_available(source_status, workload_run),
         error_msg=deployment.error_msg,
         source_version=deployment.version,
         source_updated_at=deployment.updated_at,

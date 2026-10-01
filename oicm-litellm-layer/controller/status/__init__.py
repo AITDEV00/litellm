@@ -1,15 +1,9 @@
+from .availability import is_deployment_available
 from .base import StatusSource
 from .builder import build_snapshot
-from .models import (
-    DeploymentStatus,
-    OicmDeployment,
-    OicmDeploymentHealth,
-    OicmStatusSnapshot,
-    OicmWorkloadRun,
-    WorkloadStatus,
-    is_deployment_available,
-)
 from .oicm import OicmStatusSource
+from .snapshot import DeploymentStatus, OicmStatusSnapshot, WorkloadStatus
+from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
 
 __all__ = [
     "DeploymentStatus",

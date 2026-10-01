@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from .models import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
 
 
 class StatusSource(ABC):

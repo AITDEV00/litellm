@@ -27,7 +27,7 @@ from ..config import (
     OICM_USERNAME,
 )
 from .base import StatusSource
-from .models import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
 
 logger = logging.getLogger("oicm-discovery")
 
