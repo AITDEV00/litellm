@@ -101,7 +101,7 @@ oicm-litellm-layer/
 │   ├── incidents/          ← dated incident reports (one dir per incident)
 │   ├── model-pricing/      ← pricing logic maps
 │   ├── oicm-status/        ← status-API feasibility + evidence artifacts
-│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen, VibeVoice)
+│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen, VibeVoice, reasoning control)
 │   ├── performance/        ← performance before/after + OOM logic maps (+ live-data/ evidence)
 │   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
 │   ├── session-identity/   ← session-id resolver implementation plan
@@ -132,6 +132,7 @@ oicm-litellm-layer/
 │   ├── add_model_if_has_refs.sh ← add model only if price refs exist
 │   ├── remove_dangling_model_refs.sh ← clean dangling model references
 │   ├── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
+│   ├── probe_reasoning.py ← cache-bypassing reasoning-control probe
 │   ├── probe_oicm_status_api.py ← OICM status API probe
 │   ├── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
 │   ├── vllm-0.20.0-no-work/ ← same bundle, no-work variant
