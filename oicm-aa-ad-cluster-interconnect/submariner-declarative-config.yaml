@@ -1,0 +1,150 @@
+# Submariner declarative config — everything that was applied out-of-band
+#
+# Every object and every Submariner CR field that this interconnect depends on is
+# captured here so it can be re-applied from source of truth, on either cluster,
+# instead of being "shadowed" by imperative kubectl/helm patch commands that the
+# runbooks describe (§7, §A) but that leave no trace in the repo.
+#
+# WHY THIS EXISTS
+# The Submariner operator only ever reconciles the Submariner CR and the objects
+# its Helm release owns. Several settings this deployment needs are NOT part of
+# the operator's reconcile loop:
+#
+#   * Submariner CR spec fields the operator reads once (brokerK8sInsecure,
+#     nodeSelector, tolerations, airGappedDeployment, globalCIDR). These survive
+#     operator restarts because they live in the CR, but a plain
+#     `helm upgrade --reuse-values` will NOT re-add them if they were ever
+#     patched in with `kubectl patch` and never written back to the Helm values.
+#   * Namespace-scoped RBAC for the globalnet pod, which the operator expects to
+#     already exist and does not create (§7d).
+#   * A Calico GlobalNetworkPolicy that lets cross-cluster packets through on
+#     Canal/Calico clusters (§7f, §A.5).
+#
+# The two Helm values files that reproduce the live CR exactly (so
+# `helm upgrade -f <file>` is idempotent and never reverts a patch) are checked
+# in alongside this file:
+#   * submariner-values-alain.yaml
+#   * submariner-values-abudhabi.yaml
+#
+# HOW TO APPLY
+# Per cluster, in order:
+#   1. helm upgrade submariner-operator submariner-operator-0.24.0.tgz \
+#        -n submariner-operator --reuse-values -f submariner-values-<cluster>.yaml
+#   2. kubectl apply -f submariner-declarative-config.yaml   (globalnet RBAC,
+#      Calico policy, UFW-independent objects)
+#   3. kubectl apply -f submariner-route-selfheal.yaml       (auto-heal watchdog)
+#   4. kubectl apply -f auto-export-adeo-services.yaml       (ServiceExport sync)
+#
+# Cluster differences are called out inline with # AL AIN: / # ABU DHABI: tags.
+# The Calico GlobalNetworkPolicy at the bottom applies ONLY to Abu Dhabi (Canal/
+# Calico); Al Ain runs Cilium and does not need it.
+---
+# ---------------------------------------------------------------------------
+# Globalnet RBAC (namespace-scoped) — §7d
+#
+# The operator schedules the submariner-globalnet pod under a ServiceAccount it
+# expects to exist. The upstream operator chart does not create the namespaced
+# Role/RoleBinding, so the globalnet pod CrashLoops with
+# `serviceaccount "submariner-globalnet" not found` until these are applied.
+# Identical on both clusters.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: submariner-globalnet
+  namespace: submariner-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: submariner-globalnet
+  namespace: submariner-operator
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [submariner.io]
+    resources: [gateways]
+    verbs: [get, list, watch, update]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: submariner-globalnet
+  namespace: submariner-operator
+subjects:
+  - kind: ServiceAccount
+    name: submariner-globalnet
+    namespace: submariner-operator
+roleRef:
+  kind: Role
+  name: submariner-globalnet
+  apiGroup: rbac.authorization.k8s.io
+---
+# Cluster-scoped half of the globalnet RBAC. Names identical to the namespaced
+# pair above, which is what the operator binds by name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: submariner-globalnet
+rules:
+  - apiGroups: [""]
+    resources: [nodes, services, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [update]
+  - apiGroups: [submariner.io]
+    resources: [clusterglobalegressips, globalegressips, globalingressips]
+    verbs: [get, list, watch, create, update, delete]
+  - apiGroups: [multicluster.x-k8s.io]
+    resources: [serviceexports]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: submariner-globalnet
+subjects:
+  - kind: ServiceAccount
+    name: submariner-globalnet
+    namespace: submariner-operator
+roleRef:
+  kind: ClusterRole
+  name: submariner-globalnet
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---------------------------------------------------------------------------
+# Calico GlobalNetworkPolicy — §7f, §A.5
+#
+# ABU DHABI ONLY. Abu Dhabi runs RKE2 with the Canal CNI, so Calico is the
+# dataplane policy engine and drops packets whose source is a globalnet CIDR by
+# default. This policy allows ingress from both clusters' globalnet CIDRs plus
+# the remote pod CIDR, so cross-cluster service traffic is not dropped.
+#
+# Al Ain runs Cilium and does NOT have this resource type; skip this object there.
+# ---------------------------------------------------------------------------
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-submariner-cross-cluster
+spec:
+  order: 100
+  selector: all()
+  types: [Ingress]
+  ingress:
+    - action: Allow
+      source:
+        nets:
+          - 242.0.0.0/24
+          - 242.0.1.0/24
+    - action: Allow
+      source:
+        nets:
+          - 10.42.0.0/16

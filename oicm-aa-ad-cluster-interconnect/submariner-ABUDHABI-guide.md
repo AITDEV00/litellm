@@ -428,14 +428,48 @@ them in the FORWARD chain.
 
 ## 11. Post-deployment hardening
 - **Rotate the broker token** (exposed in logs during debugging): delete + recreate `submariner-k8s-broker-client-token`.
-- **Persist out-of-Helm fixes**: the PSK, air-gapped flag, and globalnet RBAC were applied via patch/apply. Put PSK + air-gapped in your values file; re-apply globalnet RBAC after any `helm upgrade`.
-- **Calico GlobalNetworkPolicy**: the `allow-submariner-cross-cluster` policy (§7f) is applied
-  outside Helm. Re-apply after any Calico upgrade or cluster rebuild. Add it to a GitOps manifest
-  set for persistence.
+- **Config is now declarative — nothing is shadowed.** Every setting that was originally applied
+  with an imperative `kubectl patch` or ad-hoc `helm --set` is now checked in, so a rebuild never
+  depends on a command that left no trace:
+  - `submariner-values-alain.yaml` and `submariner-values-abudhabi.yaml` reproduce each cluster's
+    live Submariner CR for every field the operator chart can manage (broker CA/token, `insecure`,
+    PSK, `globalCidr`, cable driver, images). `helm upgrade --reuse-values -f <file>` is idempotent
+    and no longer silently reverts `brokerK8sInsecure` (Al Ain) or `globalCidr` (Abu Dhabi).
+  - `submariner-cr-overlay.yaml` carries the three fields the chart's CR template cannot set at all
+    (`airGappedDeployment`, `nodeSelector`, `tolerations`), as a merge patch applied after Helm.
+  - `submariner-declarative-config.yaml` carries the globalnet RBAC (§7d) and the Calico
+    GlobalNetworkPolicy (§7f) that were previously applied by hand.
+  - `submariner-route-selfheal.yaml` is the route self-heal watchdog, and
+    `auto-export-adeo-services.yaml` is the ServiceExport sync CronJob (§7i).
+- **Why a values file alone is not enough.** The `submariner-operator` chart builds the Submariner
+  CR from `submariner-operator/templates/submariner.yaml`, and that template has no
+  `airGappedDeployment`, `nodeSelector` or `tolerations` field. No Helm value can set them, so they
+  can only be patched onto the CR; `submariner-cr-overlay.yaml` is that patch, kept in git.
+- **Calico GlobalNetworkPolicy**: `submariner-declarative-config.yaml` now owns the
+  `allow-submariner-cross-cluster` policy (§7f). Re-apply that file after any Calico upgrade or
+  cluster rebuild instead of re-typing the policy.
 - **Auto-export CronJob** (§7i): runs every 1 minute to ensure all `adeo` services have
-  `ServiceExport` objects and cleans up orphans. Apply the manifest from
-  `auto-export-adeo-services.yaml` after any cluster rebuild.
+  `ServiceExport` objects and cleans up orphans. Apply `auto-export-adeo-services.yaml` after any
+  cluster rebuild.
 - Clean up any credential temp files and debug pods.
+
+### 11.1 Applying the declarative set (per cluster, in order)
+```bash
+# 1. Helm: reproduce the chart-managed CR fields
+helm upgrade submariner-operator submariner-operator-0.24.0.tgz \
+  -n submariner-operator --reuse-values -f submariner-values-<alain|abudhabi>.yaml
+
+# 2. CR overlay: the fields the chart cannot set
+kubectl -n submariner-operator patch submariner submariner \
+  --type merge --patch-file submariner-cr-overlay.yaml   # use the first doc for Al Ain, second for AD
+
+# 3. globalnet RBAC + Calico policy (skip the Calico policy on Al Ain / Cilium)
+kubectl apply -f submariner-declarative-config.yaml
+
+# 4. watchdog + service-export sync
+kubectl apply -f submariner-route-selfheal.yaml
+kubectl apply -f auto-export-adeo-services.yaml
+```
 
 ---
 

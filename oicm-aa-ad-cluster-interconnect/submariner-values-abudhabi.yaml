@@ -1,0 +1,48 @@
+# Helm values for the Abu Dhabi Submariner operator release.
+#
+# This is the source of truth for the Abu Dhabi side. The live Helm values only
+# carried the broker/operator/submariner basics; globalCidr and ipsec.psk were
+# applied to the CR out-of-band and were missing here, so a future
+# `helm upgrade -f` would have dropped them (no matching PSK -> tunnel down; no
+# globalCIDR -> globalnet cannot allocate ClusterSetIPs). This file restores
+# parity so `helm upgrade` reproduces the live CR for every field the chart can
+# manage.
+#
+# The chart CANNOT set airGappedDeployment, nodeSelector or tolerations: the
+# Submariner CR template (submariner-operator/templates/submariner.yaml) has no
+# such fields, so those live only on the CR and are applied by
+# submariner-cr-overlay.yaml, not by this file.
+#
+# Apply:
+#   helm upgrade submariner-operator submariner-operator-0.24.0.tgz \
+#     -n submariner-operator --reuse-values -f submariner-values-abudhabi.yaml
+#
+# Cluster credentials (broker CA/token, IPsec PSK) are embedded here because this
+# is a private interconnect runbook directory and the guides already carry them;
+# see CLAUDE.md for the exception that allows cluster credentials in this tree.
+broker:
+  ca: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJlVENDQVIrZ0F3SUJBZ0lCQURBS0JnZ3Foa2pPUFFRREFqQWtNU0l3SUFZRFZRUUREQmx5YTJVeUxYTmwKY25abGNpMWpZVUF4TnpVNU1UVXpPREkwTUI0WERUSTFNRGt5T1RFek5UQXlORm9YRFRNMU1Ea3lOekV6TlRBeQpORm93SkRFaU1DQUdBMVVFQXd3WmNtdGxNaTF6WlhKMlpYSXRZMkZBTVRjMU9URTFNemd5TkRCWk1CTUdCeXFHClNNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJPWXJUMUhUSFpOT2xndHRVRDV2L2EwYWNQOUVWWFdjcWFxQlc2MnEKT3JzcDg4NzJ5UGRxbEk0amlkd3dNTUNmWEFjTFVSYzBQMjAvZWdZZEF5YzRpb1dqUWpCQU1BNEdBMVVkRHdFQgovd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGNxRVhCZGwxOW5tdktraWhPCnluRERMZHNrelRBS0JnZ3Foa2pPUFFRREFnTklBREJGQWlCaFVvdFhvdTJpQk9pL0lkNkdWTWNBU2FjcC9LazIKYkFyOThPL2RtOHdIT0FJaEFKSDZRTE5yb3BGNERkUENRNGFodDBSVGN5aTZwc3MxUHdjWDd4YWtXYk9yCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  globalnet: true
+  server: 10.10.128.71:6443
+  token: eyJhbGciOiJSUzI1NiIsImtpZCI6IlJGT1djUTQxeVdiM05QYkpxeUJPRFE3NVdSMXYyNW55NU15eFJiSjdWbTAifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJzdWJtYXJpbmVyLWs4cy1icm9rZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlY3JldC5uYW1lIjoic3VibWFyaW5lci1rOHMtYnJva2VyLWNsaWVudC10b2tlbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJzdWJtYXJpbmVyLWs4cy1icm9rZXItY2xpZW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQudWlkIjoiMjMwZDNhMTgtZDE3MS00ZjQ0LWJhY2EtYWUzMjYxYzc5NzNhIiwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50OnN1Ym1hcmluZXItazhzLWJyb2tlcjpzdWJtYXJpbmVyLWs4cy1icm9rZXItY2xpZW50In0.goKo8tkDI1BSQDWLWxXvK6ajA4RwoX-rXv4w4pmvhFsig3zWd2nImSmxr4MAnkizzLaSUUsTO-D3oDbjWZ8UB_T5ajWpi6Vaa9xaycwVWd-QAQdDkkTJEzVVCVeyT-vSJs5LhAyhcWW-Tm7XLJmuqfdnfJ5p9NCDQ5hYZoJL3vnvn6oMvP_lXwgD76QwKfXOspYo_JHveSeLLS2kWCJLCGFwoZPNG6cQs_0OHwB7a01x-qJUkI-iIBze-fw5VAoGuc5Hdpzt_KTTxG_Fv1UkgR5B9U-pBAc-V76Q-LxHRuk-w24a2IgAMAHfNdEbR8W6_YXfhjp8aC-t9J1DNP_cvQ
+ipsec:
+  psk: JjzOfQTMcwbnDDHiVJC1bs+/Jyr56FsGlIkuaknrVy6jFjUVB4CJ1AShlfSsi0v2
+operator:
+  image:
+    repository: harbor.ai.ecouncil.ae/submariner/submariner-operator
+    tag: 0.24.0
+submariner:
+  airGappedDeployment: true
+  cableDriver: wireguard
+  clusterCidr: 10.42.0.0/16
+  clusterId: abudhabi
+  globalCidr: 242.0.0.0/24
+  globalnet: true
+  images:
+    repository: harbor.ai.ecouncil.ae/submariner
+    tag: 0.24.0
+  natEnabled: false
+  repository: harbor.ai.ecouncil.ae/submariner
+  serviceCidr: 10.43.0.0/16
+  serviceDiscovery: true
+  tag: 0.24.0

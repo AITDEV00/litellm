@@ -1,0 +1,50 @@
+# Submariner CR overlay — fields the operator chart cannot manage
+#
+# The `submariner-operator` Helm chart builds the Submariner CR from
+# submariner-operator/templates/submariner.yaml, and that template has NO fields
+# for airGappedDeployment, nodeSelector or tolerations. There is therefore no Helm
+# value that can set them: they exist only on the CR, and were previously added
+# with `kubectl patch` and never captured anywhere. A `helm upgrade` will not
+# touch them (they are absent from the chart's CR template, so a 3-way merge
+# leaves them alone), but nothing in the repo recorded their intended values.
+#
+# This file is that record. It is a strategic-merge patch per cluster. Apply it
+# AFTER the Helm release is installed/upgraded:
+#
+#   AL AIN:
+#     kubectl -n submariner-operator patch submariner submariner \
+#       --type merge --patch-file submariner-cr-overlay.yaml
+#
+#   ABU DHABI (from a host with the AD kubeconfig):
+#     kubectl -n submariner-operator patch submariner submariner \
+#       --type merge --patch-file submariner-cr-overlay.yaml
+#
+# Only the fields below are set; every other CR field is left as the operator
+# chart and operator controller manage it. The file is written as two documents
+# so the Al Ain and Abu Dhabi patches are both visible side by side; `kubectl
+# patch --patch-file` uses only the FIRST document, so split it (or pass the one
+# you need) before applying.
+#
+# Why each field is here:
+#   * airGappedDeployment: both clusters are air-gapped, so the gateway must not
+#     try to discover a public IPv4 and must use the broker/globalnet path only.
+#     Without it the gateway CrashLoops with "could not determine public IPv4"
+#     (§7a). The chart has no value for it.
+#   * nodeSelector + tolerations (Al Ain only): the Al Ain gateway is pinned to
+#     adeo-gpu-03 so the WireGuard tunnel egresses from the node whose address is
+#     in the firewall rules and route table 150 (§7g, §A.1). The chart has no
+#     value for these.
+---
+# ---- AL AIN ----
+spec:
+  airGappedDeployment: true
+  nodeSelector:
+    kubernetes.io/hostname: adeo-gpu-03
+  tolerations:
+    - operator: Exists
+---
+# ---- ABU DHABI ----
+# Abu Dhabi keeps the gateway on whatever node the operator picks (no
+# nodeSelector/tolerations), but still needs airGappedDeployment.
+spec:
+  airGappedDeployment: true

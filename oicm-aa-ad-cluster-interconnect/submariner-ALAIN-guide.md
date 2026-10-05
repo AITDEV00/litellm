@@ -529,16 +529,15 @@ will co-locate on gpu-03.
 ## 13. Cleanup + hardening
 - Delete debug artefacts: `kubectl -n oik8s-cilium-system delete pod host-debug wgcheck --ignore-not-found; kubectl -n oik8s-cilium-system delete configmap wg-binary --ignore-not-found`.
 - `rm -f /tmp/broker-blob.txt broker-creds.yaml /tmp/wg.b64` (hold the token/PSK).
-- **Persist out-of-Helm fixes** so `helm upgrade --reuse-values` doesn't revert them: PSK + air-gapped in values; re-apply globalnet RBAC after any upgrade; UFW 4800 rule is host-side (already persistent). The `nodeSelector`/`tolerations` on the Submariner CR (§7e) and `brokerK8sInsecure` (§7f) are in the CR spec, so they survive operator restarts but NOT `helm upgrade` (Helm re-applies the Submariner CR from values). Add these to your Helm values file:
-  ```yaml
-  submariner:
-    spec:
-      brokerK8sInsecure: true
-      nodeSelector:
-        kubernetes.io/hostname: adeo-gpu-03
-      tolerations:
-      - operator: Exists
-  ```
+- **Persist out-of-Helm fixes** so `helm upgrade --reuse-values` doesn't revert them: PSK + air-gapped in values; re-apply globalnet RBAC after any upgrade; UFW 4800 rule is host-side (already persistent). The `nodeSelector`/`tolerations` on the Submariner CR (§7e) and `brokerK8sInsecure` (§7f) are in the CR spec, so they survive operator restarts but NOT a `helm upgrade -f` that omits them. These are now checked in:
+  - `submariner-values-alain.yaml` carries everything the operator chart can set. Note the correct key for the insecure flag is `broker.insecure` (maps to CR `brokerK8sInsecure`), NOT `submariner.brokerK8sInsecure`:
+    ```yaml
+    broker:
+      insecure: true
+    submariner:
+      globalCidr: 242.0.1.0/24
+    ```
+  - `submariner-cr-overlay.yaml` carries `airGappedDeployment`, `nodeSelector` and `tolerations`. The chart's CR template (`submariner-operator/templates/submariner.yaml`) has no field for any of them, so no Helm value can set them; they can only be merge-patched onto the CR after Helm. The overlay is that patch, applied with `kubectl -n submariner-operator patch submariner submariner --type merge --patch-file submariner-cr-overlay.yaml`.
 - **Remove the old NAT gateway** if upgrading from the manual approach: delete the iptables MASQUERADE + FORWARD rules on `adeo-gpu-03`, and delete the static route `10.10.128.0/24 via 10.34.104.19` on all other nodes (use the routeagent pods which have hostNetwork access). See Appendix A.9.
 - Rotate the broker token (exposed during debugging).
 
