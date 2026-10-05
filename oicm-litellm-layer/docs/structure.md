@@ -131,6 +131,7 @@ oicm-litellm-layer/
 │   ├── rebuild_daily_spend_rollups.py ← daily-spend rollup rebuild
 │   ├── add_model_if_has_refs.sh ← add model only if price refs exist
 │   ├── remove_dangling_model_refs.sh ← clean dangling model references
+│   ├── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
 │   ├── probe_oicm_status_api.py ← OICM status API probe
 │   ├── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
 │   ├── vllm-0.20.0-no-work/ ← same bundle, no-work variant
