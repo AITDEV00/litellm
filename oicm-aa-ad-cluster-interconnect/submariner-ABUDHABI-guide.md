@@ -746,6 +746,86 @@ rm -f /tmp/abudhabi-kubeconfig-fixed
 > node to reach `10.10.128.71:6443`. Other Abu Dhabi API server IPs (`.72`-`.76`) are not reachable
 > from the remote cluster. The kubeconfig may list a different server; always fix it to `.71`.
 
+## A.9 Cross-cluster service unreachable after an API-server blip — lost globalnet route (2026-10-05)
+
+Observed: a Submariner-exported service in Abu Dhabi (ClusterSetIP `242.0.0.253`) stopped being
+reachable from Al Ain even though the tunnel was up and both gateways were `active`. Both sides
+reported `status: error`, `Failed to successfully ping the remote endpoint IP` (`242.0.0.254` from
+Al Ain, `242.0.1.254` from Abu Dhabi). The tunnel interface counters kept climbing, so it was not a
+cable/PSK problem.
+
+### Root cause
+
+Submariner marks cross-cluster globalnet traffic with `mark 0xC0000`; `ip rule` priority 150 sends
+that mark to **routing table 150**, whose routes point at the `submariner` interface. If table 150
+loses its routes, marked packets fall through to the main table and leave via the physical NIC
+instead of the tunnel, so the return path is broken and the health-check ping fails.
+
+The trigger was an **Abu Dhabi RKE2 internal client-certificate expiry**. The cluster's
+`system:rke2-controller` and `system:kube-proxy` certs (issued at cluster build time, 1-year
+validity) expired together. With an expired client cert the API server no longer authenticated the
+control-plane components, so `kube-controller-manager` and `cloud-controller-manager` crashed:
+```
+E "command failed" err="...configmaps \"extension-apiserver-authentication\" is forbidden:
+   User \"system:kube-controller-manager\" cannot get resource \"configmaps\"..."
+F Fatal error running RKE2 Cloud Provider: ... User \"rke2-cloud-controller-manager\" cannot get
+   resource \"configmaps\" ... panic
+```
+That brief control-plane restart is the **API-server blip**. The Submariner route-agent on the
+Abu Dhabi gateway node saw `Unexpected EOF during watch stream`, re-listed its informers, re-applied
+the nftables packetfilter rules, but **did not re-install the table-150 kernel route**. Al Ain's side
+kept its route (asymmetric failure), which is why the service broke in one direction only.
+
+### Diagnose
+
+Run these on the gateway node that owns the route. On the cluster whose API server blipped, expect
+table 150 to be empty. Compare both clusters:
+```bash
+# on each gateway node (host network; via the A.8 relay for the remote cluster):
+ip route show table 150
+#   healthy:  242.0.0.0/24 dev submariner proto static scope link src <gw-ip>
+#             242.0.1.0/24 dev submariner proto static scope link src <gw-ip>
+#   broken:   (empty)
+ip route get <remote-globalnet-ip>            # must resolve via dev submariner, not the physical NIC
+```
+Corroborating signals:
+```bash
+kubectl -n submariner-operator get gateways.submariner.io -o wide     # status=error + ping message
+kubectl -n submariner-operator logs -l app=submariner-routeagent | grep -i 'Unexpected EOF\|watch stream'
+kubectl get events -A --field-selector reason=CertificateExpirationWarning   # expired node certs
+kubectl -n kube-system logs <kube-controller-manager-pod> --previous | grep -i 'forbidden\|expired'
+```
+
+### Fix — force the daemonsets to re-reconcile the routes
+
+Restart the Abu Dhabi gateway and globalnet daemonsets (via the A.8 relay if run from Al Ain):
+```bash
+kubectl -n submariner-operator rollout restart daemonset/submariner-gateway
+kubectl -n submariner-operator rollout restart daemonset/submariner-globalnet
+kubectl -n submariner-operator rollout status  daemonset/submariner-gateway --timeout=180s
+```
+Then confirm the route is back and the service responds:
+```bash
+ip route show table 150                        # 242.0.x.0/24 dev submariner ...
+kubectl -n submariner-operator get gateways.submariner.io -o wide   # status=connected
+# from a pod on the gateway node of the other cluster:
+curl -s -o /dev/null -w '%{http_code}\n' --connect-timeout 5 http://242.0.0.253:8080/v1/models
+```
+
+### Prevent recurrence
+
+- **Rotate the expired RKE2 node certs.** The control-plane pods self-healed on restart, but the
+  node-level `system:kube-proxy` / `system:rke2-controller` certs do not auto-rotate until rke2 is
+  restarted on each node. The cluster itself reports the fix:
+  `Node certificates require attention - restart rke2 on this node to trigger automatic rotation`.
+  Do a rolling restart of the `rke2-agent` service on each worker (and `rke2-server` on masters)
+  during a maintenance window.
+- **Alert on table 150.** Add a check that each gateway node's `ip route show table 150` contains
+  both globalnet CIDRs, and page/auto-restart the gateway daemonset if it is empty. This catches the
+  lost-route condition before it surfaces as a customer-facing outage.
+- **Watch cert expiry.** Alert on the `CertificateExpirationWarning` event reason so cluster-wide
+  cert expiries are caught ahead of time, not discovered via a downstream service outage.
+
 ### Reference — Abu Dhabi kubeconfig template
 
 The kubeconfig uses client certificate/key auth (not a bearer token). The certificate is tied to
