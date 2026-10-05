@@ -1,0 +1,162 @@
+# Submariner globalnet route self-heal
+#
+# Symptom this fixes: after a brief API-server blip, the Submariner route-agent
+# re-lists its informers, re-applies the nftables packetfilter rules, but does NOT
+# re-install the globalnet kernel route into routing table 150. Cross-cluster
+# services then become unreachable (gateway status flips from "connected" to
+# "error") until the gateway/globalnet daemonsets are restarted.
+#
+# This CronJob watches the Submariner-native connection metric and, when the
+# gateway status is "error", restarts the gateway daemonset, which re-installs
+# the table-150 route. It uses the Kubernetes API directly via curl + the pod's
+# service-account token (no kubectl binary needed). The image is the Submariner
+# nettest image, which is already mirrored in both clusters' Harbor
+# (registry.adeoaiengine.ecouncil.ae/submariner/nettest and
+# harbor.ai.ecouncil.ae/submariner/nettest) and has curl at /usr/sbin/curl.
+# Point `image:` at whichever harbor the target cluster can pull from.
+#
+# Deploy on the cluster whose gateway loses routes (observed on Abu Dhabi, but
+# harmless to run on both). Apply: kubectl apply -f submariner-route-selfheal.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: submariner-route-selfheal
+  namespace: submariner-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: submariner-route-selfheal
+  namespace: submariner-operator
+rules:
+  # read the connection metric from the gateway metrics service
+  - apiGroups: [""]
+    resources: [services, endpoints]
+    verbs: [get, list]
+  # trigger a restart by bumping the pod-template annotation
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: submariner-route-selfheal
+  namespace: submariner-operator
+subjects:
+  - kind: ServiceAccount
+    name: submariner-route-selfheal
+    namespace: submariner-operator
+roleRef:
+  kind: Role
+  name: submariner-route-selfheal
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: submariner-route-selfheal
+  namespace: submariner-operator
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: submariner-route-selfheal
+          restartPolicy: Never
+          containers:
+            - name: selfheal
+              image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NS
+                  value: submariner-operator
+                - name: METRICS_SVC
+                  value: submariner-gateway-metrics
+                - name: GATEWAY_DS
+                  value: submariner-gateway
+                - name: API
+                  value: https://kubernetes.default.svc
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  CURL=/usr/sbin/curl
+                  TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+                  CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+                  # 1) scrape the Submariner-native connection metric from the gateway metrics service.
+                  #    healthy: submariner_connections_short{cable_driver="wireguard",status="connected"} 1
+                  #    broken:  submariner_connections_short{cable_driver="wireguard",status="error"} 1
+                  #    "connecting" is a normal transient state and MUST NOT trigger a restart, or the
+                  #    watchdog would restart-loop during every reconnect. Only act on "error".
+                  BODY="$(${CURL} -s --max-time 10 "http://${METRICS_SVC}.${NS}.svc:8080/metrics" || true)"
+                  if [ -z "${BODY}" ]; then
+                    echo "could not scrape ${METRICS_SVC}; skipping this cycle (will retry next schedule)"
+                    exit 0
+                  fi
+
+                  if ! printf '%s\n' "${BODY}" | grep -q 'submariner_connections_short{.*status="connected"} 1'; then
+                    echo "gateway not connected; skipping this cycle (connecting/absent is transient, will retry)"
+                    exit 0
+                  fi
+
+                  if ! printf '%s\n' "${BODY}" | grep -q 'submariner_connections_short{.*status="error"} 1'; then
+                    echo "gateway connected; nothing to do"
+                    exit 0
+                  fi
+
+                  echo "gateway status=error; restarting daemonset/${GATEWAY_DS} to re-install the table-150 route"
+                  NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  ${CURL} -s --max-time 10 --cacert "${CACERT}" \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Content-Type: application/merge-patch+json" \
+                    -X PATCH \
+                    "${API}/apis/apps/v1/namespaces/${NS}/daemonsets/${GATEWAY_DS}" \
+                    -d "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"submariner.io/selfheal-restarted-at\":\"${NOW}\"}}}}}"
+                  echo
+                  echo "restart requested; the gateway will re-reconcile and re-install the globalnet route"
+---
+# Alerting: page on the same signal the watchdog acts on, so a human knows a
+# self-heal fired (or that it kept failing). Metric is Submariner-native.
+# Adjust the prometheus release label to match your kube-prometheus-stack.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: submariner-route-selfheal
+  namespace: submariner-operator
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: submariner.globalnet.rules
+      rules:
+        - alert: SubmarinerGatewayConnectionError
+          expr: submariner_connections_short{status="error"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Submariner gateway {{ $labels.cable_driver }} connection is in error"
+            description: >-
+              Gateway connection status is "error" (usually a lost globalnet route
+              in table 150). The submariner-route-selfheal CronJob restarts the
+              gateway to recover; if this persists, check `ip route show table 150`
+              on the gateway node.
+        - alert: SubmarinerGatewayNotConnected
+          expr: submariner_connections_short{status="connected"} != 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Submariner gateway {{ $labels.cable_driver }} not connected for 15m"
+            description: >-
+              No healthy cross-cluster connection for 15 minutes. Cross-cluster
+              services are unreachable. Investigate the tunnel and globalnet route.
+

@@ -826,6 +826,40 @@ curl -s -o /dev/null -w '%{http_code}\n' --connect-timeout 5 http://242.0.0.253:
 - **Watch cert expiry.** Alert on the `CertificateExpirationWarning` event reason so cluster-wide
   cert expiries are caught ahead of time, not discovered via a downstream service outage.
 
+### Auto-heal — `submariner-route-selfheal.yaml`
+
+Because cert renewal does NOT re-program the route (the route is only installed on an
+Endpoint/Gateway event, never on a timer, and there are no probes), add an explicit watchdog. The
+manifest `submariner-route-selfheal.yaml` deploys a ServiceAccount, Role, RoleBinding, a CronJob
+(every 5 min), and a PrometheusRule. The CronJob:
+
+1. Scrapes the Submariner-native metric from `submariner-gateway-metrics:8080`:
+   `submariner_connections_short{cable_driver="wireguard",status="connected"} 1`.
+2. If the status is **`error`**, PATCHes the `submariner-gateway` daemonset's pod-template
+   annotation, which restarts the gateway and re-installs the table-150 route.
+3. Treats `connecting` and an empty scrape as transient (no restart), so it does not restart-loop
+   during a normal reconnect.
+
+It uses the Kubernetes API directly via `curl` + the pod's service-account token (no `kubectl`
+binary), so it runs on the Submariner `nettest:0.24.0` image that is already mirrored in both
+Harbors and has `/usr/sbin/curl`. Point `image:` at whichever Harbor the target cluster pulls from
+(`registry.adeoaiengine.ecouncil.ae/submariner/nettest` for Al Ain,
+`harbor.ai.ecouncil.ae/submariner/nettest` for Abu Dhabi).
+
+Deploy on the cluster whose gateway loses routes (observed on Abu Dhabi; harmless on both):
+```bash
+kubectl apply -f submariner-route-selfheal.yaml
+# verify:
+kubectl -n submariner-operator get cronjob,sa,role,rolebinding,prometheusrule | grep selfheal
+kubectl -n submariner-operator create job --from=cronjob/submariner-route-selfheal selfheal-test
+kubectl -n submariner-operator logs job/selfheal-test      # "gateway connected; nothing to do"
+kubectl -n submariner-operator delete job selfheal-test
+```
+The PrometheusRule carries `release: kube-prometheus-stack` (matches the standard kube-prometheus-stack
+`ruleSelector`) and fires `SubmarinerGatewayConnectionError` on `status="error"` for 5m and
+`SubmarinerGatewayNotConnected` if not `connected` for 15m, so a human is notified whether or not
+the auto-heal succeeds.
+
 ### Reference — Abu Dhabi kubeconfig template
 
 The kubeconfig uses client certificate/key auth (not a bearer token). The certificate is tied to
