@@ -4,42 +4,104 @@ Date: 2026-10-06
 Purpose: export the Abu Dhabi OICM REST API and auth so the controller can be
 pointed at the Abu Dhabi cluster the same way it is pointed at Al Ain.
 
-Outcome: the exports are created and correct, but the services are **not
-reachable**, and the cause is a pre-existing Abu Dhabi fault unrelated to this
-work. The OICM API version is **not** a second blocker, contrary to an earlier
-revision of this file. Details below.
+Outcome: the network is **fixed** and the exports are reachable. The remaining
+blocker is **credentials**: no account exists in Abu Dhabi's tenant realm, and the
+cluster-wide admin account cannot read tenant data. Details below.
 
-## What was done
+## Status after the certificate fix
 
-Abu Dhabi was reached via the documented relay (ABUDHABI guide A.8), using a
-privileged pod on the Al Ain gateway node `adeo-gpu-03` and the Abu Dhabi
-kubeconfig shipped in via ConfigMap.
+The RKE2 certificate fault that made the exports unreachable is fixed. See
+`abudhabi-rke2-cert-renewal-runbook.md`. With that done, from the Al Ain gateway
+host, and from a pod on it:
 
-Note: the local `~/.kube/abudhabi-kubeconfig.yaml` was **expired** (Not After
-2026-09-29). It has since been refreshed from the copy embedded in
-`submariner-ABUDHABI-guide.md`, which is valid until 2027-09-29, and the local
-file now carries that copy.
+| Target | Result |
+|---|---|
+| `242.0.0.251/realms/adeo` (keycloak) | 200 |
+| `242.0.0.252/api/openapi/openapi.json` | 200 |
+| `242.0.0.252/api/v1/workspaces/{ws}/deployment_summary` | 403, `{"error_code": 403, "message": "Missing Authorization token"}` |
 
-Two ServiceExports were created on Abu Dhabi:
+The clusterset DNS names resolve from inside a pod on the gateway node, so the
+controller can use them directly:
 
-| Service | Namespace | Global IP allocated |
+```
+http://s-mlops-nginx-be-app.mlops.svc.clusterset.local
+http://keycloak.keycloak.svc.clusterset.local
+```
+
+Note these resolve only from pods on `adeo-gpu-03`, not from the host itself,
+because that is where the Cilium BPF path to globalnet IPs exists.
+
+## The credential blocker
+
+OICM derives the tenant from the Keycloak realm in the JWT. The realm name **is**
+the tenant name, and no tenant header or query parameter exists to override it.
+Verified against Abu Dhabi's OpenAPI document: the global `security` is null, and
+the only header parameter in the whole spec is `X-Soft-Delete`.
+
+The two credential sets that exist do not work:
+
+| Credential | Realm | Result |
 |---|---|---|
-| `s-mlops-nginx-be-app` | `mlops` | `242.0.0.252` |
-| `keycloak` | `keycloak` | `242.0.0.251` |
+| `oicm-admin` (found in `OICM_KEYCLOAK__PWD`) | `admin` | Token issued, `super_admin` role, but tenant data is invisible |
+| Al Ain service account | `adeo` | `invalid_grant`, does not exist in Abu Dhabi |
+| `oiansible` infra account | `adeo` | `invalid_grant` for Keycloak, it is a host account only |
 
-Globalnet processed both correctly:
+The `admin` realm token authenticates but is scoped to tenant `admin`, which has
+no workspaces. Measured with it:
 
 ```
-Processing ServiceExport "mlops/s-mlops-nginx-be-app"
-Allocated global IP ["242.0.0.252"] for "mlops/s-mlops-nginx-be-app"
-Created internal service "mlops/submariner-oelikqosgmo2y7cyqatfljm67mrgsqi7"
-Processing ServiceExport "keycloak/keycloak"
-Allocated global IP ["242.0.0.251"] for "keycloak/keycloak"
-Created internal service "keycloak/submariner-2y7uudg2vnjhe3i45ck6jlemgudqjhtb"
+/api/entities/tenant     -> 200, 3 tenants visible (adeo, e2e, tenant02)
+/api/entities/workspace  -> 200, 0 rows
+/api/v1/workspaces/{any}/deployment_summary -> 404
 ```
 
-The ServiceImport for `mlops/s-mlops-nginx-be-app` is visible from Al Ain, so
-Lighthouse is publishing it.
+The tenants are visible because `super_admin` can list them, but the workspaces
+are not, and every workspace-scoped route 404s. That is tenant scoping working as
+designed, not a broken API.
+
+Realm `adeo` has 22 users and **no service account client**: its only clients are
+`account`, `account-console`, `adeo` (public, direct grants on), `admin-cli`,
+`broker`, `realm-management`, and `security-admin-console`, none with service
+accounts enabled. No password for any of the 22 users is available in the cluster.
+
+## What the data looks like
+
+The workspace and deployment records were read directly from the OICM MongoDB to
+establish ground truth, since the API would not show them:
+
+| Workspace id | Name | Tenant | Deployments |
+|---|---|---|---|
+| `d7bbdde9-c8e2-4c43-8b63-4fc1f0545686` | Models | `adeo` | 39 |
+| `04c61807-999b-4eb0-a539-3e13a9027fd1` | Models | `e2e` | 17 |
+| `1329d700-880f-4143-8248-540f26ea14d9` | my_workspace | `adeo` | 0 |
+| `3a35205f-eee0-4fcc-93fd-590e71f9b5bf` | test-workspace | `tenant02` | 0 |
+
+So the workspace the controller needs is `d7bbdde9-c8e2-4c43-8b63-4fc1f0545686`
+in tenant `adeo`, with 39 deployments. All four ids 404 with the `admin` token.
+
+Deployment names there look like `Qwen/Qwen3-Next-80B-A3B-Instruct-deeeswo` and
+`openai/gpt-oss-120b-593u29h`, which is the same "GUI deployment name with a
+random suffix" problem already documented for Al Ain, not the served model id.
+
+## What is needed to unblock
+
+One of these, in order of preference:
+
+1. **Create a service account in Abu Dhabi's realm `adeo`** and grant it
+   workspace read. This matches how Al Ain works and is the cleanest option.
+   Needs Keycloak admin, which is available via
+   `keycloak-secret/admin-password` in the `keycloak` namespace.
+2. **Provide a password for an existing `adeo` realm user** that has workspace
+   read, for example `infra` or `jyao@ecouncil.ae`.
+3. **Confirm the intended tenant for the controller.** If reading the `adeo`
+   tenant from a different cluster is not the design, say so and this stops here.
+
+Once a credential exists, the controller config is `OICM_AUTH_URL` pointing at
+`http://keycloak.keycloak.svc.clusterset.local`, `OICM_REALM=adeo`,
+`OICM_CLIENT_ID=adeo`, and `OICM_WORKSPACE_ID=d7bbdde9-c8e2-4c43-8b63-4fc1f0545686`.
+No code change is needed.
+
+## Reusable command reference
 
 ## The blocker: Abu Dhabi kube-proxy is unauthorized
 
