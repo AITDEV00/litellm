@@ -275,38 +275,41 @@ Dhabi outage marks only Abu Dhabi unknown while Al Ain stays online.
 
 ### Where the heartbeat row lives
 
-A model row is the wrong home: a per-source timestamp stored on a model duplicates across
-that source's models, and hiding a sentinel row from model listings is not something the
-controller can do (LiteLLM hides a model only when *all* of its deployments are `blocked`, and
-an admin could flip that). LiteLLM has no generic KV write endpoint either.
+A model row was the wrong home for a per-source fact, so liveness moved out of model rows
+entirely. Both per-model health and per-source liveness now live in the native
+`LiteLLM_HealthCheckTable`, written through two admin-only gateway routes that are a
+vertical slice (`litellm/proxy/oicm_routes.py`, mounted in the fork-appended block next to
+the voice router, so upstream merges cannot touch it):
 
-So the heartbeat is a dedicated, controller-owned row carrying `oicm_heartbeat: <source>`,
-`oicm_cluster: <cluster>`, and `checked_at`, with no `oicm_uuid`. Because it has no
-`oicm_uuid` it is invisible to `list_all_models_by_key` and therefore to every rule in this
-design, which is what makes it inert. It is `blocked = true` so it is never routable, and it
-is a passthrough-shaped entry (a `hosted_vllm` model pointed at an unreachable local base),
-never selected because it is blocked. Its cost is one write per source per heartbeat, on the
-heartbeat cadence rather than the poll cadence.
+- `POST /oicm/v1/status-reports`: one POST per poll cycle carrying every changed model.
+  Each report maps OICM truth onto the native row via the native
+  `save_health_check_result`: `status` uses the native two-word vocabulary
+  (`healthy`/`unhealthy`) derived from `serving_available` (a `Ready` deployment with
+  `serving_available = false` reads unhealthy, the verdict a probe would return), and the
+  lifecycle word, replicas, and cluster ride in `details`. The server stamps
+  `checked_at`, so the timestamp means "when the gateway last heard from the controller".
+- `POST /oicm/v1/heartbeats`: one POST per heartbeat cadence carrying every source, each
+  stored as a row with `model_name = oicm-source-<cluster>`, `model_id = null`, and
+  `checked_by = oicm-controller`. A reserved name no native writer can produce, so
+  staleness detection cannot collide with a real deployment.
 
-The cluster is stored as its own field rather than left to be parsed out of the row name. A
-consumer asks "what is the latest `checked_at` for cluster X", and a name-shaped answer would
-make every consumer re-implement the naming rule, so renaming a row would silently break
-them. The two fields are independent by design and a test pins that they are not derived from
-each other.
+Write discipline mirrors the native background loop: a row is written on change, else
+refreshed when the last row for that model is older than an hour, so a stable model does
+not read "last checked 3 days ago" in the Admin UI. The table is bounded by the native
+retention knob `maximum_health_check_retention_period` ("30d" on dev), pruned by the native
+spend-log cleanup job. Readers reuse native surfaces: `/health/latest` (keyed by
+`model_id`), `/health/history`, and the Admin UI health column.
 
-This is a deliberate placeholder, not the final shape. The real consumer of all of this is
-`/api/v1/endpoints`, the OpenRouter-convention surface a user queries for model status, and
-that surface is being built on the LiteLLM side. Once it exists and can carry a
-controller-owned status record, the heartbeat moves there and the rows go away. Until then,
-the row is the only mechanism available without adding a LiteLLM endpoint, and the cost is
-one extra row per cluster in admin `/model/info` and the Admin UI model list.
+The old sentinel model rows (`oicm-heartbeat-<cluster>`, blocked passthrough entries) are
+gone: the reconciler deletes them because they no longer match OICM state, and nothing
+recreates them.
 
 ### What a consumer does with it
 
 At read time, for a model whose `oicm.cluster` is `C`:
 
 ```
-stale = now - heartbeat[C].checked_at > STATUS_STALE_AFTER
+stale = now - latest["oicm-source-" + C].checked_at > STATUS_STALE_AFTER
 ```
 
 `stale` overrides the persisted status: a model whose last known status was `Ready` but whose
@@ -325,7 +328,9 @@ heartbeat makes that judgement accurate and cheap; it cannot make it omniscient.
 `STATUS_STALE_AFTER = 90s`, so three poll intervals (10s each) fit inside the window and a
 single dropped or slow cycle does not flap a healthy source to unknown. The heartbeat writes on
 its own cadence of `STATUS_STALE_AFTER / 3` = 30s, not on the 10s poll, so the extra writes are
-one per source per 30s rather than one per source per 10s.
+one per source per 30s rather than one per source per 10s. Health reports ride their own
+gate: on change, else hourly refresh. A failed POST is a no-op for the bookkeeping, so the
+next cycle retries exactly the models that were not saved.
 
 ## The pre-existing guard this depends on
 

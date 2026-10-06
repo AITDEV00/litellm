@@ -232,28 +232,19 @@ block, both strip
 it, so an import and its own OICM's snapshot land on one key. The reconciler's
 delete rule is
 scoped to rows carrying an `oicm_uuid` and gated on a complete poll, so an
-admin-added model or
-the heartbeat rows (which have no `oicm_uuid`) are never deleted, and an
-unreachable OICM is
-never read as deletion.
+admin-added model
+is never deleted, and an unreachable OICM is never read as deletion.
 
-Each cluster also gets one controller-owned heartbeat row, named
-`oicm-heartbeat-<cluster>`, carrying `oicm_heartbeat`, `oicm_cluster`, and
-`checked_at`, with no
-`oicm_uuid` and `blocked = true`. It exists because LiteLLM has no generic
-key-value write
-endpoint, so a model row is the only place a controller-owned timestamp can live
-today; it is
-hidden from `/v1/models` and shows up only in admin `/model/info`. The cluster is
-stored as
-its own field rather than left to be parsed out of the row name, because the
-question a
-consumer asks is "the latest `checked_at` for cluster X" and a name-shaped answer
-would make
-every consumer re-implement the naming rule. It is a placeholder for a dedicated
-status surface
-on the `/api/v1/endpoints` side, so read it as that cluster's freshness rather
-than as a model.
+Liveness and health are no longer model rows. The controller POSTs per-model
+health to
+`/oicm/v1/status-reports` (on change, else hourly refresh) and per-source
+liveness to
+`/oicm/v1/heartbeats` (every 30s), both landing in the native
+`LiteLLM_HealthCheckTable` with server-stamped `checked_at` and
+`checked_by = oicm-controller`. Consumers read them through the native
+`/health/latest`, `/health/history`, and the Admin UI health column; a source's
+freshness is the `checked_at` of its `oicm-source-<cluster>` row. Retention is
+the native `maximum_health_check_retention_period` knob.
 
 ## Running
 

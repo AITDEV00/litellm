@@ -20,10 +20,11 @@ OICM existence" below.
 Steps 3-5 of the design order (persisting the block, `blocked` ownership, and
 staleness) are now implemented on top of that: the status poller writes the
 `model_info.oicm` block and `blocked` in one PATCH on its own 10s clock, OICM
-`serving_available` is the sole owner of `blocked`, and a per-source heartbeat
-row carries `checked_at` so a consumer can tell fresh status from a dead
-controller. See "The status writer" and "Staleness: a per-source heartbeat"
-below.
+`serving_available` is the sole owner of `blocked`, and per-model health plus
+per-source liveness ride the native `LiteLLM_HealthCheckTable` through the new
+`/oicm/v1/status-reports` and `/oicm/v1/heartbeats` routes (deployed to dev
+2026-10-06), so a consumer can tell fresh status from a dead controller. See
+"The status writer" and "Staleness: a per-source heartbeat" below.
 
 ## Roadmap position
 
@@ -50,7 +51,7 @@ Stopped deployment stays registered and paused instead of disappearing.
 | 9 | Transition memory | Done |
 | 10 | Persist `model_info.oicm` | Done, written by the status poller on the 10s clock |
 | 11 | Write-amplification guard | Done for both writers (config diff in `compute_plan`, fact diff in the status writer) |
-| 12 | OICM failure = staleness | Done, via a per-source heartbeat row + `STATUS_STALE_AFTER` |
+| 12 | OICM failure = staleness | Done, via native health-table rows (`oicm-source-*`) + `STATUS_STALE_AFTER` |
 | 13-18 | LiteLLM `/endpoints` schema, mapper, `gateway_status`, dev validation | Not started |
 | 19-23 | M2 engine-load telemetry | Not started |
 | 24-25 | M3 historical statistics | Not started |
@@ -74,8 +75,9 @@ unblocked: the `model_info.oicm` block it reads now exists.
   keys on.
 - `LocalDeploymentSource.discover()` still awaits each deployment serially
   (24 deployments in about 2.6s).
-- The heartbeat row is a small, deliberate wart (one extra row per source in
-  `/model/info` and the Admin UI). See "Staleness: a per-source heartbeat".
+- The old sentinel heartbeat model rows are gone (reconciler deletes them; nothing
+  recreates them). Liveness is an `oicm-source-<cluster>` row in the native health
+  table. See "Staleness: a per-source heartbeat".
 
 ## The status writer
 
@@ -129,13 +131,14 @@ latency (0.33/0.34/0.35s), and the block persisted with all 143 sibling
 hole: `clear_cache` deliberately does not wipe ordinary DB deployments, only
 auto-router ones.
 
-The heartbeat row was verified live too: a single row carrying
-`model_info.oicm_heartbeat` and no `oicm_uuid` is hidden from `/v1/models` once
-blocked, while staying readable in admin `/model/info`. It is created and then
-blocked, which is two writes on the very first creation and one per heartbeat
-after that. `/model/new` does not act on a top-level `blocked` in the create
-body (probed: it reads back `False`), which is why the block is a follow-up
-call rather than part of the create.
+The health-table path was verified live on dev (2026-10-06): 25 per-model rows and
+2 `oicm-source-*` rows in `/health/latest`, `checked_by = oicm-controller`, OICM
+truth (status word, serving_available, cluster) carried in `details`, writes only
+on change/hourly refresh plus one heartbeat POST per source per 30s, and 401 for
+unauthenticated callers. This surfaced and fixed a native bug on the way: the
+generated Prisma client rejects plain dicts for `Json?` columns, so every
+health-row write carrying `details` silently failed until `_clean_details` wrapped
+its output in `prisma.Json`.
 
 ## Staleness: a per-source heartbeat
 

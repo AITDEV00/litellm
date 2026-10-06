@@ -123,23 +123,31 @@ writes and a status change issues exactly one.
 - Test: repeated identical observations → no PATCH; a fact change → one PATCH.
 
 ### Step 12 [C] — OICM failure = staleness, not outage
-**Status: done.** The poller retains a failed source's previous snapshots and never
-maps a failure to `offline`. Staleness is now expressible because there is a
-persisted timestamp to read: a per-source heartbeat row carries `checked_at`.
+**Status: done, reshaped 2026-10-06.** The poller retains a failed source's previous
+snapshots and never maps a failure to `offline`. Staleness is expressible because the
+per-source liveness timestamp now lives in the native `LiteLLM_HealthCheckTable` as an
+`oicm-source-<cluster>` row (written via `POST /oicm/v1/heartbeats`), and per-model health
+rides the same table via `POST /oicm/v1/status-reports`, both written by the controller and
+read through the native `/health/latest`, `/health/history`, and the Admin UI health
+column. The original sentinel model rows (`oicm-heartbeat-*`) are deleted and never
+recreated.
 
 - `STATUS_STALE_AFTER = 90s` (three poll intervals, so one slow cycle does not flap
 a healthy source to unknown).
 - The heartbeat writes every `STATUS_STALE_AFTER / 3` = 30s, not on the 10s poll.
+- Health rows write on change, else hourly refresh (mirroring the native background
+loop's `_should_persist_health_check_result`), and a failed POST retries next cycle.
 - A consumer computes `stale = now - checked_at > STATUS_STALE_AFTER` per source and
   reports `unknown` rather than the persisted status when stale.
 - Liveness is per **source**, not per model: one write per source per heartbeat
   instead of one per model, and an Abu Dhabi outage marks only Abu Dhabi unknown.
+- Retention is the native knob `maximum_health_check_retention_period` ("30d" on dev).
 - Honest limit: a controller that dies and is never replaced cannot be detected,
   since no writer remains. "Past the window, report unknown" is the strongest
   available statement.
 
-See `DESIGN-STATUS-PERSISTENCE.md` for why the heartbeat is a dedicated
-controller-owned row and not a model row or a config entry.
+See `DESIGN-STATUS-PERSISTENCE.md` for the health-table design and why the old sentinel
+model row was the wrong shape.
 
 - Test: kill OICM connectivity → `checked_at` stops advancing, `source_status`
   unchanged; a consumer later computes stale. A stale source reports `unknown` even
