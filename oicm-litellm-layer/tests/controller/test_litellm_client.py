@@ -16,7 +16,7 @@ from controller.litellm_client import LiteLLMClient
 from controller.models import OicmModel
 
 
-def _make_model(model_id="test-model", provider="hosted_vllm", mode="chat"):
+def _make_model(model_id="test-model", provider="hosted_vllm", mode="chat", api_surface=None):
     return OicmModel(
         uuid="uuid-1",
         model_id=model_id,
@@ -26,6 +26,7 @@ def _make_model(model_id="test-model", provider="hosted_vllm", mode="chat"):
         total_replicas=1,
         mode=mode,
         provider=provider,
+        api_surface=api_surface,
     )
 
 
@@ -75,8 +76,7 @@ async def test_register_payload_stamps_api_surface_for_hamsa_v1():
             return httpx.Response(200, json={"model_id": "mid-1"}, request=httpx.Request("POST", url))
 
     client = LiteLLMClient(read_only=False, client=_CaptureClient())
-    model = _make_model(model_id="hamsa-tts-new", provider="hamsa")
-    model.api_surface = "v1"
+    model = _make_model(model_id="hamsa-tts-new", provider="hamsa", api_surface="v1")
 
     result = await client._register_one(model)
     assert result == "mid-1"

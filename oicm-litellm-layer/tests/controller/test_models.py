@@ -177,7 +177,7 @@ class TestDetectApiSurface:
 
 
 class TestApiBaseShape:
-    def _model(self, provider: str) -> OicmModel:
+    def _model(self, provider: str, api_base_override: str | None = None) -> OicmModel:
         return OicmModel(
             uuid="abc123",
             model_id="hamsa-tts",
@@ -186,6 +186,7 @@ class TestApiBaseShape:
             ready_replicas=1,
             total_replicas=1,
             provider=provider,
+            api_base_override=api_base_override,
         )
 
     def test_native_provider_gets_bare_base(self):
@@ -207,8 +208,7 @@ class TestApiBaseShape:
         )
 
     def test_override_wins_over_native_shape(self):
-        m = self._model("hamsa")
-        m.api_base_override = "http://10.0.0.1:8080"
+        m = self._model("hamsa", api_base_override="http://10.0.0.1:8080")
         assert m.api_base == "http://10.0.0.1:8080"
 
     def test_api_surface_defaults_to_none(self):

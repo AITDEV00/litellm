@@ -215,8 +215,8 @@ class DiscoveryController:
 
         if old_keys:
             for key in old_keys:
-                # OicmModel is a mutable dataclass today; replace() keeps the
-                # replica update functional rather than in-place.
+                # OicmModel is frozen; replace() is the only way to apply the
+                # replica update.
                 self._state[key] = replace(
                     self._state[key],
                     ready_replicas=ready,

@@ -41,7 +41,7 @@ def detect_api_surface(provider: str, paths: FrozenSet[str]) -> Optional[str]:
     return None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class OicmModel:
     uuid: str
     model_id: str

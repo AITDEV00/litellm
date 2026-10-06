@@ -9,9 +9,12 @@ Usage:
   kubectl exec deploy/oicm-discovery-controller-dev -- \
       python3 /app/scripts/probe_oicm_status_api.py > oicm-api-catalog.md
 
-Workspace, workload, and run ids default to a representative deployment;
-override with --workspace, --workload, --workload-run, --metric-id, and
---metrics-start.
+Only the workspace is an input (OICM_WORKSPACE_ID env, or --workspace). The
+workload, workload-run, and metric ids are discovered from the live API: the
+first deployment in the workspace, the newest run of that deployment's
+workload, and every id advertised by inference_metrics_meta. There is no
+workspace-list endpoint, so the workspace id cannot be discovered and must be
+supplied.
 """
 
 from __future__ import annotations
@@ -19,7 +22,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -33,13 +37,8 @@ from controller.config import (
 )
 from controller.status import OicmStatusSource
 
-DEFAULT_WS = "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
-# One representative workload + its workload-run-id label (K8s oip/workload-run-id).
-DEFAULT_WL = "4f0a7c56-2ce3-4968-8022-c1d80fdd6ed8"
-DEFAULT_WR = "bdaab232-7c78-40fb-8c84-a2c888486f25"
-DEFAULT_METRIC_ID = "num_of_requests_waiting_in_queue"
-# Short recent window keeps the metrics query fast (a 24h window times out).
-DEFAULT_METRICS_START = "2026-09-29T06:00:00Z"
+# Recent window keeps the metrics query fast (a 24h window times out).
+_METRICS_LOOKBACK = timedelta(minutes=30)
 
 
 def schema_of(value: Any, depth: int = 0) -> Any:
@@ -113,63 +112,125 @@ async def probe(c: httpx.AsyncClient, label: str, path: str, note: str = "", sse
         }
 
 
+async def _get_json(c: httpx.AsyncClient, path: str) -> Any:
+    """GET a path under /api/v1 and return parsed JSON, or None on any failure."""
+    try:
+        r = await c.get(f"{OICM_BASE_URL}/api/v1{path}", timeout=25)
+        r.raise_for_status()
+        return r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def _items(body: Any) -> list[dict]:
+    """Return the list under ``items`` for a paged OICM response."""
+    if isinstance(body, dict) and isinstance(body.get("items"), list):
+        return [i for i in body["items"] if isinstance(i, dict)]
+    return []
+
+
+def _ids(body: Any, key: str = "id") -> list[str]:
+    return [i[key] for i in _items(body) if isinstance(i.get(key), str)]
+
+
+def _first_metric_ids(meta: Any) -> list[str]:
+    """Metric ids advertised by inference_metrics_meta (falls back to the queue)."""
+    metrics = meta.get("metrics") if isinstance(meta, dict) else None
+    if isinstance(metrics, list):
+        ids = [m["id"] for m in metrics if isinstance(m, dict) and isinstance(m.get("id"), str)]
+        if ids:
+            return ids
+    return ["num_of_requests_waiting_in_queue"]
+
+
+async def _discover(c: httpx.AsyncClient, ws: str) -> dict[str, Any]:
+    """Resolve the representative workload, run, and metric ids from the live API.
+
+    Picks the first deployment that has at least one workload run, so the
+    run-scoped endpoints below return data instead of 404. Falls back to the
+    first deployment when none has runs.
+    """
+    deployments = _ids(await _get_json(c, f"/workspaces/{ws}/deployments"))
+    run_lists = await asyncio.gather(
+        *(_get_json(c, f"/workspaces/{ws}/workloads/{dep}/workload_runs") for dep in deployments)
+    )
+    pairs = [(dep, _ids(body)) for dep, body in zip(deployments, run_lists)]
+    chosen = next(((dep, runs) for dep, runs in pairs if runs), None)
+    wl = chosen[0] if chosen else (deployments[0] if deployments else "")
+    wr = chosen[1][0] if chosen else ""
+
+    meta = await _get_json(c, f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta") if wl else None
+    metric_ids = _first_metric_ids(meta)
+
+    start = (datetime.now(timezone.utc) - _METRICS_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"wl": wl, "wr": wr, "metric_ids": metric_ids, "start": start}
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", default=DEFAULT_WS)
-    parser.add_argument("--workload", default=DEFAULT_WL)
-    parser.add_argument("--workload-run", default=DEFAULT_WR)
-    parser.add_argument("--metric-id", default=DEFAULT_METRIC_ID)
-    parser.add_argument("--metrics-start", default=DEFAULT_METRICS_START)
+    parser.add_argument("--workspace", default=os.getenv("OICM_WORKSPACE_ID", ""))
     args = parser.parse_args()
-
-    ws, wl, wr = args.workspace, args.workload, args.workload_run
+    ws = args.workspace
+    if not ws:
+        parser.error("workspace id required: pass --workspace or set OICM_WORKSPACE_ID")
 
     source = OicmStatusSource()
     token = await source.auth.token()
     headers = {"Authorization": f"Bearer {token}"}
-    jobs = [
-        ("List deployments (workspace)", f"/workspaces/{ws}/deployments",
-         "All model deployments in the workspace.", False),
-        ("Get deployment", f"/workspaces/{ws}/deployments/{wl}",
-         "Single deployment record. id == workload_id.", False),
-        ("Deployment health", f"/workspaces/{ws}/deployments/{wl}/health",
-         "Independent readiness signal (is_ready).", False),
-        ("Deployment summary (workspace)", f"/workspaces/{ws}/deployment_summary",
-         "Roll-up of deployment states.", False),
-        ("Inference metrics meta", f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta",
-         "The metric-id vocabulary + units.", False),
-        ("Inference metrics (queue)", f"/workspaces/{ws}/deployments/{wl}/inference_metrics?metric_id={args.metric_id}&start={args.metrics_start}",
-         "Prometheus-style series [[epoch, value], ...]. Requires metric_id + start (ISO).", False),
-        ("List workload runs", f"/workspaces/{ws}/workloads/{wl}/workload_runs",
-         "Runs of a workload.", False),
-        ("Get workload run", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}",
-         "One run incl. status_detail[].", False),
-        ("Workload run events", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/events",
-         "SSE stream of K8s events. NOTE: this endpoint buffers/streams slowly and "
-         "may exceed the read timeout on a busy run; the captured stream is in "
-         "evidence/workload-run-events.sse.", True),
-        ("Workload run resources", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/resources",
-         "Resource objects of the run.", False),
-        ("Workload run workers", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/workers",
-         "Worker pods of the run.", False),
-        ("Model servers summary", "/model_servers/summary",
-         "Serving-image catalog (NOT workspace-scoped).", False),
-    ]
-
-    captured = datetime.now(timezone.utc).date().isoformat()
-
-    # Emit markdown header immediately, then stream each section as it lands.
-    print("# OICM Status REST API - live catalog\n")
-    print(f"- Base URL: `{OICM_BASE_URL}`")
-    print(f"- Auth: realm `{OICM_REALM}`, client `{OICM_CLIENT_ID}`, password grant (`{OICM_USERNAME}`)")
-    print(f"- Workspace: `{ws}`")
-    print(f"- Captured: {captured} (dev controller, live responses)\n")
-    print("Every endpoint below was probed live. Schemas are derived from the "
-          "captured payload, not guessed.\n")
-    print("---\n", flush=True)
 
     try:
         async with httpx.AsyncClient(timeout=30, verify=OICM_VERIFY_TLS, headers=headers) as c:
+            d = await _discover(c, ws)
+            wl, wr = d["wl"], d["wr"]
+            metric_ids, metrics_start = d["metric_ids"], d["start"]
+
+            jobs = [
+                ("List deployments (workspace)", f"/workspaces/{ws}/deployments",
+                 "All model deployments in the workspace.", False),
+                ("Get deployment", f"/workspaces/{ws}/deployments/{wl}",
+                 "Single deployment record. id == workload_id.", False),
+                ("Deployment health", f"/workspaces/{ws}/deployments/{wl}/health",
+                 "Independent readiness signal (is_ready).", False),
+                ("Deployment summary (workspace)", f"/workspaces/{ws}/deployment_summary",
+                 "Roll-up of deployment states.", False),
+                ("Inference metrics meta", f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta",
+                 "The metric-id vocabulary + units.", False),
+                *(
+                    (f"Inference metrics ({mid})",
+                     f"/workspaces/{ws}/deployments/{wl}/inference_metrics?metric_id={mid}&start={metrics_start}",
+                     "Prometheus-style series [[epoch, value], ...]. Requires metric_id + start (ISO).",
+                     False)
+                    for mid in metric_ids
+                ),
+                ("List workload runs", f"/workspaces/{ws}/workloads/{wl}/workload_runs",
+                 "Runs of a workload.", False),
+                ("Get workload run", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}",
+                 "One run incl. status_detail[].", False),
+                ("Workload run events", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/events",
+                 "SSE stream of K8s events. NOTE: this endpoint buffers/streams slowly and "
+                 "may exceed the read timeout on a busy run; the captured stream is in "
+                 "evidence/workload-run-events.sse.", True),
+                ("Workload run resources", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/resources",
+                 "Resource objects of the run.", False),
+                ("Workload run workers", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/workers",
+                 "Worker pods of the run.", False),
+                ("Model servers summary", "/model_servers/summary",
+                 "Serving-image catalog (NOT workspace-scoped).", False),
+            ]
+
+            captured = datetime.now(timezone.utc).date().isoformat()
+
+            # Emit markdown header immediately, then stream each section as it lands.
+            print("# OICM Status REST API - live catalog\n")
+            print(f"- Base URL: `{OICM_BASE_URL}`")
+            print(f"- Auth: realm `{OICM_REALM}`, client `{OICM_CLIENT_ID}`, password grant (`{OICM_USERNAME}`)")
+            print(f"- Workspace: `{ws}` (supplied; no workspace-list endpoint exists)")
+            print(f"- Discovered: workload `{wl}`, run `{wr}`, metrics {metric_ids}")
+            print(f"- Captured: {captured} (dev controller, live responses)\n")
+            print("Every endpoint below was probed live. Schemas are derived from the "
+                  "captured payload, not guessed.\n")
+            print("---\n", flush=True)
+
             for label, path, note, sse in jobs:
                 r = await probe(c, label, path, note, sse=sse)
                 out = []
