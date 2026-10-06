@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from controller.models import OicmModel
+from controller.models import OicmModel, to_litellm_mode
+from controller.pricing.models import PricingResult
 from controller.reconciler import SyncPlan, SyncReconciler
 
 
@@ -217,3 +218,151 @@ async def test_execute_aligns_ids_when_a_register_fails():
     assert f"{dep_uuid}::m-b" not in plan.new_state
     assert plan.new_state[f"{dep_uuid}::m-a"].model_id == "m-a"
     assert plan.new_state[f"{dep_uuid}::m-c"].model_id == "m-c"
+
+
+def _entry_matching(model, model_id, costs=None):
+    """A gateway entry already holding exactly what compute_plan would patch."""
+    params = {"model": f"{model.provider}/{model.model_id}", "api_base": model.api_base}
+    if costs:
+        params.update(costs)
+    info = {"id": model_id, "mode": to_litellm_mode(model.mode)}
+    return {
+        "model_id": model_id,
+        "model_name": model.model_name,
+        "litellm_params": params,
+        "model_info": info,
+    }
+
+
+def _reconciler_with_costs(costs):
+    pricing = MagicMock()
+    result = None if costs is None else PricingResult(**costs, matched_keys=(), aggregate_score=0.0, strategy="test")
+    pricing.resolve = AsyncMock(return_value=result)
+    return SyncReconciler(MagicMock(), pricing)
+
+
+@pytest.mark.asyncio
+async def test_steady_state_issues_no_patch():
+    """A cycle that finds nothing new must not rewrite the model.
+
+    Every gateway write reloads every model on every replica and bumps
+    model_info.updated_at, which forces a router deployment swap. The controller
+    re-probes each cycle, so a cycle that changes nothing has to be a no-op.
+    """
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("stable-uuid")
+    k8s_models = {"stable-uuid": model}
+    litellm_by_key = {"stable-uuid": [_entry_matching(model, "id-1")]}
+
+    plan = await reconciler.compute_plan(k8s_models, litellm_by_key)
+
+    assert plan.patches == []
+    assert plan.deletes == []
+    assert plan.registers == []
+    # The model must still be tracked, or the next cycle would re-register it.
+    assert plan.new_state == {"stable-uuid": model}
+
+
+@pytest.mark.asyncio
+async def test_changed_api_base_is_patched():
+    """A model server that moved must be repointed, not left stale."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("moved-uuid")
+    stale = _entry_matching(model, "id-2")
+    stale["litellm_params"]["api_base"] = "http://old-ip:8080/v1"
+
+    plan = await reconciler.compute_plan(
+        {"moved-uuid": model}, {"moved-uuid": [stale]}
+    )
+
+    assert len(plan.patches) == 1
+    patch_id, patch_params, _ = plan.patches[0]
+    assert patch_id == "id-2"
+    assert patch_params["api_base"] == model.api_base
+
+
+@pytest.mark.asyncio
+async def test_changed_mode_is_patched():
+    """model_info.mode is the other half of the write, so it is compared too."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("tts-uuid", mode="text_to_speech", provider="omnivoice", model_id="omnivoice")
+    stale = _entry_matching(model, "id-3")
+    stale["model_info"]["mode"] = "chat"
+
+    plan = await reconciler.compute_plan(
+        {"tts-uuid": model}, {"tts-uuid": [stale]}
+    )
+
+    assert len(plan.patches) == 1
+    _, _, patch_model_info = plan.patches[0]
+    assert patch_model_info["mode"] == "audio_speech"
+
+
+@pytest.mark.asyncio
+async def test_changed_pricing_is_patched():
+    """A pricing refresh is a real change and must not be swallowed by the guard."""
+    costs = {"input_cost_per_token": 0.000002, "output_cost_per_token": 0.000004}
+    reconciler = _reconciler_with_costs(costs)
+    model = _make_model("priced-uuid")
+    stale = _entry_matching(model, "id-4", costs={"input_cost_per_token": 0.000001})
+
+    plan = await reconciler.compute_plan(
+        {"priced-uuid": model}, {"priced-uuid": [stale]}
+    )
+
+    assert len(plan.patches) == 1
+    _, patch_params, _ = plan.patches[0]
+    assert patch_params["input_cost_per_token"] == 0.000002
+    assert patch_params["output_cost_per_token"] == 0.000004
+
+
+@pytest.mark.asyncio
+async def test_matching_pricing_is_not_patched():
+    """Pricing that already matches must not produce a write."""
+    costs = {"input_cost_per_token": 0.000002, "output_cost_per_token": 0.000004}
+    reconciler = _reconciler_with_costs(costs)
+    model = _make_model("priced-uuid-2")
+    entry = _entry_matching(model, "id-5", costs=costs)
+
+    plan = await reconciler.compute_plan(
+        {"priced-uuid-2": model}, {"priced-uuid-2": [entry]}
+    )
+
+    assert plan.patches == []
+
+
+@pytest.mark.asyncio
+async def test_guard_only_compares_keys_it_would_write():
+    """Extra stored keys must not make a patch look necessary.
+
+    LiteLLM merges the patch into the stored params, so keys the controller
+    never writes (drop_params, api_key, and the rest) are not its concern.
+    """
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("extra-uuid")
+    entry = _entry_matching(model, "id-6")
+    entry["litellm_params"]["drop_params"] = True
+    entry["litellm_params"]["api_key"] = ""
+    entry["model_info"]["oicm_uuid"] = "abc"
+    entry["model_info"]["supported_openai_params"] = ["temperature"]
+
+    plan = await reconciler.compute_plan(
+        {"extra-uuid": model}, {"extra-uuid": [entry]}
+    )
+
+    assert plan.patches == []
+
+
+@pytest.mark.asyncio
+async def test_missing_stored_params_is_patched():
+    """An entry with no litellm_params cannot be assumed correct."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("bare-uuid")
+    entry = {"model_id": "id-7", "model_name": model.model_name, "model_info": {"id": "id-7"}}
+
+    plan = await reconciler.compute_plan(
+        {"bare-uuid": model}, {"bare-uuid": [entry]}
+    )
+
+    assert len(plan.patches) == 1
+    assert plan.patches[0][0] == "id-7"

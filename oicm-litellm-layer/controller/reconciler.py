@@ -28,6 +28,35 @@ class SyncPlan:
     new_id_map: Dict[str, str] = field(default_factory=dict)
 
 
+def _subset_matches(stored: object, patch: dict) -> bool:
+    """True when every key the patch would set already holds that value.
+
+    A patch is only worth issuing when it would actually change something: every
+    gateway write triggers a full model reload on every replica and bumps
+    model_info.updated_at, which forces the router to swap the deployment. The
+    controller re-probes every deployment each cycle and most cycles find the
+    same config, so without this check a steady-state cluster rewrites every
+    model every cycle for no change.
+
+    Only the patch's keys are compared, not the whole stored object, because
+    LiteLLM merges the patch into the stored params rather than replacing them.
+    """
+    if not isinstance(stored, dict):
+        return False
+    return all(stored.get(key) == value for key, value in patch.items())
+
+
+def _patch_is_noop(
+    existing_entry: dict, patch_params: dict, patch_model_info: Optional[dict]
+) -> bool:
+    """True when the patch would leave the deployment exactly as it is."""
+    if not _subset_matches(existing_entry.get("litellm_params"), patch_params):
+        return False
+    if patch_model_info is None:
+        return True
+    return _subset_matches(existing_entry.get("model_info"), patch_model_info)
+
+
 def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
     if len(entries) == 1:
         return entries[0], []
@@ -113,7 +142,8 @@ class SyncReconciler:
                 if inherited:
                     patch_params.update(inherited)
                 patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
-                plan.patches.append((existing_id, patch_params, patch_model_info))
+                if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
+                    plan.patches.append((existing_id, patch_params, patch_model_info))
             plan.new_state[key] = model
 
         return plan
