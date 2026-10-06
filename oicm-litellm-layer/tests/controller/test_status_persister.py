@@ -343,11 +343,28 @@ class TestHeartbeat:
 
     def test_heartbeat_row_is_not_a_deployment(self):
         """The row must carry no `oicm_uuid`, or rules would treat it as real."""
-        row = heartbeat_payload("oicm-heartbeat-alain", "2026-10-06T00:00:00+00:00")
+        row = heartbeat_payload("oicm-heartbeat-alain", "2026-10-06T00:00:00+00:00", "alain")
 
         assert "oicm_uuid" not in row["model_info"]
         assert row["model_info"]["oicm_heartbeat"] == "oicm-heartbeat-alain"
         assert row["model_info"]["checked_at"] == "2026-10-06T00:00:00+00:00"
+
+    def test_heartbeat_row_names_its_cluster(self):
+        """A consumer must read the cluster, not parse it out of the row name.
+
+        The freshness question is "the latest `checked_at` for cluster X". If the
+        cluster only existed inside the name, every consumer would re-implement
+        the naming rule, and renaming a row would silently break them.
+        """
+        row = heartbeat_payload("oicm-heartbeat-abudhabi", "2026-10-06T00:00:00+00:00", "abudhabi")
+
+        assert row["model_info"]["oicm_cluster"] == "abudhabi"
+
+    def test_heartbeat_cluster_is_not_derived_from_the_name(self):
+        """The two must be independent, or the field is decoration."""
+        row = heartbeat_payload("oicm-heartbeat-alain", "2026-10-06T00:00:00+00:00", "abudhabi")
+
+        assert row["model_info"]["oicm_cluster"] == "abudhabi"
 
 
 class TestGatewayUuid:

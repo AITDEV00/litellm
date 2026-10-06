@@ -238,17 +238,22 @@ unreachable OICM is
 never read as deletion.
 
 Each cluster also gets one controller-owned heartbeat row, named
-`oicm-heartbeat-<cluster>`, carrying `oicm_heartbeat` and `checked_at` with no
-`oicm_uuid` and
-`blocked = true`. It exists because LiteLLM has no generic key-value write
-endpoint, so a model
-row is the only place a controller-owned timestamp can live today; it is hidden
-from
-`/v1/models` and shows up only in admin `/model/info`. It is a placeholder for a
-dedicated
-status surface on the `/api/v1/endpoints` side, and a consumer should read it as
-"the latest
-`checked_at` for cluster X" rather than as a model.
+`oicm-heartbeat-<cluster>`, carrying `oicm_heartbeat`, `oicm_cluster`, and
+`checked_at`, with no
+`oicm_uuid` and `blocked = true`. It exists because LiteLLM has no generic
+key-value write
+endpoint, so a model row is the only place a controller-owned timestamp can live
+today; it is
+hidden from `/v1/models` and shows up only in admin `/model/info`. The cluster is
+stored as
+its own field rather than left to be parsed out of the row name, because the
+question a
+consumer asks is "the latest `checked_at` for cluster X" and a name-shaped answer
+would make
+every consumer re-implement the naming rule. It is a placeholder for a dedicated
+status surface
+on the `/api/v1/endpoints` side, so read it as that cluster's freshness rather
+than as a model.
 
 ## Running
 

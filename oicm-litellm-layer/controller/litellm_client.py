@@ -398,13 +398,17 @@ def _error_detail(exc: Exception) -> str:
     return str(exc)
 
 
-def heartbeat_payload(name: str, checked_at: str) -> dict:
+def heartbeat_payload(name: str, checked_at: str, cluster: str) -> dict:
     """The request body for one cluster's liveness row.
 
     The `api_base` is an unroutable placeholder and the model is a passthrough
     id, because the row exists only to carry a timestamp. It is created blocked,
     so it is never selected, and having no `oicm_uuid` keeps it out of every
     rule that reconciles real deployments.
+
+    `oicm_cluster` is set explicitly rather than left to be parsed out of the row
+    name. A consumer asks "what is the latest `checked_at` for cluster X", and a
+    name-shaped answer would make every consumer re-implement the naming rule.
     """
     return {
         "model_name": name,
@@ -416,6 +420,7 @@ def heartbeat_payload(name: str, checked_at: str) -> dict:
         "model_info": {
             "mode": "chat",
             "oicm_heartbeat": name,
+            "oicm_cluster": cluster,
             "checked_at": checked_at,
         },
     }

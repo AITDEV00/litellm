@@ -280,12 +280,19 @@ that source's models, and hiding a sentinel row from model listings is not somet
 controller can do (LiteLLM hides a model only when *all* of its deployments are `blocked`, and
 an admin could flip that). LiteLLM has no generic KV write endpoint either.
 
-So the heartbeat is a dedicated, controller-owned row carrying `oicm_heartbeat: <source>` and
-no `oicm_uuid`. Because it has no `oicm_uuid` it is invisible to `list_all_models_by_key` and
-therefore to every rule in this design, which is what makes it inert. It is `blocked = true`
-so it is never routable, and it is a passthrough-shaped entry (a `hosted_vllm` model pointed at
-an unreachable local base), never selected because it is blocked. Its cost is one write per
-source per heartbeat, on the heartbeat cadence rather than the poll cadence.
+So the heartbeat is a dedicated, controller-owned row carrying `oicm_heartbeat: <source>`,
+`oicm_cluster: <cluster>`, and `checked_at`, with no `oicm_uuid`. Because it has no
+`oicm_uuid` it is invisible to `list_all_models_by_key` and therefore to every rule in this
+design, which is what makes it inert. It is `blocked = true` so it is never routable, and it
+is a passthrough-shaped entry (a `hosted_vllm` model pointed at an unreachable local base),
+never selected because it is blocked. Its cost is one write per source per heartbeat, on the
+heartbeat cadence rather than the poll cadence.
+
+The cluster is stored as its own field rather than left to be parsed out of the row name. A
+consumer asks "what is the latest `checked_at` for cluster X", and a name-shaped answer would
+make every consumer re-implement the naming rule, so renaming a row would silently break
+them. The two fields are independent by design and a test pins that they are not derived from
+each other.
 
 This is a deliberate placeholder, not the final shape. The real consumer of all of this is
 `/api/v1/endpoints`, the OpenRouter-convention surface a user queries for model status, and

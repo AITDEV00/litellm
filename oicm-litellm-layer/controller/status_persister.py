@@ -240,7 +240,9 @@ class StatusPersister:
         results = await asyncio.gather(
             *(
                 self.litellm.upsert_heartbeat(
-                    heartbeat_payload(f"{HEARTBEAT_NAME_PREFIX}{cluster}", checked_at),
+                    heartbeat_payload(
+                        f"{HEARTBEAT_NAME_PREFIX}{cluster}", checked_at, cluster
+                    ),
                     existing_id=existing.get(f"{HEARTBEAT_NAME_PREFIX}{cluster}"),
                 )
                 for cluster in clusters
