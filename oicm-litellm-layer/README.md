@@ -89,6 +89,7 @@ applies. See `docs/components/patches.md`.
 ├── controller/            discovery controller source (component #1)
 ├── hooks/                 LiteLLM proxy plugins (components #3, #4)
 ├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress, postgres)
+│   └── oicm/              OICM service-account provisioning Jobs + Secret templates
 ├── decor/                 UI assets (logos, favicon)
 ├── examples/              usage examples
 ├── scripts/               helper scripts (htb_test, onboarding bundles, etc.)

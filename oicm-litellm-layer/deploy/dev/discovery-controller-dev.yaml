@@ -122,6 +122,15 @@ spec:
             # longer required. OICM has its OWN keycloak in the oicm-keycloak
             # namespace; the platform keycloak in the keycloak namespace does
             # NOT know these credentials and returns 401.
+            #
+            # The block below targets Al Ain's OICM. To target Abu Dhabi
+            # instead, comment it out and uncomment the ABU DHABI block that
+            # follows. The two clusters have separate service accounts, which is
+            # why the Secret reference changes with it.
+            #
+            # Whichever is active, keep it in step with the matching
+            # provision-*.yaml ConfigMap, which verifies the same account
+            # against the same workspace.
             - name: OICM_BASE_URL
               value: "http://s-mlops-nginx-be-app.mlops.svc.cluster.local"
             - name: OICM_AUTH_URL
@@ -136,8 +145,6 @@ spec:
               value: "password"
             - name: OICM_WORKSPACE_ID
               value: "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
-            - name: STATUS_SYNC_INTERVAL
-              value: "10"
             - name: OICM_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -148,6 +155,39 @@ spec:
                 secretKeyRef:
                   name: oicm-status-api
                   key: password
+            # --- ABU DHABI (comment out the block above to use this) ---
+            # The clusterset.local names resolve only from pods on the Al Ain
+            # gateway node adeo-gpu-03. The nodeSelector that keeps this pod
+            # there is at the top of this manifest; do not remove it while this
+            # block is active.
+            #
+            # - name: OICM_BASE_URL
+            #   value: "http://s-mlops-nginx-be-app.mlops.svc.clusterset.local"
+            # - name: OICM_AUTH_URL
+            #   value: "http://keycloak.keycloak.svc.clusterset.local"
+            # - name: OICM_VERIFY_TLS
+            #   value: "true"
+            # - name: OICM_REALM
+            #   value: "adeo"
+            # - name: OICM_CLIENT_ID
+            #   value: "adeo"
+            # - name: OICM_AUTH_GRANT_TYPE
+            #   value: "password"
+            # - name: OICM_WORKSPACE_ID
+            #   value: "d7bbdde9-c8e2-4c43-8b63-4fc1f0545686"
+            # - name: OICM_USERNAME
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: ad-oicm-status-api
+            #       key: username
+            # - name: OICM_PASSWORD
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: ad-oicm-status-api
+            #       key: password
+            # --- end ABU DHABI ---
+            - name: STATUS_SYNC_INTERVAL
+              value: "10"
           resources:
             requests:
               cpu: 50m

@@ -136,27 +136,50 @@ original `tasks.start_deployment` entry with status `SUCCESS`.
 ## Part 2: the `svc-litellm-controller` service account
 
 Abu Dhabi realm `adeo` had no service account, so the controller could only
-authenticate as a person. This creates one with the same shape Al Ain uses.
-
-### Prerequisites
-
-Keycloak admin, from `keycloak-secret` key `admin-password` in namespace
-`keycloak`, realm `master`, client `admin-cli`. Realm `adeo` client `adeo` is
-already public with `directAccessGrantsEnabled: true`, which is what the
-password grant needs. Do not enable `serviceAccountsEnabled`; the controller
-uses the password grant.
-
-### Steps
-
-Create the user, set a non-temporary password, and assign the three client
-roles:
+authenticate as a person. The account is now provisioned from a manifest, not
+from a hand-run curl sequence:
 
 ```
-POST /admin/realms/adeo/users                     -> 201
-PUT  /admin/realms/adeo/users/{id}/reset-password -> 204   {type: password, temporary: false}
-POST /admin/realms/adeo/users/{id}/role-mappings/clients/{clientUuid} -> 204
-     roles: admin, default, rsc_groups_full_access
+oicm-litellm-layer/deploy/oicm/provision_keycloak_service_account.py   the provisioner
+oicm-litellm-layer/deploy/oicm/provision-alain.yaml                    Job + ConfigMap, Al Ain
+oicm-litellm-layer/deploy/oicm/provision-abudhabi.yaml                 Job + ConfigMap, Abu Dhabi
+oicm-litellm-layer/deploy/oicm/service-account-secret.yaml             Secret templates
+oicm-litellm-layer/scripts/make_service_account_secrets.sh             generates the Secrets
 ```
+
+Both Jobs run in Al Ain, including the Abu Dhabi one. That is deliberate: the
+credential is consumed by the Al Ain controller, so its Secret belongs beside
+the controller, and Al Ain can already reach Abu Dhabi's Keycloak over
+Submariner, so one Job both provisions the account and verifies it against the
+API the controller actually reads.
+
+### Run it
+
+```bash
+export KUBECONFIG=$HOME/.kube/alain-oicm.conf
+
+# Abu Dhabi's Keycloak admin password is only readable through the gateway-node
+# relay (see abudhabi-rke2-cert-renewal-runbook.md for that access pattern):
+ADMIN_PASSWORD=$(kubectl -n oik8s-cilium-system exec adrelay -- chroot /host \
+  sh -c "KUBECONFIG=/tmp/adkc kubectl -n keycloak get secret keycloak-secret \
+  -o jsonpath='{.data.admin-password}'" | base64 -d)
+
+cd oicm-litellm-layer
+ADMIN_PASSWORD="$ADMIN_PASSWORD" make oicm-sa-secrets CLUSTER=abudhabi
+make oicm-sa-provision-abudhabi
+```
+
+The Job is idempotent, so re-running it is safe, and it prints a report that
+ends in `DONE: service account is provisioned and verified`. A non-zero exit
+shows as a failed Job rather than a silent success. The Al Ain account works the
+same way with `make oicm-sa-secrets` and `make oicm-sa-provision`.
+
+### What the provisioner does
+
+Creates the user when missing, completes the profile, sets a non-temporary
+password, assigns the three client roles, then proves the account works by
+issuing a token and calling the routes the controller reads. Every input comes
+from the environment, which is why one script serves both clusters.
 
 ### The trap: the declarative user profile
 
@@ -169,57 +192,35 @@ Keycloak 25.0.4 uses a declarative user profile in which `email` is
 400 {"error":"invalid_grant","error_description":"Account is not fully set up"}
 ```
 
-Because `requiredActions` is empty, checking it gives a false all-clear. Inspect
-the profile instead:
-
-```bash
-curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/adeo/users/profile"
-```
-
-Set an email and mark it verified, then retry:
-
-```
-PUT /admin/realms/adeo/users/{id}   {email: "...", emailVerified: true, ...}  -> 204
-```
-
-### Verify
-
-The password grant must return a token, and that token must reach every route
-the controller uses:
-
-```
-POST /realms/adeo/protocol/openid-connect/token  -> 200
-GET  /api/v1/workspaces/{ws}/deployment_summary  -> 200
-GET  /api/v1/workspaces/{ws}/deployments         -> 200
-GET  /api/v1/workspaces/{ws}/deployments/{id}    -> 200
-GET  /api/v1/workspaces/{ws}/deployments/{id}/health -> 200, is_ready true
-GET  /api/entities/workspace                     -> 200
-```
-
-Confirm the token carries `resource_access.adeo.roles` with all three roles.
+Because `requiredActions` is empty, checking it gives a false all-clear. The
+provisioner therefore always sets an email and marks it verified, and it fails
+the Job if the profile is still incomplete or the token lacks the expected
+roles.
 
 ### Where the credentials live
 
-Secret `ad-oicm-service-account` in namespace `adeo-litellm`, keys `username`
-and `password`. Never commit the password, and do not put it in a doc or an
-issue. To rotate, reset the password through the admin API and update the
-secret.
+Both clusters write into `adeo-litellm` in Al Ain, since that is where the
+controller runs:
 
-## Controller configuration for Abu Dhabi
-
-| Variable | Value |
+| Secret | Holds |
 |---|---|
-| `OICM_BASE_URL` | `http://s-mlops-nginx-be-app.mlops.svc.clusterset.local` |
-| `OICM_AUTH_URL` | `http://keycloak.keycloak.svc.clusterset.local` |
-| `OICM_REALM` | `adeo` |
-| `OICM_CLIENT_ID` | `adeo` |
-| `OICM_AUTH_GRANT_TYPE` | `password` |
-| `OICM_WORKSPACE_ID` | `d7bbdde9-c8e2-4c43-8b63-4fc1f0545686` |
-| `OICM_USERNAME` / `OICM_PASSWORD` | from `ad-oicm-service-account` |
+| `oicm-status-api` | Al Ain service-account username and password |
+| `ad-oicm-status-api` | Abu Dhabi service-account username and password |
+| `oicm-keycloak-admin` | Al Ain Keycloak admin credentials, for the Job |
+| `ad-oicm-keycloak-admin` | Abu Dhabi Keycloak admin credentials, for the Job |
 
-The `clusterset.local` names resolve only from pods on `adeo-gpu-03`. A
-controller pod scheduled anywhere else will not reach them.
+The two admin Secrets exist so the Job can mount the credentials without
+cross-namespace RBAC. None of the four is committed. To rotate, re-run
+`make oicm-sa-secrets` then the matching provisioning target; that generates a
+new password, writes it, and re-sets it on the account.
+
+### Pointing the controller at Abu Dhabi
+
+`deploy/dev/discovery-controller-dev.yaml` and
+`deploy/prod/discovery-controller.yaml` each carry the Al Ain OICM block active
+with a commented Abu Dhabi block beside it. Swapping which one is active is the
+whole change; no code change is needed. Both manifests already pin to
+`adeo-gpu-03`, which the clusterset names require.
 
 ## Still outstanding
 

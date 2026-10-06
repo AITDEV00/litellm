@@ -1,0 +1,91 @@
+---
+# Provision (or re-verify) the Al Ain OICM Keycloak service account that the
+# status controller authenticates as. Idempotent, so applying it again is safe.
+#
+# This exists so the service account is reproducible from a manifest instead of
+# a hand-run curl sequence. The same Job shape serves Abu Dhabi too; see
+# provision-abudhabi.yaml for that variant.
+#
+# APPLY
+#   kubectl apply -f deploy/oicm/provision-alain.yaml
+#   kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-alain --timeout=180s
+#   kubectl -n adeo-litellm logs job/provision-oicm-sa-alain
+#
+# The Job prints a verification report and exits non-zero on failure, so a
+# failed run shows as a failed Job rather than a silent success.
+#
+# Requires two Secrets in this namespace, neither of which is committed:
+#   oicm-keycloak-admin   keys admin-username, admin-password
+#   oicm-status-api       keys username, password
+# See deploy/oicm/service-account-secret.yaml for templates and
+# scripts/make_service_account_secrets.sh to generate them.
+#
+# The provisioner source lives in the oicm-service-account-provisioner
+# ConfigMap, built by `make oicm-sa-config`. That is what keeps this file from
+# duplicating the script.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-service-account-config-alain
+  namespace: adeo-litellm
+data:
+  KC_BASE_URL: "http://oicm-keycloak-keycloakx-http.oicm-keycloak.svc.cluster.local"
+  KC_REALM: "adeo"
+  KC_CLIENT_ID: "adeo"
+  SA_USERNAME: "svc-litellm-controller"
+  SA_ROLES: "admin default rsc_groups_full_access"
+  # Final end-to-end check, against the OICM the controller reads. For Al Ain
+  # that is this cluster's OICM, matching OICM_BASE_URL in
+  # deploy/dev/discovery-controller-dev.yaml.
+  OICM_API_URL: "http://s-mlops-nginx-be-app.mlops.svc.cluster.local"
+  OICM_WORKSPACE_ID: "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: provision-oicm-sa-alain
+  namespace: adeo-litellm
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: provision-oicm-sa-alain
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: provision
+          # The controller image already carries a Python 3.12 interpreter and
+          # is cached on the nodes, so no extra pull is needed.
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-8141a6c
+          command: ["python3", "/scripts/provision_keycloak_service_account.py"]
+          envFrom:
+            - configMapRef:
+                name: oicm-service-account-config-alain
+          env:
+            - name: KC_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-keycloak-admin
+                  key: admin-username
+            - name: KC_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-keycloak-admin
+                  key: admin-password
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-status-api
+                  key: password
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: oicm-service-account-provisioner
+            defaultMode: 0555

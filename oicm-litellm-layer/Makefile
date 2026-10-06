@@ -97,6 +97,39 @@ deploy:
 	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
 	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 
+## Build the ConfigMap that carries the service-account provisioner script.
+## Both cluster Jobs mount it, so the script lives in exactly one place.
+oicm-sa-config:
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm \
+		create configmap oicm-service-account-provisioner \
+		--from-file=provision_keycloak_service_account.py=deploy/oicm/provision_keycloak_service_account.py \
+		--dry-run=client -o yaml | \
+		KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f -
+
+## Provision the Al Ain OICM service account and verify it end to end.
+## Run oicm-sa-secrets first, which creates the two Secrets it mounts.
+oicm-sa-provision: oicm-sa-config
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-alain.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm delete job provision-oicm-sa-alain --ignore-not-found
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-alain.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-alain --timeout=180s
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm logs job/provision-oicm-sa-alain
+
+## Provision the Abu Dhabi OICM service account and verify it end to end.
+## Runs in Al Ain, because that is where the controller consuming the credential
+## lives and where the clusterset names to Abu Dhabi resolve (pods on
+## adeo-gpu-03). Run `make oicm-sa-secrets CLUSTER=abudhabi` first.
+oicm-sa-provision-abudhabi: oicm-sa-config
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm delete job provision-oicm-sa-abudhabi --ignore-not-found
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-abudhabi.yaml
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-abudhabi --timeout=180s
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm logs job/provision-oicm-sa-abudhabi
+
+## Generate the two Secrets the provisioning Jobs mount. Rotates the service
+## account password, so follow with the matching provisioning target.
+oicm-sa-secrets:
+	scripts/make_service_account_secrets.sh $${CLUSTER:-alain}
+
 ## Remove built images from local storage
 clean:
 	podman rmi $(DISCOVERY_IMG):$(TAG) 2>/dev/null || true

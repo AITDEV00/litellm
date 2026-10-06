@@ -1,0 +1,93 @@
+---
+# Provision (or re-verify) the Abu Dhabi OICM Keycloak service account.
+#
+# APPLY THIS IN AL AIN, not Abu Dhabi. Two reasons:
+#   - The account exists to be consumed by the Al Ain controller, so its Secret
+#     belongs in this cluster, next to the controller that mounts it.
+#   - Al Ain can reach Abu Dhabi's Keycloak and OICM over Submariner, so one
+#     Job both provisions the account and verifies it against the very API the
+#     controller reads.
+#
+# APPLY
+#   make oicm-sa-provision-abudhabi
+#   # or by hand:
+#   kubectl apply -f deploy/oicm/provision-abudhabi.yaml
+#   kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-abudhabi --timeout=180s
+#   kubectl -n adeo-litellm logs job/provision-oicm-sa-abudhabi
+#
+# The clusterset.local names below resolve only from pods on the Al Ain gateway
+# node `adeo-gpu-03`, which is where the Cilium BPF path to the globalnet IPs
+# exists. Hence the nodeSelector and the broad tolerations.
+#
+# Requires two Secrets in this namespace, neither of which is committed:
+#   ad-oicm-keycloak-admin   keys admin-username, admin-password
+#   ad-oicm-status-api       keys username, password
+# See deploy/oicm/service-account-secret.yaml for templates and
+# scripts/make_service_account_secrets.sh abudhabi to generate them.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-service-account-config-abudhabi
+  namespace: adeo-litellm
+data:
+  # Clusterset DNS names, reachable only from a pod on adeo-gpu-03.
+  KC_BASE_URL: "http://keycloak.keycloak.svc.clusterset.local"
+  KC_REALM: "adeo"
+  KC_CLIENT_ID: "adeo"
+  SA_USERNAME: "svc-litellm-controller"
+  SA_ROLES: "admin default rsc_groups_full_access"
+  OICM_API_URL: "http://s-mlops-nginx-be-app.mlops.svc.clusterset.local"
+  OICM_WORKSPACE_ID: "d7bbdde9-c8e2-4c43-8b63-4fc1f0545686"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: provision-oicm-sa-abudhabi
+  namespace: adeo-litellm
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: provision-oicm-sa-abudhabi
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: provision
+          # The controller image is cached on this node and carries Python 3.12.
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-8141a6c
+          command: ["python3", "/scripts/provision_keycloak_service_account.py"]
+          envFrom:
+            - configMapRef:
+                name: oicm-service-account-config-abudhabi
+          env:
+            - name: KC_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ad-oicm-keycloak-admin
+                  key: admin-username
+            - name: KC_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ad-oicm-keycloak-admin
+                  key: admin-password
+            - name: SA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ad-oicm-status-api
+                  key: password
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: oicm-service-account-provisioner
+            defaultMode: 0555
