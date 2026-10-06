@@ -61,8 +61,8 @@ using only LiteLLM's public extension points — **no fork required** (except on
 ## Quick Start
 
 ```bash
-# 1. Build and push the sidecar image
-docker build -t oicm-discovery-controller:latest ./controller
+# 1. Build and push the sidecar image (versioned tag, see docs/Makefile-reference.md)
+make controller-release
 
 # 2. Deploy LiteLLM with the config
 helm install litellm deploy/charts/litellm-helm/ \

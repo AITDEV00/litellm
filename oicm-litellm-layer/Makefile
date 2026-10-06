@@ -6,7 +6,19 @@ HARBOR_PASS  := CustomImages123
 DISCOVERY_IMG := $(REGISTRY)/$(REPO_PATH)/oicm-discovery-controller
 LITELLM_IMG   := docker.litellm.ai/berriai/litellm:main-stable
 LITELLM_HARBOR_IMG := $(REGISTRY)/$(REPO_PATH)/litellm
-TAG           := latest
+
+# Discovery controller image tag: a semver release plus a git-SHA build stamp,
+# e.g. 0.1.0-20261006-bb95744. The version is the single source of truth for
+# which build is running; the SHA is the immutable part that makes two builds of
+# the same version distinguishable, so an unchanged version still re-pulls.
+CONTROLLER_VERSION ?= 0.1.0
+GIT_SHA            := $(shell git rev-parse --short=7 HEAD)
+BUILD_DATE         := $(shell date -u +%Y%m%d)
+TAG                := $(CONTROLLER_VERSION)-$(BUILD_DATE)-$(GIT_SHA)
+
+# Docker tag for the legacy vendored litellm image. The controller now uses
+# version tags, but litellm still tracks the moving `main-stable` upstream.
+LITELLM_LEGACY_TAG := latest
 
 # LiteLLM source image (built from the upstream Dockerfile at the repo root).
 # The tag is derived from the current git branch of the litellm repo, with
@@ -28,6 +40,7 @@ LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
+	controller-release deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
 	port-forward-datasources docs
@@ -61,8 +74,22 @@ push-discovery:
 	podman push --tls-verify=false $(DISCOVERY_IMG):$(TAG)
 
 push-litellm:
-	podman tag $(LITELLM_IMG) $(LITELLM_HARBOR_IMG):$(TAG)
-	podman push --tls-verify=false $(LITELLM_HARBOR_IMG):$(TAG)
+	podman tag $(LITELLM_IMG) $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG)
+	podman push --tls-verify=false $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG)
+
+## Build, push, and pin the version tag in the dev and prod manifests. This only
+## edits the manifest files and pushes the image; it never touches the cluster,
+## so prod is not upgraded until someone deliberately runs `make deploy`.
+## The dev workflow is: make controller-release deploy-dev
+controller-release: build push-discovery
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG)"
+	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/dev/discovery-controller-dev.yaml
+	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/prod/discovery-controller.yaml
+	@echo "Pinned dev and prod manifests. Prod was NOT applied; run 'make deploy' for that."
+
+## Apply the dev controller manifest only
+deploy-dev:
+	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
 
 ## Deploy all manifests to the cluster
 deploy:
@@ -73,6 +100,7 @@ deploy:
 ## Remove built images from local storage
 clean:
 	podman rmi $(DISCOVERY_IMG):$(TAG) 2>/dev/null || true
+	podman rmi $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG) 2>/dev/null || true
 
 ## Build the LiteLLM source image (with the enterprise dev override) from the
 ## upstream Dockerfile at the repo root. Tag is the sanitized git branch name,

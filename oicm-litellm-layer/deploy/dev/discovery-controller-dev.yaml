@@ -79,11 +79,12 @@ spec:
           effect: NoSchedule
       containers:
         - name: controller
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:latest
-          # Force a re-pull even though the tag (branch name) doesn't change
-          # between pushes, so a redeploy always picks up the freshly built
-          # image instead of a node-cached one with the same tag.
-          imagePullPolicy: Always
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-bb95744
+          # The version tag is immutable (semver + date + git SHA), so a node
+          # reboot or rollout can never pull a different build than the one
+          # pinned here. Use IfNotPresent so a re-pull only happens when the tag
+          # actually changes. `make controller-release` rewrites the tag.
+          imagePullPolicy: IfNotPresent
           env:
             - name: WATCH_NAMESPACE
               value: "adeo"
@@ -113,10 +114,20 @@ spec:
             # service-account credentials come from the oicm-status-api Secret
             # (created out-of-band, never committed). Read by OicmStatusSource
             # (M1) for gateway_status.
+            #
+            # Both URLs are in-cluster ClusterIP services, not the public
+            # APISIX hostnames. That keeps status traffic off the ingress, is
+            # 2.3x faster (0.15s vs 0.35s), and needs no TLS at all, so the
+            # self-signed-certificate workaround (OICM_VERIFY_TLS=false) is no
+            # longer required. OICM has its OWN keycloak in the oicm-keycloak
+            # namespace; the platform keycloak in the keycloak namespace does
+            # NOT know these credentials and returns 401.
             - name: OICM_BASE_URL
-              value: "https://oicm.adeoaiengine.ecouncil.ae"
+              value: "http://s-mlops-nginx-be-app.mlops.svc.cluster.local"
             - name: OICM_AUTH_URL
-              value: "https://auth-oicm.adeoaiengine.ecouncil.ae"
+              value: "http://oicm-keycloak-keycloakx-http.oicm-keycloak.svc.cluster.local"
+            - name: OICM_VERIFY_TLS
+              value: "true"
             - name: OICM_REALM
               value: "adeo"
             - name: OICM_CLIENT_ID

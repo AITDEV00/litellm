@@ -96,8 +96,8 @@ spec:
           effect: NoSchedule
       containers:
         - name: controller
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:latest
-          imagePullPolicy: Always
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-BUILD
+          imagePullPolicy: IfNotPresent
           env:
             - name: WATCH_NAMESPACE
               value: "adeo"
