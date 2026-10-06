@@ -1,8 +1,8 @@
-"""Tests for the status poller: one workspace call, snapshot map, staleness.
+"""Tests for the status poller: one call per source, snapshot map, staleness.
 
-Pins behavior, not structure: the poller must fetch every deployment in one
-call, key snapshots by workload, retain the previous snapshot on failure, and
-stay disabled when no workspace is configured.
+Pins behavior, not structure: the poller must fetch every source in one call
+each, key snapshots by workload, retain a failed source's previous snapshots
+without blanking the others, and stay disabled when no source is configured.
 """
 
 import asyncio
@@ -23,12 +23,22 @@ def _summaries():
 
 
 class _FakeSource:
-    def __init__(self, summaries=None, error=None):
+    def __init__(self, name="alain", workspace="ws1", summaries=None, error=None):
+        self._name = name
+        self._workspace = workspace
         self._summaries = summaries if summaries is not None else _summaries()
         self._error = error
         self.calls = 0
 
-    async def summaries(self, workspace_id):
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def workspace_id(self):
+        return self._workspace
+
+    async def summaries(self):
         self.calls += 1
         if self._error:
             raise self._error
@@ -41,7 +51,7 @@ class _FakeSource:
 @pytest.mark.asyncio
 async def test_refresh_returns_one_snapshot_per_deployment_from_one_call():
     source = _FakeSource()
-    poller = StatusPoller(workspace_id="ws1", source=source)
+    poller = StatusPoller([source])
 
     snapshots = await poller.refresh()
 
@@ -53,7 +63,7 @@ async def test_refresh_returns_one_snapshot_per_deployment_from_one_call():
 @pytest.mark.asyncio
 async def test_snapshot_is_keyed_by_workload_id():
     source = _FakeSource()
-    poller = StatusPoller(workspace_id="ws1", source=source)
+    poller = StatusPoller([source])
     await poller.refresh()
 
     for summary in _summaries():
@@ -65,7 +75,7 @@ async def test_snapshot_is_keyed_by_workload_id():
 async def test_status_change_is_tracked_across_refreshes():
     ready = next(s for s in _summaries() if s.status == "Ready")
     source = _FakeSource(summaries=(ready,))
-    poller = StatusPoller(workspace_id="ws1", source=source)
+    poller = StatusPoller([source])
 
     first = (await poller.refresh())[ready.deployment_id]
     assert first.status_changed_at == first.observed_at
@@ -82,20 +92,92 @@ async def test_status_change_is_tracked_across_refreshes():
 @pytest.mark.asyncio
 async def test_failed_poll_retains_previous_snapshots():
     source = _FakeSource()
-    poller = StatusPoller(workspace_id="ws1", source=source)
+    poller = StatusPoller([source])
     await poller.refresh()
-    before = dict(poller.snapshots)
+    before = {k: v.serving_available for k, v in poller.snapshots.items()}
 
     source._error = RuntimeError("oicm down")
-    with pytest.raises(RuntimeError):
-        await poller.refresh()
+    await poller.refresh()
 
-    assert poller.snapshots == before
+    assert {k: v.serving_available for k, v in poller.snapshots.items()} == before
 
 
 @pytest.mark.asyncio
-async def test_disabled_without_workspace():
-    poller = StatusPoller(workspace_id="", source=_FakeSource())
+async def test_one_failing_source_does_not_blank_the_others():
+    """A cluster being unreachable must not drop the other cluster's models.
+
+    This is the case that matters once two OICMs are polled: an Abu Dhabi outage
+    must not make Al Ain's deployments look deleted.
+    """
+    good = _FakeSource(name="alain")
+    bad = _FakeSource(name="abudhabi", summaries=())
+    poller = StatusPoller([good, bad])
+    await poller.refresh()
+    before = {k: v.serving_available for k, v in poller.snapshots.items()}
+
+    bad._error = RuntimeError("ad oicm down")
+    await poller.refresh()
+
+    # The healthy source keeps its deployments, with their status facts intact.
+    # observed_at advances on a successful poll, so only the facts are compared.
+    assert {k: v.serving_available for k, v in poller.snapshots.items()} == before
+    assert set(poller.source_of.values()) == {"alain"}
+
+
+@pytest.mark.asyncio
+async def test_failed_source_retains_its_own_snapshots():
+    """The failing source's own last snapshots survive its failure."""
+    ad = _FakeSource(name="abudhabi", summaries=_summaries())
+    poller = StatusPoller([ad])
+    await poller.refresh()
+    before = {k: v.serving_available for k, v in poller.snapshots.items()}
+    assert before
+
+    ad._error = RuntimeError("ad oicm down")
+    await poller.refresh()
+
+    assert {k: v.serving_available for k, v in poller.snapshots.items()} == before
+    assert set(poller.source_of.values()) == {"abudhabi"}
+
+
+@pytest.mark.asyncio
+async def test_snapshots_record_which_source_produced_them():
+    alain = _FakeSource(name="alain", summaries=_summaries())
+    ad = _FakeSource(name="abudhabi", summaries=())
+    poller = StatusPoller([alain, ad])
+
+    await poller.refresh()
+
+    assert set(poller.source_of.values()) == {"alain"}
+
+
+@pytest.mark.asyncio
+async def test_sources_are_polled_concurrently():
+    """One slow source must not serialize the cycle behind the other."""
+    order = []
+
+    class _Slow(_FakeSource):
+        async def summaries(self):
+            order.append("slow-start")
+            await asyncio.sleep(0.05)
+            order.append("slow-end")
+            return await super().summaries()
+
+    class _Fast(_FakeSource):
+        async def summaries(self):
+            order.append("fast")
+            return await super().summaries()
+
+    poller = StatusPoller([_Slow(name="slow"), _Fast(name="fast")])
+    await poller.refresh()
+
+    # The fast source completes while the slow one is still sleeping.
+    assert order.index("fast") < order.index("slow-end")
+
+
+@pytest.mark.asyncio
+async def test_disabled_without_sources():
+    poller = StatusPoller([])
     assert poller.enabled is False
     # run() returns immediately rather than polling forever.
     await asyncio.wait_for(poller.run(), timeout=1)
@@ -104,7 +186,7 @@ async def test_disabled_without_workspace():
 @pytest.mark.asyncio
 async def test_run_polls_then_stops():
     source = _FakeSource()
-    poller = StatusPoller(workspace_id="ws1", interval=0, source=source)
+    poller = StatusPoller([source], interval=0)
     task = asyncio.create_task(poller.run())
     await asyncio.sleep(0.05)
     poller.stop()

@@ -131,6 +131,58 @@ class TestAvailability:
         assert is_deployment_available(_summary("Ready", []).status_detail) is False
 
 
+class TestAbuDhabiMissingMetadata:
+    """OICM 1.7.1 (Abu Dhabi) does not populate ``status_detail[].metadata``.
+
+    Live payload, deployment 766b1720, OICM status ``Ready``, pod Running on
+    ``prd-infr-k8h200``. Requiring ``metadata.ready`` makes this read as not
+    serving, which would pause a healthy model once Abu Dhabi is targeted. The
+    entry's own ``status`` carries the same fact and both versions populate it.
+    """
+
+    AD_READY = [
+        {"kind": "Deployment", "name": "j-766b1720", "node": None, "status": "Ready",
+         "status_msg": "1/1 replicas ready"},
+        {"kind": "Pod", "name": "j-766b1720-767bd4657b-lzfmt", "node": "prd-infr-k8h200",
+         "status": "Running", "status_msg": None},
+    ]
+
+    def test_running_pod_without_metadata_is_serving(self):
+        assert is_deployment_available(_summary("Ready", self.AD_READY).status_detail) is True
+
+    def test_snapshot_reports_serving_for_the_abu_dhabi_payload(self):
+        snap = _build(_summary("Ready", self.AD_READY))
+        assert snap.source_status is DeploymentStatus.READY
+        assert snap.serving_available is True
+
+    def test_metadata_still_wins_when_present(self):
+        """A pod with metadata ready=false is not serving even if status says Running.
+
+        The fallback only applies when metadata is absent, so a version that does
+        report readiness keeps its more precise answer.
+        """
+        detail = [{"kind": "Pod", "node": "gpu-01", "status": "Running", "metadata": {"ready": False}}]
+        assert is_deployment_available(_summary("Ready", detail).status_detail) is False
+
+    def test_unscheduled_pod_without_metadata_is_not_serving(self):
+        """A pod with no node cannot serve, whatever its status says."""
+        detail = [{"kind": "Pod", "node": None, "status": "Running"}]
+        assert is_deployment_available(_summary("Ready", detail).status_detail) is False
+
+    def test_non_serving_status_without_metadata_is_not_serving(self):
+        """A Deploying pod is Running but the rollout is not done."""
+        detail = [{"kind": "Pod", "node": "gpu-01", "status": "Pending"}]
+        assert is_deployment_available(_summary("Ready", detail).status_detail) is False
+
+    def test_leader_worker_set_without_metadata_falls_back_to_status(self):
+        detail = [{"kind": "LeaderWorkerSet", "status": "Available"}]
+        assert is_deployment_available(_summary("Ready", detail).status_detail) is True
+
+    def test_stopped_without_metadata_is_not_serving(self):
+        snap = _build(_summary("Stopped", self.AD_READY))
+        assert snap.serving_available is False
+
+
 class TestBuildSnapshot:
     def test_ready_deployment_marks_serving_available(self):
         snap = _build(_summary("Ready", [_pod(True), {"kind": "Deployment", "metadata": {"available_replicas": 1}}]))

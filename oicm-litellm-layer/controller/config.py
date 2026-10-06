@@ -66,32 +66,14 @@ WORKLOAD_TYPE_LABEL = "oip/workload-type"
 WORKLOAD_ID_LABEL = "oip/workload-id"
 MODEL_DEPLOYMENT_TYPE = "model_deployment"
 
-# OICM status API (gateway_status source). The tenant is the Keycloak realm:
-# authenticate against realm == client == tenant name. Credentials come from a
-# K8s secret in-cluster; empty locally.
-OICM_BASE_URL = os.getenv("OICM_BASE_URL", "https://oicm.adeoaiengine.ecouncil.ae")
-OICM_AUTH_URL = os.getenv("OICM_AUTH_URL", "https://auth-oicm.adeoaiengine.ecouncil.ae")
-OICM_REALM = os.getenv("OICM_REALM", "adeo")
-OICM_CLIENT_ID = os.getenv("OICM_CLIENT_ID", "adeo")
-OICM_USERNAME = os.getenv("OICM_USERNAME", "")
-OICM_PASSWORD = os.getenv("OICM_PASSWORD", "")
-OICM_AUTH_GRANT_TYPE = os.getenv("OICM_AUTH_GRANT_TYPE", "password")
-OICM_TIMEOUT = float(os.getenv("OICM_TIMEOUT", "20"))
-OICM_CONCURRENCY = int(os.getenv("OICM_CONCURRENCY", "20"))
-# OICM presents an internal-CA certificate the controller does not yet trust;
-# flip to true once that CA is mounted into the pod.
-OICM_VERIFY_TLS = os.getenv("OICM_VERIFY_TLS", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+# OICM status sources are declared in a ConfigMap, not here. See
+# ``sources_config.py`` for the schema and ``deploy/oicm/sources.yaml`` for the
+# definitions. Credentials come from each source's own environment variables,
+# wired from a Secret by the Deployment.
 
-# Workspace whose deployments are polled for status. There is no
-# workspace-list endpoint, so it must be supplied.
-OICM_WORKSPACE_ID = os.getenv("OICM_WORKSPACE_ID", "")
 # Status poll cadence. OICM itself refreshes deployment status on a 5s DB sync
 # plus a 10s informer reload, so polling faster than 10s adds load without
-# fresher data. One call covers every deployment in the workspace.
+# fresher data. One call covers every deployment in a source's workspace.
 STATUS_SYNC_INTERVAL = int(os.getenv("STATUS_SYNC_INTERVAL", "10"))
 
 ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (

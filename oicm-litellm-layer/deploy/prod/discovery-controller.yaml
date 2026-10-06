@@ -127,7 +127,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: controller
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-8141a6c
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-c9c4a23
           # The version tag is immutable (semver + date + git SHA), so prod can
           # never silently change builds on a rollout or node reboot. Bump it
           # deliberately with `make controller-release`.
@@ -150,71 +150,52 @@ spec:
               value: "300"
             - name: ENABLE_SUBMARINER_IMPORTS
               value: "true"
-            # OICM deployment-status polling. One deployment_summary call per
-            # STATUS_SYNC_INTERVAL covers every deployment; OICM refreshes
-            # status on a ~5s DB sync plus a ~10s informer reload, so 10s
-            # matches the source's own cadence.
+            # OICM status sources. Which instances exist (endpoints, realm,
+            # workspace) is declared in the oicm-sources ConfigMap, mounted at
+            # /etc/oicm. Credentials are NOT in the ConfigMap: a ConfigMap cannot
+            # hold or interpolate a Secret value, so each source's credentials
+            # are wired here from its own Secret, under variable names derived
+            # from the source name in sources.yaml.
             #
-            # The block below targets Al Ain's OICM over its public hostname. To
-            # target Abu Dhabi instead, comment it out and uncomment the ABU
-            # DHABI block that follows. The two clusters have separate service
-            # accounts, which is why the Secret reference changes with it.
+            # Both OICMs are read at once. Al Ain is in-cluster; Abu Dhabi is
+            # reached over Submariner, and its clusterset.local names resolve
+            # only from pods on the Al Ain gateway node adeo-gpu-03, which is
+            # what this manifest already pins to.
             #
-            # Whichever is active, keep it in step with the matching
-            # provision-*.yaml ConfigMap, which verifies the same account
-            # against the same workspace.
-            - name: OICM_BASE_URL
-              value: "https://oicm.adeoaiengine.ecouncil.ae"
-            - name: OICM_AUTH_URL
-              value: "https://auth-oicm.adeoaiengine.ecouncil.ae"
-            - name: OICM_REALM
-              value: "adeo"
-            - name: OICM_CLIENT_ID
-              value: "adeo"
-            - name: OICM_AUTH_GRANT_TYPE
-              value: "password"
-            - name: OICM_WORKSPACE_ID
-              value: "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
-            - name: OICM_USERNAME
+            # One deployment_summary call per source per STATUS_SYNC_INTERVAL
+            # covers every deployment; OICM refreshes status on a ~5s DB sync
+            # plus a ~10s informer reload, so 10s matches the source's cadence.
+            #
+            # Keep this in step with sources.yaml: a source listed there whose
+            # credentials are absent here is skipped with a warning.
+            - name: OICM_SOURCES_FILE
+              value: "/etc/oicm/sources.yaml"
+            - name: OICM_SOURCE_ALAIN_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: oicm-status-api
                   key: username
-            - name: OICM_PASSWORD
+            - name: OICM_SOURCE_ALAIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: oicm-status-api
                   key: password
-            # --- ABU DHABI (comment out the block above to use this) ---
-            # The clusterset.local names resolve only from pods on the Al Ain
-            # gateway node adeo-gpu-03, which this manifest already pins to.
-            # They avoid depending on Abu Dhabi's public hostnames and DNS.
-            #
-            # - name: OICM_BASE_URL
-            #   value: "http://s-mlops-nginx-be-app.mlops.svc.clusterset.local"
-            # - name: OICM_AUTH_URL
-            #   value: "http://keycloak.keycloak.svc.clusterset.local"
-            # - name: OICM_REALM
-            #   value: "adeo"
-            # - name: OICM_CLIENT_ID
-            #   value: "adeo"
-            # - name: OICM_AUTH_GRANT_TYPE
-            #   value: "password"
-            # - name: OICM_WORKSPACE_ID
-            #   value: "d7bbdde9-c8e2-4c43-8b63-4fc1f0545686"
-            # - name: OICM_USERNAME
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: ad-oicm-status-api
-            #       key: username
-            # - name: OICM_PASSWORD
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: ad-oicm-status-api
-            #       key: password
-            # --- end ABU DHABI ---
+            - name: OICM_SOURCE_ABUDHABI_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ad-oicm-status-api
+                  key: username
+            - name: OICM_SOURCE_ABUDHABI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ad-oicm-status-api
+                  key: password
             - name: STATUS_SYNC_INTERVAL
               value: "10"
+          volumeMounts:
+            - name: oicm-sources
+              mountPath: /etc/oicm
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -234,3 +215,7 @@ spec:
               port: 8090
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: oicm-sources
+          configMap:
+            name: oicm-sources

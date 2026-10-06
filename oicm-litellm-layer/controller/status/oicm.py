@@ -15,18 +15,7 @@ from typing import Any, Optional
 
 import httpx
 
-from ..config import (
-    OICM_AUTH_GRANT_TYPE,
-    OICM_AUTH_URL,
-    OICM_BASE_URL,
-    OICM_CLIENT_ID,
-    OICM_CONCURRENCY,
-    OICM_PASSWORD,
-    OICM_REALM,
-    OICM_TIMEOUT,
-    OICM_USERNAME,
-    OICM_VERIFY_TLS,
-)
+from ..sources_config import OicmSourceConfig
 from .base import StatusSource
 from .wire import OicmDeploymentSummary
 
@@ -104,32 +93,45 @@ class _OicmTokenAuth(httpx.Auth):
 
 
 class OicmStatusSource(StatusSource):
+    """One OICM instance, described entirely by its ``OicmSourceConfig``.
+
+    The config carries the endpoints, realm, workspace, and credentials, so
+    pointing the controller at another instance is a config change rather than a
+    subclass. Both OICM versions the controller talks to (Al Ain ``1.15.19`` and
+    Abu Dhabi ``1.7.1``) share this transport; they differ only in the shape of
+    ``status_detail``, which the shared availability logic handles.
+    """
+
     def __init__(
         self,
-        base_url: str = OICM_BASE_URL,
-        auth_url: str = OICM_AUTH_URL,
-        realm: str = OICM_REALM,
-        client_id: str = OICM_CLIENT_ID,
-        username: str = OICM_USERNAME,
-        password: str = OICM_PASSWORD,
-        grant_type: str = OICM_AUTH_GRANT_TYPE,
-        timeout: float = OICM_TIMEOUT,
-        concurrency: int = OICM_CONCURRENCY,
-        verify: bool = OICM_VERIFY_TLS,
+        config: OicmSourceConfig,
+        username: str = "",
+        password: str = "",
     ):
-        self.base_url = base_url.rstrip("/")
-        self._semaphore = asyncio.Semaphore(concurrency)
+        self.config = config
+        self.base_url = config.base_url.rstrip("/")
+        self._semaphore = asyncio.Semaphore(config.concurrency)
         self.auth = _OicmTokenAuth(
-            auth_url=auth_url.rstrip("/"),
-            realm=realm,
-            client_id=client_id,
+            auth_url=config.auth_url.rstrip("/"),
+            realm=config.realm,
+            client_id=config.client_id,
             username=username,
             password=password,
-            grant_type=grant_type,
-            timeout=timeout,
-            verify=verify,
+            grant_type=config.grant_type,
+            timeout=config.timeout,
+            verify=config.verify_tls,
         )
-        self._client = httpx.AsyncClient(timeout=timeout, verify=verify, auth=self.auth)
+        self._client = httpx.AsyncClient(
+            timeout=config.timeout, verify=config.verify_tls, auth=self.auth
+        )
+
+    @property
+    def name(self) -> str:
+        return self.config.name
+
+    @property
+    def workspace_id(self) -> str:
+        return self.config.workspace_id
 
     async def _get(self, path: str, params: Optional[dict[str, str]] = None) -> Any:
         async with self._semaphore:
@@ -141,14 +143,16 @@ class OicmStatusSource(StatusSource):
         await self._client.aclose()
         await self.auth.aclose()
 
-    async def summaries(self, workspace_id: str) -> tuple[OicmDeploymentSummary, ...]:
-        """Every deployment in the workspace with its status and status_detail.
+    async def summaries(self) -> tuple[OicmDeploymentSummary, ...]:
+        """Every deployment in this source's workspace, with its status.
 
         One call replaces the former get_deployment + get_deployment_health +
         get_workload_run fan-out: the payload already carries ``status``,
         ``error_msg``, ``replicas``, and the per-Pod/Deployment ``status_detail``
         that availability is derived from.
         """
-        raw = await self._get(f"/api/v1/workspaces/{workspace_id}/deployment_summary")
+        raw = await self._get(
+            f"/api/v1/workspaces/{self.workspace_id}/deployment_summary"
+        )
         items = raw.get("items", []) if isinstance(raw, dict) else []
         return tuple(OicmDeploymentSummary.model_validate(item) for item in items)

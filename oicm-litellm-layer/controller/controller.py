@@ -26,6 +26,7 @@ from .sources import ModelSource
 from .sources.local_deployments import LocalDeploymentSource
 from .sources.submariner_imports import SubmarinerImportSource
 from .status_poller import StatusPoller
+from .status_sources import build_status_sources
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -61,7 +62,7 @@ class DiscoveryController:
             headers=self.litellm.headers,
         )
         self.fallback_reconciler = FallbackReconciler(self.fallback_client)
-        self.status_poller = status_poller or StatusPoller()
+        self.status_poller = status_poller or StatusPoller(build_status_sources())
         self._state: Dict[str, OicmModel] = {}
         self._litellm_id_map: Dict[str, str] = {}
         self._running = False
@@ -76,6 +77,11 @@ class DiscoveryController:
         self._site = web.TCPSite(self._runner, "0.0.0.0", HEALTH_PORT)
         await self._site.start()
         logger.info("Health server listening on :%s", HEALTH_PORT)
+        # Prime the snapshots so the first reconcile already has OICM's view of
+        # existence. Without this, a Stopped deployment would look deleted until
+        # the first poll lands.
+        if self.status_poller.enabled:
+            await self.status_poller.refresh()
         await self.full_sync()
         await asyncio.gather(
             self._watch_loop(),
@@ -106,6 +112,7 @@ class DiscoveryController:
         """
         body = {
             workload_id: {
+                "source": self.status_poller.source_of.get(workload_id),
                 "source_status": snap.source_status.value if snap.source_status else None,
                 "serving_available": snap.serving_available,
                 "desired_replicas": snap.desired_replicas,
@@ -137,19 +144,11 @@ class DiscoveryController:
 
         litellm_by_key = await self.litellm.list_all_models_by_key()
 
-        # Refresh the status snapshots so existence can come from OICM. A
-        # Stopped deployment has no k8s object, so the watch alone would read
-        # its absence as deletion; OICM still lists it, which keeps it
-        # registered and paused instead.
-        oicm_models = {}
-        if self.status_poller.enabled:
-            try:
-                summaries = await self.status_poller.refresh()
-                oicm_models = _summaries_to_models(summaries)
-            except Exception as e:
-                # OICM unreachable: fall back to the watch alone and never treat
-                # a fetch failure as deletion.
-                logger.error("OICM status refresh failed, keeping watch-only: %s", e)
+        # Existence comes from the poller's latest snapshots, not from a fresh
+        # fetch here. The poll loop is the single writer, so this reads the same
+        # map the poller just produced instead of issuing a second identical
+        # call and blocking the reconcile on OICM.
+        oicm_models = _summaries_to_models(self.status_poller.snapshots)
 
         plan = await self.reconciler.compute_plan(discovered, litellm_by_key, oicm_models)
         await self.reconciler.execute(plan)

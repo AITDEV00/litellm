@@ -174,6 +174,10 @@ Status of each item, as of 2026-10-06: 1 and 2 done, 3-6 not.
 6. Parallelize `LocalDeploymentSource.discover()`, which currently awaits each deployment
    serially (24 deployments in about 2.6s), so a faster cadence is affordable.
 
+Not in this list but done alongside it: the controller now reads both clusters' OICM as
+separate declared sources (`deploy/oicm/sources.yaml`), and `serving_available` no longer
+requires `status_detail[].metadata`, which Abu Dhabi's OICM `1.7.1` does not populate.
+
 Steps 1 and 5 are what make a shorter poll interval safe rather than harmful.
 
 ## Testing

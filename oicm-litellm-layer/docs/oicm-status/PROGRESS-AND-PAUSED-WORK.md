@@ -33,8 +33,8 @@ Stopped deployment stays registered and paused instead of disappearing.
 | Design 2 | Existence from OICM `deployment_summary` | Done (`792c09ee60`) |
 | 1 | Facts DTO | Done, reshaped as the `controller/status/` package |
 | 2 | `OicmModel` carries workspace/workload/run ids | Superseded, not done |
-| 3 | OICM client + token lifecycle | Done as `status/oicm.py::OicmStatusSource` |
-| 4 | Secrets + config | Done, dev and prod |
+| 3 | OICM client + token lifecycle | Done as `status/oicm.py::OicmStatusSource`, now one source per cluster |
+| 4 | Secrets + config | Done, now declarative per source (`deploy/oicm/sources.yaml`) |
 | 5 | Snapshot builder | Done |
 | 6 | One workspace call | Done |
 | 7 | 10s status poll | Done |
@@ -48,11 +48,12 @@ Stopped deployment stays registered and paused instead of disappearing.
 | 24-25 | M3 historical statistics | Not started |
 
 Steps 1, 2, 11, 13, and 14 in the checklist describe an earlier shape than what
-landed and have been annotated there.
+landed and have been annotated there. `controller/oicm_status.py` (a compat shim
+for the `status/` package move) was deleted; nothing imported it.
 
 ## Current problems
 
-Two, and they are different in kind.
+One blocker and one design decision, different in kind.
 
 ### The blocker: nothing is persisted (Step 10)
 
@@ -63,29 +64,88 @@ and 16 cannot land: staleness needs a persisted `observed_at` to compute from,
 and `STATUS_STALE_AFTER` is not defined yet. This is the single next code step
 and it unblocks the whole LiteLLM half of M1.
 
-### The correctness gap: Abu Dhabi has no `status_detail` metadata
-
-AD OICM `1.7.1`'s `status_detail[]` carries no `metadata` at all, only `kind`,
-`name`, `node`, `status`, and `status_msg`. `status/availability.py::_is_ready`
-requires `meta is not None` for both the Pod and the LeaderWorkerSet branches, so
-every AD deployment evaluates `serving_available=False`. It degrades safely, no
-exception, but a genuinely serving AD deployment is read as not serving. Once
-the controller is retargeted to AD that would pause a healthy model. The fix is
-a fallback to the entry's own `status`/`node` when `metadata` is absent, with a
-regression test built from the live AD payload. The live payload is captured in
-`oicm-aa-ad-cluster-interconnect/abudhabi-oicm-rest-api-export.md`.
-
 ### Smaller items
 
-- `full_sync` calls `status_poller.refresh()`, and the poller's own `run()` loop
-  also refreshes on the same 10s cadence, so there are two refreshes per cycle.
-  Harmless but wasteful; worth collapsing to one.
 - The checklist's Step 1 says "create `controller/oicm_status.py`", which never
   happened (it became the `status/` package with `serving_available` replacing
   `is_ready`), and Step 2's three ids were never added. Both are superseded rather
   than missed: Step 6 dropped `workload_run_id` and `workload_status` as having no
   consumer, and `deployment_id == workload_id` is the uuid the reconciler already
   keys on.
+- `LocalDeploymentSource.discover()` still awaits each deployment serially
+  (24 deployments in about 2.6s).
+
+## Multi-cluster status and the declarative source map
+
+The controller now reads **both** OICM instances at once, and which instances
+exist is data rather than code.
+
+### Sources are declared, not hardcoded
+
+`deploy/oicm/sources.yaml` is a ConfigMap listing one entry per OICM instance:
+endpoints, realm, client, and workspace. `controller/sources_config.py` loads it
+(`OICM_SOURCES_FILE`, default `/etc/oicm/sources.yaml`) and validates it. Adding a
+cluster is an entry plus a Secret, with no code change.
+
+The file serves both roles: applied as a ConfigMap in-cluster, and read directly
+by a local run, which unwraps the ConfigMap envelope so there is one copy rather
+than two that can drift.
+
+### Credentials stay in Secrets
+
+A ConfigMap cannot hold or interpolate a Secret value, and the controller's
+ServiceAccount has no `secrets` permission, so credentials cannot live in the
+source map. Each source instead names its credentials via variables derived from
+its name (`OICM_SOURCE_ALAIN_USERNAME` / `_PASSWORD`), wired by the Deployment
+from that source's own Secret with `secretKeyRef`. A source listed in the
+ConfigMap whose credentials are absent is skipped with a warning, so a partial
+rollout degrades to fewer sources instead of failing every cycle.
+
+### One source class, not one per version
+
+Both OICM versions (Al Ain `1.15.19`, Abu Dhabi `1.7.1`) share `OicmStatusSource`.
+They differ only in the shape of `status_detail`, which the shared availability
+logic handles, so a second class would duplicate the transport and token
+lifecycle for nothing.
+
+`StatusPoller` takes a list of sources and polls them concurrently, so a cycle
+costs the slowest source rather than the sum. Each source's failure retains its
+own previous snapshots and is logged; the other sources' results still land, so
+an Abu Dhabi outage never makes Al Ain's deployments look deleted. `GET /status`
+reports each snapshot's `source`, so a merged view stays attributable.
+
+No uuid prefixing is needed: the two clusters' uuids are disjoint, and prefixing
+would have rippled into the reconciler's keys and the gateway join.
+
+### The Abu Dhabi `metadata` gap is closed
+
+`status_detail[].metadata` is genuinely absent from OICM `1.7.1`: it is not in
+that version's `StatusDetail`, `WorkloadStatusDetail`, or `DeploymentInstance`
+schemas, while it is in Al Ain's. But the fact it carries is not lost. `status`
+is populated identically in both versions, so `_is_ready` now treats `metadata`
+as optional and falls back to the entry's own `status`:
+
+- Pod: `metadata.ready`, or no metadata and `status == "Running"` (still
+  requiring a node, since an unscheduled pod cannot serve)
+- LeaderWorkerSet: `metadata.available`, or no metadata and `status` serving
+- Deployment: still not consulted, because it can report available while a
+  rollout is in progress
+
+`metadata` still wins when present, so a version that reports readiness keeps its
+more precise answer. Verified live: the Abu Dhabi deployment `766b1720`
+(`zai-org/GLM-5.2-FP8`) previously read as not serving and now reads
+`serving_available: true`.
+
+Al Ain's `/health.is_ready` is `false` for a running Ready pod (Al Ain omits
+`apiVersion`) while Abu Dhabi's is `true`, so `is_ready` is unreliable in opposite
+directions across the two. That is why the design dropped it in favour of
+`status_detail`, and why it must not be reintroduced.
+
+### Verified live on dev
+
+26 snapshots: 25 from `alain`, 1 from `abudhabi`, both tokens and both
+`deployment_summary` calls returning 200. The single Abu Dhabi deployment reports
+`source_status: Ready`, `serving_available: true`.
 
 ## Correction: the join was never broken
 
@@ -327,16 +387,19 @@ registered name as-is:
 
 ## Related: the Abu Dhabi side
 
-The cross-cluster import (`oicm_source: submariner:abudhabi`) is not OICM-managed
-today, so it is out of scope for the existence rule. Making Abu Dhabi's own OICM
-status usable the same way Al Ain's is turns out to need two fixes, neither of
-which is in this repository's code:
+The cross-cluster import (`oicm_source: submariner:abudhabi`) is not OICM-managed,
+so it is out of scope for the existence rule. Abu Dhabi's own OICM status is now
+usable: the controller reads it as a second source, and the `status_detail`
+`metadata` gap is closed (see "Multi-cluster status" above).
 
-- Abu Dhabi runs OICM `1.7.1` against Al Ain's `1.15.19`, and `1.7.1` does not
-  serve `/api/v1/workspaces/...`, so the controller's status source would need a
-  version adapter or an OICM upgrade.
-- Newly exported Abu Dhabi services are unreachable because kube-proxy there is
-  failing every watch with `Unauthorized` (expired RKE2 internal certs).
+One difference that no longer matters: Abu Dhabi runs OICM `1.7.1` against Al
+Ain's `1.15.19`, and `1.7.1` does not serve `/api/v1/workspaces/{ws}/deployments`
+in the same shape, but the controller only uses `deployment_summary`, which both
+serve identically. Both clusters' OpenAPI documents declare
+`/v1/workspaces/{workspace_id}/deployment_summary`.
+
+The RKE2 certificate fault that made Abu Dhabi's exports unreachable is fixed.
+See `oicm-aa-ad-cluster-interconnect/abudhabi-rke2-cert-renewal-runbook.md`.
 
 Full findings, evidence, and the reusable relay procedure are in
 `oicm-aa-ad-cluster-interconnect/abudhabi-oicm-rest-api-export.md`.

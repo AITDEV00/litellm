@@ -122,6 +122,43 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | `HEALTH_PORT` | `8090` | HTTP health check server port |
 | `HTTP_CONCURRENCY` | `50` | Max concurrent HTTP requests to LiteLLM API |
 | `ENABLE_SUBMARINER_IMPORTS` | `true` | Enable Submariner cross-cluster import source |
+| `STATUS_SYNC_INTERVAL` | `10` | Seconds between OICM status polls, per source |
+| `OICM_SOURCES_FILE` | `/etc/oicm/sources.yaml` | Path to the OICM source definitions |
+
+## OICM status sources
+
+Which OICM instances the controller reads deployment status from is declared in a
+ConfigMap, `deploy/oicm/sources.yaml`, mounted at `/etc/oicm`. One entry per
+instance, carrying its endpoints, realm, client, and workspace. Adding a cluster
+is a data change, not a code change.
+
+The same file is read directly by a local run, where the ConfigMap envelope is
+unwrapped, so there is one copy rather than two that can drift.
+
+Credentials are deliberately not in that file. A ConfigMap cannot hold or
+interpolate a Secret value, so each source's credentials are wired into the
+Deployment from that source's own Secret, under variable names derived from the
+source name:
+
+| Source name | Credential variables |
+|---|---|
+| `alain` | `OICM_SOURCE_ALAIN_USERNAME`, `OICM_SOURCE_ALAIN_PASSWORD` |
+| `abudhabi` | `OICM_SOURCE_ABUDHABI_USERNAME`, `OICM_SOURCE_ABUDHABI_PASSWORD` |
+
+Any field in the file can be overridden per deployment with
+`OICM_SOURCE_<NAME>_<FIELD>`, for example `OICM_SOURCE_ALAIN_WORKSPACE_ID`. A
+source listed in the ConfigMap whose credentials are absent is skipped with a
+warning, so a partial rollout degrades to fewer sources rather than failing.
+
+Both clusters are read at once. Sources are polled concurrently, so a cycle costs
+the slowest source rather than the sum, and a source that fails retains its own
+last snapshots while the others still land. `GET /status` reports each
+snapshot's `source`.
+
+Both OICM versions the controller talks to (Al Ain `1.15.19` and Abu Dhabi
+`1.7.1`) use the same `OicmStatusSource`; they differ only in whether
+`status_detail[]` carries `metadata`, which the shared availability logic treats
+as optional.
 
 ## OicmModel Fields
 

@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir kubernetes httpx aiohttp pydantic
+RUN pip install --no-cache-dir kubernetes httpx aiohttp pydantic pyyaml
 
 COPY controller/ ./controller/
 COPY hooks/ ./hooks/

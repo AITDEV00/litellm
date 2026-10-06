@@ -1,0 +1,54 @@
+# OICM status sources.
+#
+# One entry per OICM instance the controller reads deployment status from. Every
+# value that identifies an instance lives here, so adding a cluster is a data
+# change rather than a code change.
+#
+# Credentials are NOT here. A ConfigMap cannot hold or interpolate a Secret
+# value, so each source's credentials are wired into the Deployment from a
+# Secret, using variable names derived from the source name:
+#
+#   name: alain   -> OICM_SOURCE_ALAIN_USERNAME,  OICM_SOURCE_ALAIN_PASSWORD
+#   name: abudhabi -> OICM_SOURCE_ABUDHABI_USERNAME, OICM_SOURCE_ABUDHABI_PASSWORD
+#
+# A source whose credentials are absent is skipped with a warning, so a partial
+# rollout degrades to fewer sources rather than failing every cycle.
+#
+# Any field can be overridden per-deployment without editing this file, via
+# OICM_SOURCE_<NAME>_<FIELD>, e.g. OICM_SOURCE_ALAIN_WORKSPACE_ID.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-sources
+  namespace: adeo-litellm
+data:
+  sources.yaml: |
+    sources:
+      # Al Ain. In-cluster ClusterIP services, not the public APISIX hostnames:
+      # that keeps status traffic off the ingress and needs no TLS.
+      - name: alain
+        base_url: http://s-mlops-nginx-be-app.mlops.svc.cluster.local
+        auth_url: http://oicm-keycloak-keycloakx-http.oicm-keycloak.svc.cluster.local
+        workspace_id: dfec2a9f-cc5c-4b7b-b608-990d3804e80c
+        realm: adeo
+        client_id: adeo
+        grant_type: password
+        verify_tls: true
+        timeout: 20
+        concurrency: 20
+
+      # Abu Dhabi, reached over Submariner. The clusterset.local names resolve
+      # only from pods on the Al Ain gateway node adeo-gpu-03, which is where
+      # the controller is pinned. OICM there is 1.7.1 and does not populate
+      # status_detail[].metadata; availability falls back to the entry's own
+      # status, which both versions populate.
+      - name: abudhabi
+        base_url: http://s-mlops-nginx-be-app.mlops.svc.clusterset.local
+        auth_url: http://keycloak.keycloak.svc.clusterset.local
+        workspace_id: d7bbdde9-c8e2-4c43-8b63-4fc1f0545686
+        realm: adeo
+        client_id: adeo
+        grant_type: password
+        verify_tls: true
+        timeout: 20
+        concurrency: 20
