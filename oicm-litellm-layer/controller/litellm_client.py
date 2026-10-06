@@ -89,9 +89,10 @@ class LiteLLMClient:
         litellm_model_id: str,
         blocked: bool,
         cluster: str,
+        source_name: str,
         oicm_block: dict,
     ) -> bool:
-        """Write a deployment's routing state, cluster, and OICM status at once.
+        """Write a deployment's routing state, origin, and OICM status at once.
 
         `blocked` is a top-level column and the rest is a nested `model_info`
         object, and the endpoint accepts both in one body, so a status change
@@ -99,14 +100,16 @@ class LiteLLMClient:
         shallowly, so the whole `oicm` object is always sent: a partial patch
         would drop the keys it omitted.
 
-        `oicm_cluster` is written here as well as at registration so a row that
-        predates it gains the field on its first status write.
+        `oicm_cluster` and `oicm_source_name` are written here as well as at
+        registration so a row that predates either field gains it on its first
+        status write.
         """
         if self.read_only:
             logger.info(
-                "[READ-ONLY] would set blocked=%s cluster=%s oicm=%s on %s",
+                "[READ-ONLY] would set blocked=%s cluster=%s source=%s oicm=%s on %s",
                 blocked,
                 cluster,
+                source_name,
                 oicm_block.get("status"),
                 litellm_model_id,
             )
@@ -117,15 +120,20 @@ class LiteLLMClient:
                     f"{self.base_url}/model/{litellm_model_id}/update",
                     json={
                         "blocked": blocked,
-                        "model_info": {"oicm_cluster": cluster, "oicm": oicm_block},
+                        "model_info": {
+                            "oicm_cluster": cluster,
+                            "oicm_source_name": source_name,
+                            "oicm": oicm_block,
+                        },
                     },
                     timeout=self._write_timeout,
                 )
                 resp.raise_for_status()
                 logger.info(
-                    "Patched status on litellm_id=%s: cluster=%s status=%s serving=%s blocked=%s",
+                    "Patched status on litellm_id=%s: cluster=%s source=%s status=%s serving=%s blocked=%s",
                     litellm_model_id,
                     cluster,
+                    source_name,
                     oicm_block.get("status"),
                     oicm_block.get("serving_available"),
                     blocked,
@@ -142,12 +150,18 @@ class LiteLLMClient:
     async def upsert_heartbeat(
         self, row: dict, existing_id: Optional[str] = None
     ) -> bool:
-        """Create or advance one controller-owned liveness row per source.
+        """Create or advance one controller-owned liveness row per cluster.
 
-        Liveness is a per-source fact, so this is one write per source per
+        Liveness is a per-cluster fact, so this is one write per cluster per
         heartbeat rather than one per model. The row carries no `oicm_uuid`,
         which is what keeps it invisible to ``list_all_models_by_key`` and to
         every reconciliation rule, and it is blocked so it is never routable.
+
+        This is a deliberate placeholder. LiteLLM has no generic key-value write
+        endpoint, so a model row is the only place a controller-owned timestamp
+        can live today. It shows up in admin `/model/info` as a non-model row,
+        which is the cost. It is meant to be replaced once the gateway exposes a
+        dedicated status surface for the `/endpoints` view.
 
         `existing_id` makes this an upsert: without it, every heartbeat would
         POST a new row and the gateway would accumulate one per tick.
@@ -385,7 +399,7 @@ def _error_detail(exc: Exception) -> str:
 
 
 def heartbeat_payload(name: str, checked_at: str) -> dict:
-    """The request body for one source's liveness row.
+    """The request body for one cluster's liveness row.
 
     The `api_base` is an unroutable placeholder and the model is a passthrough
     id, because the row exists only to carry a timestamp. It is created blocked,

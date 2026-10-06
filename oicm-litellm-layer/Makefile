@@ -40,7 +40,7 @@ LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
-	controller-release deploy-dev \
+	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
 	port-forward-datasources docs
@@ -80,12 +80,31 @@ push-litellm:
 ## Build, push, and pin the version tag in the dev and prod manifests. This only
 ## edits the manifest files and pushes the image; it never touches the cluster,
 ## so prod is not upgraded until someone deliberately runs `make deploy`.
-## The dev workflow is: make controller-release deploy-dev
+## Use `make controller-release-dev` when only dev should move.
 controller-release: build push-discovery
 	@echo "Pinning $(DISCOVERY_IMG):$(TAG)"
 	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/dev/discovery-controller-dev.yaml
 	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/prod/discovery-controller.yaml
 	@echo "Pinned dev and prod manifests. Prod was NOT applied; run 'make deploy' for that."
+
+## Build the discovery controller image for a dev iteration. Same image as
+## `build`; named separately so the dev flow reads as one thing.
+controller-build-dev: build
+
+## Push the dev build to Harbor (requires `make login` first)
+controller-push-dev: push-discovery
+
+## Build, push, and pin the tag in the DEV manifest only. Prod's manifest is
+## left untouched, so a dev iteration can never move production. Follow with
+## `make deploy-dev`. This is the dev counterpart of `controller-release`.
+controller-release-dev: build push-discovery
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in the dev manifest only"
+	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/dev/discovery-controller-dev.yaml
+	@echo "Pinned deploy/dev/discovery-controller-dev.yaml. Prod manifest untouched."
+
+## Build, push, pin the dev manifest, and roll the dev controller out. One
+## command for the whole dev loop. Prod is never touched.
+controller-deploy-dev: controller-release-dev deploy-dev
 
 ## Apply the dev controller manifest only
 deploy-dev:

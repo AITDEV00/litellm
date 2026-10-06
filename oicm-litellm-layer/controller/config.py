@@ -37,10 +37,28 @@ def _master_key_from_manifest() -> str | None:
 
 LITELLM_ADMIN_KEY = os.getenv("LITELLM_ADMIN_KEY") or _master_key_from_manifest() or "sk-1234"
 NAMESPACE = os.getenv("WATCH_NAMESPACE", "adeo")
-# The cluster this controller runs in. Stored on every row it registers so a
-# model's origin is readable from the gateway alone, which matters once a
-# cross-cluster import shares a model name with a local deployment.
-CLUSTER_NAME = os.getenv("CLUSTER_NAME", "alain")
+
+
+def _cluster_name() -> str:
+    """The cluster this controller runs in, from ``CLUSTER_NAME``.
+
+    Required rather than defaulted. A model's cluster is what answers "Abu Dhabi
+    or Al Ain" and is how a consumer finds the right source heartbeat, so a
+    guessed value would be a wrong answer that looks authoritative. A missing
+    value fails at startup, which is the only place it can be noticed; the
+    Deployment manifests all set it.
+    """
+    value = (os.getenv("CLUSTER_NAME") or "").strip()
+    if not value:
+        raise RuntimeError(
+            "CLUSTER_NAME is not set. It names the cluster this controller runs "
+            "in (for example 'alain') and is stored on every model row as "
+            "oicm_cluster. Set it in the Deployment manifest."
+        )
+    return value
+
+
+CLUSTER_NAME = _cluster_name()
 CLUSTER_DOMAIN = os.getenv("CLUSTER_DOMAIN", "svc.cluster.local")
 MODEL_PORT = int(os.getenv("MODEL_PORT", "8080"))
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "300"))

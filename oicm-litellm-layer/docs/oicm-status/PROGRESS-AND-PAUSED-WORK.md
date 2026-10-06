@@ -162,6 +162,21 @@ not on the 10s poll.
 never replaced cannot be detected by anything, since no writer is left; the
 strongest available statement is "past the window, report unknown".
 
+### The heartbeat row is a placeholder
+
+The heartbeat is a controller-owned model row per cluster, carrying
+`oicm_heartbeat` and `checked_at` with no `oicm_uuid`. It is the only place a
+controller-owned timestamp can live today, because LiteLLM has no generic
+key-value write endpoint, and the cost is one non-model row per cluster in admin
+`/model/info`.
+
+It is meant to be replaced. The real consumer of all of this work is
+`/api/v1/endpoints`, the OpenRouter-convention surface a user queries for model
+status, which is being built on the LiteLLM side. Once that surface can carry a
+controller-owned status record, the heartbeat moves there and the rows go away.
+Any consumer written now should ask for "the latest `checked_at` for cluster X"
+rather than read the row directly, so the swap needs no consumer change.
+
 ## The join fix for cross-cluster rows
 
 The gateway row for an Abu Dhabi deployment is keyed
@@ -188,16 +203,38 @@ construction, and a regression test asserts it.
 
 ### The cluster is a first-class field
 
-`OicmModel.cluster` holds the in-cluster name for a local deployment and the
-source cluster for an import. It is persisted as `oicm_cluster` on every row,
-written at registration and again on each status write so a row that predates
-the field gains it. This is what answers "Abu Dhabi or Al Ain" for a model
-without anyone parsing a uuid, and it is also how a consumer finds the right
-heartbeat.
+`OicmModel.cluster` holds the cluster a deployment physically runs in: the
+in-cluster name for a local deployment and the source cluster for an import. It
+is persisted as `oicm_cluster` on every row, written at registration and again on
+each status write so a row that predates the field gains it. This is what
+answers "Abu Dhabi or Al Ain" for a model without anyone parsing a uuid.
+
+`oicm_source_name` is the second origin field, recording which configured OICM
+reported the status. It is separate from `oicm_cluster` because the two are
+different facts that only coincide today: if the gateway later runs in Abu Dhabi,
+or a source is named for its role rather than its location, a local deployment
+and an imported one could claim the same cluster while different OICMs reported
+them. The heartbeat lookup and the delete rule key on the source, so that is what
+they read.
+
+Two guards came out of this and both are enforced:
+
+- `CLUSTER_NAME` has no default. A guessed cluster is a wrong answer that looks
+authoritative, so a missing value fails at startup. Both Deployments set it.
+- Cluster names must be distinct across sources. An ambiguous cluster would make
+the heartbeat lookup wrong rather than merely slow.
 
 `oicm_source` is left untouched: rewriting a stored value would change a row's
-provenance for no gain. `CLUSTER_NAME` (default `alain`) comes from the
-Deployment, so the same image works in either cluster.
+provenance for no gain.
+
+### A silent field-drop this caught
+
+`OicmSourceConfig.with_env_overrides` rebuilds the config field by field, and the
+new `cluster` field was not in that list. The dataclass default is `""`, so the
+override path, which is the path the Deployment actually runs, would have written
+an empty cluster on every row while the parse-only tests passed. Found by
+exercising the override path rather than the parser, fixed, and pinned by a test
+that fails if the field is dropped again.
 
 ## The deletion rule now
 

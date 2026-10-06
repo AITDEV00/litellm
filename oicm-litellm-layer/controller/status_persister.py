@@ -97,6 +97,7 @@ class StatusWrite:
     litellm_model_id: str
     blocked: bool
     cluster: str
+    source_name: str
     block: dict
 
 
@@ -131,6 +132,7 @@ def plan_writes(
                 not _block_changed(stored, block)
                 and info.get("blocked", False) is blocked
                 and info.get("oicm_cluster") == snapshot.cluster
+                and info.get("oicm_source_name") == snapshot.source_name
             ):
                 continue
             writes.append(
@@ -138,6 +140,7 @@ def plan_writes(
                     litellm_model_id=model_id,
                     blocked=blocked,
                     cluster=snapshot.cluster,
+                    source_name=snapshot.source_name,
                     block=block,
                 )
             )
@@ -194,7 +197,11 @@ class StatusPersister:
             results = await asyncio.gather(
                 *(
                     self.litellm.patch_status(
-                        w.litellm_model_id, w.blocked, w.cluster, w.block
+                        w.litellm_model_id,
+                        w.blocked,
+                        w.cluster,
+                        w.source_name,
+                        w.block,
                     )
                     for w in writes
                 )

@@ -23,9 +23,12 @@ def _summaries():
 
 
 class _FakeSource:
-    def __init__(self, name="alain", workspace="ws1", summaries=None, error=None):
+    def __init__(
+        self, name="alain", workspace="ws1", cluster=None, summaries=None, error=None
+    ):
         self._name = name
         self._workspace = workspace
+        self._cluster = cluster or name
         self._summaries = summaries if summaries is not None else _summaries()
         self._error = error
         self.calls = 0
@@ -33,6 +36,10 @@ class _FakeSource:
     @property
     def name(self):
         return self._name
+
+    @property
+    def cluster(self):
+        return self._cluster
 
     @property
     def workspace_id(self):
@@ -218,3 +225,21 @@ async def test_run_polls_then_stops():
     poller.stop()
     await asyncio.wait_for(task, timeout=1)
     assert source.calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_snapshot_records_source_name_and_cluster_separately():
+    """A source named for its role still records the cluster it serves.
+
+    The two are distinct fields: the cluster answers "Abu Dhabi or Al Ain" and
+    is what a consumer keys the heartbeat lookup on, while the source name says
+    which configured OICM reported the status.
+    """
+    source = _FakeSource(name="primary-oicm", cluster="alain")
+    poller = StatusPoller([source])
+
+    snapshots = await poller.refresh()
+
+    snap = next(iter(snapshots.values()))
+    assert snap.source_name == "primary-oicm"
+    assert snap.cluster == "alain"

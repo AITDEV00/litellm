@@ -129,6 +129,10 @@ class OicmStatusSource(StatusSource):
         return self.config.name
 
     @property
+    def cluster(self) -> str:
+        return self.config.cluster
+
+    @property
     def workspace_id(self) -> str:
         return self.config.workspace_id
 

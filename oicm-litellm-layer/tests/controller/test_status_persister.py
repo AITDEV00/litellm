@@ -24,6 +24,7 @@ def _snapshot(
     status="Ready",
     serving=True,
     cluster="alain",
+    source_name="alain",
     observed_at="2026-10-06T00:00:00+00:00",
     status_changed_at="2026-10-06T00:00:00+00:00",
     error_msg=None,
@@ -33,6 +34,7 @@ def _snapshot(
     return OicmStatusSnapshot(
         workspace_id="ws1",
         workload_id=workload_id,
+        source_name=source_name,
         cluster=cluster,
         source_status=DeploymentStatus(status) if status else None,
         desired_replicas=desired,
@@ -45,11 +47,12 @@ def _snapshot(
     )
 
 
-def _entry(model_id="id-1", oicm=None, blocked=False, cluster="alain"):
+def _entry(model_id="id-1", oicm=None, blocked=False, cluster="alain", source_name="alain"):
     info = {
         "id": model_id,
         "oicm_uuid": "dep1",
         "oicm_cluster": cluster,
+        "oicm_source_name": source_name,
         "blocked": blocked,
     }
     if oicm is not None:
@@ -184,6 +187,21 @@ class TestWriteGuard:
         assert len(writes) == 1
         assert writes[0].cluster == "alain"
 
+    def test_missing_source_name_is_a_change(self):
+        """A row that predates `oicm_source_name` must gain it too.
+
+        The source name is what identifies the configured OICM that reported the
+        status, which is the lookup a consumer uses for freshness.
+        """
+        stored = build_block(_snapshot())
+        entry = _entry(oicm=stored, blocked=False)
+        entry["model_info"].pop("oicm_source_name")
+
+        writes = plan_writes({"dep1": _snapshot()}, {"dep1": [entry]})
+
+        assert len(writes) == 1
+        assert writes[0].source_name == "alain"
+
     def test_snapshot_without_a_gateway_row_is_skipped(self):
         """An OICM-only deployment has no row to write, and must not crash."""
         writes = plan_writes({"dep1": _snapshot()}, {})
@@ -228,7 +246,11 @@ async def test_status_and_blocked_ride_one_patch():
     )
 
     litellm.patch_status.assert_awaited_once_with(
-        "id-1", True, "alain", build_block(_snapshot(status="Stopped", serving=False))
+        "id-1",
+        True,
+        "alain",
+        "alain",
+        build_block(_snapshot(status="Stopped", serving=False)),
     )
 
 

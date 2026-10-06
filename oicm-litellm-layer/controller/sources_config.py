@@ -58,6 +58,12 @@ class OicmSourceConfig:
     base_url: str
     auth_url: str
     workspace_id: str
+    # The cluster this OICM instance serves. Defaults to the source name, which
+    # is the common case where one source is one cluster. It is a separate field
+    # so a source can be named for what it is while still declaring which
+    # cluster its deployments run in, and it must be unique across sources: a
+    # model's cluster is how a consumer finds that cluster's heartbeat.
+    cluster: str = ""
     realm: str = DEFAULT_REALM
     client_id: str = DEFAULT_CLIENT_ID
     grant_type: str = DEFAULT_GRANT_TYPE
@@ -85,6 +91,7 @@ class OicmSourceConfig:
         )
         return OicmSourceConfig(
             name=self.name,
+            cluster=override("CLUSTER", self.cluster),
             base_url=override("BASE_URL", self.base_url),
             auth_url=override("AUTH_URL", self.auth_url),
             workspace_id=override("WORKSPACE_ID", self.workspace_id),
@@ -139,6 +146,7 @@ def parse_sources(document: object) -> Tuple[OicmSourceConfig, ...]:
                 base_url=_required(name, "base_url", raw.get("base_url")),
                 auth_url=_required(name, "auth_url", raw.get("auth_url")),
                 workspace_id=_required(name, "workspace_id", raw.get("workspace_id")),
+                cluster=str(raw.get("cluster") or name),
                 realm=str(raw.get("realm") or DEFAULT_REALM),
                 client_id=str(raw.get("client_id") or DEFAULT_CLIENT_ID),
                 grant_type=str(raw.get("grant_type") or DEFAULT_GRANT_TYPE),
@@ -146,6 +154,15 @@ def parse_sources(document: object) -> Tuple[OicmSourceConfig, ...]:
                 timeout=float(raw.get("timeout") or DEFAULT_TIMEOUT),
                 concurrency=int(raw.get("concurrency") or DEFAULT_CONCURRENCY),
             )
+        )
+
+    clusters = [s.cluster for s in sources]
+    repeated = sorted({c for c in clusters if clusters.count(c) > 1})
+    if repeated:
+        raise ValueError(
+            f"OICM sources must name distinct clusters, but these repeat: {repeated}. "
+            "A model's cluster is how a consumer finds that cluster's heartbeat, so "
+            "two sources sharing one cluster name would make the lookup ambiguous."
         )
     return tuple(sources)
 
@@ -189,6 +206,6 @@ def load_sources(
     sources = tuple(s.with_env_overrides(env) for s in parse_sources(document))
     logger.info(
         "OICM sources: %s",
-        ", ".join(f"{s.name}({s.base_url})" for s in sources),
+        ", ".join(f"{s.name}({s.base_url}, cluster={s.cluster})" for s in sources),
     )
     return sources

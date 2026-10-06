@@ -69,12 +69,11 @@ class OicmModel:
     provider: str = "hosted_vllm"
     extra_args: str = ""
     source: str = "local"
-    # The cluster this deployment lives in. For a local deployment that is the
-    # cluster the controller runs in; for a Submariner import it is the source
-    # cluster the EndpointSlice came from. It is what answers "Abu Dhabi or Al
-    # Ain" for a model, and it is stored on the gateway row as `oicm_cluster`
-    # because the uuid alone cannot say it once a cross-cluster import shares a
-    # model name with a local one.
+    # The cluster this deployment physically runs in: the cluster the controller
+    # runs in for a local deployment, the source cluster the EndpointSlice came
+    # from for a Submariner import. It answers "Abu Dhabi or Al Ain" for a model
+    # and is stored as `oicm_cluster`, because the uuid alone cannot say it once a
+    # cross-cluster import shares a model name with a local deployment.
     cluster: str = CLUSTER_NAME
     api_base_override: Optional[str] = None
     api_surface: Optional[str] = None
@@ -102,7 +101,6 @@ class OicmModel:
         persisted as ``oicm_cluster``.
         """
         return strip_source_prefix(self.uuid)
-
     @property
     def api_base(self) -> str:
         if self.api_base_override:

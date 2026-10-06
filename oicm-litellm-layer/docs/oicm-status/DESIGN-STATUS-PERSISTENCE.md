@@ -132,7 +132,30 @@ than a long one. A generous guard (around 2000 chars) is worth adding only if a 
 message is ever observed.
 
 Existing sibling keys `oicm_uuid`, `oicm_namespace`, `oicm_source` stay as they are, and
-`oicm_cluster` joins them.
+`oicm_cluster` and `oicm_source_name` join them.
+
+### Two origin fields, because they answer different questions
+
+A single field was not enough once the gateway could run in either cluster. Two
+questions get asked of a row, and one string cannot answer both:
+
+| Field | Question it answers | Where it comes from |
+|---|---|---|
+| `oicm_cluster` | which cluster does this deployment physically run in? | `CLUSTER_NAME` for a local deployment, the EndpointSlice source-cluster label for an import |
+| `oicm_source_name` | which configured OICM reported this status? | the `name:` in `sources.yaml` |
+
+They coincide today (the controller runs in Al Ain and the sources are named for their
+clusters) but they are not the same fact. If the gateway later runs in Abu Dhabi, or a
+source is named for its role rather than its location, a local deployment and an imported
+one could both claim the same cluster while being reported by different OICMs. The
+heartbeat lookup and the delete rule key on the source, so that is the field they read.
+
+`CLUSTER_NAME` therefore has **no default**. A guessed cluster is a wrong answer that looks
+authoritative, and a missing value fails at startup, which is the only place it can be
+noticed. Both Deployments set it, so this costs nothing in-cluster.
+
+Cluster names must also be distinct across sources, which `parse_sources` enforces: an
+ambiguous cluster would make the heartbeat lookup wrong rather than merely slow.
 
 ### The join, and why the block carries `gateway_uuid`
 
@@ -264,11 +287,12 @@ so it is never routable, and it is a passthrough-shaped entry (a `hosted_vllm` m
 an unreachable local base), never selected because it is blocked. Its cost is one write per
 source per heartbeat, on the heartbeat cadence rather than the poll cadence.
 
-This is a deliberate, small wart: one extra row per source in `/model/info` and the Admin UI
-model list. The alternative, reusing `LiteLLM_Config`, needs a new LiteLLM endpoint and turns
-on a reload fan-out per write, which is strictly worse. The row can be swapped for a proper
-endpoint later without touching any consumer, because the reader only ever asks "what is the
-latest `checked_at` for source X".
+This is a deliberate placeholder, not the final shape. The real consumer of all of this is
+`/api/v1/endpoints`, the OpenRouter-convention surface a user queries for model status, and
+that surface is being built on the LiteLLM side. Once it exists and can carry a
+controller-owned status record, the heartbeat moves there and the rows go away. Until then,
+the row is the only mechanism available without adding a LiteLLM endpoint, and the cost is
+one extra row per cluster in admin `/model/info` and the Admin UI model list.
 
 ### What a consumer does with it
 

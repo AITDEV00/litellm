@@ -26,7 +26,14 @@ data:
     sources:
       # Al Ain. In-cluster ClusterIP services, not the public APISIX hostnames:
       # that keeps status traffic off the ingress and needs no TLS.
+      #
+      # `cluster` is the cluster this OICM serves, and it is what a model row
+      # records as `oicm_cluster`. It defaults to the source name; it is set
+      # explicitly here so renaming a source never silently moves a cluster.
+      # Cluster names must be unique across sources, because a model's cluster
+      # is how a consumer finds that cluster's heartbeat.
       - name: alain
+        cluster: alain
         base_url: http://s-mlops-nginx-be-app.mlops.svc.cluster.local
         auth_url: http://oicm-keycloak-keycloakx-http.oicm-keycloak.svc.cluster.local
         workspace_id: dfec2a9f-cc5c-4b7b-b608-990d3804e80c
@@ -43,6 +50,7 @@ data:
       # status_detail[].metadata; availability falls back to the entry's own
       # status, which both versions populate.
       - name: abudhabi
+        cluster: abudhabi
         base_url: http://s-mlops-nginx-be-app.mlops.svc.clusterset.local
         auth_url: http://keycloak.keycloak.svc.clusterset.local
         workspace_id: d7bbdde9-c8e2-4c43-8b63-4fc1f0545686

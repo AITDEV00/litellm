@@ -43,9 +43,11 @@ class OicmStatusSnapshot:
     workspace_id: str
     workload_id: str  # == deployment_id (proven)
 
-    # The configured source that produced this snapshot. Liveness is tracked per
-    # source, so a consumer needs this to look up the heartbeat that says whether
-    # the status is still fresh.
+    # The configured source that produced this snapshot, and the cluster its
+    # deployments run in. Both are needed: `cluster` is what a model row
+    # records and what a consumer keys the heartbeat lookup on, while
+    # `source_name` says which configured OICM reported it.
+    source_name: str
     cluster: str
 
     source_status: Optional[DeploymentStatus]

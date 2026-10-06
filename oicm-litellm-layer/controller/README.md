@@ -185,6 +185,7 @@ Each registered model is tagged with `model_info` metadata in LiteLLM:
   "mode": "chat",
   "oicm_uuid": "submariner:abudhabi:766b1720-f516-4077-b22c-6ce97c045470",
   "oicm_cluster": "abudhabi",
+  "oicm_source_name": "abudhabi",
   "oicm_namespace": "adeo",
   "oicm_source": "submariner:abudhabi",
   "oicm": {
@@ -200,13 +201,23 @@ Each registered model is tagged with `model_info` metadata in LiteLLM:
 }
 ```
 
-`oicm_cluster` says which cluster the deployment is in (`alain` for a local
-deployment, the
-source cluster for a cross-cluster import). It is what answers "Abu Dhabi or Al
-Ain" for a model
-without anyone parsing a uuid, and it is how a consumer finds that cluster's
-heartbeat to decide
-whether the status is still fresh.
+`oicm_cluster` says which cluster the deployment physically runs in: `alain` for
+a local
+deployment, the source cluster for a cross-cluster import. It is what answers
+"Abu Dhabi or Al
+Ain" for a model without anyone parsing a uuid. `CLUSTER_NAME` supplies it for a
+local
+deployment and is required, not defaulted, because a guessed cluster is a wrong
+answer that
+looks authoritative.
+
+`oicm_source_name` says which configured OICM reported the status, taken from the
+`name:` in
+`sources.yaml`. It is separate from `oicm_cluster` because the two only coincide
+while the
+gateway runs in the same cluster as one of its sources. A consumer looks up
+freshness by
+cluster and ownership by source, so both are recorded.
 
 `oicm_source` records how the row was discovered: `"local"` for a deployment
 watched in this
@@ -225,6 +236,19 @@ admin-added model or
 the heartbeat rows (which have no `oicm_uuid`) are never deleted, and an
 unreachable OICM is
 never read as deletion.
+
+Each cluster also gets one controller-owned heartbeat row, named
+`oicm-heartbeat-<cluster>`, carrying `oicm_heartbeat` and `checked_at` with no
+`oicm_uuid` and
+`blocked = true`. It exists because LiteLLM has no generic key-value write
+endpoint, so a model
+row is the only place a controller-owned timestamp can live today; it is hidden
+from
+`/v1/models` and shows up only in admin `/model/info`. It is a placeholder for a
+dedicated
+status surface on the `/api/v1/endpoints` side, and a consumer should read it as
+"the latest
+`checked_at` for cluster X" rather than as a model.
 
 ## Running
 

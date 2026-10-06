@@ -22,6 +22,17 @@ class StatusSource(ABC):
 
     @property
     @abstractmethod
+    def cluster(self) -> str:
+        """The cluster this source's deployments run in.
+
+        Distinct from ``name``: a source is named for what it is, while the
+        cluster says where its deployments physically run. It is what a model
+        row records, and what a consumer uses to find the right heartbeat.
+        """
+        ...
+
+    @property
+    @abstractmethod
     def workspace_id(self) -> str:
         ...
 

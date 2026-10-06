@@ -50,6 +50,7 @@ def _deployment_meta_field(
 def build_snapshot(
     *,
     workspace_id: str,
+    source_name: str,
     cluster: str,
     summary: OicmDeploymentSummary,
     previous: Optional[OicmStatusSnapshot],
@@ -78,6 +79,7 @@ def build_snapshot(
     return OicmStatusSnapshot(
         workspace_id=workspace_id,
         workload_id=summary.deployment_id,
+        source_name=source_name,
         cluster=cluster,
         source_status=source_status,
         desired_replicas=summary.replicas,

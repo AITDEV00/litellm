@@ -224,8 +224,8 @@ async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
 
     `blocked` is a top-level column and the rest is a nested `model_info`
     object; sending them separately would be two reloads for one fact change.
-    The cluster rides along so a row registered before `oicm_cluster` existed
-    gains it on its first status write.
+    The cluster and source name ride along so a row registered before either
+    field existed gains them on its first status write.
     """
     seen = {}
 
@@ -236,12 +236,15 @@ async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
             return httpx.Response(200, json={"message": "ok"}, request=httpx.Request("PATCH", url))
 
     client = LiteLLMClient(read_only=False, client=_PatchClient())
-    ok = await client.patch_status("mid-1", True, "abudhabi", {"v": 1, "status": "Stopped"})
+    ok = await client.patch_status(
+        "mid-1", True, "abudhabi", "abudhabi-oicm", {"v": 1, "status": "Stopped"}
+    )
 
     assert ok is True
     assert seen["url"].endswith("/model/mid-1/update")
     assert seen["json"]["blocked"] is True
     assert seen["json"]["model_info"]["oicm_cluster"] == "abudhabi"
+    assert seen["json"]["model_info"]["oicm_source_name"] == "abudhabi-oicm"
     assert seen["json"]["model_info"]["oicm"] == {"v": 1, "status": "Stopped"}
 
 

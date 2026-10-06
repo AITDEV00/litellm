@@ -105,7 +105,8 @@ class StatusPoller:
                 workload_id = summary.deployment_id
                 snapshots[workload_id] = build_snapshot(
                     workspace_id=source.workspace_id,
-                    cluster=source.name,
+                    source_name=source.name,
+                    cluster=source.cluster,
                     summary=summary,
                     previous=self._snapshots.get(workload_id),
                 )

@@ -76,6 +76,61 @@ class TestParse:
             parse_sources(yaml.safe_load(dup))
 
 
+class TestCluster:
+    """The cluster a source serves is separate from the source's name.
+
+    A source is named for what it is; the cluster says where its deployments run.
+    A model row records the cluster, and that is how a consumer finds the right
+    heartbeat, so the cluster names must be distinct across sources.
+    """
+
+    def test_cluster_defaults_to_the_source_name(self):
+        import yaml
+
+        sources = parse_sources(yaml.safe_load(_document()))
+
+        assert [s.cluster for s in sources] == ["alain", "abudhabi"]
+
+    def test_cluster_can_differ_from_the_source_name(self):
+        """A source named for its role can still declare its real cluster."""
+        import yaml
+
+        doc = """
+        sources:
+          - name: primary-oicm
+            cluster: alain
+            base_url: http://a
+            auth_url: http://b
+            workspace_id: c
+        """
+
+        sources = parse_sources(yaml.safe_load(doc))
+
+        assert sources[0].name == "primary-oicm"
+        assert sources[0].cluster == "alain"
+
+    def test_two_sources_sharing_a_cluster_raises(self):
+        """An ambiguous cluster would make the heartbeat lookup wrong."""
+        import yaml
+
+        doc = """
+        sources:
+          - name: a
+            cluster: shared
+            base_url: http://a
+            auth_url: http://b
+            workspace_id: c
+          - name: b
+            cluster: shared
+            base_url: http://d
+            auth_url: http://e
+            workspace_id: f
+        """
+
+        with pytest.raises(ValueError, match="distinct clusters"):
+            parse_sources(yaml.safe_load(doc))
+
+
 class TestEnvOverrides:
     def test_override_rewrites_only_the_named_source(self):
         import yaml
@@ -173,3 +228,28 @@ class TestBuildStatusSources:
         sources = build_status_sources(env=env, configs=configs)
 
         assert [s.name for s in sources] == ["alain"]
+
+    def test_env_overrides_preserve_the_cluster(self):
+        """An override must not blank the cluster.
+
+        `with_env_overrides` rebuilds the config field by field, so a field it
+        forgets is silently replaced by the dataclass default. Dropping the
+        cluster that way would make every row's cluster empty in production
+        while tests passed, because the override path is what the Deployment
+        actually runs.
+        """
+        import yaml
+
+        sources = parse_sources(yaml.safe_load(_document()))
+
+        overridden = tuple(s.with_env_overrides({}) for s in sources)
+
+        assert [s.cluster for s in overridden] == ["alain", "abudhabi"]
+
+    def test_env_can_override_the_cluster(self):
+        import yaml
+
+        sources = parse_sources(yaml.safe_load(_document()))
+        overridden = sources[0].with_env_overrides({"OICM_SOURCE_ALAIN_CLUSTER": "alain-prod"})
+
+        assert overridden.cluster == "alain-prod"
