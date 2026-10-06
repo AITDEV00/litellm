@@ -97,11 +97,14 @@ PATCH /model/{id}/update
 
 - Always send the **whole** `oicm` object (LiteLLM shallow-merges `model_info`, so a
   partial nested patch would drop keys).
-- The block carries `v`, `status`, `serving_available`, `cluster`, `gateway_uuid`,
+- The block carries `v`, `status`, `serving_available`, `gateway_uuid`,
   `replicas`, `status_changed_at`, `observed_at`, `error_msg`. It does **not** carry
   `api_base`: `litellm_params.api_base` already survives independently and is what
   routing reads, so a second copy would only be able to drift. `error_msg` is stored
-  in full, uncapped.
+  in full, uncapped. The cluster is a sibling key `oicm_cluster`, not a block field,
+  because it answers "which cluster" at any time rather than being a status fact.
+- The same PATCH writes `oicm_cluster`, so a row registered before the field existed
+  gains it on its first status write.
 - Never put the OICM password/token in `model_info`.
 - Test: PATCH with the full block; a subsequent read shows all nested keys intact
   (a partial patch would have dropped keys, so this is the regression guard).
@@ -238,7 +241,7 @@ If full OpenRouter fidelity is wanted, query genuine 30-min windows (`histogram_
 
 ## Cross-cutting tests required before "done"
 
-Controller: token cache/refresh, label extraction (incl. missing `workload_run_id`), DTO parsing from fixtures, `Ready`+`serving_available=false`, run-id change, debounce/coalescing, watch+periodic no double-PATCH, no-op suppression, OICM timeout → staleness, 401 refresh+retry, startup hydration, full nested `oicm` preserved across shallow merge, cross-cluster `submariner:<cluster>:` prefix join, deletion only when the owning source was polled successfully.
+Controller: token cache/refresh, label extraction (incl. missing `workload_run_id`), DTO parsing from fixtures, `Ready`+`serving_available=false`, run-id change, debounce/coalescing, watch+periodic no double-PATCH, no-op suppression, OICM timeout → staleness, 401 refresh+retry, startup hydration, full nested `oicm` preserved across shallow merge, cross-cluster `submariner:<cluster>:` prefix join on BOTH sides (so an import is not double-registered), `oicm_cluster` backfilled onto a row that predates it, deletion only when the owning source was polled successfully.
 
 LiteLLM: OpenRouter SDK compatibility, multiple deployments per logical model, stale, missing status, stopped, unhealthy-ready, runtime metric failure, absent-metrics-stay-null, authorization filtering, telemetry single-flight, official DTO still parses with `gateway_status` attached.
 

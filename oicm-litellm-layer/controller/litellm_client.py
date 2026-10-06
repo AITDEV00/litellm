@@ -12,15 +12,9 @@ from .config import (
     LITELLM_ADMIN_URL,
     REMOTE_TIMEOUT_SECONDS,
 )
-from .models import OicmModel, to_litellm_mode
+from .models import OicmModel, strip_source_prefix, to_litellm_mode
 
 logger = logging.getLogger("oicm-discovery")
-
-# A Submariner import namespaces its uuid as `submariner:<cluster>:<uuid>` to
-# keep it unique in the k8s EndpointSlice. The owning OICM returns the bare uuid,
-# so the two only join once this prefix is stripped. Kept here rather than in the
-# source so the gateway and the status path agree on one rule.
-SUBMARINER_PREFIX = "submariner:"
 
 
 def gateway_uuid(oicm_uuid: str) -> str:
@@ -29,11 +23,7 @@ def gateway_uuid(oicm_uuid: str) -> str:
     ``submariner:abudhabi:<uuid>`` becomes ``<uuid>``; anything else is returned
     unchanged, so a local uuid and an unrecognized value both pass through.
     """
-    if not oicm_uuid.startswith(SUBMARINER_PREFIX):
-        return oicm_uuid
-    _, _, rest = oicm_uuid.partition(SUBMARINER_PREFIX)
-    _, _, bare = rest.partition(":")
-    return bare or rest
+    return strip_source_prefix(oicm_uuid)
 
 
 def _admin_headers(admin_key: str) -> dict[str, str]:
@@ -98,20 +88,25 @@ class LiteLLMClient:
         self,
         litellm_model_id: str,
         blocked: bool,
+        cluster: str,
         oicm_block: dict,
     ) -> bool:
-        """Write a deployment's routing state and its OICM status in one PATCH.
+        """Write a deployment's routing state, cluster, and OICM status at once.
 
-        `blocked` is a top-level column and the block is a nested `model_info`
+        `blocked` is a top-level column and the rest is a nested `model_info`
         object, and the endpoint accepts both in one body, so a status change
         costs one write and one reload rather than two. `model_info` merges
         shallowly, so the whole `oicm` object is always sent: a partial patch
         would drop the keys it omitted.
+
+        `oicm_cluster` is written here as well as at registration so a row that
+        predates it gains the field on its first status write.
         """
         if self.read_only:
             logger.info(
-                "[READ-ONLY] would set blocked=%s and oicm=%s on %s",
+                "[READ-ONLY] would set blocked=%s cluster=%s oicm=%s on %s",
                 blocked,
+                cluster,
                 oicm_block.get("status"),
                 litellm_model_id,
             )
@@ -120,13 +115,17 @@ class LiteLLMClient:
             try:
                 resp = await self._client.patch(
                     f"{self.base_url}/model/{litellm_model_id}/update",
-                    json={"blocked": blocked, "model_info": {"oicm": oicm_block}},
+                    json={
+                        "blocked": blocked,
+                        "model_info": {"oicm_cluster": cluster, "oicm": oicm_block},
+                    },
                     timeout=self._write_timeout,
                 )
                 resp.raise_for_status()
                 logger.info(
-                    "Patched status on litellm_id=%s: status=%s serving=%s blocked=%s",
+                    "Patched status on litellm_id=%s: cluster=%s status=%s serving=%s blocked=%s",
                     litellm_model_id,
+                    cluster,
                     oicm_block.get("status"),
                     oicm_block.get("serving_available"),
                     blocked,
@@ -437,6 +436,7 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
         "model_info": {
             "mode": to_litellm_mode(model.mode),
             "oicm_uuid": model.uuid,
+            "oicm_cluster": model.cluster,
             "oicm_namespace": model.namespace,
             "oicm_source": model.source,
         },

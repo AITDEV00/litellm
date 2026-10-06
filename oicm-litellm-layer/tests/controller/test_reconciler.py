@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from controller.models import OicmModel, to_litellm_mode
+from controller.models import OicmModel, build_model, to_litellm_mode
 from controller.pricing.models import PricingResult
 from controller.reconciler import SyncPlan, SyncReconciler, _summaries_to_models
 
@@ -537,9 +537,12 @@ async def test_cross_cluster_entry_absent_from_oicm_is_deleted():
     assert plan.deletes == ["id-import"]
 
 
-def _summary(workload_id, serving):
+def _summary(workload_id, serving, cluster="alain"):
     return SimpleNamespace(
-        workspace_id="ws", workload_id=workload_id, serving_available=serving
+        workspace_id="ws",
+        workload_id=workload_id,
+        cluster=cluster,
+        serving_available=serving,
     )
 
 
@@ -625,3 +628,35 @@ async def test_complete_poll_deletes_what_oicm_no_longer_lists():
     )
 
     assert plan.deletes == ["id-16"]
+
+
+@pytest.mark.asyncio
+async def test_cross_cluster_import_is_not_registered_twice():
+    """Regression: a Submariner import must match its own gateway row.
+
+    The import yields `submariner:abudhabi:<uuid>` while the gateway row is keyed
+    on the same prefixed value. `deployment_id` strips the prefix, and the
+    gateway grouping strips it too, so the two agree. If either side stopped
+    stripping, the import would look like a brand-new deployment and be
+    registered a second time on every cycle.
+    """
+    reconciler = _reconciler_with_costs(None)
+    imported = build_model(
+        uuid="submariner:abudhabi:766b1720",
+        model_id="zai-org/GLM-5.2-FP8",
+        ready_replicas=1,
+        total_replicas=1,
+        source="submariner:abudhabi",
+        cluster="abudhabi",
+    )
+    entry = _entry_matching(imported, "id-ad")
+    entry["model_info"]["oicm_uuid"] = "submariner:abudhabi:766b1720"
+    entry["model_info"]["oicm_source"] = "submariner:abudhabi"
+
+    plan = await reconciler.compute_plan(
+        {"766b1720": imported}, {"766b1720": [entry]}
+    )
+
+    assert plan.registers == []
+    assert plan.deletes == []
+

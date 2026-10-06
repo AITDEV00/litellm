@@ -169,10 +169,35 @@ The gateway row for an Abu Dhabi deployment is keyed
 Dhabi's own OICM returns the bare `<uuid>`. Grouping on the namespaced value and
 keying snapshots on the bare one meant an AD row could never find its status.
 
-`list_all_models_by_key` now strips the `submariner:<cluster>:` prefix when
-grouping, and the block carries `gateway_uuid` (the bare uuid) plus `cluster`.
-The stored `oicm_uuid` is left untouched: rewriting it would change a row's
-identity for no gain.
+### The prefix is transport detail, so it is stripped on both sides
+
+`submariner:<cluster>:` exists so a k8s EndpointSlice value stays unique. It
+means nothing about the deployment, so it is stripped everywhere and the cluster
+it encodes is kept explicitly:
+
+- `OicmModel.deployment_id` is now `strip_source_prefix(self.uuid)`.
+- `list_all_models_by_key` strips the same prefix when grouping.
+- Both call one shared helper, so they cannot drift apart.
+
+This mattered more than the original status gap. An earlier revision stripped
+only on the gateway side, which left `discovered` keyed
+`submariner:abudhabi:<uuid>` while `litellm_by_key` was keyed `<uuid>`. The
+import then matched neither its own row nor its snapshot and would have been
+**registered a second time on every cycle**. Both sides now agree by
+construction, and a regression test asserts it.
+
+### The cluster is a first-class field
+
+`OicmModel.cluster` holds the in-cluster name for a local deployment and the
+source cluster for an import. It is persisted as `oicm_cluster` on every row,
+written at registration and again on each status write so a row that predates
+the field gains it. This is what answers "Abu Dhabi or Al Ain" for a model
+without anyone parsing a uuid, and it is also how a consumer finds the right
+heartbeat.
+
+`oicm_source` is left untouched: rewriting a stored value would change a row's
+provenance for no gain. `CLUSTER_NAME` (default `alain`) comes from the
+Deployment, so the same image works in either cluster.
 
 ## The deletion rule now
 
@@ -191,7 +216,8 @@ imports while leaving admin rows and the heartbeat rows (which have no
 
 267 controller tests pass. The 2 failures in `test_config.py` are pre-existing
 and unrelated: they read the prod manifest, whose master key is now
-`sk-05132025`, and they fail identically with this work stashed.
+`sk-05132025`, and they fail identically with this work stashed. The count is
+277 with the cluster-identity tests.
 
 Nine mutations were each killed by the new tests:
 
@@ -204,6 +230,9 @@ Nine mutations were each killed by the new tests:
 - ignoring the heartbeat's own cadence
 - removing the no-snapshot heartbeat guard (it must not consume the window)
 - sending `blocked` and the block as separate writes
+- `deployment_id` not stripping the prefix (the double-register bug)
+- dropping `gateway_uuid` from the block
+- ignoring `oicm_cluster` on the row, so a stale row would never be backfilled
 
 ## Multi-cluster status and the declarative source map
 

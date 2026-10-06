@@ -44,7 +44,6 @@ _COMPARED_FACTS = (
     "v",
     "status",
     "serving_available",
-    "cluster",
     "gateway_uuid",
     "replicas",
     "status_changed_at",
@@ -57,12 +56,15 @@ def build_block(snapshot: OicmStatusSnapshot) -> dict:
 
     Complete, not partial: LiteLLM merges `model_info` shallowly, so a partial
     block would replace the `oicm` object and drop whatever it omitted.
+
+    The cluster is not in here. It is a sibling key (`oicm_cluster`) rather than
+    a status fact, because it answers "which cluster is this deployment in" at
+    any time, not only when a status was observed.
     """
     return {
         "v": BLOCK_VERSION,
         "status": snapshot.source_status.value if snapshot.source_status else None,
         "serving_available": snapshot.serving_available,
-        "cluster": snapshot.cluster,
         "gateway_uuid": snapshot.workload_id,
         "replicas": {
             "desired": snapshot.desired_replicas,
@@ -94,6 +96,7 @@ class StatusWrite:
 
     litellm_model_id: str
     blocked: bool
+    cluster: str
     block: dict
 
 
@@ -122,13 +125,20 @@ def plan_writes(
             model_id = entry.get("model_id")
             if not model_id:
                 continue
-            stored = (entry.get("model_info") or {}).get("oicm")
-            stored_blocked = (entry.get("model_info") or {}).get("blocked", False)
-            if not _block_changed(stored, block) and stored_blocked is blocked:
+            info = entry.get("model_info") or {}
+            stored = info.get("oicm")
+            if (
+                not _block_changed(stored, block)
+                and info.get("blocked", False) is blocked
+                and info.get("oicm_cluster") == snapshot.cluster
+            ):
                 continue
             writes.append(
                 StatusWrite(
-                    litellm_model_id=model_id, blocked=blocked, block=block
+                    litellm_model_id=model_id,
+                    blocked=blocked,
+                    cluster=snapshot.cluster,
+                    block=block,
                 )
             )
     return tuple(writes)
@@ -184,7 +194,7 @@ class StatusPersister:
             results = await asyncio.gather(
                 *(
                     self.litellm.patch_status(
-                        w.litellm_model_id, w.blocked, w.block
+                        w.litellm_model_id, w.blocked, w.cluster, w.block
                     )
                     for w in writes
                 )

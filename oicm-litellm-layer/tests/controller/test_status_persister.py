@@ -47,8 +47,13 @@ def _snapshot(
     )
 
 
-def _entry(model_id="id-1", oicm=None, blocked=False):
-    info = {"id": model_id, "oicm_uuid": "dep1", "blocked": blocked}
+def _entry(model_id="id-1", oicm=None, blocked=False, cluster="alain"):
+    info = {
+        "id": model_id,
+        "oicm_uuid": "dep1",
+        "oicm_cluster": cluster,
+        "blocked": blocked,
+    }
     if oicm is not None:
         info["oicm"] = oicm
     return {
@@ -66,7 +71,9 @@ class TestBlockShape:
         LiteLLM merges `model_info` shallowly, so a partial block would replace
         the `oicm` object and drop what it omitted. `api_base` is deliberately
         absent: `litellm_params.api_base` already survives on the row and is what
-        routing reads, so a second copy could only drift.
+        routing reads, so a second copy could only drift. The cluster is also
+        absent, because it lives in the sibling `oicm_cluster` key rather than in
+        the status block.
         """
         block = build_block(_snapshot())
 
@@ -74,7 +81,6 @@ class TestBlockShape:
             "v",
             "status",
             "serving_available",
-            "cluster",
             "gateway_uuid",
             "replicas",
             "status_changed_at",
@@ -83,7 +89,6 @@ class TestBlockShape:
         }
         assert block["v"] == 1
         assert block["replicas"] == {"desired": 1, "available": 1}
-        assert block["cluster"] == "alain"
         assert block["gateway_uuid"] == "dep1"
 
     def test_error_msg_is_stored_in_full(self):
@@ -166,6 +171,21 @@ class TestWriteGuard:
         assert len(writes) == 1
         assert writes[0].blocked is False
 
+    def test_missing_cluster_is_a_change(self):
+        """A row that predates `oicm_cluster` must gain it on the next write.
+
+        The cluster is what answers "Abu Dhabi or Al Ain" for a model, so a row
+        without it has to be filled in rather than treated as unchanged.
+        """
+        stored = build_block(_snapshot())
+        entry = _entry(oicm=stored, blocked=False)
+        entry["model_info"].pop("oicm_cluster")
+
+        writes = plan_writes({"dep1": _snapshot()}, {"dep1": [entry]})
+
+        assert len(writes) == 1
+        assert writes[0].cluster == "alain"
+
     def test_snapshot_without_a_gateway_row_is_skipped(self):
         """An OICM-only deployment has no row to write, and must not crash."""
         writes = plan_writes({"dep1": _snapshot()}, {})
@@ -210,7 +230,7 @@ async def test_status_and_blocked_ride_one_patch():
     )
 
     litellm.patch_status.assert_awaited_once_with(
-        "id-1", True, build_block(_snapshot(status="Stopped", serving=False))
+        "id-1", True, "alain", build_block(_snapshot(status="Stopped", serving=False))
     )
 
 
@@ -325,3 +345,41 @@ class TestGatewayUuid:
     def test_prefix_without_a_cluster_is_left_intact(self):
         """A malformed value must not be silently mangled into a wrong key."""
         assert gateway_uuid("submariner:766b1720") == "766b1720"
+
+
+class TestCrossClusterStatus:
+    """The Abu Dhabi import must get its status from Abu Dhabi's own OICM.
+
+    This is the whole point of stripping the prefix: the gateway row is keyed on
+    `submariner:abudhabi:<uuid>` while Abu Dhabi's OICM reports the bare uuid, so
+    before the strip the row could never find its snapshot and a stopped AD
+    deployment stayed routable.
+    """
+
+    def test_import_is_paused_when_its_own_oicm_reports_not_serving(self):
+        imported = _snapshot(
+            workload_id="766b1720",
+            status="Stopped",
+            serving=False,
+            cluster="abudhabi",
+        )
+        entry = _entry("id-ad", blocked=False, cluster="abudhabi")
+        entry["model_info"]["oicm_uuid"] = "submariner:abudhabi:766b1720"
+
+        writes = plan_writes({"766b1720": imported}, {"766b1720": [entry]})
+
+        assert len(writes) == 1
+        assert writes[0].litellm_model_id == "id-ad"
+        assert writes[0].blocked is True
+        assert writes[0].cluster == "abudhabi"
+
+    def test_import_is_resumed_when_its_own_oicm_reports_serving(self):
+        stored = build_block(_snapshot(workload_id="766b1720", serving=True))
+        imported = _snapshot(workload_id="766b1720", serving=True, cluster="abudhabi")
+        entry = _entry("id-ad", oicm=stored, blocked=True, cluster="abudhabi")
+        entry["model_info"]["oicm_uuid"] = "submariner:abudhabi:766b1720"
+
+        writes = plan_writes({"766b1720": imported}, {"766b1720": [entry]})
+
+        assert len(writes) == 1
+        assert writes[0].blocked is False

@@ -1,7 +1,28 @@
 from dataclasses import dataclass
 from typing import Final, FrozenSet, List, Optional, Tuple
 
-from .config import CLUSTER_DOMAIN, MODEL_PORT, NAMESPACE
+from .config import CLUSTER_DOMAIN, CLUSTER_NAME, MODEL_PORT, NAMESPACE
+
+# A Submariner import namespaces its uuid as `submariner:<cluster>:<uuid>` to
+# keep it unique in the k8s EndpointSlice. The owning OICM reports the bare
+# uuid, so the two only join once this prefix is stripped. The prefix is a
+# transport detail, not part of the deployment's identity.
+SUBMARINER_PREFIX: Final[str] = "submariner:"
+
+
+def strip_source_prefix(uuid: str) -> str:
+    """The bare deployment uuid behind a possibly source-prefixed one.
+
+    ``submariner:abudhabi:<uuid>`` becomes ``<uuid>``; a bare uuid passes
+    through unchanged. A value that is prefixed but carries no cluster (a
+    malformed value) is returned without the prefix rather than mangled into a
+    different uuid.
+    """
+    if not uuid.startswith(SUBMARINER_PREFIX):
+        return uuid
+    _, _, rest = uuid.partition(SUBMARINER_PREFIX)
+    _, _, bare = rest.partition(":")
+    return bare or rest
 
 # Providers recognized by substring in the deployment's owned_by / model id.
 # Substring (not exact) matching, so suffixed ids like "hamsa-tts-new" still
@@ -48,6 +69,13 @@ class OicmModel:
     provider: str = "hosted_vllm"
     extra_args: str = ""
     source: str = "local"
+    # The cluster this deployment lives in. For a local deployment that is the
+    # cluster the controller runs in; for a Submariner import it is the source
+    # cluster the EndpointSlice came from. It is what answers "Abu Dhabi or Al
+    # Ain" for a model, and it is stored on the gateway row as `oicm_cluster`
+    # because the uuid alone cannot say it once a cross-cluster import shares a
+    # model name with a local one.
+    cluster: str = CLUSTER_NAME
     api_base_override: Optional[str] = None
     api_surface: Optional[str] = None
     # Lifecycle: False while the deployment exists in OICM but is not serving,
@@ -66,8 +94,14 @@ class OicmModel:
         its server actually serves still match its gateway row: the served id is
         what the controller registered, so the stored and discovered names agree
         even when OICM's own ``model_name`` does not.
+
+        The source prefix is stripped so a cross-cluster import and its own
+        OICM's snapshot land on one key: the import knows it as
+        ``submariner:<cluster>:<uuid>`` while OICM reports the bare uuid. The
+        cluster is not lost by doing this, it moves to ``cluster``, which is
+        persisted as ``oicm_cluster``.
         """
-        return self.uuid
+        return strip_source_prefix(self.uuid)
 
     @property
     def api_base(self) -> str:
@@ -185,6 +219,7 @@ def build_model(
     mode: str = "chat",
     provider: str = "hosted_vllm",
     source: str = "local",
+    cluster: str = CLUSTER_NAME,
     extra_args: str = "",
     api_base_override: Optional[str] = None,
     api_surface: Optional[str] = None,
@@ -206,6 +241,7 @@ def build_model(
         provider=provider,
         extra_args=extra_args,
         source=source,
+        cluster=cluster,
         api_base_override=api_base_override,
         api_surface=api_surface,
     )
@@ -227,6 +263,7 @@ def build_oicm_model(
     namespace: str,
     serving: bool,
     source: str = "oicm",
+    cluster: str = CLUSTER_NAME,
     provider: str = "hosted_vllm",
     api_base_override: Optional[str] = None,
 ) -> OicmModel:
@@ -252,6 +289,7 @@ def build_oicm_model(
         mode=to_litellm_mode("chat"),
         provider=provider,
         source=source,
+        cluster=cluster,
         api_base_override=api_base_override,
         serving=serving,
     )

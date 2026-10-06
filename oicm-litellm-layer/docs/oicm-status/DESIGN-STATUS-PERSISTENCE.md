@@ -107,7 +107,6 @@ Stored in `model_info.oicm`:
 | `v` | shape version; the block is replaced wholesale, so a future change needs a discriminator |
 | `status` | the OICM lifecycle word |
 | `serving_available` | separates Ready-and-serving from Ready-but-degraded |
-| `cluster` | which OICM source produced this; needed for staleness and for the join |
 | `gateway_uuid` | the bare uuid, without any source prefix (see the join below) |
 | `replicas: {desired, available}` | explains `Deploying` and degraded without a second lookup |
 | `status_changed_at` | "stopped for N minutes", and the serving-flip-within-Ready case |
@@ -117,6 +116,9 @@ Stored in `model_info.oicm`:
 Dropped: `workspace_id` (constant, implied by controller config), `source_updated_at`
 (documented as unreliable), `unavailable_replicas` (derivable), `workload_id` (already
 present as `oicm_uuid`).
+
+The cluster is deliberately **not** in this block. It lives in the sibling key
+`oicm_cluster`, described next.
 
 `api_base` is deliberately **not** in the block. An earlier draft persisted it, on the theory
 that a stopped deployment cannot be re-probed. That was wrong: `litellm_params.api_base`
@@ -129,9 +131,10 @@ informational only.
 than a long one. A generous guard (around 2000 chars) is worth adding only if a genuinely long
 message is ever observed.
 
-Existing sibling keys `oicm_uuid`, `oicm_namespace`, `oicm_source` stay as they are.
+Existing sibling keys `oicm_uuid`, `oicm_namespace`, `oicm_source` stay as they are, and
+`oicm_cluster` joins them.
 
-### The join, and why the block carries `cluster`
+### The join, and why the block carries `gateway_uuid`
 
 The gateway groups rows by `oicm_uuid`. A Submariner import namespaces that value
 (`submariner:abudhabi:<uuid>`, written by `SubmarinerImportSource`), while the owning OICM
@@ -140,15 +143,35 @@ snapshots on the bare one means a cross-cluster row can never find its status.
 
 Two facts fix this together, and both are needed:
 
-- `cluster` records which source produced a snapshot. It is also what makes a per-cluster
-  heartbeat possible (below).
-- `gateway_uuid` records the bare uuid, so a consumer can match a snapshot to a row without
-  knowing which source named it which way.
+- `oicm_cluster` records which cluster the deployment is in, as a first-class field on the
+  row.
+- `gateway_uuid` records the bare uuid inside the status block, so a consumer can match a
+  snapshot to a row without knowing which source named it which way.
 
-The gateway-side lookup strips the `submariner:<cluster>:` prefix when grouping, so a row
-imported from Abu Dhabi groups under the same bare uuid its own OICM reports. The stored
-`oicm_uuid` is left exactly as it is: rewriting it would change the identity of a row that
-nothing else references, for no gain.
+### The source prefix is transport detail, not identity
+
+`submariner:<cluster>:` exists because a k8s EndpointSlice needs the value to be unique, not
+because it means anything about the deployment. So the prefix is stripped at both ends and
+the cluster it encodes is preserved explicitly:
+
+- `OicmModel.deployment_id` returns `strip_source_prefix(self.uuid)`, so the import and its
+  own OICM's snapshot land on one key.
+- `list_all_models_by_key` strips the same prefix when grouping.
+
+Stripping on only one side is a real bug, not a theoretical one: `discovered` would be keyed
+`submariner:abudhabi:<uuid>` while `litellm_by_key` would be keyed `<uuid>`, so the import
+would match neither its own row nor its snapshot and would be registered a second time on
+every cycle. Both sides call one shared helper (`strip_source_prefix`) so they cannot drift.
+
+The cluster is not lost by stripping. `OicmModel.cluster` carries it (the in-cluster name for
+a local deployment, the source cluster for an import) and it is persisted as `oicm_cluster`
+on every row, written both at registration and on each status write so a row that predates
+the field gains it.
+
+Why not simply keep the prefixed uuid in the block: it would encode the cluster in a string
+whose shape a consumer has to parse, and the value is genuinely different between the two
+sides. A separate field says the same thing without either problem. `oicm_source` is left
+exactly as it is: rewriting a stored value would change a row's provenance for no gain.
 
 ## How to upsert
 
@@ -217,6 +240,9 @@ The facts being conflated are three, and separating them fixes both problems:
 | `checked_at` | when this source was last polled at all | per cluster, in the heartbeat row |
 | `stale` | we have lost contact with the source | derived at read time, never persisted |
 
+`oicm_cluster` is what maps a model to its source's heartbeat, so a consumer reads
+`oicm_cluster` off the row and then that cluster's `checked_at`.
+
 Liveness belongs to the **cluster**, not the model. The controller polls both OICMs on one
 timer, so one `checked_at` per source says everything: recent means the controller is alive
 and both clusters are being watched; old means it is gone and every model from that source is
@@ -256,7 +282,6 @@ stale = now - heartbeat[C].checked_at > STATUS_STALE_AFTER
 source has not been heard from within the window reports `availability = unknown`, not
 `online`. That is the honest answer, and it is exactly the case the user asked for: a status
 that has quietly gone out of date is worse than one marked unknown.
-
 ### The honest limit
 
 Nothing can detect a controller that dies and is never replaced, because there is no writer

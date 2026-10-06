@@ -88,6 +88,11 @@ spec:
           env:
             - name: WATCH_NAMESPACE
               value: "adeo"
+            # The cluster this controller runs in. Stored on every row as
+            # `oicm_cluster`, which is what answers "Abu Dhabi or Al Ain" for a
+            # model once a cross-cluster import shares a name with a local one.
+            - name: CLUSTER_NAME
+              value: "alain"
             - name: LITELLM_ADMIN_URL
               value: "http://litellm-proxy-dev.adeo-litellm.svc.cluster.local:4000"
             - name: LITELLM_ADMIN_KEY
@@ -148,6 +153,11 @@ spec:
                   key: password
             - name: STATUS_SYNC_INTERVAL
               value: "10"
+            # How long a source's last successful poll may be old before its
+            # status is reported unknown rather than trusted. The heartbeat
+            # write cadence is derived from this as STATUS_STALE_AFTER / 3.
+            - name: STATUS_STALE_AFTER
+              value: "90"
           volumeMounts:
             - name: oicm-sources
               mountPath: /etc/oicm

@@ -124,6 +124,7 @@ def _summaries_to_models(
             model_id=workload_id,
             model_name=workload_id,
             namespace=NAMESPACE,
+            cluster=snap.cluster,
             serving=snap.serving_available,
         )
         for workload_id, snap in summaries.items()

@@ -2,12 +2,14 @@
 
 from controller.models import (
     OicmModel,
+    build_model,
     detect_api_surface,
     detect_mode,
     detect_mode_from_paths,
     detect_provider,
     parse_model_list,
     sanitize_model_id,
+    strip_source_prefix,
     to_litellm_mode,
 )
 
@@ -245,3 +247,68 @@ class TestDeploymentId:
             total_replicas=1,
         )
         assert m.deployment_id == "abc123"
+
+
+class TestSourcePrefix:
+    """The Submariner prefix is transport detail, not identity.
+
+    The import knows a deployment as `submariner:<cluster>:<uuid>` while its own
+    OICM reports the bare uuid. Stripping is what makes the two land on one key,
+    and the cluster is preserved separately as `cluster` so the origin is not
+    lost by doing it.
+    """
+
+    def test_deployment_id_strips_the_source_prefix(self):
+        m = OicmModel(
+            uuid="submariner:abudhabi:766b1720",
+            model_id="zai-org/GLM-5.2-FP8",
+            model_name="zai-org/GLM-5.2-FP8",
+            namespace="adeo",
+            ready_replicas=1,
+            total_replicas=1,
+            cluster="abudhabi",
+        )
+        assert m.deployment_id == "766b1720"
+
+    def test_discovered_and_gateway_keys_agree(self):
+        """Regression: the two sides of the join must key identically.
+
+        `discovered` is keyed on `OicmModel.deployment_id` while `litellm_by_key`
+        is keyed on the stored `oicm_uuid` with its prefix stripped. If only one
+        side strips, a cross-cluster import matches neither its own k8s row nor
+        its OICM snapshot and gets registered a second time.
+        """
+        import_source = OicmModel(
+            uuid="submariner:abudhabi:766b1720",
+            model_id="zai-org/GLM-5.2-FP8",
+            model_name="zai-org/GLM-5.2-FP8",
+            namespace="adeo",
+            ready_replicas=1,
+            total_replicas=1,
+            cluster="abudhabi",
+        )
+        stored_uuid = "submariner:abudhabi:766b1720"
+
+        assert import_source.deployment_id == strip_source_prefix(stored_uuid)
+
+    def test_prefix_without_a_cluster_is_left_intact(self):
+        """A malformed value must not be silently mangled into a wrong key."""
+        assert strip_source_prefix("submariner:766b1720") == "766b1720"
+
+    def test_bare_uuid_passes_through(self):
+        assert strip_source_prefix("766b1720") == "766b1720"
+
+    def test_build_model_records_the_cluster(self):
+        """A source must be able to say which cluster a deployment is in."""
+        m = build_model(
+            uuid="submariner:abudhabi:766b1720",
+            model_id="zai-org/GLM-5.2-FP8",
+            ready_replicas=1,
+            total_replicas=1,
+            source="submariner:abudhabi",
+            cluster="abudhabi",
+        )
+
+        assert m.cluster == "abudhabi"
+        assert m.source == "submariner:abudhabi"
+        assert m.deployment_id == "766b1720"

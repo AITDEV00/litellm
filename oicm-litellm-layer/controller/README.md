@@ -184,16 +184,47 @@ Each registered model is tagged with `model_info` metadata in LiteLLM:
 {
   "mode": "chat",
   "oicm_uuid": "submariner:abudhabi:766b1720-f516-4077-b22c-6ce97c045470",
+  "oicm_cluster": "abudhabi",
   "oicm_namespace": "adeo",
-  "oicm_source": "submariner:abudhabi"
+  "oicm_source": "submariner:abudhabi",
+  "oicm": {
+    "v": 1,
+    "status": "Ready",
+    "serving_available": true,
+    "gateway_uuid": "766b1720-f516-4077-b22c-6ce97c045470",
+    "replicas": {"desired": 1, "available": 1},
+    "status_changed_at": "2026-10-06T00:00:00+00:00",
+    "observed_at": "2026-10-06T00:00:00+00:00",
+    "error_msg": null
+  }
 }
 ```
 
-The `oicm_source` field distinguishes local models (`"local"`) from cross-cluster imports
-(`"submariner:abudhabi"`, `"submariner:dubai"`, etc.), enabling filtering and routing decisions in
-LiteLLM. It also scopes the reconciler's delete rule: only a row with `oicm_source == "local"` is
-removed when OICM stops listing its deployment, so an import or an admin-added model is never
-deleted as collateral.
+`oicm_cluster` says which cluster the deployment is in (`alain` for a local
+deployment, the
+source cluster for a cross-cluster import). It is what answers "Abu Dhabi or Al
+Ain" for a model
+without anyone parsing a uuid, and it is how a consumer finds that cluster's
+heartbeat to decide
+whether the status is still fresh.
+
+`oicm_source` records how the row was discovered: `"local"` for a deployment
+watched in this
+cluster, `"submariner:abudhabi"` for a cross-cluster import. The `oicm` block is
+the OICM
+lifecycle status, written by the status poller on its own 10s clock.
+
+`oicm_uuid` keeps the transport prefix that a Submariner import needs for
+uniqueness. The
+`deployment_id` the reconciler keys on, and the `gateway_uuid` in the status
+block, both strip
+it, so an import and its own OICM's snapshot land on one key. The reconciler's
+delete rule is
+scoped to rows carrying an `oicm_uuid` and gated on a complete poll, so an
+admin-added model or
+the heartbeat rows (which have no `oicm_uuid`) are never deleted, and an
+unreachable OICM is
+never read as deletion.
 
 ## Running
 

@@ -7,12 +7,13 @@ in one model op would otherwise propagate and abort the entire reconcile,
 dropping the remaining deletes/registers/patches.
 """
 
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
-from controller.litellm_client import LiteLLMClient
+from controller.litellm_client import LiteLLMClient, _register_payload
 from controller.models import OicmModel
 
 
@@ -218,11 +219,13 @@ async def test_list_all_models_strips_the_submariner_prefix_when_grouping():
 
 
 @pytest.mark.asyncio
-async def test_patch_status_sends_blocked_and_the_block_in_one_body():
+async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
     """A status change must be one write carrying both owners' keys.
 
-    `blocked` is a top-level column and the block is a nested `model_info`
+    `blocked` is a top-level column and the rest is a nested `model_info`
     object; sending them separately would be two reloads for one fact change.
+    The cluster rides along so a row registered before `oicm_cluster` existed
+    gains it on its first status write.
     """
     seen = {}
 
@@ -233,9 +236,25 @@ async def test_patch_status_sends_blocked_and_the_block_in_one_body():
             return httpx.Response(200, json={"message": "ok"}, request=httpx.Request("PATCH", url))
 
     client = LiteLLMClient(read_only=False, client=_PatchClient())
-    ok = await client.patch_status("mid-1", True, {"v": 1, "status": "Stopped"})
+    ok = await client.patch_status("mid-1", True, "abudhabi", {"v": 1, "status": "Stopped"})
 
     assert ok is True
     assert seen["url"].endswith("/model/mid-1/update")
     assert seen["json"]["blocked"] is True
+    assert seen["json"]["model_info"]["oicm_cluster"] == "abudhabi"
     assert seen["json"]["model_info"]["oicm"] == {"v": 1, "status": "Stopped"}
+
+
+@pytest.mark.asyncio
+async def test_register_payload_stamps_the_cluster():
+    """A registered row must say which cluster its deployment is in.
+
+    The uuid alone cannot answer that once a cross-cluster import shares a model
+    name with a local deployment, so the cluster is stored alongside it.
+    """
+    model = _make_model()
+    model = replace(model, cluster="abudhabi")
+
+    payload = _register_payload(model, None)
+
+    assert payload["model_info"]["oicm_cluster"] == "abudhabi"

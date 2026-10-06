@@ -37,6 +37,10 @@ def _master_key_from_manifest() -> str | None:
 
 LITELLM_ADMIN_KEY = os.getenv("LITELLM_ADMIN_KEY") or _master_key_from_manifest() or "sk-1234"
 NAMESPACE = os.getenv("WATCH_NAMESPACE", "adeo")
+# The cluster this controller runs in. Stored on every row it registers so a
+# model's origin is readable from the gateway alone, which matters once a
+# cross-cluster import shares a model name with a local deployment.
+CLUSTER_NAME = os.getenv("CLUSTER_NAME", "alain")
 CLUSTER_DOMAIN = os.getenv("CLUSTER_DOMAIN", "svc.cluster.local")
 MODEL_PORT = int(os.getenv("MODEL_PORT", "8080"))
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "300"))

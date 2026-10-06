@@ -103,6 +103,7 @@ class SubmarinerImportSource(ModelSource):
                     total_replicas=1,
                     mode=detect_mode(model_id, ""),
                     source=f"submariner:{source_cluster}",
+                    cluster=source_cluster,
                     api_base_override=api_base_override,
                 )
                 models[model.deployment_id] = model
