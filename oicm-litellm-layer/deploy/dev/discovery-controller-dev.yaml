@@ -123,6 +123,10 @@ spec:
               value: "adeo"
             - name: OICM_AUTH_GRANT_TYPE
               value: "password"
+            - name: OICM_WORKSPACE_ID
+              value: "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+            - name: STATUS_SYNC_INTERVAL
+              value: "10"
             - name: OICM_USERNAME
               valueFrom:
                 secretKeyRef:
