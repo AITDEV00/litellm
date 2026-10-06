@@ -1,0 +1,79 @@
+{
+  "note": "One deployment (Qwen/Qwen3.5-0.8B) observed live across a full lifecycle on 2026-10-06: Deploying -> Ready -> Stopped. Only the Deploying and Stopped payloads were saved; the intermediate Ready state was observed live (status=Ready, workload_status=Running) but not persisted as a raw payload. KEY FINDING: the workload_run id is STABLE across all three phases (20225b3a...); only workload_status changes, Initializing -> Running -> Completed. A workload_run therefore spans a whole deploy/serve/stop lifecycle, and the run id changes only when a NEW lifecycle starts, not on pod restarts within a run. Also: status_detail is populated while Deploying and empty once Stopped, so serving_available must not be derived from status_detail alone in the Stopped case (the existing STOPPED short-circuit in builder._serving_available is what makes this correct).",
+  "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c",
+  "workload_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+  "phases": [
+    {
+      "phase": "Deploying",
+      "deployment": {
+        "deployment_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+        "deployment_name": "Qwen/Qwen3.5-0.8B",
+        "status": "Deploying",
+        "error_msg": null,
+        "replicas": 1,
+        "status_detail": [
+          {
+            "kind": "Pod",
+            "metadata": {},
+            "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff-69b75b9ccb-nnmnf",
+            "node": "adeo-gpu-01",
+            "status": "Running",
+            "status_msg": ""
+          },
+          {
+            "kind": "Deployment",
+            "metadata": {
+              "progressing": true,
+              "unavailable_replicas": 1
+            },
+            "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff",
+            "node": "",
+            "status": "Deploying",
+            "status_msg": "0/1 replicas ready"
+          }
+        ]
+      },
+      "workload_run": {
+        "id": "20225b3a-fc26-49a4-91c2-eb78aab7bed0",
+        "workload_status": "Initializing",
+        "status_detail": [
+          {
+            "kind": "Pod",
+            "metadata": {},
+            "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff-69b75b9ccb-nnmnf",
+            "node": "adeo-gpu-01",
+            "status": "Running",
+            "status_msg": ""
+          },
+          {
+            "kind": "Deployment",
+            "metadata": {
+              "progressing": true,
+              "unavailable_replicas": 1
+            },
+            "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff",
+            "node": "",
+            "status": "Deploying",
+            "status_msg": "0/1 replicas ready"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "Stopped",
+      "deployment": {
+        "deployment_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+        "deployment_name": "Qwen/Qwen3.5-0.8B",
+        "status": "Stopped",
+        "error_msg": null,
+        "replicas": 1,
+        "status_detail": []
+      },
+      "workload_run": {
+        "id": "20225b3a-fc26-49a4-91c2-eb78aab7bed0",
+        "workload_status": "Completed",
+        "status_detail": []
+      }
+    }
+  ]
+}
