@@ -138,10 +138,16 @@ without credentials, which is correct.
 
 With the API question resolved, the kube-proxy `Unauthorized` failure above is
 the sole thing standing between the exports and a working status sync. Once the
-RKE2 certs are rotated and the `KUBE-EXT-*` chains appear for `242.0.0.251` and
-`242.0.0.252`, the exports are reachable. Pointing the controller at Abu Dhabi
-then needs no code change, only the base URL, auth URL, realm, workspace id, and
-a service account.
+expired RKE2 agent certificates are renewed and the `KUBE-EXT-*` chains appear
+for `242.0.0.251` and `242.0.0.252`, the exports are reachable. Pointing the
+controller at Abu Dhabi then needs no code change, only the base URL, auth URL,
+realm, workspace id, and a service account.
+
+The certificate fault is now diagnosed and confirmed. The agent nodes'
+`client-kube-proxy` and `client-rke2-controller` certificates expired on
+2026-09-29 while the control plane's were renewed that same day, which is why
+kube-proxy cannot authenticate. See `abudhabi-rke2-cert-renewal-runbook.md` for
+the evidence and the fix.
 
 ## Service port note
 
@@ -160,12 +166,11 @@ So from Al Ain the endpoints would be
 
 ## What to do next
 
-1. **Fix the Abu Dhabi cert expiry first.** Rotate the RKE2 node certs (rolling
-   restart of `rke2-agent` on workers and `rke2-server` on masters) and restart
-   kube-proxy, then confirm `kubectl -n kube-system logs kube-proxy-prd-oi-k8worker01`
-   stops printing `Unauthorized` and that the `KUBE-EXT-*` chains appear for
-   `242.0.0.251` and `242.0.0.252`. Only then are the exports reachable. This is
-   now the only blocker.
+1. **Renew the expired RKE2 agent certificates.** This is the only blocker and it
+   is fully diagnosed. See `abudhabi-rke2-cert-renewal-runbook.md`: restart
+   `rke2-agent` on each agent node, one at a time, which reissues the expired
+   leaf certificates. Then confirm the `KUBE-EXT-*` chains appear for
+   `242.0.0.251` and `242.0.0.252`.
 2. **Obtain a service account on Abu Dhabi's Keycloak.** The API contract needs no
    change, but the Al Ain credentials do not exist in Abu Dhabi's realm `adeo`.
    Either create an equivalent service account there or establish that a shared
