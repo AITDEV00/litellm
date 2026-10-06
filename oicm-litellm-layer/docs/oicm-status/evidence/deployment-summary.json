@@ -1,0 +1,171 @@
+{
+  "items": [
+    {
+      "_created_at": "2026-10-06T07:55:20.020000Z",
+      "_updated_at": "2026-10-06T07:55:32.685000Z",
+      "can_stop_deployment": true,
+      "custom_model_server": null,
+      "data_volume_id": null,
+      "data_volume_lifecycle_stage": null,
+      "data_volume_name": null,
+      "deployment_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+      "deployment_name": "Qwen/Qwen3.5-0.8B",
+      "deployment_template": null,
+      "deployment_type": "Model Registry",
+      "developer_args": null,
+      "developer_mode": false,
+      "docker_image_name": null,
+      "env_vars": {},
+      "error_msg": null,
+      "inference_task": "Image-Text-to-Text",
+      "instances": [
+        {
+          "kind": "Pod",
+          "metadata": {},
+          "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff-69b75b9ccb-nnmnf",
+          "node": "adeo-gpu-01",
+          "status": "Running",
+          "status_msg": ""
+        }
+      ],
+      "lora_adapters": null,
+      "model_name": "Qwen/Qwen3.5-0.8B",
+      "model_server_id": "8af62574-3fc8-4649-8938-1fa61629be57",
+      "model_server_name": "SGLang",
+      "model_server_tag": "0.5.19-cu129-amd64",
+      "model_version_id": null,
+      "model_version_name": null,
+      "model_version_version": null,
+      "registered_model_id": null,
+      "registered_model_name": null,
+      "replicas": 1,
+      "resources": {
+        "accelerator": "H200",
+        "accelerator_count": 1,
+        "accelerator_slice": "mig-2g.35gb",
+        "cpu": 4,
+        "memory": 16,
+        "number_of_nodes": null,
+        "storage": null,
+        "use_gpu": true
+      },
+      "status": "Deploying",
+      "status_detail": [
+        {
+          "kind": "Pod",
+          "metadata": {},
+          "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff-69b75b9ccb-nnmnf",
+          "node": "adeo-gpu-01",
+          "status": "Running",
+          "status_msg": ""
+        },
+        {
+          "kind": "Deployment",
+          "metadata": {
+            "progressing": true,
+            "unavailable_replicas": 1
+          },
+          "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff",
+          "node": "",
+          "status": "Deploying",
+          "status_msg": "0/1 replicas ready"
+        }
+      ],
+      "supported_auto_scaling_metrics": [
+        "ml_model_concurrent_requests",
+        "num_of_requests_waiting_in_queue"
+      ],
+      "use_lora_adapters": false,
+      "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+    },
+    {
+      "_created_at": "2026-10-01T00:07:30.166000Z",
+      "_updated_at": "2026-10-01T21:34:27.027000Z",
+      "can_stop_deployment": true,
+      "custom_model_server": null,
+      "data_volume_id": null,
+      "data_volume_lifecycle_stage": null,
+      "data_volume_name": null,
+      "deployment_id": "e1192ba7-1ab9-4710-90bc-7787bcf7cef4",
+      "deployment_name": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "deployment_template": null,
+      "deployment_type": "Model Registry",
+      "developer_args": null,
+      "developer_mode": false,
+      "docker_image_name": null,
+      "env_vars": {},
+      "error_msg": null,
+      "inference_task": "Image-Text-to-Text",
+      "instances": [
+        {
+          "kind": "Pod",
+          "metadata": {
+            "ready": true
+          },
+          "name": "j-e1192ba7-1ab9-4710-90bc-7787bcf7cef4-5ccf84d9d-925rx",
+          "node": "adeo-gpu-b300-01",
+          "status": "Running",
+          "status_msg": ""
+        }
+      ],
+      "lora_adapters": null,
+      "model_name": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "model_server_id": "8af62574-3fc8-4649-8938-1fa61629be57",
+      "model_server_name": "SGLang",
+      "model_server_tag": "0.5.19-cu129-amd64",
+      "model_version_id": null,
+      "model_version_name": null,
+      "model_version_version": null,
+      "registered_model_id": null,
+      "registered_model_name": null,
+      "replicas": 1,
+      "resources": {
+        "accelerator": "B300",
+        "accelerator_count": 4,
+        "accelerator_slice": null,
+        "cpu": 16,
+        "memory": 843,
+        "number_of_nodes": null,
+        "storage": null,
+        "use_gpu": true
+      },
+      "status": "Ready",
+      "status_detail": [
+        {
+          "kind": "Deployment",
+          "metadata": {
+            "available": true,
+            "available_replicas": 1,
+            "progressing": true
+          },
+          "name": "j-e1192ba7-1ab9-4710-90bc-7787bcf7cef4",
+          "node": "",
+          "status": "Ready",
+          "status_msg": "1/1 replicas ready"
+        },
+        {
+          "kind": "Pod",
+          "metadata": {
+            "ready": true
+          },
+          "name": "j-e1192ba7-1ab9-4710-90bc-7787bcf7cef4-5ccf84d9d-925rx",
+          "node": "adeo-gpu-b300-01",
+          "status": "Running",
+          "status_msg": ""
+        }
+      ],
+      "supported_auto_scaling_metrics": [
+        "ml_model_concurrent_requests",
+        "num_of_requests_waiting_in_queue"
+      ],
+      "use_lora_adapters": false,
+      "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+    }
+  ],
+  "meta": null,
+  "paging": {
+    "count": 2,
+    "limit": null,
+    "offset": 0
+  }
+}

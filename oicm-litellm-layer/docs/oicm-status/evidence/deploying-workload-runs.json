@@ -1,0 +1,138 @@
+{
+  "items": [
+    {
+      "_created_at": "2026-10-06T07:55:20.321000Z",
+      "_lifecycle_stage": "active",
+      "_updated_at": "2026-10-06T07:55:57.682000Z",
+      "cluster_id": "c44e1386-6309-4ab5-8e4f-120a217bb1dd",
+      "data_volumes": [
+        {
+          "_lifecycle_stage": "active",
+          "id": "dac26892-3498-404c-8a7e-48dab358288b",
+          "name": "Qwen/Qwen3.5-0.8B"
+        }
+      ],
+      "deployment": {
+        "_lifecycle_stage": "active",
+        "id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+        "name": "Qwen/Qwen3.5-0.8B",
+        "status": "Deploying"
+      },
+      "id": "20225b3a-fc26-49a4-91c2-eb78aab7bed0",
+      "namespace": "adeo",
+      "oip_type": "model_deployment",
+      "resources": [
+        {
+          "accelerator_model": "h200",
+          "accelerator_provider": "NVIDIA",
+          "accelerator_slice": "mig-2g.35gb",
+          "memory_gb": 16,
+          "num_accelerator": 1,
+          "num_cpu": 4
+        }
+      ],
+      "status_detail": [
+        {
+          "kind": "Pod",
+          "metadata": {},
+          "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff-69b75b9ccb-nnmnf",
+          "node": "adeo-gpu-01",
+          "status": "Running",
+          "status_msg": ""
+        },
+        {
+          "kind": "Deployment",
+          "metadata": {
+            "progressing": true,
+            "unavailable_replicas": 1
+          },
+          "name": "j-93457b11-bf43-4ba0-bcbe-ba00624857ff",
+          "node": "",
+          "status": "Deploying",
+          "status_msg": "0/1 replicas ready"
+        }
+      ],
+      "total_resources": {
+        "accelerator_model": "h200",
+        "accelerator_provider": "NVIDIA",
+        "accelerator_slice": "mig-2g.35gb",
+        "memory_gb": 16,
+        "num_accelerator": 1,
+        "num_cpu": 4
+      },
+      "type": "Deployment",
+      "user_id": "558d12cb-0b76-4e88-b076-295c30f8692a",
+      "user_name": "jyao",
+      "workload_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+      "workload_status": "Initializing",
+      "workspace": {
+        "_created_at": "2025-12-17T06:29:57.922000Z",
+        "_lifecycle_stage": "active",
+        "_other_permissions": [],
+        "_owner_id": "a5c034d7-a23d-4501-ad9a-726c808aceda",
+        "_owner_permissions": [
+          "read",
+          "update",
+          "delete"
+        ],
+        "_role_permissions": [
+          "read",
+          "update",
+          "delete"
+        ],
+        "_roles": [],
+        "_tenant_id": "adeo",
+        "_updated_at": "2026-09-21T08:58:01.133000Z",
+        "_version": 3,
+        "id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c",
+        "name": "Models",
+        "resource_borrowing_allowed": false,
+        "resources_allocated": {
+          "accelerators": [
+            {
+              "count": 21,
+              "model": "h200",
+              "provider": "NVIDIA"
+            },
+            {
+              "count": 16,
+              "model": "b300",
+              "provider": "NVIDIA"
+            }
+          ],
+          "cpu": 760,
+          "ephemeral_storage_in_bytes": 17708380507648,
+          "memory_in_bytes": 10008587200000
+        },
+        "resources_used": {
+          "accelerators": [
+            {
+              "count": 16,
+              "model": "b300",
+              "provider": "NVIDIA"
+            },
+            {
+              "count": 20,
+              "model": "h200",
+              "provider": "NVIDIA"
+            }
+          ],
+          "cpu": 256,
+          "ephemeral_storage_in_bytes": 0,
+          "memory_in_bytes": 7686917718016
+        },
+        "volcano_queue_name": "adeo-dfec2a9f-cc5c-4b7b-b608-990d3804e80c",
+        "workspace_resource_updater_last_updated_version": 3
+      },
+      "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+    }
+  ],
+  "meta": {
+    "count": 1,
+    "offset": 0
+  },
+  "paging": {
+    "count": 1,
+    "offset": 0
+  }
+}
