@@ -76,6 +76,16 @@ MODEL_DEPLOYMENT_TYPE = "model_deployment"
 # fresher data. One call covers every deployment in a source's workspace.
 STATUS_SYNC_INTERVAL = int(os.getenv("STATUS_SYNC_INTERVAL", "10"))
 
+# How long a source's last successful poll may be old before its status is
+# reported unknown rather than trusted. Three poll intervals, so one dropped or
+# slow cycle does not flap a healthy source.
+STATUS_STALE_AFTER = int(os.getenv("STATUS_STALE_AFTER", "90"))
+
+# Heartbeat write cadence, derived from the staleness window rather than the
+# poll interval: a per-source liveness write every 10s would be six writes a
+# minute for a timestamp no consumer reads at that resolution.
+HEARTBEAT_INTERVAL = max(1, STATUS_STALE_AFTER // 3)
+
 ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (
     "true",
     "1",

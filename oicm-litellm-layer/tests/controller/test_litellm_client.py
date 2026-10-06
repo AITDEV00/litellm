@@ -180,3 +180,62 @@ async def test_list_all_models_groups_by_uuid_alone():
     assert set(grouped.keys()) == {"9dcd9568", "894cea22"}
     assert grouped["9dcd9568"][0]["model_id"] == "gw-1"
     assert grouped["894cea22"][0]["model_id"] == "gw-2"
+
+@pytest.mark.asyncio
+async def test_list_all_models_strips_the_submariner_prefix_when_grouping():
+    """A cross-cluster row must group under the uuid its own OICM reports.
+
+    A Submariner import stores `submariner:abudhabi:<uuid>` while Abu Dhabi's
+    OICM returns the bare uuid. Grouping on the namespaced value would mean the
+    row could never find its status, because the poller keys snapshots by the
+    bare uuid.
+    """
+    payload = {
+        "data": [
+            {
+                "model_name": "zai-org/GLM-5.2-FP8",
+                "model_info": {
+                    "id": "gw-ad",
+                    "oicm_uuid": "submariner:abudhabi:766b1720",
+                },
+            },
+            {
+                "model_name": "Qwen/Qwen3.6-35B-A3B-FP8",
+                "model_info": {"id": "gw-local", "oicm_uuid": "894cea22"},
+            },
+        ]
+    }
+
+    class _InfoClient:
+        async def get(self, url, **kwargs):
+            return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
+
+    client = LiteLLMClient(read_only=False, client=_InfoClient())
+    grouped = await client.list_all_models_by_key()
+
+    assert set(grouped.keys()) == {"766b1720", "894cea22"}
+    assert grouped["766b1720"][0]["model_id"] == "gw-ad"
+
+
+@pytest.mark.asyncio
+async def test_patch_status_sends_blocked_and_the_block_in_one_body():
+    """A status change must be one write carrying both owners' keys.
+
+    `blocked` is a top-level column and the block is a nested `model_info`
+    object; sending them separately would be two reloads for one fact change.
+    """
+    seen = {}
+
+    class _PatchClient:
+        async def patch(self, url, json=None, **kwargs):
+            seen["url"] = url
+            seen["json"] = json
+            return httpx.Response(200, json={"message": "ok"}, request=httpx.Request("PATCH", url))
+
+    client = LiteLLMClient(read_only=False, client=_PatchClient())
+    ok = await client.patch_status("mid-1", True, {"v": 1, "status": "Stopped"})
+
+    assert ok is True
+    assert seen["url"].endswith("/model/mid-1/update")
+    assert seen["json"]["blocked"] is True
+    assert seen["json"]["model_info"]["oicm"] == {"v": 1, "status": "Stopped"}

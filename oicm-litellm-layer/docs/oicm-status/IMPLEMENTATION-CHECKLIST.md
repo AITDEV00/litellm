@@ -1,6 +1,6 @@
 # OICM → OpenRouter Model Status — Implementation Checklist
 
-Status: M1's controller half is implemented (Steps 3-9); Steps 10-18 are not. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
+Status: M1's controller half is complete (Steps 3-12). Steps 13-18 (the LiteLLM half of M1) are not started and are now unblocked. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
 
 Conventions: **[C]** = controller change (`oicm-litellm-layer/controller/`), **[L]** = LiteLLM change (`litellm/proxy/`), **[D]** = deploy/config. Test = the acceptance check that must pass before the step is done.
 
@@ -82,27 +82,65 @@ The controller's health server serves `GET /status` returning the latest snapsho
 - Test: unchanged facts keep `status_changed_at`; a serving flip moves it even when `source_status` stays `Ready`.
 
 ### Step 10 [C] — Persist the complete `model_info.oicm` block
-**Status: not started. This is the current blocker.** Nothing persists status today, so LiteLLM cannot read a deployment's lifecycle and `/endpoints` has no source for `gateway_status`. Steps 11, 12, 14, 15, and 16 all depend on this.
+**Status: done.** The write is `LiteLLMClient.patch_status`, called by
+`StatusPersister`, which `StatusPoller` invokes after each `refresh()`. It rides the
+10s poll rather than the 300s config reconcile, so status latency is not tied to
+the resync interval.
 
-Add a `patch_model_info(model_id, oicm_block)` method to `LiteLLMClient` (separate from full model reconciliation) calling `/model/{id}/update`.
-- Always PATCH the **whole** `oicm` object (LiteLLM shallow-merges `model_info`; a partial nested patch would drop keys). The block mirrors the Step-1 DTO.
+A status change is **one** PATCH carrying both the top-level column and the nested
+object:
+
+```
+PATCH /model/{id}/update
+{"blocked": true, "model_info": {"oicm": {...}}}
+```
+
+- Always send the **whole** `oicm` object (LiteLLM shallow-merges `model_info`, so a
+  partial nested patch would drop keys).
+- The block carries `v`, `status`, `serving_available`, `cluster`, `gateway_uuid`,
+  `replicas`, `status_changed_at`, `observed_at`, `error_msg`. It does **not** carry
+  `api_base`: `litellm_params.api_base` already survives independently and is what
+  routing reads, so a second copy would only be able to drift. `error_msg` is stored
+  in full, uncapped.
 - Never put the OICM password/token in `model_info`.
-- Test: PATCH with the full block; a subsequent read shows all nested keys intact; a partial patch would have dropped keys (regression guard).
+- Test: PATCH with the full block; a subsequent read shows all nested keys intact
+  (a partial patch would have dropped keys, so this is the regression guard).
 
 ### Step 11 [C] — Write-amplification guard
-**Status: moot until Step 10.** The design order's Step 1 (the `compute_plan` idempotence guard, `13c021c355`) is the config half and is done. There is no status block to guard yet, because nothing persists one.
+**Status: done.** The config half is the `compute_plan` idempotence guard
+(`13c021c355`). The status half is the fact diff in `StatusPersister`: it compares a
+fixed fact set against what the row already carries and writes only when one
+differs.
 
-In the refresh path, diff meaningful fields before PATCHing.
-- PATCH immediately when status facts change.
-- If nothing changed, refresh persisted `observed_at` at most once per periodic cycle, not per K8s MODIFIED.
-- Keep this status PATCH independent of the model-config reconciliation diff in `reconciler.py` (`SyncReconciler.compute_plan`) so `observed_at` churn doesn't make the main reconciler see a perpetually-dirty model.
-- Test: repeated identical observations → no PATCH; only `observed_at` updates on the periodic cadence.
+The one field deliberately excluded from that comparison is `observed_at`.
+Including it would make every cycle differ, so every cycle would write. It advances
+only when some other fact changed, so a steady-state cluster issues zero status
+writes and a status change issues exactly one.
+
+- Test: repeated identical observations → no PATCH; a fact change → one PATCH.
 
 ### Step 12 [C] — OICM failure = staleness, not outage
-**Status: partial.** The poller already retains the previous snapshot map on a failed fetch and never maps a failure to `offline`. What is missing is the persisted `observed_at` that a consumer reads, which needs Step 10. `STATUS_STALE_AFTER` is not defined yet.
+**Status: done.** The poller retains a failed source's previous snapshots and never
+maps a failure to `offline`. Staleness is now expressible because there is a
+persisted timestamp to read: a per-source heartbeat row carries `checked_at`.
 
-On OICM timeout/5xx: retain last snapshot, do not advance `observed_at`, log the collection failure. Never map a fetch failure to `offline`.
-- Test: kill OICM connectivity → `model_info.oicm.observed_at` stops advancing, `source_status` unchanged; LiteLLM later computes stale.
+- `STATUS_STALE_AFTER = 90s` (three poll intervals, so one slow cycle does not flap
+a healthy source to unknown).
+- The heartbeat writes every `STATUS_STALE_AFTER / 3` = 30s, not on the 10s poll.
+- A consumer computes `stale = now - checked_at > STATUS_STALE_AFTER` per source and
+  reports `unknown` rather than the persisted status when stale.
+- Liveness is per **source**, not per model: one write per source per heartbeat
+  instead of one per model, and an Abu Dhabi outage marks only Abu Dhabi unknown.
+- Honest limit: a controller that dies and is never replaced cannot be detected,
+  since no writer remains. "Past the window, report unknown" is the strongest
+  available statement.
+
+See `DESIGN-STATUS-PERSISTENCE.md` for why the heartbeat is a dedicated
+controller-owned row and not a model row or a config entry.
+
+- Test: kill OICM connectivity → `checked_at` stops advancing, `source_status`
+  unchanged; a consumer later computes stale. A stale source reports `unknown` even
+  when its last known status was `Ready`.
 
 **Abu Dhabi caveat for `serving_available`: RESOLVED (2026-10-06).** AD OICM `1.7.1` returns `status_detail[]` entries with no `metadata` key at all, only `kind`, `name`, `node`, `status`, and `status_msg`. `metadata` is absent from that version's `StatusDetail` / `WorkloadStatusDetail` / `DeploymentInstance` schemas entirely, while Al Ain's declare it. `status/availability.py::_is_ready` now treats `metadata` as optional and falls back to the entry's own `status` when it is absent (`metadata` still wins when present). Verified live: the Abu Dhabi deployment `766b1720` reads `serving_available: true`. Both clusters are now polled as separate sources; see `PROGRESS-AND-PAUSED-WORK.md`.
 
@@ -126,7 +164,7 @@ The generated base uses a `@model_serializer` that strips `UNSET_SENTINEL` and N
 - Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry; absent `latency_last_30m` is omitted from JSON, not `null`.
 
 ### Step 14 [L] — Implement `OpenRouterEndpointsMapper`
-**Status: not started.** It depends on Step 10: the mapper's input includes `model_info.oicm`, which nothing writes yet.
+**Status: not started. Unblocked:** the `model_info.oicm` block it reads is now written by the controller (Step 10).
 
 Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mapping/openrouter.py::OpenRouterModelMapper`). Input: one `DeploymentDescriptor` + its `model_info.oicm` + optional telemetry. Output: `PublicEndpoint` + `gateway_status`.
 - Confirm `model_info.oicm` reaches `DeploymentDescriptor` (the resolver already surfaces `model_info`).
@@ -135,7 +173,8 @@ Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mappin
 
 ### Step 15 [L] — `gateway_status` extension model + state resolver
 Add the extension to the mapper:
-`gateway_status: {availability, lifecycle, stale, source, source_status, healthy, replicas:{desired,available}, observed_at}`.
+`gateway_status: {availability, lifecycle, stale, source, source_status, healthy, replicas:{desired,available}, observed_at, checked_at}`.
+- `observed_at` is when this model's status was last seen; `checked_at` is when its source was last polled at all. `stale` derives from `checked_at` (per source), never from `observed_at` (per model).
 - Centralize policy in one `GatewayStateResolver`:
   `Ready`+`serving_available=true`→online/stable; `Ready`+`serving_available=false`→degraded/stable; `Stopped`→offline/stopped; `Deploying`→offline/deploying; `Available`→online/stable; `Failed`→offline/failed; stale→unknown.
 - **`serving_available` replaces the old `is_ready` signal.** OICM's `/health.is_ready` was advisory and stale (recomputed only on lifecycle events), and `serving_available` comes from the same `status_detail` the live K8s pod readiness produces. There is no separate `is_ready` field to consult.
@@ -144,8 +183,8 @@ Add the extension to the mapper:
 - Test: the full transition matrix from `FEASIBILITY-ANSWERS.md`; stale → unknown.
 
 ### Step 16 [L] — Freshness at request time
-Never persist `stale`. Compute `stale = now - observed_at > STATUS_STALE_AFTER` in the mapper at serve time. `STATUS_STALE_AFTER` configurable.
-- Test: old `observed_at` → `stale=true`, `availability=unknown`; fresh → `stale=false`.
+Never persist `stale`. Compute `stale = now - checked_at > STATUS_STALE_AFTER` in the mapper at serve time, where `checked_at` is the per-source heartbeat the controller writes (Step 12), not a per-model timestamp. `STATUS_STALE_AFTER` is configurable and defaults to 90s.
+- Test: old `checked_at` → `stale=true`, `availability=unknown`; fresh → `stale=false`.
 
 ### Step 17 [L] — Preserve auth/visibility semantics + missing-model behavior
 Apply the existing model visibility/authorization rules before exposing a deployment in `/endpoints`.
@@ -199,7 +238,7 @@ If full OpenRouter fidelity is wanted, query genuine 30-min windows (`histogram_
 
 ## Cross-cutting tests required before "done"
 
-Controller: token cache/refresh, label extraction (incl. missing `workload_run_id`), DTO parsing from fixtures, `Ready`+`is_ready=false`, run-id change, debounce/coalescing, watch+periodic no double-PATCH, no-op suppression, OICM timeout → staleness, 401 refresh+retry, startup hydration, full nested `oicm` preserved across shallow merge.
+Controller: token cache/refresh, label extraction (incl. missing `workload_run_id`), DTO parsing from fixtures, `Ready`+`serving_available=false`, run-id change, debounce/coalescing, watch+periodic no double-PATCH, no-op suppression, OICM timeout → staleness, 401 refresh+retry, startup hydration, full nested `oicm` preserved across shallow merge, cross-cluster `submariner:<cluster>:` prefix join, deletion only when the owning source was polled successfully.
 
 LiteLLM: OpenRouter SDK compatibility, multiple deployments per logical model, stale, missing status, stopped, unhealthy-ready, runtime metric failure, absent-metrics-stay-null, authorization filtering, telemetry single-flight, official DTO still parses with `gateway_status` attached.
 

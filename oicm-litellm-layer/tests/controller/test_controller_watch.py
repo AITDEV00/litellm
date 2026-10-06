@@ -87,8 +87,13 @@ async def test_ready_deployment_is_registered_unblocked():
 
 
 @pytest.mark.asyncio
-async def test_deployment_losing_its_pods_is_blocked():
-    """Replicas dropping to zero must pause routing, not remove the model."""
+async def test_deployment_losing_its_pods_updates_state_without_writing_blocked():
+    """Replicas dropping to zero must not remove the model.
+
+    The watch records the transition but does not write `blocked`: OICM
+    `serving_available` is the sole owner of that column, and a second writer
+    would be a second opinion about the same fact.
+    """
     model = _model()
     controller = _controller([])
     controller._state[model.deployment_id] = model
@@ -96,14 +101,14 @@ async def test_deployment_losing_its_pods_is_blocked():
 
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=0))
 
-    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", True)
+    controller.litellm.set_blocked.assert_not_awaited()
     controller.litellm.deregister_model.assert_not_awaited()
     assert controller._state[model.deployment_id].serving is False
 
 
 @pytest.mark.asyncio
-async def test_deployment_regaining_pods_is_unblocked():
-    """A deployment that comes back must become routable again."""
+async def test_deployment_regaining_pods_updates_state_without_writing_blocked():
+    """A deployment that comes back must be recorded as serving again."""
     model = _model(serving=False, ready=0)
     controller = _controller([])
     controller._state[model.deployment_id] = model
@@ -111,7 +116,7 @@ async def test_deployment_regaining_pods_is_unblocked():
 
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=1))
 
-    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", False)
+    controller.litellm.set_blocked.assert_not_awaited()
     assert controller._state[model.deployment_id].serving is True
 
 
@@ -130,13 +135,12 @@ async def test_unchanged_serving_state_does_not_write():
 
 
 @pytest.mark.asyncio
-async def test_delete_pauses_instead_of_removing():
-    """A k8s deletion pauses the model and lets OICM decide removal.
+async def test_delete_keeps_the_row_and_lets_oicm_decide_removal():
+    """A k8s deletion must not remove the row; only OICM can say it is deleted.
 
     A k8s Deployment disappearing is either a stop or a real delete, and only
-    OICM can tell them apart. Removing the row here would make a Stopped
-    deployment indistinguishable from a deleted one, so it is paused and the
-    next full sync removes it only if OICM no longer lists it.
+    OICM can tell them apart. The row is kept so a Stopped deployment stays
+    distinguishable from a deleted one, and routing is left to the status poll.
     """
     model = _model()
     controller = _controller([])
@@ -146,7 +150,7 @@ async def test_delete_pauses_instead_of_removing():
     await controller._handle_delete("uuid-1")
 
     controller.litellm.deregister_model.assert_not_awaited()
-    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", True)
+    controller.litellm.set_blocked.assert_not_awaited()
     assert controller._state[model.deployment_id].serving is False
     # The id map must survive, or the next full sync could not resume it.
     assert controller._litellm_id_map[model.deployment_id] == "litellm-id"
@@ -156,9 +160,9 @@ async def test_delete_pauses_instead_of_removing():
 async def test_redeploy_reusing_the_uuid_replaces_the_placeholder():
     """A redeploy under the same uuid must reuse the row, not register twice.
 
-    A Stopped deployment keeps its row and is paused. If the k8s object comes
-    back with the same uuid, the real record has to replace the placeholder and
-    resume routing, otherwise the model stays blocked and unroutable.
+    A Stopped deployment keeps its row. If the k8s object comes back with the
+    same uuid, the real record has to replace the placeholder, otherwise the
+    model stays stuck on the placeholder's config.
     """
     placeholder = _model(serving=False, ready=0)
     controller = _controller([_model()])
@@ -168,5 +172,5 @@ async def test_redeploy_reusing_the_uuid_replaces_the_placeholder():
     await controller._handle_add("uuid-1", _deployment(ready_replicas=1))
 
     controller.litellm.register_model.assert_not_awaited()
-    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", False)
+    controller.litellm.set_blocked.assert_not_awaited()
     assert controller._state[placeholder.deployment_id].serving is True

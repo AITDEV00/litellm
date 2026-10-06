@@ -16,6 +16,25 @@ from .models import OicmModel, to_litellm_mode
 
 logger = logging.getLogger("oicm-discovery")
 
+# A Submariner import namespaces its uuid as `submariner:<cluster>:<uuid>` to
+# keep it unique in the k8s EndpointSlice. The owning OICM returns the bare uuid,
+# so the two only join once this prefix is stripped. Kept here rather than in the
+# source so the gateway and the status path agree on one rule.
+SUBMARINER_PREFIX = "submariner:"
+
+
+def gateway_uuid(oicm_uuid: str) -> str:
+    """The bare deployment uuid behind a possibly source-prefixed gateway uuid.
+
+    ``submariner:abudhabi:<uuid>`` becomes ``<uuid>``; anything else is returned
+    unchanged, so a local uuid and an unrecognized value both pass through.
+    """
+    if not oicm_uuid.startswith(SUBMARINER_PREFIX):
+        return oicm_uuid
+    _, _, rest = oicm_uuid.partition(SUBMARINER_PREFIX)
+    _, _, bare = rest.partition(":")
+    return bare or rest
+
 
 def _admin_headers(admin_key: str) -> dict[str, str]:
     return {
@@ -67,8 +86,141 @@ class LiteLLMClient:
             # the join work for a deployment whose OICM GUI label differs from
             # the id its server serves: the name here is the one the controller
             # itself registered, so it already agrees with discovery.
-            grouped.setdefault(oicm_uuid, []).append(m)
+            #
+            # A Submariner import stores `submariner:<cluster>:<uuid>`, which no
+            # OICM reports, so the prefix is stripped to reach the bare uuid its
+            # own source returns. Without this a cross-cluster row can never
+            # find its status.
+            grouped.setdefault(gateway_uuid(oicm_uuid), []).append(m)
         return grouped
+
+    async def patch_status(
+        self,
+        litellm_model_id: str,
+        blocked: bool,
+        oicm_block: dict,
+    ) -> bool:
+        """Write a deployment's routing state and its OICM status in one PATCH.
+
+        `blocked` is a top-level column and the block is a nested `model_info`
+        object, and the endpoint accepts both in one body, so a status change
+        costs one write and one reload rather than two. `model_info` merges
+        shallowly, so the whole `oicm` object is always sent: a partial patch
+        would drop the keys it omitted.
+        """
+        if self.read_only:
+            logger.info(
+                "[READ-ONLY] would set blocked=%s and oicm=%s on %s",
+                blocked,
+                oicm_block.get("status"),
+                litellm_model_id,
+            )
+            return False
+        async with self._semaphore:
+            try:
+                resp = await self._client.patch(
+                    f"{self.base_url}/model/{litellm_model_id}/update",
+                    json={"blocked": blocked, "model_info": {"oicm": oicm_block}},
+                    timeout=self._write_timeout,
+                )
+                resp.raise_for_status()
+                logger.info(
+                    "Patched status on litellm_id=%s: status=%s serving=%s blocked=%s",
+                    litellm_model_id,
+                    oicm_block.get("status"),
+                    oicm_block.get("serving_available"),
+                    blocked,
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    "Failed to patch status on %s: %s",
+                    litellm_model_id,
+                    _error_detail(e),
+                )
+                return False
+
+    async def upsert_heartbeat(
+        self, row: dict, existing_id: Optional[str] = None
+    ) -> bool:
+        """Create or advance one controller-owned liveness row per source.
+
+        Liveness is a per-source fact, so this is one write per source per
+        heartbeat rather than one per model. The row carries no `oicm_uuid`,
+        which is what keeps it invisible to ``list_all_models_by_key`` and to
+        every reconciliation rule, and it is blocked so it is never routable.
+
+        `existing_id` makes this an upsert: without it, every heartbeat would
+        POST a new row and the gateway would accumulate one per tick.
+        """
+        if self.read_only:
+            logger.info("[READ-ONLY] would upsert heartbeat %s", row["model_name"])
+            return False
+        if existing_id is not None:
+            return await self._patch_heartbeat(existing_id, row)
+        async with self._semaphore:
+            try:
+                resp = await self._client.post(
+                    f"{self.base_url}/model/new",
+                    json=row,
+                    timeout=self._write_timeout,
+                )
+                resp.raise_for_status()
+                created_id = resp.json().get("model_id")
+                if created_id:
+                    await self.set_blocked(created_id, True)
+                return True
+            except Exception as e:
+                logger.error(
+                    "Failed to create heartbeat %s: %s",
+                    row["model_name"],
+                    _error_detail(e),
+                )
+                return False
+
+    async def _patch_heartbeat(self, litellm_model_id: str, row: dict) -> bool:
+        async with self._semaphore:
+            try:
+                resp = await self._client.patch(
+                    f"{self.base_url}/model/{litellm_model_id}/update",
+                    json={
+                        "blocked": True,
+                        "model_info": row["model_info"],
+                    },
+                    timeout=self._write_timeout,
+                )
+                resp.raise_for_status()
+                return True
+            except Exception as e:
+                logger.error(
+                    "Failed to advance heartbeat %s: %s",
+                    row["model_name"],
+                    _error_detail(e),
+                )
+                return False
+
+    async def list_heartbeats(self) -> Dict[str, str]:
+        """Map heartbeat name to its LiteLLM model id, one row per source.
+
+        Read from the same `/model/info` payload the reconciler already uses, so
+        the heartbeat costs no extra call. Rows are matched on
+        `model_info.oicm_heartbeat`, the tag that distinguishes them from real
+        deployments.
+        """
+        try:
+            resp = await self._client.get(f"{self.base_url}/model/info")
+            resp.raise_for_status()
+        except Exception as e:
+            logger.error("Failed to list heartbeats: %s", e)
+            return {}
+        found: Dict[str, str] = {}
+        for m in resp.json().get("data", []):
+            info = m.get("model_info") or {}
+            name = info.get("oicm_heartbeat")
+            model_id = info.get("id")
+            if name and model_id:
+                found[name] = model_id
+        return found
 
     async def batch(
         self,
@@ -238,6 +390,29 @@ def _error_detail(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.text
     return str(exc)
+
+
+def heartbeat_payload(name: str, checked_at: str) -> dict:
+    """The request body for one source's liveness row.
+
+    The `api_base` is an unroutable placeholder and the model is a passthrough
+    id, because the row exists only to carry a timestamp. It is created blocked,
+    so it is never selected, and having no `oicm_uuid` keeps it out of every
+    rule that reconciles real deployments.
+    """
+    return {
+        "model_name": name,
+        "litellm_params": {
+            "model": "hosted_vllm/__oicm_heartbeat__",
+            "api_base": "http://127.0.0.1:1/v1",
+            "api_key": "",
+        },
+        "model_info": {
+            "mode": "chat",
+            "oicm_heartbeat": name,
+            "checked_at": checked_at,
+        },
+    }
 
 
 def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dict:

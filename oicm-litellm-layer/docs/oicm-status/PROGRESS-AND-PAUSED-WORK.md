@@ -17,6 +17,14 @@ delete rule is scoped to controller-managed rows, and OICM's
 `deployment_summary` is wired into existence. See "Step 2: the uuid join and
 OICM existence" below.
 
+Steps 3-5 of the design order (persisting the block, `blocked` ownership, and
+staleness) are now implemented on top of that: the status poller writes the
+`model_info.oicm` block and `blocked` in one PATCH on its own 10s clock, OICM
+`serving_available` is the sole owner of `blocked`, and a per-source heartbeat
+row carries `checked_at` so a consumer can tell fresh status from a dead
+controller. See "The status writer" and "Staleness: a per-source heartbeat"
+below.
+
 ## Roadmap position
 
 The plan is `IMPLEMENTATION-CHECKLIST.md` (25 steps, three milestones) plus the
@@ -40,9 +48,9 @@ Stopped deployment stays registered and paused instead of disappearing.
 | 7 | 10s status poll | Done |
 | 8 | `GET /status` | Done |
 | 9 | Transition memory | Done |
-| 10 | Persist `model_info.oicm` | **Not started, current blocker** |
-| 11 | Write-amplification guard | Partial (config guard done, status guard moot) |
-| 12 | OICM failure = staleness | Partial (retains snapshots, nothing persists `observed_at`) |
+| 10 | Persist `model_info.oicm` | Done, written by the status poller on the 10s clock |
+| 11 | Write-amplification guard | Done for both writers (config diff in `compute_plan`, fact diff in the status writer) |
+| 12 | OICM failure = staleness | Done, via a per-source heartbeat row + `STATUS_STALE_AFTER` |
 | 13-18 | LiteLLM `/endpoints` schema, mapper, `gateway_status`, dev validation | Not started |
 | 19-23 | M2 engine-load telemetry | Not started |
 | 24-25 | M3 historical statistics | Not started |
@@ -53,16 +61,8 @@ for the `status/` package move) was deleted; nothing imported it.
 
 ## Current problems
 
-One blocker and one design decision, different in kind.
-
-### The blocker: nothing is persisted (Step 10)
-
-Everything the controller computes lives in `StatusPoller._snapshots`, in memory.
-Nothing writes `model_info.oicm`, so LiteLLM cannot read a deployment's lifecycle
-and `/endpoints` has no source for `gateway_status`. That is also why Steps 12
-and 16 cannot land: staleness needs a persisted `observed_at` to compute from,
-and `STATUS_STALE_AFTER` is not defined yet. This is the single next code step
-and it unblocks the whole LiteLLM half of M1.
+No blockers. The LiteLLM half of M1 (Steps 13-18) is the next milestone and is
+unblocked: the `model_info.oicm` block it reads now exists.
 
 ### Smaller items
 
@@ -74,6 +74,136 @@ and it unblocks the whole LiteLLM half of M1.
   keys on.
 - `LocalDeploymentSource.discover()` still awaits each deployment serially
   (24 deployments in about 2.6s).
+- The heartbeat row is a small, deliberate wart (one extra row per source in
+  `/model/info` and the Admin UI). See "Staleness: a per-source heartbeat".
+
+## The status writer
+
+Step 10 lands as `StatusPersister`, called by `StatusPoller` after each
+`refresh()`. It is a separate class from the reconciler because it owns a
+different clock (10s) and a disjoint set of keys.
+
+### One PATCH, two owners
+
+A status change writes `blocked` and the block together:
+
+```
+PATCH /model/{id}/update
+{"blocked": true, "model_info": {"oicm": {...}}}
+```
+
+`blocked` is a top-level column and `model_info` is a nested object, and the
+endpoint accepts both in one body, so a status change is one write, not two.
+`model_info` merges shallowly, so sending the whole `oicm` object replaces it and
+leaves the other ~140 keys alone.
+
+### The fact set, and the one key excluded
+
+The writer compares a fixed set of facts against what the row already carries:
+`status`, `serving_available`, `replicas`, `status_changed_at`, `error_msg`,
+`cluster`, `gateway_uuid`, and the routing flag `blocked`. `observed_at` is
+deliberately excluded from the comparison, because including it would make every
+cycle differ and therefore every cycle write. It is advanced only when some other
+fact changed, so a steady-state cluster issues zero status writes.
+
+### Why the poller writes rather than the reconciler
+
+The poller already holds the snapshots and the 10s clock, so the write rides the
+poll. Putting it in `compute_plan` instead would tie status latency to the 300s
+resync and would entangle `observed_at` with the model-config diff.
+
+### `blocked` has one owner
+
+The k8s watch used to set `blocked` from `ready_replicas > 0` while the status
+path set it from OICM `serving_available`: two probes of the same fact and two
+opinions about one column. They agree today, but only one can be authoritative.
+**OICM `serving_available` is the owner.** The watch still registers a model,
+refreshes `api_base`, and pauses one it can see going down as a fast path for the
+same fact; it no longer reconciles `blocked` against the k8s replica count.
+
+### Verified live
+
+26 metadata PATCHes against 6 concurrent real completions: zero failures, flat
+latency (0.33/0.34/0.35s), and the block persisted with all 143 sibling
+`model_info` keys intact. The reload a PATCH triggers does not create a serving
+hole: `clear_cache` deliberately does not wipe ordinary DB deployments, only
+auto-router ones.
+
+The heartbeat row was verified live too: a single row carrying
+`model_info.oicm_heartbeat` and no `oicm_uuid` is hidden from `/v1/models` once
+blocked, while staying readable in admin `/model/info`. It is created and then
+blocked, which is two writes on the very first creation and one per heartbeat
+after that. `/model/new` does not act on a top-level `blocked` in the create
+body (probed: it reads back `False`), which is why the block is a follow-up
+call rather than part of the create.
+
+## Staleness: a per-source heartbeat
+
+An earlier design put `observed_at` on every model and derived `stale` from it,
+refreshed by a per-model heartbeat. That was weak: it cannot tell "the
+controller died ten minutes ago" from "last week", because staleness only fires
+when the last write was recent, and a per-model heartbeat is one full reload per
+model per tick for a timestamp identical across a whole source.
+
+Liveness belongs to the **source**, not the model. `checked_at` is written once
+per source per heartbeat into a controller-owned row (tagged
+`oicm_heartbeat: <source>`, no `oicm_uuid`, `blocked = true`). Having no
+`oicm_uuid` is what makes it invisible to `list_all_models_by_key` and therefore
+to every rule in this design.
+
+A consumer computes `stale = now - checked_at > STATUS_STALE_AFTER` per source.
+`STATUS_STALE_AFTER = 90s` (three poll intervals, so one slow cycle does not flap
+a healthy source), and the heartbeat writes every `STATUS_STALE_AFTER / 3` = 30s,
+not on the 10s poll.
+
+`stale` overrides the persisted status: a model whose last known status was
+`Ready` but whose source has not been heard from within the window reports
+`unknown`, not `online`. The honest limit is that a controller which dies and is
+never replaced cannot be detected by anything, since no writer is left; the
+strongest available statement is "past the window, report unknown".
+
+## The join fix for cross-cluster rows
+
+The gateway row for an Abu Dhabi deployment is keyed
+`submariner:abudhabi:<uuid>` (written by `SubmarinerImportSource`), while Abu
+Dhabi's own OICM returns the bare `<uuid>`. Grouping on the namespaced value and
+keying snapshots on the bare one meant an AD row could never find its status.
+
+`list_all_models_by_key` now strips the `submariner:<cluster>:` prefix when
+grouping, and the block carries `gateway_uuid` (the bare uuid) plus `cluster`.
+The stored `oicm_uuid` is left untouched: rewriting it would change a row's
+identity for no gain.
+
+## The deletion rule now
+
+Existence is the union of the sources. A row is deleted only when the poll that
+says so was complete: `StatusPoller.all_sources_ok` is false as soon as any
+configured source fails, and the reconciler then skips every delete that cycle.
+An unreachable OICM therefore never reads as deletion, which is the failure the
+earlier `oicm_source == "local"` scope was written for but could not express
+once a second cluster existed.
+
+The scope is now "the row carries an `oicm_uuid`": that covers local rows and AD
+imports while leaving admin rows and the heartbeat rows (which have no
+`oicm_uuid`) alone.
+
+## Tests
+
+267 controller tests pass. The 2 failures in `test_config.py` are pre-existing
+and unrelated: they read the prod manifest, whose master key is now
+`sk-05132025`, and they fail identically with this work stashed.
+
+Nine mutations were each killed by the new tests:
+
+- comparing `observed_at` in the write guard (defeats the guard)
+- ignoring `blocked` in the guard (a routing flip would be missed)
+- one heartbeat per model instead of per source
+- removing the `allow_deletes` gate (a failed poll would delete a cluster)
+- reverting the delete scope to `oicm_source == "local"`
+- not stripping the `submariner:` prefix, at both the guard and the client level
+- ignoring the heartbeat's own cadence
+- removing the no-snapshot heartbeat guard (it must not consume the window)
+- sending `blocked` and the block as separate writes
 
 ## Multi-cluster status and the declarative source map
 
@@ -175,9 +305,9 @@ only thing that made the join look fragile.
   first served id. A deployment advertising several ids is truncated with a
   warning, because a second row sharing the uuid could never be matched back.
 - `compute_plan` takes an optional `oicm_models` map. Existence is the union of
-  the watch and OICM, and the delete rule runs only on rows whose
-  `oicm_source == "local"`, so a Submariner import or an admin-added model is
-  never collateral damage.
+  the watch and OICM, and the delete rule runs only on rows carrying an
+  `oicm_uuid` (and only when the owning source was polled successfully), so a
+  Submariner import or an admin-added model is never collateral damage.
 - A deployment known only to OICM (a Stopped one) keeps its registered row and
   is paused. It is not registered from scratch: only the watch yields a served
   model id and a resolving `api_base`, so OICM alone would create a
@@ -327,12 +457,17 @@ decision.
 
 ### Scope table for the existence rule
 
-| `oicm_source` | In OICM | Action |
-|---|---|---|
-| `local` | yes | keep, set status, pause or resume |
-| `local` | no | delete |
-| `submariner:*` | n/a | leave alone, not OICM-managed |
-| absent | n/a | leave alone, not controller-managed |
+The scope was once `oicm_source == "local"`, which was written for one cluster
+and could not express "the owning OICM was unreachable". It is now keyed on the
+row carrying an `oicm_uuid` plus the owning source having been polled
+successfully, so a second cluster fits without a special case.
+
+| Row carries | Source polled OK | In its OICM | Action |
+|---|---|---|---|
+| `oicm_uuid` | yes | yes | keep, set status, pause or resume |
+| `oicm_uuid` | yes | no | delete |
+| `oicm_uuid` | no | unknown | leave alone; an unreachable OICM is never deletion |
+| no `oicm_uuid` | n/a | n/a | leave alone, not controller-managed |
 
 ## Why a redeploy changing the uuid is correct
 
@@ -351,26 +486,18 @@ Confirmed as intended behavior, not a problem:
 
 ## Next step
 
-The uuid join and the OICM existence wiring are done (see "Step 2: the uuid join
-and OICM existence" near the top). The remaining steps, in order:
+The controller half of M1 is complete: facts, transport, poll, existence, the
+persisted block, `blocked` ownership, and staleness all landed. The remaining
+steps, in order:
 
-1. Step 10: `patch_model_info` writing the whole `model_info.oicm` block, called
-   only when the block differs, excluding `observed_at`. This is the blocker:
-   nothing persists status today, so nothing downstream can read it.
-2. The AD `metadata` fallback in `status/availability.py::_is_ready`. Small, and
-   it closes a correctness gap that bites as soon as AD is targeted.
-3. Step 11: the write-amplification guard for the status block, independent of
-   the model-config diff in `compute_plan`. Moot until Step 10 exists.
-4. Step 4: controller ownership of `blocked`, scoped to rows carrying
-   `model_info.oicm`, with the reason recorded. Note `blocked` is currently set
-   directly by `compute_plan` and the watch handlers, so this is a narrowing, not
-   new machinery.
-5. Step 12 and Step 5: OICM failure as staleness, with the `observed_at`
-   heartbeat on a cadence derived from `STATUS_STALE_AFTER`. Both need the
-   persisted block from Step 10.
-6. Step 6: parallelize `LocalDeploymentSource.discover()`, which still awaits
-   each deployment serially.
-7. Steps 13-18: the LiteLLM half of M1, then M2 and M3.
+1. Steps 13-18: the LiteLLM half of M1. The official OpenRouter `/endpoints`
+   schema, `OpenRouterEndpointsMapper` reading `model_info.oicm`,
+   `GatewayStateResolver` for `gateway_status`, freshness at request time, the
+   auth/visibility rules, and end-to-end validation on dev.
+2. Step 6 of the design order: parallelize `LocalDeploymentSource.discover()`,
+   which still awaits each deployment serially.
+3. M2 (Steps 19-23): current engine load from each runtime's `/metrics`, then
+   M3 (Steps 24-25): real rolling statistics from Prometheus/Thanos.
 
 ## Still open for the OICM team
 
@@ -387,10 +514,12 @@ registered name as-is:
 
 ## Related: the Abu Dhabi side
 
-The cross-cluster import (`oicm_source: submariner:abudhabi`) is not OICM-managed,
-so it is out of scope for the existence rule. Abu Dhabi's own OICM status is now
-usable: the controller reads it as a second source, and the `status_detail`
-`metadata` gap is closed (see "Multi-cluster status" above).
+The cross-cluster import is a Submariner import, not an OICM-managed deployment,
+but it is now first-class for status: the prefix-stripping join above lets its
+gateway row find Abu Dhabi's snapshot, so it gets a real status and `blocked`
+from OICM like any local row. Its existence still comes from the import, so the
+deletion rule leaves it alone (a row with no `oicm_uuid` is not the controller's
+to remove).
 
 One difference that no longer matters: Abu Dhabi runs OICM `1.7.1` against Al
 Ain's `1.15.19`, and `1.7.1` does not serve `/api/v1/workspaces/{ws}/deployments`

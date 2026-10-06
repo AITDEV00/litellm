@@ -46,9 +46,10 @@ def _pod(ready, node="gpu-01"):
     return {"kind": "Pod", "node": node, "metadata": {"ready": ready}}
 
 
-def _build(summary, previous=None):
+def _build(summary, previous=None, cluster="alain"):
     return build_snapshot(
         workspace_id="ws1",
+        cluster=cluster,
         summary=summary,
         previous=previous,
         now=datetime(2026, 10, 1, tzinfo=timezone.utc),
@@ -276,6 +277,7 @@ class TestTransitionMemory:
         first = _build(_summary("Ready", [_pod(True)]))
         later = build_snapshot(
             workspace_id="ws1",
+            cluster="alain",
             summary=_summary("Ready", [_pod(True)]),
             previous=first,
             now=datetime(2026, 10, 2, tzinfo=timezone.utc),
@@ -290,6 +292,7 @@ class TestTransitionMemory:
         assert first.serving_available is True
         degraded = build_snapshot(
             workspace_id="ws1",
+            cluster="alain",
             summary=_summary("Ready", [_pod(False)]),
             previous=first,
             now=datetime(2026, 10, 2, tzinfo=timezone.utc),

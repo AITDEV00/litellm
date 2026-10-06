@@ -503,20 +503,38 @@ async def test_deployment_absent_from_oicm_is_deleted():
 
 
 @pytest.mark.asyncio
-async def test_unmanaged_entry_absent_from_oicm_is_left_alone():
+async def test_entry_without_oicm_uuid_absent_from_oicm_is_left_alone():
     """A row the controller did not create must never be deleted.
 
-    The gateway also carries Submariner imports and admin-added models that OICM
-    does not know about. Absence from OICM is only a delete signal for rows
-    carrying `oicm_source == "local"`.
+    The gateway also carries admin-added models and the heartbeat rows, none of
+    which have an `oicm_uuid`. Absence from OICM is a delete signal only for a
+    row that carries one.
+    """
+    reconciler = _reconciler_with_costs(None)
+    entry = _entry_blocked(_make_model("admin-uuid"), "id-admin", blocked=False)
+    entry["model_info"].pop("oicm_uuid")
+
+    plan = await reconciler.compute_plan({}, {"admin-uuid": [entry]})
+
+    assert plan.deletes == []
+
+
+@pytest.mark.asyncio
+async def test_cross_cluster_entry_absent_from_oicm_is_deleted():
+    """A controller-managed import is removed once OICM stops listing it.
+
+    Scope is the presence of an `oicm_uuid`, not `oicm_source == "local"`:
+    once a second cluster exists, a cross-cluster import is just as much the
+    controller's to remove as a local row.
     """
     reconciler = _reconciler_with_costs(None)
     entry = _entry_blocked(_make_model("import-uuid"), "id-import", blocked=False)
     entry["model_info"]["oicm_source"] = "submariner:abudhabi"
+    entry["model_info"]["oicm_uuid"] = "submariner:abudhabi:import-uuid"
 
     plan = await reconciler.compute_plan({}, {"import-uuid": [entry]})
 
-    assert plan.deletes == []
+    assert plan.deletes == ["id-import"]
 
 
 def _summary(workload_id, serving):
@@ -578,20 +596,32 @@ async def test_oicm_only_deployment_is_not_registered():
 
 
 @pytest.mark.asyncio
-async def test_oicm_unavailable_falls_back_to_watch_only():
-    """With no OICM input the watch is the sole source and delete stays scoped.
+async def test_incomplete_poll_never_deletes():
+    """A failed source must not make its deployments look deleted.
 
-    OICM being unreachable must never be read as "every deployment is gone", so
-    a managed row absent from the watch is still deleted only because there is
-    no OICM record either, and an unmanaged one is left alone.
+    When any configured source fails to poll, its deployments are missing from
+    `oicm_models` through no fault of their own. Reading that as deletion would
+    wipe a whole cluster's rows on a transient OICM error, so nothing is removed
+    until a complete cycle says so.
     """
     reconciler = _reconciler_with_costs(None)
     managed = _entry_blocked(_make_model("gone-uuid"), "id-16", blocked=True)
-    unmanaged = _entry_blocked(_make_model("import-uuid"), "id-import", blocked=False)
-    unmanaged["model_info"]["oicm_source"] = "submariner:abudhabi"
 
     plan = await reconciler.compute_plan(
-        {}, {"gone-uuid": [managed], "import-uuid": [unmanaged]}
+        {}, {"gone-uuid": [managed]}, allow_deletes=False
+    )
+
+    assert plan.deletes == []
+
+
+@pytest.mark.asyncio
+async def test_complete_poll_deletes_what_oicm_no_longer_lists():
+    """The same row is removed once every source has been heard from."""
+    reconciler = _reconciler_with_costs(None)
+    managed = _entry_blocked(_make_model("gone-uuid"), "id-16", blocked=True)
+
+    plan = await reconciler.compute_plan(
+        {}, {"gone-uuid": [managed]}, allow_deletes=True
     )
 
     assert plan.deletes == ["id-16"]

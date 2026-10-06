@@ -149,6 +149,33 @@ async def test_snapshots_record_which_source_produced_them():
     await poller.refresh()
 
     assert set(poller.source_of.values()) == {"alain"}
+    # The cluster rides on the snapshot itself, which is what lets a consumer
+    # look up the heartbeat that says whether the status is still fresh.
+    assert {s.cluster for s in poller.snapshots.values()} == {"alain"}
+
+
+@pytest.mark.asyncio
+async def test_all_sources_ok_is_false_when_any_source_fails():
+    """The delete rule reads this, so a failed source must be reported.
+
+    A source that failed to poll has no snapshots through no fault of its
+    deployments, and `all_sources_ok` is what stops that absence being read as
+    deletion.
+    """
+    good = _FakeSource(name="alain")
+    bad = _FakeSource(name="abudhabi", summaries=())
+    poller = StatusPoller([good, bad])
+
+    await poller.refresh()
+    assert poller.all_sources_ok is True
+
+    bad._error = RuntimeError("ad oicm down")
+    await poller.refresh()
+    assert poller.all_sources_ok is False
+
+    bad._error = None
+    await poller.refresh()
+    assert poller.all_sources_ok is True
 
 
 @pytest.mark.asyncio

@@ -55,6 +55,11 @@ class OicmStatusSnapshot:
     workspace_id: str
     workload_id: str  # == deployment_id (proven)
 
+    # The configured source that produced this snapshot. Liveness is tracked per
+    # source, so a consumer needs this to look up the heartbeat that says whether
+    # the status is still fresh.
+    cluster: str
+
     source_status: Optional[DeploymentStatus]
 
     desired_replicas: Optional[int]

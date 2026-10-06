@@ -1,11 +1,13 @@
 # Model status persistence in LiteLLM `model_info`
 
 Date: 2026-10-06
-Status: design agreed. Steps 1-9 of the implementation order (the controller-side facts,
-transport, poll, and the existence rule) are implemented and committed. Steps 10-11
-(persisting the block and gating the write) are not.
-Scope: how the controller stores OICM deployment status on the LiteLLM model row, and how a
-stopped deployment stays visible while becoming unroutable
+Status: design agreed and being implemented. Steps 1-9 of the implementation order
+(the controller-side facts, transport, poll, and the existence rule) are implemented and
+committed. Steps 10-12 (persisting the block, gating the write, and staleness) are the
+current work.
+Scope: how the controller stores OICM deployment status on the LiteLLM model row, how a
+stopped deployment stays visible while becoming unroutable, and how a consumer tells fresh
+status from a dead controller
 
 For what has landed so far and the exact next step, see `PROGRESS-AND-PAUSED-WORK.md`. Note
 that the OICM join key was never actually the blocker it was once recorded as; see the
@@ -105,17 +107,48 @@ Stored in `model_info.oicm`:
 | `v` | shape version; the block is replaced wholesale, so a future change needs a discriminator |
 | `status` | the OICM lifecycle word |
 | `serving_available` | separates Ready-and-serving from Ready-but-degraded |
-| `api_base` | **must persist**; cannot be re-probed once stopped |
+| `cluster` | which OICM source produced this; needed for staleness and for the join |
+| `gateway_uuid` | the bare uuid, without any source prefix (see the join below) |
 | `replicas: {desired, available}` | explains `Deploying` and degraded without a second lookup |
 | `status_changed_at` | "stopped for N minutes", and the serving-flip-within-Ready case |
-| `observed_at` | the only way a consumer computes staleness |
-| `error_msg` | explains a `Failed`; length-capped before storing |
+| `observed_at` | when the controller last heard from this deployment's source |
+| `error_msg` | explains a `Failed`; stored in full, uncapped |
 
 Dropped: `workspace_id` (constant, implied by controller config), `source_updated_at`
 (documented as unreliable), `unavailable_replicas` (derivable), `workload_id` (already
 present as `oicm_uuid`).
 
+`api_base` is deliberately **not** in the block. An earlier draft persisted it, on the theory
+that a stopped deployment cannot be re-probed. That was wrong: `litellm_params.api_base`
+already survives on the row independently, and routing reads only that. Duplicating it into
+`model_info` would create a second copy that can drift from the one the router uses. If it is
+wanted for debugging, it belongs under a distinct key (for example `last_api_base`) and is
+informational only.
+
+`error_msg` is **not** capped. OICM's messages are short, and a truncated diagnostic is worse
+than a long one. A generous guard (around 2000 chars) is worth adding only if a genuinely long
+message is ever observed.
+
 Existing sibling keys `oicm_uuid`, `oicm_namespace`, `oicm_source` stay as they are.
+
+### The join, and why the block carries `cluster`
+
+The gateway groups rows by `oicm_uuid`. A Submariner import namespaces that value
+(`submariner:abudhabi:<uuid>`, written by `SubmarinerImportSource`), while the owning OICM
+returns the bare `deployment_id` (`<uuid>`). Grouping on the namespaced value and keying
+snapshots on the bare one means a cross-cluster row can never find its status.
+
+Two facts fix this together, and both are needed:
+
+- `cluster` records which source produced a snapshot. It is also what makes a per-cluster
+  heartbeat possible (below).
+- `gateway_uuid` records the bare uuid, so a consumer can match a snapshot to a row without
+  knowing which source named it which way.
+
+The gateway-side lookup strips the `submariner:<cluster>:` prefix when grouping, so a row
+imported from Abu Dhabi groups under the same bare uuid its own OICM reports. The stored
+`oicm_uuid` is left exactly as it is: rewriting it would change the identity of a row that
+nothing else references, for no gain.
 
 ## How to upsert
 
@@ -139,25 +172,116 @@ Therefore:
   is computed. No extra call.
 - **Gate on change, excluding `observed_at`.** Including `observed_at` in the comparison
   makes every cycle differ, so every cycle writes.
-- **`observed_at` is a heartbeat on its own cadence**, derived from `STATUS_STALE_AFTER`
-  rather than from the poll interval. Otherwise a 10s poll is six full reloads a minute per
-  pod to advance a timestamp.
+- **The status poller is the writer, on its own 10s clock.** It already holds the snapshots
+  and the clock, so the write rides the poll rather than the 300s config reconcile. One
+  PATCH carries the whole change: `{"blocked": <bool>, "model_info": {"oicm": {...}}}`.
+  `blocked` is a top-level column and `model_info` is a nested object, and the endpoint
+  accepts both in one body, so a status change is one write, not two.
 - **`api_base` is refreshed by the k8s watch while the deployment exists**, so a restart
   transition refreshes it before the row becomes routable again.
 
+### One writer, two clocks
+
+Two writers touch a row, and they own disjoint keys, so they never fight:
+
+| Writer | Clock | Owns |
+|---|---|---|
+| Status poller | 10s | `model_info.oicm`, `blocked` |
+| Config reconcile (watch + full sync) | 300s | `litellm_params`, `model_info.mode` |
+
+`blocked` has exactly one owner. Before this change the k8s watch set it from
+`ready_replicas > 0` while the status poll would set it from OICM `serving_available`, which
+is two opinions about one column. They agree today, but they are two probes of the same fact
+and only one can be authoritative. **OICM `serving_available` is the owner.** The watch keeps
+registering and refreshing `api_base` and still pauses a deployment it can see going down, as
+a fast path for the same fact rather than a second source of truth. Reconciling `blocked` from
+the watch as well is the part that goes away.
+
+## Staleness, and how to detect a dead controller
+
+An earlier draft put `observed_at` on every model and defined `stale` as
+`now - observed_at > STATUS_STALE_AFTER`, refreshed by a per-model heartbeat. That is weak in
+two ways, and the second is fatal to the stated goal.
+
+1. It cannot tell "the controller died ten minutes ago" from "the controller died last
+   week". Staleness only fires when the last write was recent, so a controller that stops
+   writing is indistinguishable from one that died long ago.
+2. A per-model heartbeat is one full reload per model per tick, for a timestamp that is
+   identical across every model of the same source.
+
+The facts being conflated are three, and separating them fixes both problems:
+
+| Fact | Meaning | Where it lives |
+|---|---|---|
+| `observed_at` | when this deployment's status was last seen | per model, in `model_info.oicm` |
+| `checked_at` | when this source was last polled at all | per cluster, in the heartbeat row |
+| `stale` | we have lost contact with the source | derived at read time, never persisted |
+
+Liveness belongs to the **cluster**, not the model. The controller polls both OICMs on one
+timer, so one `checked_at` per source says everything: recent means the controller is alive
+and both clusters are being watched; old means it is gone and every model from that source is
+`unknown`. That is one write per cluster per tick instead of one per model, roughly a 25x
+reduction, and it makes the answer sharper rather than weaker because it is per source: an Abu
+Dhabi outage marks only Abu Dhabi unknown while Al Ain stays online.
+
+### Where the heartbeat row lives
+
+A model row is the wrong home: a per-source timestamp stored on a model duplicates across
+that source's models, and hiding a sentinel row from model listings is not something the
+controller can do (LiteLLM hides a model only when *all* of its deployments are `blocked`, and
+an admin could flip that). LiteLLM has no generic KV write endpoint either.
+
+So the heartbeat is a dedicated, controller-owned row carrying `oicm_heartbeat: <source>` and
+no `oicm_uuid`. Because it has no `oicm_uuid` it is invisible to `list_all_models_by_key` and
+therefore to every rule in this design, which is what makes it inert. It is `blocked = true`
+so it is never routable, and it is a passthrough-shaped entry (a `hosted_vllm` model pointed at
+an unreachable local base), never selected because it is blocked. Its cost is one write per
+source per heartbeat, on the heartbeat cadence rather than the poll cadence.
+
+This is a deliberate, small wart: one extra row per source in `/model/info` and the Admin UI
+model list. The alternative, reusing `LiteLLM_Config`, needs a new LiteLLM endpoint and turns
+on a reload fan-out per write, which is strictly worse. The row can be swapped for a proper
+endpoint later without touching any consumer, because the reader only ever asks "what is the
+latest `checked_at` for source X".
+
+### What a consumer does with it
+
+At read time, for a model whose `oicm.cluster` is `C`:
+
+```
+stale = now - heartbeat[C].checked_at > STATUS_STALE_AFTER
+```
+
+`stale` overrides the persisted status: a model whose last known status was `Ready` but whose
+source has not been heard from within the window reports `availability = unknown`, not
+`online`. That is the honest answer, and it is exactly the case the user asked for: a status
+that has quietly gone out of date is worse than one marked unknown.
+
+### The honest limit
+
+Nothing can detect a controller that dies and is never replaced, because there is no writer
+left to say so. A consumer can only ever see "last heard at T", and the rule above is the
+strongest statement available: past the window, report `unknown` rather than `online`. The
+heartbeat makes that judgement accurate and cheap; it cannot make it omniscient.
+
+### Cadence
+
+`STATUS_STALE_AFTER = 90s`, so three poll intervals (10s each) fit inside the window and a
+single dropped or slow cycle does not flap a healthy source to unknown. The heartbeat writes on
+its own cadence of `STATUS_STALE_AFTER / 3` = 30s, not on the 10s poll, so the extra writes are
+one per source per 30s rather than one per source per 10s.
+
 ## The pre-existing guard this depends on
 
-`compute_plan` currently appends a patch for every matched key with no comparison against the
-existing entry, so all 25 models are PATCHed every 300s whether or not anything changed. That
-is 7,200 gateway writes a day of pure churn, and it is the same waste at larger scale than the
-status writes.
-
-Adding the idempotence guard is a prerequisite, and it is independent of this design and
-testable on its own.
+`compute_plan` used to append a patch for every matched key with no comparison against the
+existing entry, so all 25 models were PATCHed every 300s whether or not anything changed. That
+was 7,200 gateway writes a day of pure churn. The guard is in (`13c021c355`) and is a
+prerequisite for the status writes being affordable, since every gateway write reloads every
+model on the pod.
 
 ## Implementation order
 
-Status of each item, as of 2026-10-06: 1 and 2 done, 3-6 not.
+Status of each item, as of 2026-10-06: 1 and 2 done, 3-6 the current work.
 
 1. **Done** (`13c021c355`). Idempotence guard in `compute_plan` (compare the computed patch
    to the existing entry, skip when equal). Independent, safe, removes the existing churn.
@@ -166,11 +290,12 @@ Status of each item, as of 2026-10-06: 1 and 2 done, 3-6 not.
    is absent from both. The `if not model.is_ready: continue` gate this step once named was
    removed in `8ee755efe2`, so there is nothing left to bypass. The rule is scoped to rows
    carrying `oicm_source == "local"`, so imports and admin rows are never deleted.
-3. **Next.** `patch_model_info` writing the whole `model_info.oicm` block, called only when
-   the block differs, excluding `observed_at`.
-4. Controller ownership of `blocked`, scoped to rows carrying `model_info.oicm`, with the
-   reason recorded.
-5. `observed_at` heartbeat on a cadence derived from `STATUS_STALE_AFTER`.
+3. **Current.** `patch_status` writing the whole `model_info.oicm` block in the same PATCH as
+   `blocked`, called only when a fact differs, excluding `observed_at`.
+4. **Current.** Controller ownership of `blocked`, scoped to rows carrying `model_info.oicm`,
+   with OICM `serving_available` as the sole authority. The watch stops reconciling `blocked`.
+5. **Current.** `observed_at` per model plus a per-source heartbeat row carrying `checked_at`,
+   with `STATUS_STALE_AFTER = 90s` and the heartbeat at `STATUS_STALE_AFTER / 3`.
 6. Parallelize `LocalDeploymentSource.discover()`, which currently awaits each deployment
    serially (24 deployments in about 2.6s), so a faster cadence is affordable.
 
@@ -185,19 +310,26 @@ Steps 1 and 5 are what make a shorter poll interval safe rather than harmful.
 - Idempotence: a second identical cycle issues zero PATCHes.
 - Status change: a `Ready` to `Stopped` transition PATCHes exactly once, and the block is
   complete (a partial block would drop sibling keys, so assert all keys survive).
-- `observed_at` alone does not trigger a write; a status change does.
+- `observed_at` alone does not trigger a status write; a status change does.
 - A stopped deployment stays in `/model/info` and appears in `/endpoints` as `offline`.
 - A stopped deployment is excluded from routing.
-- A deployment absent from OICM is deleted.
+- A deployment absent from OICM is deleted, but only when the owning source was polled
+  successfully in that cycle: an unreachable OICM must never read as deletion.
 - A deployment that stops and then starts again is routable with a refreshed `api_base`.
+- A cross-cluster row (`submariner:abudhabi:<uuid>`) joins to its Abu Dhabi snapshot on the
+  bare uuid and gets its status and `blocked` set.
+- A stale heartbeat marks a source's models unknown even when their last status was `Ready`.
 
 ## Open items
 
 - A mass transition means N writes and N reloads in a burst, since there is no bulk endpoint.
   Accepted, because mass transitions are rare and a reload does not disturb in-flight
-  inference (verified under eight-way concurrent load, zero errors). The alternative is
-  pulling from the controller at serve time instead of pushing, which trades the write churn
-  for a runtime dependency on the controller.
+  inference (verified live: 26 metadata PATCHes against 6 concurrent real completions, zero
+  failures, flat latency). The alternative is pulling from the controller at serve time
+  instead of pushing, which trades the write churn for a runtime dependency on the
+  controller.
+- The heartbeat row is a small, visible wart (one extra row per source). See "Where the
+  heartbeat row lives".
 - The dev and prod gateways each carry eight dead rows in `LiteLLM_ProxyModelTable` whose
   `litellm_params.model` is an undecryptable blob, causing eight failing upserts on every
   reload. This predates this work and is tracked separately.

@@ -22,6 +22,7 @@ from typing import Dict, Mapping, Optional, Sequence
 
 from .config import STATUS_SYNC_INTERVAL
 from .status import OicmStatusSnapshot, StatusSource, build_snapshot
+from .status_persister import StatusPersister
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -31,11 +32,14 @@ class StatusPoller:
         self,
         sources: Sequence[StatusSource],
         interval: int = STATUS_SYNC_INTERVAL,
+        persister: Optional[StatusPersister] = None,
     ):
         self.sources = tuple(sources)
         self.interval = interval
+        self.persister = persister
         self._snapshots: Mapping[str, OicmStatusSnapshot] = {}
         self._source_of: Mapping[str, str] = {}
+        self._failed_sources: frozenset[str] = frozenset()
         self._running = False
 
     @property
@@ -54,6 +58,16 @@ class StatusPoller:
     def source_of(self) -> Mapping[str, str]:
         """Which source (cluster) each tracked workload came from."""
         return self._source_of
+
+    @property
+    def all_sources_ok(self) -> bool:
+        """True when the last cycle heard from every configured source.
+
+        The delete rule depends on this: a source that failed to poll has no
+        snapshots through no fault of its deployments, so its absence must not
+        be read as deletion.
+        """
+        return not self._failed_sources
 
     async def _fetch(self, source: StatusSource) -> tuple[StatusSource, Optional[tuple]]:
         """Fetch one source, returning ``None`` results on failure."""
@@ -78,8 +92,10 @@ class StatusPoller:
 
         snapshots: Dict[str, OicmStatusSnapshot] = {}
         source_of: Dict[str, str] = {}
+        failed: set[str] = set()
         for source, summaries in results:
             if summaries is None:
+                failed.add(source.name)
                 for workload_id, snap in self._snapshots.items():
                     if self._source_of.get(workload_id) == source.name:
                         snapshots[workload_id] = snap
@@ -89,6 +105,7 @@ class StatusPoller:
                 workload_id = summary.deployment_id
                 snapshots[workload_id] = build_snapshot(
                     workspace_id=source.workspace_id,
+                    cluster=source.name,
                     summary=summary,
                     previous=self._snapshots.get(workload_id),
                 )
@@ -97,6 +114,9 @@ class StatusPoller:
         self._log_transitions(snapshots, source_of)
         self._snapshots = snapshots
         self._source_of = source_of
+        self._failed_sources = frozenset(failed)
+        if self.persister is not None:
+            await self.persister.persist_snapshots(snapshots)
         return snapshots
 
     def _log_transitions(

@@ -99,12 +99,12 @@ def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
 def _oicm_managed(existing_entry: dict) -> bool:
     """True when the controller registered this row and may therefore remove it.
 
-    Only a local deployment carries ``oicm_source == "local"``. A Submariner
-    import (``submariner:*``) is not OICM-managed, and an entry with no
-    ``oicm_source`` at all predates the field or was added by an admin, so
-    neither is the controller's to delete when OICM stops listing it.
+    The marker is an ``oicm_uuid``, which every controller-registered row has,
+    local or cross-cluster import alike. An admin-added model and a heartbeat
+    row both lack one, so neither is the controller's to delete when OICM stops
+    listing it.
     """
-    return (existing_entry.get("model_info") or {}).get("oicm_source") == "local"
+    return bool((existing_entry.get("model_info") or {}).get("oicm_uuid"))
 
 
 def _summaries_to_models(
@@ -155,6 +155,7 @@ class SyncReconciler:
         k8s_models: Dict[str, OicmModel],
         litellm_by_key: Dict[str, List[dict]],
         oicm_models: Optional[Dict[str, OicmModel]] = None,
+        allow_deletes: bool = True,
     ) -> SyncPlan:
         # Existence comes from OICM, not from the k8s watch: a Stopped
         # deployment has no k8s object but must stay registered, and a
@@ -162,6 +163,12 @@ class SyncReconciler:
         # only supplies the live record for deployments that still exist, so
         # when OICM is unavailable the watch remains the sole source and the
         # delete rule stays scoped to controller-managed rows.
+        #
+        # `allow_deletes` is the guard that keeps an incomplete view from being
+        # read as deletion: when any configured source failed to poll, its
+        # deployments are missing from `oicm_models` through no fault of their
+        # own, so nothing is removed this cycle. The next complete cycle catches
+        # up, and a spurious delete is far worse than a delayed one.
         oicm_models = oicm_models if oicm_models is not None else {}
         desired = _merge_models(k8s_models, oicm_models)
         oicm_keys = set(oicm_models.keys())
@@ -195,7 +202,10 @@ class SyncReconciler:
 
             # Absent from both k8s and OICM: genuinely deleted. Only remove the
             # rows the controller itself created, so an admin-added model or a
-            # Submariner import is never collateral damage.
+            # heartbeat row is never collateral damage, and only when the poll
+            # that says so was complete.
+            if not allow_deletes:
+                continue
             for e in entries:
                 if _oicm_managed(e) and e.get("model_id"):
                     plan.deletes.append(e["model_id"])

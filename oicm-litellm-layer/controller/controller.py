@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import replace
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from aiohttp import web
 from kubernetes import watch
@@ -26,6 +26,7 @@ from .sources import ModelSource
 from .sources.local_deployments import LocalDeploymentSource
 from .sources.submariner_imports import SubmarinerImportSource
 from .status_poller import StatusPoller
+from .status_persister import StatusPersister
 from .status_sources import build_status_sources
 
 logger = logging.getLogger("oicm-discovery")
@@ -62,7 +63,10 @@ class DiscoveryController:
             headers=self.litellm.headers,
         )
         self.fallback_reconciler = FallbackReconciler(self.fallback_client)
-        self.status_poller = status_poller or StatusPoller(build_status_sources())
+        self.status_poller = status_poller or StatusPoller(
+            build_status_sources(),
+            persister=StatusPersister(self.litellm),
+        )
         self._state: Dict[str, OicmModel] = {}
         self._litellm_id_map: Dict[str, str] = {}
         self._running = False
@@ -113,6 +117,7 @@ class DiscoveryController:
         body = {
             workload_id: {
                 "source": self.status_poller.source_of.get(workload_id),
+                "cluster": snap.cluster,
                 "source_status": snap.source_status.value if snap.source_status else None,
                 "serving_available": snap.serving_available,
                 "desired_replicas": snap.desired_replicas,
@@ -121,10 +126,17 @@ class DiscoveryController:
                 "error_msg": snap.error_msg,
                 "status_changed_at": snap.status_changed_at,
                 "observed_at": snap.observed_at,
+                "checked_at": self._checked_at(snap.cluster),
             }
             for workload_id, snap in self.status_poller.snapshots.items()
         }
         return web.json_response(body)
+
+    def _checked_at(self, cluster: str) -> Optional[str]:
+        """When this source was last polled successfully, if the persister ran."""
+        if self.status_poller.persister is None:
+            return None
+        return self.status_poller.persister.checked_at.get(cluster)
 
     async def full_sync(self):
         logger.info("Starting full sync...")
@@ -150,7 +162,12 @@ class DiscoveryController:
         # call and blocking the reconcile on OICM.
         oicm_models = _summaries_to_models(self.status_poller.snapshots)
 
-        plan = await self.reconciler.compute_plan(discovered, litellm_by_key, oicm_models)
+        plan = await self.reconciler.compute_plan(
+            discovered,
+            litellm_by_key,
+            oicm_models,
+            allow_deletes=self.status_poller.all_sources_ok,
+        )
         await self.reconciler.execute(plan)
 
         self._state = plan.new_state
@@ -223,10 +240,6 @@ class DiscoveryController:
                 # record and has to replace any non-serving placeholder from
                 # OICM rather than be skipped as a duplicate.
                 self._state[key] = model
-                if model.serving:
-                    litellm_id = self._litellm_id_map.get(key)
-                    if litellm_id:
-                        await self.litellm.set_blocked(litellm_id, False)
                 continue
             pricing = await self.pricing_resolver.resolve(model.model_id)
             inherited = pricing_to_params(pricing)
@@ -235,15 +248,19 @@ class DiscoveryController:
                 self._litellm_id_map[key] = litellm_id
                 self._state[key] = model
                 if not serving:
+                    # A new row starts routable, and the status poll may be up to
+                    # one interval away, so pause it here to avoid a brief window
+                    # where a non-serving deployment is selectable. OICM remains
+                    # the authority: the next status write reconciles this.
                     await self.litellm.set_blocked(litellm_id, True)
 
     async def _handle_delete(self, uuid: str):
-        """The k8s Deployment is gone. Pause it, but let OICM decide removal.
+        """The k8s Deployment is gone. OICM decides whether the row goes.
 
         A k8s deletion is either a stop or a real delete, and only OICM can tell
         them apart: a Stopped deployment keeps its OICM record, a deleted one
-        does not. Pausing here keeps routing correct at once; the next full sync
-        removes the row only if OICM no longer lists it.
+        does not. Routing is left to the status poll, which owns `blocked`, and
+        the next full sync removes the row only if OICM no longer lists it.
         """
         model = self._state.get(uuid)
         if model is None:
@@ -258,9 +275,6 @@ class DiscoveryController:
             self._state[uuid] = replace(
                 model, serving=False, ready_replicas=0, total_replicas=0
             )
-            litellm_id = self._litellm_id_map.get(uuid)
-            if litellm_id:
-                await self.litellm.set_blocked(litellm_id, True)
         await self.fallback_reconciler.reconcile()
 
     async def _handle_modify(self, uuid: str, dep):
@@ -269,7 +283,9 @@ class DiscoveryController:
 
         if uuid in self._state:
             # OicmModel is frozen; replace() is the only way to apply the
-            # replica update.
+            # replica update. `blocked` is not touched here: the status poll
+            # owns it from OICM's `serving_available`, and two writers of one
+            # column would be two opinions about the same fact.
             previous = self._state[uuid]
             self._state[uuid] = replace(
                 previous,
@@ -277,12 +293,6 @@ class DiscoveryController:
                 total_replicas=dep.status.replicas or 0,
                 serving=serving,
             )
-            if previous.serving != serving:
-                litellm_id = self._litellm_id_map.get(uuid)
-                if litellm_id:
-                    # Pause on the way down, resume on the way back up, so
-                    # routing tracks the deployment without a re-register.
-                    await self.litellm.set_blocked(litellm_id, not serving)
         else:
             await self._handle_add(uuid, dep)
 
