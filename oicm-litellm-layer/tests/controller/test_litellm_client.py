@@ -44,26 +44,22 @@ class _RaisingClient:
 
 @pytest.mark.asyncio
 async def test_delete_one_degrades_on_connect_error():
-    client = LiteLLMClient(read_only=False)
-    result = await client._delete_one(_RaisingClient(httpx.ConnectError("boom")), "mid-1")
+    client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ConnectError("boom")))
+    result = await client._delete_one("mid-1")
     assert result is False
 
 
 @pytest.mark.asyncio
 async def test_register_one_degrades_on_timeout():
-    client = LiteLLMClient(read_only=False)
-    result = await client._register_one(
-        _RaisingClient(httpx.ReadTimeout("timed out")), _make_model()
-    )
+    client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ReadTimeout("timed out")))
+    result = await client._register_one(_make_model())
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_patch_one_degrades_on_connect_error():
-    client = LiteLLMClient(read_only=False)
-    result = await client._patch_one(
-        _RaisingClient(httpx.ConnectError("boom")), "litellm-id", {"model": "m"}
-    )
+    client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ConnectError("boom")))
+    result = await client._patch_one("litellm-id", {"model": "m"})
     assert result is False
 
 
@@ -74,15 +70,15 @@ async def test_register_payload_stamps_api_surface_for_hamsa_v1():
     captured = {}
 
     class _CaptureClient:
-        async def post(self, url, headers=None, json=None):
-            captured["json"] = json
+        async def post(self, url, **kwargs):
+            captured["json"] = kwargs["json"]
             return httpx.Response(200, json={"model_id": "mid-1"}, request=httpx.Request("POST", url))
 
-    client = LiteLLMClient(read_only=False)
+    client = LiteLLMClient(read_only=False, client=_CaptureClient())
     model = _make_model(model_id="hamsa-tts-new", provider="hamsa")
     model.api_surface = "v1"
 
-    result = await client._register_one(_CaptureClient(), model)
+    result = await client._register_one(model)
     assert result == "mid-1"
     assert captured["json"]["litellm_params"]["api_surface"] == "v1"
     # And the hamsa api_base stays bare (no /v1) regardless of surface.
@@ -94,12 +90,12 @@ async def test_register_payload_omits_api_surface_when_unset():
     captured = {}
 
     class _CaptureClient:
-        async def post(self, url, headers=None, json=None):
-            captured["json"] = json
+        async def post(self, url, **kwargs):
+            captured["json"] = kwargs["json"]
             return httpx.Response(200, json={"model_id": "mid-2"}, request=httpx.Request("POST", url))
 
-    client = LiteLLMClient(read_only=False)
-    await client._register_one(_CaptureClient(), _make_model(model_id="llama-3"))
+    client = LiteLLMClient(read_only=False, client=_CaptureClient())
+    await client._register_one(_make_model(model_id="llama-3"))
     assert "api_surface" not in captured["json"]["litellm_params"]
 
 

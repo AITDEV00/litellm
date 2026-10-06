@@ -8,3 +8,7 @@ class ModelSource(ABC):
     @abstractmethod
     async def discover(self) -> Dict[str, OicmModel]:
         ...
+
+    async def aclose(self) -> None:
+        """Release transport resources. Default no-op for stateless sources."""
+        return

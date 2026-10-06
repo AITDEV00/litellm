@@ -24,7 +24,7 @@ def run():
 
     def _shutdown(signum, _frame):
         nonlocal _stop_task
-        logger.info(f"Received signal {signum}, shutting down...")
+        logger.info("Received signal %s, shutting down...", signum)
         _stop_task = loop.create_task(controller.stop())
 
     signal.signal(signal.SIGINT, _shutdown)

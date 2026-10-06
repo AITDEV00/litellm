@@ -21,7 +21,8 @@ class FallbackReconciler:
         for model, targets in existing.items():
             if model not in valid_names:
                 logger.info(
-                    f"Fallback for {model} -> {targets} exists but model is "
-                    f"not currently registered (may be redeploying); "
-                    f"keeping fallback config"
+                    "Fallback for %s -> %s exists but model is not currently "
+                    "registered (may be redeploying); keeping fallback config",
+                    model,
+                    targets,
                 )

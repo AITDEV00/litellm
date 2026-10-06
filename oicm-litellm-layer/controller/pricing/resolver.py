@@ -4,7 +4,7 @@ from typing import Optional
 from ..config import PRICING_ENABLED
 from .aggregator import aggregate
 from .matchers import DEFAULT_MATCHERS, Matcher
-from .models import PricingResult
+from .models import MatcherCandidate, PricingResult
 from .normalizer import normalize_model_name
 from .source import PricingSource
 
@@ -34,7 +34,7 @@ class PricingResolver:
 
         normalized = normalize_model_name(model_id)
 
-        candidates = []
+        candidates: list[MatcherCandidate] = []
         for matcher in self._matchers:
             try:
                 candidates.extend(matcher(normalized, index.by_normalized_key))
@@ -48,7 +48,7 @@ class PricingResolver:
 
         result = aggregate(candidates)
         if result:
-            logger.info(
+            logger.debug(
                 "Pricing resolved for %s: input=%.4e output=%.4e score=%.2f "
                 "strategy=%s keys=%s",
                 model_id,
@@ -59,7 +59,5 @@ class PricingResolver:
                 result.matched_keys,
             )
         else:
-            logger.info(
-                "No pricing match for %s (normalized=%s)", model_id, normalized
-            )
+            logger.debug("No pricing match for %s (normalized=%s)", model_id, normalized)
         return result

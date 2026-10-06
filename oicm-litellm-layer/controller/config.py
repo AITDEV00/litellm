@@ -44,6 +44,14 @@ WATCH_TIMEOUT = int(os.getenv("WATCH_TIMEOUT", "300"))
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8090"))
 HTTP_CONCURRENCY = int(os.getenv("HTTP_CONCURRENCY", "50"))
 
+# Shared HTTP timeouts. One client per component is reused across calls, so
+# these are the per-request ceilings rather than per-connection.
+HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
+# Pod-local probes (in-cluster Service DNS) fail fast.
+PROBE_TIMEOUT_SECONDS = float(os.getenv("PROBE_TIMEOUT_SECONDS", "5"))
+# Cross-cluster probes (Submariner globalnet) and gateway writes.
+REMOTE_TIMEOUT_SECONDS = float(os.getenv("REMOTE_TIMEOUT_SECONDS", "10"))
+
 # When true, the controller discovers models and computes the reconciliation
 # plan but NEVER writes to the LiteLLM gateway. Writes become logged no-ops.
 # Used by the debug controller so it can observe / reproduce discovery without

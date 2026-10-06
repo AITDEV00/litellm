@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Final, FrozenSet, List, Optional, Tuple
 
-from .config import CLUSTER_DOMAIN, MODEL_PORT
+from .config import CLUSTER_DOMAIN, MODEL_PORT, NAMESPACE
 
 # Separator for the composite model key `{uuid}::{model_id}`. A single
 # deployment (uuid) can host multiple models behind the same ClusterIP, so the
@@ -165,6 +165,41 @@ def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str
 
 def detect_mode(model_id: str, extra_args: str) -> str:
     return detect_mode_from_paths(frozenset(), model_id, extra_args)
+
+
+def build_model(
+    *,
+    uuid: str,
+    model_id: str,
+    ready_replicas: int,
+    total_replicas: int,
+    mode: str = "chat",
+    provider: str = "hosted_vllm",
+    source: str = "local",
+    extra_args: str = "",
+    api_base_override: Optional[str] = None,
+    api_surface: Optional[str] = None,
+    namespace: str = NAMESPACE,
+) -> OicmModel:
+    """Assemble an OicmModel, deriving model_name from the raw id.
+
+    Single place that sanitizes the model id into model_name, so sources do not
+    each repeat the sanitize call.
+    """
+    return OicmModel(
+        uuid=uuid,
+        model_id=model_id,
+        model_name=sanitize_model_id(model_id),
+        namespace=namespace,
+        ready_replicas=ready_replicas,
+        total_replicas=total_replicas,
+        mode=mode,
+        provider=provider,
+        extra_args=extra_args,
+        source=source,
+        api_base_override=api_base_override,
+        api_surface=api_surface,
+    )
 
 
 # LiteLLM uses "audio_speech" as the mode value; the controller's internal mode

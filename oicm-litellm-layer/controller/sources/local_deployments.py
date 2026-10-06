@@ -11,39 +11,52 @@ from ..config import (
     MODEL_DEPLOYMENT_TYPE,
     MODEL_PORT,
     NAMESPACE,
+    PROBE_TIMEOUT_SECONDS,
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
 from ..models import (
     OicmModel,
+    build_model,
     detect_api_surface,
     detect_mode_from_paths,
     detect_provider,
     parse_model_list,
-    sanitize_model_id,
 )
 from .base import ModelSource
 
 logger = logging.getLogger("oicm-discovery")
 
 
+def load_kube_config() -> None:
+    """Load kube config from KUBECONFIG, in-cluster, or the default path.
+
+    Shared by every source so the three-way fallback lives in one place.
+    """
+    kubeconfig_path = os.getenv("KUBECONFIG")
+    if kubeconfig_path:
+        config.load_kube_config(config_file=kubeconfig_path)
+        return
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        config.load_kube_config()
+
+
 class LocalDeploymentSource(ModelSource):
-    def __init__(self):
-        kubeconfig_path = os.getenv("KUBECONFIG")
+    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
         try:
-            if kubeconfig_path:
-                config.load_kube_config(config_file=kubeconfig_path)
-            else:
-                try:
-                    config.load_incluster_config()
-                except config.ConfigException:
-                    config.load_kube_config()
+            load_kube_config()
         except Exception as e:
-            logger.error(f"Failed to load kube config: {e}")
+            logger.error("Failed to load kube config: %s", e)
             raise
 
         self.apps_api = client.AppsV1Api()
         self.core_api = client.CoreV1Api()
+        self._client = http_client or httpx.AsyncClient(timeout=PROBE_TIMEOUT_SECONDS)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def discover(self) -> Dict[str, OicmModel]:
         loop = asyncio.get_event_loop()
@@ -80,9 +93,7 @@ class LocalDeploymentSource(ModelSource):
         model_ids, owned_by = await self._discover_model_ids(uuid)
         if not model_ids:
             model_ids = [uuid]
-            logger.warning(
-                f"Could not discover MODEL_ID for {uuid}, using fallback"
-            )
+            logger.warning("Could not discover MODEL_ID for %s, using fallback", uuid)
 
         # Mode and provider are deployment-level (they depend on the OpenAPI
         # surface, not the individual model id), so compute them once.
@@ -92,17 +103,14 @@ class LocalDeploymentSource(ModelSource):
 
         models: Dict[str, OicmModel] = {}
         for model_id in model_ids:
-            model = OicmModel(
+            model = build_model(
                 uuid=uuid,
                 model_id=model_id,
-                model_name=sanitize_model_id(model_id),
-                namespace=NAMESPACE,
                 ready_replicas=ready,
                 total_replicas=total,
                 mode=mode,
                 provider=provider,
                 extra_args=extra_args,
-                source="local",
                 api_surface=api_surface,
             )
             models[model.composite_key] = model
@@ -122,7 +130,7 @@ class LocalDeploymentSource(ModelSource):
         try:
             return await self._query_v1_models(uuid)
         except Exception as e:
-            logger.debug(f"Failed to query /v1/models for {uuid}: {e}")
+            logger.debug("Failed to query /v1/models for %s: %s", uuid, e)
 
         return [], None
 
@@ -138,36 +146,33 @@ class LocalDeploymentSource(ModelSource):
             )
             return cm.data.get(field)
         except Exception as e:
-            logger.debug(f"Failed to read ConfigMap {cm_name}: {e}")
+            logger.debug("Failed to read ConfigMap %s: %s", cm_name, e)
             return None
 
     async def _query_v1_models(self, uuid: str) -> tuple[list[str], Optional[str]]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1/models"
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            resp = await http_client.get(url)
-            if resp.status_code == 405:
-                logger.info(
-                    f"Model {uuid} returned 405 on /v1/models, non-OpenAI, skipping"
-                )
-                return [], None
-            resp.raise_for_status()
-            data = resp.json()
-            model_ids = parse_model_list(data)
-            owned_by = None
-            openai_data = data.get("data") if isinstance(data, dict) else None
-            if isinstance(openai_data, list) and openai_data and isinstance(openai_data[0], dict):
-                owned_by = openai_data[0].get("owned_by", "")
-            return model_ids, owned_by
+        resp = await self._client.get(url)
+        if resp.status_code == 405:
+            logger.info(
+                "Model %s returned 405 on /v1/models, non-OpenAI, skipping", uuid
+            )
+            return [], None
+        resp.raise_for_status()
+        data = resp.json()
+        model_ids = parse_model_list(data)
+        owned_by = None
+        openai_data = data.get("data") if isinstance(data, dict) else None
+        if isinstance(openai_data, list) and openai_data and isinstance(openai_data[0], dict):
+            owned_by = openai_data[0].get("owned_by", "")
+        return model_ids, owned_by
 
     async def _probe_openapi_paths(self, uuid: str) -> frozenset[str]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/openapi.json"
         try:
-            async with httpx.AsyncClient(timeout=5.0) as http_client:
-                resp = await http_client.get(url)
-                if resp.status_code != 200:
-                    return frozenset()
-                data = resp.json()
-                return frozenset(data.get("paths", {}).keys())
+            resp = await self._client.get(url)
+            if resp.status_code != 200:
+                return frozenset()
+            return frozenset(resp.json().get("paths", {}).keys())
         except Exception as e:
-            logger.debug(f"Failed to probe /openapi.json for {uuid}: {e}")
+            logger.debug("Failed to probe /openapi.json for %s: %s", uuid, e)
             return frozenset()

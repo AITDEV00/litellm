@@ -62,6 +62,9 @@ class SyncReconciler:
         k8s_keys = set(k8s_models.keys())
         litellm_keys = set(litellm_by_key.keys())
         plan = SyncPlan()
+        # Richest existing entry per shared key. Built here rather than by
+        # trimming litellm_by_key in place, so the caller's dict is untouched.
+        best_entry_by_key: Dict[str, dict] = {}
 
         for key in litellm_keys:
             entries = litellm_by_key[key]
@@ -76,7 +79,7 @@ class SyncReconciler:
             best_entry, loser_ids = _pick_richest_entry(entries)
             plan.deletes.extend(loser_ids)
             plan.new_id_map[key] = best_entry.get("model_id")
-            litellm_by_key[key] = [best_entry]
+            best_entry_by_key[key] = best_entry
 
         for key in k8s_keys - litellm_keys:
             model = k8s_models[key]
@@ -88,8 +91,7 @@ class SyncReconciler:
         for key in k8s_keys & litellm_keys:
             model = k8s_models[key]
             existing_id = plan.new_id_map.get(key)
-
-            existing_entry = litellm_by_key[key][0]
+            existing_entry = best_entry_by_key[key]
             existing_model_name = existing_entry.get("model_name", "")
 
             if existing_model_name != model.model_name:
@@ -97,21 +99,22 @@ class SyncReconciler:
                     plan.deletes.append(existing_id)
                 pricing = await self.pricing.resolve(model.model_id)
                 plan.registers.append((model, pricing_to_params(pricing)))
-            else:
-                if existing_id:
-                    patch_params: dict = {
-                        "model": f"{model.provider}/{model.model_id}",
-                        "api_base": model.api_base,
-                    }
-                    if model.api_surface:
-                        patch_params["api_surface"] = model.api_surface
-                    pricing = await self.pricing.resolve(model.model_id)
-                    inherited = pricing_to_params(pricing)
-                    if inherited:
-                        patch_params.update(inherited)
-                    patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
-                    plan.patches.append((existing_id, patch_params, patch_model_info))
-                plan.new_state[key] = model
+                continue
+
+            if existing_id:
+                patch_params: dict = {
+                    "model": f"{model.provider}/{model.model_id}",
+                    "api_base": model.api_base,
+                }
+                if model.api_surface:
+                    patch_params["api_surface"] = model.api_surface
+                pricing = await self.pricing.resolve(model.model_id)
+                inherited = pricing_to_params(pricing)
+                if inherited:
+                    patch_params.update(inherited)
+                patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
+                plan.patches.append((existing_id, patch_params, patch_model_info))
+            plan.new_state[key] = model
 
         return plan
 
@@ -120,16 +123,16 @@ class SyncReconciler:
             plan.deletes, plan.registers, plan.patches
         )
         if plan.deletes:
-            logger.info(f"Deleted {deleted}/{len(plan.deletes)} models")
+            logger.info("Deleted %d/%d models", deleted, len(plan.deletes))
 
-        reg_iter = iter(registered_ids)
-        for model, _ in plan.registers:
-            litellm_id = next(reg_iter, None)
+        # registered_ids preserves input order (None for a failed register), so
+        # zip aligns each id to its model by position.
+        for (model, _), litellm_id in zip(plan.registers, registered_ids):
             if litellm_id:
                 plan.new_id_map[model.composite_key] = litellm_id
                 plan.new_state[model.composite_key] = model
 
         if plan.patches:
-            logger.info(f"Patched {patched}/{len(plan.patches)} models")
+            logger.info("Patched %d/%d models", patched, len(plan.patches))
 
         return deleted, len(registered_ids), patched

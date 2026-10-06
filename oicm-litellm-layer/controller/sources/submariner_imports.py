@@ -1,19 +1,20 @@
 import asyncio
 import logging
-import os
 from typing import Dict, Optional
 
 import httpx
-from kubernetes import client, config
+from kubernetes import client
 
 from ..config import (
     MODEL_DEPLOYMENT_TYPE,
     NAMESPACE,
+    REMOTE_TIMEOUT_SECONDS,
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
-from ..models import OicmModel, detect_mode, parse_model_list, sanitize_model_id
+from ..models import OicmModel, build_model, detect_mode, parse_model_list
 from .base import ModelSource
+from .local_deployments import load_kube_config
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -24,21 +25,18 @@ SERVICE_NAME_LABEL = "multicluster.kubernetes.io/service-name"
 
 
 class SubmarinerImportSource(ModelSource):
-    def __init__(self):
-        kubeconfig_path = os.getenv("KUBECONFIG")
+    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
         try:
-            if kubeconfig_path:
-                config.load_kube_config(config_file=kubeconfig_path)
-            else:
-                try:
-                    config.load_incluster_config()
-                except config.ConfigException:
-                    config.load_kube_config()
+            load_kube_config()
         except Exception as e:
-            logger.error(f"Failed to load kube config: {e}")
+            logger.error("Failed to load kube config: %s", e)
             raise
 
         self.discovery_api = client.DiscoveryV1Api()
+        self._client = http_client or httpx.AsyncClient(timeout=REMOTE_TIMEOUT_SECONDS)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def discover(self) -> Dict[str, OicmModel]:
         loop = asyncio.get_event_loop()
@@ -79,8 +77,8 @@ class SubmarinerImportSource(ModelSource):
             if not model_ids:
                 model_ids = [uuid]
                 logger.warning(
-                    f"Could not discover model_id for {composite_uuid}, "
-                    f"using UUID as fallback"
+                    "Could not discover model_id for %s, using UUID as fallback",
+                    composite_uuid,
                 )
 
             api_base_override = f"http://{globalnet_ip}:{port}/v1"
@@ -98,23 +96,21 @@ class SubmarinerImportSource(ModelSource):
                 # them under the same LiteLLM model name with different api_base overrides,
                 # and LiteLLM's router will load-balance across them. That is the desired
                 # behavior, not a collision to avoid with a prefix.
-                model_name = sanitize_model_id(model_id)
-                mode = detect_mode(model_id, "")
-                model = OicmModel(
+                model = build_model(
                     uuid=composite_uuid,
                     model_id=model_id,
-                    model_name=model_name,
-                    namespace=NAMESPACE,
                     ready_replicas=1,
                     total_replicas=1,
-                    mode=mode,
+                    mode=detect_mode(model_id, ""),
                     source=f"submariner:{source_cluster}",
                     api_base_override=api_base_override,
                 )
                 models[model.composite_key] = model
                 logger.info(
-                    f"Discovered Submariner import: {model_name} "
-                    f"(cluster={source_cluster}, ip={globalnet_ip})"
+                    "Discovered Submariner import: %s (cluster=%s, ip=%s)",
+                    model.model_name,
+                    source_cluster,
+                    globalnet_ip,
                 )
 
         return models
@@ -137,16 +133,18 @@ class SubmarinerImportSource(ModelSource):
     ) -> list[str]:
         url = f"http://{globalnet_ip}:{port}/v1/models"
         try:
-            async with httpx.AsyncClient(timeout=10.0) as http_client:
-                resp = await http_client.get(url)
-                if resp.status_code == 405:
-                    logger.info(
-                        f"Model at {globalnet_ip}:{port} returned 405 on "
-                        f"/v1/models, non-OpenAI, skipping"
-                    )
-                    return []
-                resp.raise_for_status()
-                return parse_model_list(resp.json())
+            resp = await self._client.get(url)
+            if resp.status_code == 405:
+                logger.info(
+                    "Model at %s:%s returned 405 on /v1/models, non-OpenAI, skipping",
+                    globalnet_ip,
+                    port,
+                )
+                return []
+            resp.raise_for_status()
+            return parse_model_list(resp.json())
         except Exception as e:
-            logger.debug(f"Failed to query /v1/models at {globalnet_ip}:{port}: {e}")
+            logger.debug(
+                "Failed to query /v1/models at %s:%s: %s", globalnet_ip, port, e
+            )
         return []

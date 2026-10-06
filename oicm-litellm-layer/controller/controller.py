@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Dict, List
 
 from aiohttp import web
@@ -47,19 +48,17 @@ class DiscoveryController:
         self.local_source = self.sources[0]
 
         self.litellm = litellm or LiteLLMClient()
-        self.pricing_resolver = PricingResolver(
-            PricingSource(
-                base_url=self.litellm.base_url,
-                headers=self.litellm.headers,
-            )
+        self.pricing_source = PricingSource(
+            base_url=self.litellm.base_url,
+            headers=self.litellm.headers,
         )
+        self.pricing_resolver = PricingResolver(self.pricing_source)
         self.reconciler = SyncReconciler(self.litellm, self.pricing_resolver)
-        self.fallback_reconciler = FallbackReconciler(
-            FallbackClient(
-                base_url=self.litellm.base_url,
-                headers=self.litellm.headers,
-            )
+        self.fallback_client = FallbackClient(
+            base_url=self.litellm.base_url,
+            headers=self.litellm.headers,
         )
+        self.fallback_reconciler = FallbackReconciler(self.fallback_client)
         self._state: Dict[str, OicmModel] = {}
         self._litellm_id_map: Dict[str, str] = {}
         self._running = False
@@ -72,7 +71,7 @@ class DiscoveryController:
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, "0.0.0.0", HEALTH_PORT)
         await self._site.start()
-        logger.info(f"Health server listening on :{HEALTH_PORT}")
+        logger.info("Health server listening on :%s", HEALTH_PORT)
         await self.full_sync()
         await asyncio.gather(
             self._watch_loop(),
@@ -83,6 +82,10 @@ class DiscoveryController:
         self._running = False
         if hasattr(self, "_runner"):
             await self._runner.cleanup()
+        for closeable in (self.litellm, self.pricing_source, self.fallback_client):
+            await closeable.aclose()
+        for source in self.sources:
+            await source.aclose()
         logger.info("Stopped OICM Discovery Controller")
 
     async def _health(self, _request):
@@ -97,13 +100,12 @@ class DiscoveryController:
                 models = await source.discover()
                 discovered.update(models)
                 logger.info(
-                    f"Source {source.__class__.__name__}: "
-                    f"discovered {len(models)} models"
+                    "Source %s: discovered %d models",
+                    source.__class__.__name__,
+                    len(models),
                 )
             except Exception as e:
-                logger.error(
-                    f"Source {source.__class__.__name__} failed: {e}"
-                )
+                logger.error("Source %s failed: %s", source.__class__.__name__, e)
 
         litellm_by_key = await self.litellm.list_all_models_by_key()
 
@@ -112,7 +114,7 @@ class DiscoveryController:
 
         self._state = plan.new_state
         self._litellm_id_map = plan.new_id_map
-        logger.info(f"Full sync complete: {len(self._state)} models registered")
+        logger.info("Full sync complete: %d models registered", len(self._state))
 
         await self.fallback_reconciler.reconcile()
 
@@ -121,7 +123,7 @@ class DiscoveryController:
             try:
                 await self._watch_once()
             except Exception as e:
-                logger.error(f"Watch error: {e}, reconnecting in 5s...")
+                logger.error("Watch error: %s, reconnecting in 5s...", e)
                 await asyncio.sleep(5)
 
     async def _watch_once(self):
@@ -153,7 +155,7 @@ class DiscoveryController:
             uuid = dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
             if not uuid:
                 continue
-            logger.info(f"Watch event: {event_type} deployment j-{uuid[:8]}")
+            logger.info("Watch event: %s deployment j-%s", event_type, uuid[:8])
             if event_type == "ADDED":
                 await self._handle_add(uuid, dep)
             elif event_type == "DELETED":
@@ -165,17 +167,17 @@ class DiscoveryController:
         if not self._running:
             return
         if any(_uuid_of(key) == uuid for key in self._state):
-            logger.debug(f"Deployment j-{uuid[:8]} already tracked, skipping")
+            logger.debug("Deployment j-%s already tracked, skipping", uuid[:8])
             return
 
         ready = dep.status.ready_replicas or 0
         if ready == 0:
-            logger.info(f"Deployment j-{uuid[:8]} not ready yet, skipping")
+            logger.info("Deployment j-%s not ready yet, skipping", uuid[:8])
             return
 
         models = await self.local_source.discover_for_deployment(dep)
         if not models:
-            logger.warning(f"No models discovered for j-{uuid[:8]}")
+            logger.warning("No models discovered for j-%s", uuid[:8])
             return
 
         for key, model in models.items():
@@ -194,8 +196,9 @@ class DiscoveryController:
         ]
         if not stale_keys:
             logger.warning(
-                f"Delete event for j-{uuid[:8]} but no model in map; "
-                f"full_sync will clean up on next cycle"
+                "Delete event for j-%s but no model in map; "
+                "full_sync will clean up on next cycle",
+                uuid[:8],
             )
             return
 
@@ -212,9 +215,13 @@ class DiscoveryController:
 
         if old_keys:
             for key in old_keys:
-                old_model = self._state[key]
-                old_model.ready_replicas = ready
-                old_model.total_replicas = dep.status.replicas or 0
+                # OicmModel is a mutable dataclass today; replace() keeps the
+                # replica update functional rather than in-place.
+                self._state[key] = replace(
+                    self._state[key],
+                    ready_replicas=ready,
+                    total_replicas=dep.status.replicas or 0,
+                )
         elif ready > 0:
             await self._handle_add(uuid, dep)
 
@@ -225,7 +232,7 @@ class DiscoveryController:
                 try:
                     await self.full_sync()
                 except Exception as e:
-                    logger.error(f"Periodic resync failed: {e}")
+                    logger.error("Periodic resync failed: %s", e)
 
 
 def _uuid_of(key: str) -> str:
