@@ -6,7 +6,8 @@ pointed at the Abu Dhabi cluster the same way it is pointed at Al Ain.
 
 Outcome: the exports are created and correct, but the services are **not
 reachable**, and the cause is a pre-existing Abu Dhabi fault unrelated to this
-work. Details below.
+work. The OICM API version is **not** a second blocker, contrary to an earlier
+revision of this file. Details below.
 
 ## What was done
 
@@ -14,10 +15,10 @@ Abu Dhabi was reached via the documented relay (ABUDHABI guide A.8), using a
 privileged pod on the Al Ain gateway node `adeo-gpu-03` and the Abu Dhabi
 kubeconfig shipped in via ConfigMap.
 
-Note: the local `~/.kube/abudhabi-kubeconfig.yaml` is **expired** (Not After
-2026-09-29). The copy embedded in `submariner-ABUDHABI-guide.md` is valid until
-2027-09-29 and was used instead. Worth refreshing the local file from the guide
-or re-exporting.
+Note: the local `~/.kube/abudhabi-kubeconfig.yaml` was **expired** (Not After
+2026-09-29). It has since been refreshed from the copy embedded in
+`submariner-ABUDHABI-guide.md`, which is valid until 2027-09-29, and the local
+file now carries that copy.
 
 Two ServiceExports were created on Abu Dhabi:
 
@@ -82,10 +83,41 @@ Consequence: **any newly exported service in Abu Dhabi is unreachable**, because
 kube-proxy cannot program it. Existing services keep working because their chains
 were programmed before the credentials expired.
 
-## Why this blocks the OICM work
+## The OICM API version is NOT a blocker (corrected)
 
-Even with the exports correct, there is a second, independent problem: Abu Dhabi
-runs a much older OICM than Al Ain.
+An earlier revision of this file claimed Abu Dhabi's older OICM serves a
+different API surface than the controller is written against. That claim was
+wrong. It came from probing the Abu Dhabi ClusterIP through the relay while the
+network path was broken, so the probe returned connection failures (`000`) and a
+stray `404` rather than real status codes, and the conclusion was drawn from
+those.
+
+Probed side by side with identical paths and no credentials:
+
+| Path | Abu Dhabi (external, `oicm.ai.ecouncil.ae`) | Al Ain (internal ClusterIP) |
+|---|---|---|
+| `/api/v1/workspaces` | 404 | 404 |
+| `/api/v1/workspaces/{ws}/deployment_summary` | 403 | 403 |
+| `/api/v1/workspaces/bogus-uuid/deployment_summary` | 403 | 403 |
+
+Both clusters answer identically on every path. `404` on the collection route
+means that route does not exist in either version. `403` on `deployment_summary`
+means it exists and needs auth, and it is returned for a bogus workspace id too,
+so the auth check runs before any lookup. The body is
+`{"error_code": 403, "message": "Missing Authorization token"}` on both.
+
+Abu Dhabi's own OpenAPI document settles it. Fetched from
+`https://oicm.ai.ecouncil.ae/api/openapi/openapi.json` (1,328,907 bytes, title
+`MLOps Backend`), it declares `servers: [{url: "/api/"}]` and contains
+`GET /v1/workspaces/{workspace_id}/deployment_summary` with the summary "Get
+deployment summary for all active deployments in the workspace", tagged
+`Model Deployment`, and params `workspace_id, order_by, order_direction, offset,
+limit, search`. It does not contain `GET /v1/workspaces`, matching the `404` both
+clusters give. The spec has 398 paths and the same four bearer JWT security
+schemes the controller expects.
+
+So there is nothing to adapt. The controller's path and payload contract work
+against Abu Dhabi's `1.7.1` unchanged, and the version gap is not a blocker.
 
 | Component | Abu Dhabi | Al Ain |
 |---|---|---|
@@ -93,26 +125,23 @@ runs a much older OICM than Al Ain.
 | `oip-mlops-nginx-main` | `1.7.1` | `1.15.19` |
 | `oip-mlops-consumer` | `1.7.1` | (newer) |
 
-Abu Dhabi's API does not serve the endpoint the controller uses. Probed from a pod
-inside Abu Dhabi against `s-mlops-nginx-be-app.mlops.svc.cluster.local`:
+Keycloak is the same story. Abu Dhabi's realm `adeo` at
+`https://auth.ai.ecouncil.ae/realms/adeo/protocol/openid-connect/token` exists,
+and unknown credentials get `invalid_grant` rather than a routing error. The only
+thing missing to make a real authenticated call is a service account that exists
+in Abu Dhabi's realm. The Al Ain credentials do not, which is expected since the
+two clusters have separate Keycloaks. Internally, Abu Dhabi's
+`keycloak.keycloak.svc.cluster.local` serves realm `adeo` and returns `401`
+without credentials, which is correct.
 
-```
-/api/v1/workspaces                     404
-/api/v1/workspaces/x/deployment_summary 404
-/api/v1/version                        404
-/api/workspace                         405   <- exists, wrong method
-/api/workspaces                        404
-/api/model(s) /api/deployment(s)       404
-```
+## Why the network path is the only remaining blocker
 
-So Abu Dhabi exposes a different API generation under `/api/workspace`, not the
-`/api/v1/workspaces/...` surface the controller is written against. Replicating
-the Al Ain behavior on Abu Dhabi needs either a controller API-version adapter or
-an Abu Dhabi OICM upgrade.
-
-Keycloak is the good news: `keycloak.keycloak.svc.cluster.local` in Abu Dhabi
-serves realm `adeo` and the token endpoint responds (`401` without credentials,
-which is correct). So auth would work once the network path exists.
+With the API question resolved, the kube-proxy `Unauthorized` failure above is
+the sole thing standing between the exports and a working status sync. Once the
+RKE2 certs are rotated and the `KUBE-EXT-*` chains appear for `242.0.0.251` and
+`242.0.0.252`, the exports are reachable. Pointing the controller at Abu Dhabi
+then needs no code change, only the base URL, auth URL, realm, workspace id, and
+a service account.
 
 ## Service port note
 
@@ -135,19 +164,24 @@ So from Al Ain the endpoints would be
    restart of `rke2-agent` on workers and `rke2-server` on masters) and restart
    kube-proxy, then confirm `kubectl -n kube-system logs kube-proxy-prd-oi-k8worker01`
    stops printing `Unauthorized` and that the `KUBE-EXT-*` chains appear for
-   `242.0.0.251` and `242.0.0.252`. Only then are the exports reachable.
-2. **Decide on the OICM version gap.** Either ask the platform team to upgrade Abu
-   Dhabi OICM, or add a version adapter to the controller. Do not assume the Al
-   Ain status code works against `1.7.1`.
-3. **Refresh the local Abu Dhabi kubeconfig** from the guide's copy (valid to
-   2027-09-29) and note the expiry in the guide so it is not rediscovered.
+   `242.0.0.251` and `242.0.0.252`. Only then are the exports reachable. This is
+   now the only blocker.
+2. **Obtain a service account on Abu Dhabi's Keycloak.** The API contract needs no
+   change, but the Al Ain credentials do not exist in Abu Dhabi's realm `adeo`.
+   Either create an equivalent service account there or establish that a shared
+   identity is intended, then set `OICM_USERNAME` and `OICM_PASSWORD` for that
+   cluster.
+3. **Re-run the reachability probe with a real token** once both of the above are
+   done, and capture the `deployment_summary` response shape to confirm it matches
+   what the controller parses.
 
 ## What was left behind
 
-Nothing. The debug pod (`ad-debug`) and its ConfigMap in Al Ain, the Abu Dhabi
-probe pods (`adprobe`, `adgw`), and the staged kubeconfig on the Al Ain gateway
-host were all removed. The two ServiceExports remain, which is the intended
-end state, and they are harmless while unreachable.
+Nothing. The debug pod (`ad-debug`, later `adrelay`) and its ConfigMap
+(`abudhabi-kubeconfig`, later `adkc`) in Al Ain, the Abu Dhabi probe pods
+(`adprobe`, `adgw`, later `adprobe2`), and the staged kubeconfig on the Al Ain
+gateway host were all removed. The two ServiceExports remain, which is the
+intended end state, and they are harmless while unreachable.
 
 ## Reusable command reference
 
@@ -193,3 +227,32 @@ nft list ruleset | grep -E 'KUBE-EXT-|242\.0\.0\.25'
 # is globalnet allocating and creating the internal service?
 kubectl -n submariner-operator logs -l app=submariner-globalnet --tail=30
 ```
+
+## Telling a network fault from an API fault
+
+Both failure modes look like "the endpoint does not work", and confusing them
+cost an earlier revision of this file a wrong conclusion. A status code alone is
+not enough: a broken network path yields `000` and a wrong path yields `404`, and
+both get read as "missing".
+
+The reliable discriminator is to probe the same path against a cluster known to
+work and compare status codes with credentials omitted:
+
+```bash
+# against each cluster, with no Authorization header
+for p in /api/v1/workspaces \
+         /api/v1/workspaces/$WS/deployment_summary \
+         /api/v1/workspaces/bogus-uuid/deployment_summary; do
+  printf '%-58s -> %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' -m 10 -k "$BASE$p")"
+done
+```
+
+Identical status codes mean the API surface is the same and only the network
+path or the credentials differ. Different codes on the same path mean a genuine
+API-version gap. A `403` on the real path and on a bogus id alike means the route
+exists and the auth check runs before any lookup, so the API is fine and the
+problem is auth or network.
+
+The cluster's own OpenAPI document is the tie-breaker when a route is in doubt.
+It is served at `<base>/api/openapi/openapi.json` and its `servers[].url` gives
+the prefix that the declared `paths` are relative to.
