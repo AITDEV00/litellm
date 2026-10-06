@@ -3,11 +3,6 @@ from typing import Final, FrozenSet, List, Optional, Tuple
 
 from .config import CLUSTER_DOMAIN, MODEL_PORT, NAMESPACE
 
-# Separator for the composite model key `{uuid}::{model_id}`. A single
-# deployment (uuid) can host multiple models behind the same ClusterIP, so the
-# controller keys its state by this composite rather than by uuid alone.
-COMPOSITE_KEY_SEP = "::"
-
 # Providers recognized by substring in the deployment's owned_by / model id.
 # Substring (not exact) matching, so suffixed ids like "hamsa-tts-new" still
 # resolve to the "hamsa" provider.
@@ -63,8 +58,16 @@ class OicmModel:
     serving: bool = True
 
     @property
-    def composite_key(self) -> str:
-        return f"{self.uuid}{COMPOSITE_KEY_SEP}{self.model_name}"
+    def deployment_id(self) -> str:
+        """The identity the reconciler keys this model by.
+
+        A model is one deployment, so the uuid alone is the identity. Keying on
+        uuid is what lets a deployment whose OICM GUI label differs from the id
+        its server actually serves still match its gateway row: the served id is
+        what the controller registered, so the stored and discovered names agree
+        even when OICM's own ``model_name`` does not.
+        """
+        return self.uuid
 
     @property
     def api_base(self) -> str:

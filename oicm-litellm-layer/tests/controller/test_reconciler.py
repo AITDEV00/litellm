@@ -1,11 +1,12 @@
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from controller.models import OicmModel, to_litellm_mode
 from controller.pricing.models import PricingResult
-from controller.reconciler import SyncPlan, SyncReconciler
+from controller.reconciler import SyncPlan, SyncReconciler, _summaries_to_models
 
 
 def _make_model(uuid, mode="chat", provider="hosted_vllm", model_id="test-model"):
@@ -26,7 +27,12 @@ def _make_litellm_entry(model_id, model_name="hosted_vllm/test-model", mode="cha
         "model_id": model_id,
         "model_name": model_name,
         "litellm_params": {"model": model_name, "api_base": "http://old:8080/v1"},
-        "model_info": {"id": model_id, "mode": mode, "oicm_uuid": "abc"},
+        "model_info": {
+            "id": model_id,
+            "mode": mode,
+            "oicm_uuid": "abc",
+            "oicm_source": "local",
+        },
     }
 
 
@@ -98,87 +104,77 @@ def _make_multi_model(uuid, model_id, provider="hosted_vllm", mode="chat"):
 
 
 @pytest.mark.asyncio
-async def test_register_multiple_models_per_deployment():
-    """One deployment advertising N models must register N model records."""
+async def test_register_uses_the_served_model_id():
+    """The registered row must carry the served id and the deployment's api_base."""
     pricing = MagicMock()
     pricing.resolve = AsyncMock(return_value=None)
     reconciler = SyncReconciler(MagicMock(), pricing)
 
     dep_uuid = "doc-uuid"
-    k8s_models = {
-        f"{dep_uuid}::PP-DocLayoutV3": _make_multi_model(dep_uuid, "PP-DocLayoutV3"),
-        f"{dep_uuid}::PP-StructureV3": _make_multi_model(dep_uuid, "PP-StructureV3"),
-    }
-    litellm_by_key = {}
+    k8s_models = {dep_uuid: _make_multi_model(dep_uuid, "PP-DocLayoutV3")}
 
-    plan = await reconciler.compute_plan(k8s_models, litellm_by_key)
+    plan = await reconciler.compute_plan(k8s_models, {})
 
-    assert len(plan.registers) == 2
-    registered_model_ids = {m.model_id for m, _ in plan.registers}
-    assert registered_model_ids == {"PP-DocLayoutV3", "PP-StructureV3"}
-    # Both share the same api_base (same deployment)
-    bases = {m.api_base for m, _ in plan.registers}
-    assert len(bases) == 1
+    assert len(plan.registers) == 1
+    registered_model, _ = plan.registers[0]
+    assert registered_model.model_id == "PP-DocLayoutV3"
+    assert registered_model.api_base == "http://s-doc-uuid.adeo.svc.cluster.local:8080/v1"
 
 
 @pytest.mark.asyncio
-async def test_multiple_models_patched_independently():
-    """Two models of one deployment reconcile without collapsing to a single model."""
-    pricing = MagicMock()
-    pricing.resolve = AsyncMock(return_value=None)
-    reconciler = SyncReconciler(MagicMock(), pricing)
+async def test_register_matches_on_uuid_even_when_oicm_label_differs():
+    """The join must survive OICM's GUI label differing from the served id.
 
-    dep_uuid = "doc-uuid"
-    k8s_models = {
-        f"{dep_uuid}::PP-DocLayoutV3": _make_multi_model(dep_uuid, "PP-DocLayoutV3"),
-        f"{dep_uuid}::PP-StructureV3": _make_multi_model(dep_uuid, "PP-StructureV3"),
-    }
-    litellm_by_key = {
-        f"{dep_uuid}::PP-DocLayoutV3": [_make_litellm_entry("id-layout", model_name="PP-DocLayoutV3")],
-        f"{dep_uuid}::PP-StructureV3": [_make_litellm_entry("id-struct", model_name="PP-StructureV3")],
-    }
-
-    plan = await reconciler.compute_plan(k8s_models, litellm_by_key)
-
-    assert len(plan.registers) == 0
-    assert len(plan.patches) == 2
-    patched_ids = {p[0] for p in plan.patches}
-    assert patched_ids == {"id-layout", "id-struct"}
-
-
-@pytest.mark.asyncio
-async def test_execute_keys_state_by_composite_key():
-    """execute() must not collapse a multi-model deployment into one state entry.
-
-    Regression: execute() used to key plan.new_state / plan.new_id_map by the bare
-    model.uuid. For a deployment hosting N models (N composite keys sharing one
-    uuid), the last registered model would overwrite the others, leaving the
-    controller tracking only one of the N models after a full sync.
+    OICM's `model_name` is the deployment name shown in its GUI, not the id the
+    server serves. Keying the join on the uuid means the gateway row still
+    matches even when those two strings have nothing in common.
     """
+    pricing = MagicMock()
+    pricing.resolve = AsyncMock(return_value=None)
+    reconciler = SyncReconciler(MagicMock(), pricing)
+
+    dep_uuid = "renamed-uuid"
+    model = _make_multi_model(dep_uuid, "Qwen/Qwen3.6-35B-A3B-FP8")
+    k8s_models = {dep_uuid: model}
+    # The gateway row is keyed by uuid and holds the served id the controller
+    # registered, which is what discovery also reports. OICM's label, which the
+    # reconciler never sees, could be anything.
+    entry = _make_litellm_entry(
+        "id-1", model_name="Qwen/Qwen3.6-35B-A3B-FP8"
+    )
+    entry["litellm_params"] = {
+        "model": "hosted_vllm/Qwen/Qwen3.6-35B-A3B-FP8",
+        "api_base": model.api_base,
+    }
+    entry["model_info"]["mode"] = "chat"
+
+    plan = await reconciler.compute_plan(k8s_models, {dep_uuid: [entry]})
+
+    assert plan.registers == []
+    assert plan.patches == []
+    assert plan.deletes == []
+
+
+@pytest.mark.asyncio
+async def test_execute_keys_state_by_uuid():
+    """execute() must key state and the id map by the deployment uuid."""
     pricing = MagicMock()
     pricing.resolve = AsyncMock(return_value=None)
     litellm = MagicMock()
     # batch() returns (deleted, [registered ids in order], patched)
-    litellm.batch = AsyncMock(return_value=(0, ["id-layout", "id-struct"], 0))
+    litellm.batch = AsyncMock(return_value=(0, ["id-a", "id-b"], 0))
     reconciler = SyncReconciler(litellm, pricing)
 
-    dep_uuid = "doc-uuid"
-    model_a = _make_multi_model(dep_uuid, "PP-DocLayoutV3")
-    model_b = _make_multi_model(dep_uuid, "PP-StructureV3")
+    model_a = _make_multi_model("uuid-a", "m-a")
+    model_b = _make_multi_model("uuid-b", "m-b")
     plan = SyncPlan()
     plan.registers = [(model_a, None), (model_b, None)]
 
     deleted, registered, patched = await reconciler.execute(plan)
 
     assert (deleted, registered, patched) == (0, 2, 0)
-    assert set(plan.new_state.keys()) == {
-        f"{dep_uuid}::PP-DocLayoutV3",
-        f"{dep_uuid}::PP-StructureV3",
-    }
-    assert plan.new_id_map == {
-        f"{dep_uuid}::PP-DocLayoutV3": "id-layout",
-        f"{dep_uuid}::PP-StructureV3": "id-struct",
-    }
+    assert set(plan.new_state.keys()) == {"uuid-a", "uuid-b"}
+    assert plan.new_id_map == {"uuid-a": "id-a", "uuid-b": "id-b"}
 
 
 @pytest.mark.asyncio
@@ -198,11 +194,10 @@ async def test_execute_aligns_ids_when_a_register_fails():
     litellm.batch = AsyncMock(return_value=(0, ["id-a", None, "id-c"], 0))
     reconciler = SyncReconciler(litellm, pricing)
 
-    dep_uuid = "doc-uuid"
     models = [
-        _make_multi_model(dep_uuid, "m-a"),
-        _make_multi_model(dep_uuid, "m-b"),
-        _make_multi_model(dep_uuid, "m-c"),
+        _make_multi_model("uuid-a", "m-a"),
+        _make_multi_model("uuid-b", "m-b"),
+        _make_multi_model("uuid-c", "m-c"),
     ]
     plan = SyncPlan()
     plan.registers = [(m, None) for m in models]
@@ -210,15 +205,12 @@ async def test_execute_aligns_ids_when_a_register_fails():
     deleted, registered, patched = await reconciler.execute(plan)
 
     assert (deleted, registered, patched) == (0, 3, 0)
-    assert plan.new_id_map == {
-        f"{dep_uuid}::m-a": "id-a",
-        f"{dep_uuid}::m-c": "id-c",
-    }
-    # The failed register (m-b) must NOT be in state (no id assigned), and its
+    assert plan.new_id_map == {"uuid-a": "id-a", "uuid-c": "id-c"}
+    # The failed register (uuid-b) must NOT be in state (no id assigned), and its
     # neighbors must keep their correct ids (no shifting).
-    assert f"{dep_uuid}::m-b" not in plan.new_state
-    assert plan.new_state[f"{dep_uuid}::m-a"].model_id == "m-a"
-    assert plan.new_state[f"{dep_uuid}::m-c"].model_id == "m-c"
+    assert "uuid-b" not in plan.new_state
+    assert plan.new_state["uuid-a"].model_id == "m-a"
+    assert plan.new_state["uuid-c"].model_id == "m-c"
 
 
 def _entry_matching(model, model_id, costs=None):
@@ -226,7 +218,12 @@ def _entry_matching(model, model_id, costs=None):
     params = {"model": f"{model.provider}/{model.model_id}", "api_base": model.api_base}
     if costs:
         params.update(costs)
-    info = {"id": model_id, "mode": to_litellm_mode(model.mode)}
+    info = {
+        "id": model_id,
+        "mode": to_litellm_mode(model.mode),
+        "oicm_uuid": model.uuid,
+        "oicm_source": "local",
+    }
     return {
         "model_id": model_id,
         "model_name": model.model_name,
@@ -466,7 +463,7 @@ async def test_non_serving_deployment_is_registered_then_blocked():
     await reconciler.execute(plan)
 
     litellm.set_blocked.assert_awaited_once_with("id-12", True)
-    assert plan.new_id_map[model.composite_key] == "id-12"
+    assert plan.new_id_map[model.deployment_id] == "id-12"
 
 
 @pytest.mark.asyncio
@@ -503,3 +500,98 @@ async def test_deployment_absent_from_oicm_is_deleted():
     assert plan.deletes == ["id-13"]
     assert plan.blocks == []
     assert plan.new_state == {}
+
+
+@pytest.mark.asyncio
+async def test_unmanaged_entry_absent_from_oicm_is_left_alone():
+    """A row the controller did not create must never be deleted.
+
+    The gateway also carries Submariner imports and admin-added models that OICM
+    does not know about. Absence from OICM is only a delete signal for rows
+    carrying `oicm_source == "local"`.
+    """
+    reconciler = _reconciler_with_costs(None)
+    entry = _entry_blocked(_make_model("import-uuid"), "id-import", blocked=False)
+    entry["model_info"]["oicm_source"] = "submariner:abudhabi"
+
+    plan = await reconciler.compute_plan({}, {"import-uuid": [entry]})
+
+    assert plan.deletes == []
+
+
+def _summary(workload_id, serving):
+    return SimpleNamespace(
+        workspace_id="ws", workload_id=workload_id, serving_available=serving
+    )
+
+
+@pytest.mark.asyncio
+async def test_stopped_deployment_known_only_to_oicm_is_paused_not_deleted():
+    """A deployment with no k8s object but still listed by OICM must stay.
+
+    This is the whole point of the existence rule: the k8s watch cannot see a
+    Stopped deployment, so OICM has to be the source of existence. The row stays
+    registered and is paused, which keeps Stopped distinguishable from Deleted.
+    """
+    reconciler = _reconciler_with_costs(None)
+    entry = _entry_blocked(_make_model("stopped-uuid"), "id-14", blocked=False)
+    entry["model_name"] = "hosted_vllm/test-model"
+    oicm_models = _summaries_to_models({"stopped-uuid": _summary("stopped-uuid", False)})
+
+    plan = await reconciler.compute_plan({}, {"stopped-uuid": [entry]}, oicm_models)
+
+    assert plan.deletes == []
+    assert plan.registers == []
+    assert plan.blocks == [("id-14", True)]
+    # The placeholder is deliberately kept out of new_state: the watch handlers
+    # key off it, and a placeholder there would make a later redeploy with the
+    # same uuid look like a duplicate ADDED.
+    assert "stopped-uuid" not in plan.new_state
+
+
+@pytest.mark.asyncio
+async def test_deployment_absent_from_oicm_is_deleted_when_oicm_is_the_source():
+    """Absence from OICM is still a delete once OICM is the existence source."""
+    reconciler = _reconciler_with_costs(None)
+    entry = _entry_blocked(_make_model("gone-uuid"), "id-15", blocked=True)
+
+    plan = await reconciler.compute_plan({}, {"gone-uuid": [entry]}, {})
+
+    assert plan.deletes == ["id-15"]
+
+
+@pytest.mark.asyncio
+async def test_oicm_only_deployment_is_not_registered():
+    """A Stopped deployment OICM knows but the gateway never registered stays out.
+
+    Registering it would create a row with no served model id and an api_base
+    pointing at a Service that does not exist, blocked forever. Only the k8s
+    watch yields enough to build a real row, so OICM alone is not enough.
+    """
+    reconciler = _reconciler_with_costs(None)
+    oicm_models = _summaries_to_models({"stopped-uuid": _summary("stopped-uuid", False)})
+
+    plan = await reconciler.compute_plan({}, {}, oicm_models)
+
+    assert plan.registers == []
+    assert plan.new_state == {}
+
+
+@pytest.mark.asyncio
+async def test_oicm_unavailable_falls_back_to_watch_only():
+    """With no OICM input the watch is the sole source and delete stays scoped.
+
+    OICM being unreachable must never be read as "every deployment is gone", so
+    a managed row absent from the watch is still deleted only because there is
+    no OICM record either, and an unmanaged one is left alone.
+    """
+    reconciler = _reconciler_with_costs(None)
+    managed = _entry_blocked(_make_model("gone-uuid"), "id-16", blocked=True)
+    unmanaged = _entry_blocked(_make_model("import-uuid"), "id-import", blocked=False)
+    unmanaged["model_info"]["oicm_source"] = "submariner:abudhabi"
+
+    plan = await reconciler.compute_plan(
+        {}, {"gone-uuid": [managed], "import-uuid": [unmanaged]}
+    )
+
+    assert plan.deletes == ["id-16"]

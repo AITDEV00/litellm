@@ -128,6 +128,7 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | Field | Description |
 |---|---|
 | `uuid` | Unique identifier. For local: the workload UUID. For Submariner: `submariner:{cluster}:{id}` |
+| `deployment_id` | The reconciler's key for this model. Equal to `uuid`: one deployment is one model, and the uuid is the only identity OICM and the gateway reliably share. Never the model name, which OICM stores as a GUI label |
 | `model_id` | The model ID returned by `/v1/models` or read from ConfigMap |
 | `model_name` | Sanitized name for LiteLLM. For Submariner imports, prefixed with cluster name |
 | `namespace` | Kubernetes namespace |
@@ -153,7 +154,9 @@ Each registered model is tagged with `model_info` metadata in LiteLLM:
 
 The `oicm_source` field distinguishes local models (`"local"`) from cross-cluster imports
 (`"submariner:abudhabi"`, `"submariner:dubai"`, etc.), enabling filtering and routing decisions in
-LiteLLM.
+LiteLLM. It also scopes the reconciler's delete rule: only a row with `oicm_source == "local"` is
+removed when OICM stops listing its deployment, so an import or an admin-added model is never
+deleted as collateral.
 
 ## Running
 

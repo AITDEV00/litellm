@@ -19,9 +19,9 @@ from .config import (
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
-from .models import COMPOSITE_KEY_SEP, OicmModel
+from .models import OicmModel
 from .pricing import PricingResolver, PricingSource, pricing_to_params
-from .reconciler import SyncReconciler
+from .reconciler import SyncReconciler, _summaries_to_models
 from .sources import ModelSource
 from .sources.local_deployments import LocalDeploymentSource
 from .sources.submariner_imports import SubmarinerImportSource
@@ -137,7 +137,21 @@ class DiscoveryController:
 
         litellm_by_key = await self.litellm.list_all_models_by_key()
 
-        plan = await self.reconciler.compute_plan(discovered, litellm_by_key)
+        # Refresh the status snapshots so existence can come from OICM. A
+        # Stopped deployment has no k8s object, so the watch alone would read
+        # its absence as deletion; OICM still lists it, which keeps it
+        # registered and paused instead.
+        oicm_models = {}
+        if self.status_poller.enabled:
+            try:
+                summaries = await self.status_poller.refresh()
+                oicm_models = _summaries_to_models(summaries)
+            except Exception as e:
+                # OICM unreachable: fall back to the watch alone and never treat
+                # a fetch failure as deletion.
+                logger.error("OICM status refresh failed, keeping watch-only: %s", e)
+
+        plan = await self.reconciler.compute_plan(discovered, litellm_by_key, oicm_models)
         await self.reconciler.execute(plan)
 
         self._state = plan.new_state
@@ -194,9 +208,6 @@ class DiscoveryController:
     async def _handle_add(self, uuid: str, dep):
         if not self._running:
             return
-        if any(_uuid_of(key) == uuid for key in self._state):
-            logger.debug("Deployment j-%s already tracked, skipping", uuid[:8])
-            return
 
         models = await self.local_source.discover_for_deployment(dep)
         if not models:
@@ -208,6 +219,16 @@ class DiscoveryController:
             if not serving:
                 # OicmModel is frozen, and this is the only field that differs.
                 model = replace(model, serving=False)
+            if key in self._state:
+                # A redeploy can reuse the uuid, so the k8s object is the real
+                # record and has to replace any non-serving placeholder from
+                # OICM rather than be skipped as a duplicate.
+                self._state[key] = model
+                if model.serving:
+                    litellm_id = self._litellm_id_map.get(key)
+                    if litellm_id:
+                        await self.litellm.set_blocked(litellm_id, False)
+                continue
             pricing = await self.pricing_resolver.resolve(model.model_id)
             inherited = pricing_to_params(pricing)
             litellm_id = await self.litellm.register_model(model, inherited)
@@ -218,12 +239,15 @@ class DiscoveryController:
                     await self.litellm.set_blocked(litellm_id, True)
 
     async def _handle_delete(self, uuid: str):
-        # A deployment owns multiple composite keys ({uuid}::{model_id}). Remove
-        # every model whose uuid prefix matches this deployment.
-        stale_keys = [
-            key for key in self._state if _uuid_of(key) == uuid
-        ]
-        if not stale_keys:
+        """The k8s Deployment is gone. Pause it, but let OICM decide removal.
+
+        A k8s deletion is either a stop or a real delete, and only OICM can tell
+        them apart: a Stopped deployment keeps its OICM record, a deleted one
+        does not. Pausing here keeps routing correct at once; the next full sync
+        removes the row only if OICM no longer lists it.
+        """
+        model = self._state.get(uuid)
+        if model is None:
             logger.warning(
                 "Delete event for j-%s but no model in map; "
                 "full_sync will clean up on next cycle",
@@ -231,35 +255,35 @@ class DiscoveryController:
             )
             return
 
-        for key in stale_keys:
-            litellm_id = self._litellm_id_map.pop(key, None)
+        if model.serving:
+            self._state[uuid] = replace(
+                model, serving=False, ready_replicas=0, total_replicas=0
+            )
+            litellm_id = self._litellm_id_map.get(uuid)
             if litellm_id:
-                await self.litellm.deregister_model(litellm_id)
-            self._state.pop(key, None)
+                await self.litellm.set_blocked(litellm_id, True)
         await self.fallback_reconciler.reconcile()
 
     async def _handle_modify(self, uuid: str, dep):
         ready = dep.status.ready_replicas or 0
         serving = ready > 0
-        old_keys = [key for key in self._state if _uuid_of(key) == uuid]
 
-        if old_keys:
-            for key in old_keys:
-                # OicmModel is frozen; replace() is the only way to apply the
-                # replica update.
-                previous = self._state[key]
-                self._state[key] = replace(
-                    previous,
-                    ready_replicas=ready,
-                    total_replicas=dep.status.replicas or 0,
-                    serving=serving,
-                )
-                if previous.serving != serving:
-                    litellm_id = self._litellm_id_map.get(key)
-                    if litellm_id:
-                        # Pause on the way down, resume on the way back up, so
-                        # routing tracks the deployment without a re-register.
-                        await self.litellm.set_blocked(litellm_id, not serving)
+        if uuid in self._state:
+            # OicmModel is frozen; replace() is the only way to apply the
+            # replica update.
+            previous = self._state[uuid]
+            self._state[uuid] = replace(
+                previous,
+                ready_replicas=ready,
+                total_replicas=dep.status.replicas or 0,
+                serving=serving,
+            )
+            if previous.serving != serving:
+                litellm_id = self._litellm_id_map.get(uuid)
+                if litellm_id:
+                    # Pause on the way down, resume on the way back up, so
+                    # routing tracks the deployment without a re-register.
+                    await self.litellm.set_blocked(litellm_id, not serving)
         else:
             await self._handle_add(uuid, dep)
 
@@ -271,8 +295,3 @@ class DiscoveryController:
                     await self.full_sync()
                 except Exception as e:
                     logger.error("Periodic resync failed: %s", e)
-
-
-def _uuid_of(key: str) -> str:
-    """Return the deployment-uuid portion of a composite key."""
-    return key.split(COMPOSITE_KEY_SEP, 1)[0]

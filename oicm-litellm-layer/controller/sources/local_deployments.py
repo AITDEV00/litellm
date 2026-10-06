@@ -77,11 +77,12 @@ class LocalDeploymentSource(ModelSource):
         return models
 
     async def discover_for_deployment(self, dep) -> Dict[str, OicmModel]:
-        """Build the (possibly multiple) OicmModel records for one deployment.
+        """Build the OicmModel record for one deployment, keyed by its uuid.
 
-        A deployment can host several models behind the same ClusterIP service
-        (e.g. a Triton-style /v1/models advertising multiple ids). Each model id
-        becomes its own record, keyed by composite `{uuid}::{model_name}`.
+        A deployment serves exactly one model id, so the uuid alone identifies
+        it. Keying on uuid rather than a ``{uuid}::{name}`` composite is what
+        lets the reconciler match a deployment to its gateway row without
+        depending on the model name, which OICM stores as a GUI label.
         """
         uuid = dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
         ready = dep.status.ready_replicas or 0
@@ -94,6 +95,15 @@ class LocalDeploymentSource(ModelSource):
         if not model_ids:
             model_ids = [uuid]
             logger.warning("Could not discover MODEL_ID for %s, using fallback", uuid)
+        elif len(model_ids) > 1:
+            logger.warning(
+                "Deployment j-%s advertises %d model ids (%s); registering only %s. "
+                "One deployment is one model, so the rest are not registered.",
+                uuid[:8],
+                len(model_ids),
+                ", ".join(model_ids),
+                model_ids[0],
+            )
 
         # Mode and provider are deployment-level (they depend on the OpenAPI
         # surface, not the individual model id), so compute them once.
@@ -101,20 +111,17 @@ class LocalDeploymentSource(ModelSource):
         provider = detect_provider(owned_by or "", model_ids[0], paths)
         api_surface = detect_api_surface(provider, paths)
 
-        models: Dict[str, OicmModel] = {}
-        for model_id in model_ids:
-            model = build_model(
-                uuid=uuid,
-                model_id=model_id,
-                ready_replicas=ready,
-                total_replicas=total,
-                mode=mode,
-                provider=provider,
-                extra_args=extra_args,
-                api_surface=api_surface,
-            )
-            models[model.composite_key] = model
-        return models
+        model = build_model(
+            uuid=uuid,
+            model_id=model_ids[0],
+            ready_replicas=ready,
+            total_replicas=total,
+            mode=mode,
+            provider=provider,
+            extra_args=extra_args,
+            api_surface=api_surface,
+        )
+        return {model.deployment_id: model}
 
     async def _discover_model_ids(self, uuid: str) -> tuple[list[str], Optional[str]]:
         """Return (model_ids, owned_by) for a deployment.

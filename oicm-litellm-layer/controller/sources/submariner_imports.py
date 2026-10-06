@@ -105,7 +105,7 @@ class SubmarinerImportSource(ModelSource):
                     source=f"submariner:{source_cluster}",
                     api_base_override=api_base_override,
                 )
-                models[model.composite_key] = model
+                models[model.deployment_id] = model
                 logger.info(
                     "Discovered Submariner import: %s (cluster=%s, ip=%s)",
                     model.model_name,

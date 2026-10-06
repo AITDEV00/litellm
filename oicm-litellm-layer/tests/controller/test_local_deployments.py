@@ -16,7 +16,7 @@ def _make_deployment(uuid, ready=1, replicas=1):
 
 
 @pytest.mark.asyncio
-async def test_single_model_deployment_uses_composite_key():
+async def test_single_model_deployment_is_keyed_by_uuid():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(return_value=frozenset({"/v1/chat/completions"}))
@@ -25,15 +25,21 @@ async def test_single_model_deployment_uses_composite_key():
     dep = _make_deployment("uuid-1")
     models = await source.discover_for_deployment(dep)
 
-    assert list(models.keys()) == ["uuid-1::llama-3-8b"]
-    model = models["uuid-1::llama-3-8b"]
+    assert list(models.keys()) == ["uuid-1"]
+    model = models["uuid-1"]
     assert model.model_id == "llama-3-8b"
     assert model.mode == "chat"
     assert model.provider == "hosted_vllm"
 
 
 @pytest.mark.asyncio
-async def test_convert_path_deployment_fans_out_to_multiple_models():
+async def test_deployment_advertising_multiple_ids_registers_only_the_first():
+    """One deployment is one model, so a multi-id advertisement is truncated.
+
+    Registering the extra ids would create rows the reconciler cannot match to a
+    deployment (they share one uuid), so the first id wins and the rest are
+    logged. A deployment that genuinely serves several models is out of scope.
+    """
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(
@@ -46,16 +52,13 @@ async def test_convert_path_deployment_fans_out_to_multiple_models():
     dep = _make_deployment("doc-uuid")
     models = await source.discover_for_deployment(dep)
 
-    assert set(models.keys()) == {
-        "doc-uuid::PP-DocLayoutV3",
-        "doc-uuid::PP-StructureV3",
-    }
-    for model in models.values():
-        # /v1/convert/* no longer implies a docling provider; falls back to
-        # the default hosted_vllm classification.
-        assert model.provider == "hosted_vllm"
-        # both share the same api_base (same deployment)
-        assert model.api_base == "http://s-doc-uuid.adeo.svc.cluster.local:8080/v1"
+    assert set(models.keys()) == {"doc-uuid"}
+    model = models["doc-uuid"]
+    assert model.model_id == "PP-DocLayoutV3"
+    # /v1/convert/* no longer implies a docling provider; falls back to
+    # the default hosted_vllm classification.
+    assert model.provider == "hosted_vllm"
+    assert model.api_base == "http://s-doc-uuid.adeo.svc.cluster.local:8080/v1"
 
 
 @pytest.mark.asyncio
@@ -72,8 +75,8 @@ async def test_ocr_path_deployment_registers_as_paddlex_ocr():
     dep = _make_deployment("ocr-uuid")
     models = await source.discover_for_deployment(dep)
 
-    assert set(models.keys()) == {"ocr-uuid::PP-DocLayoutV3"}
-    model = models["ocr-uuid::PP-DocLayoutV3"]
+    assert set(models.keys()) == {"ocr-uuid"}
+    model = models["ocr-uuid"]
     # A /v1/ocr-only model registers as a paddlex OCR model.
     assert model.mode == "ocr"
     assert model.provider == "paddlex"
@@ -91,8 +94,9 @@ async def test_configmap_model_id_wins_and_stays_single():
     dep = _make_deployment("doc-uuid")
     models = await source.discover_for_deployment(dep)
 
-    # A single resolved model id yields a single composite-key record
-    assert list(models.keys()) == ["doc-uuid::PP-DocLayoutV3"]
+    # A single resolved model id yields a single uuid-keyed record
+    assert list(models.keys()) == ["doc-uuid"]
+    assert models["doc-uuid"].model_id == "PP-DocLayoutV3"
 
 
 @pytest.mark.asyncio
@@ -118,4 +122,5 @@ async def test_no_model_id_falls_back_to_uuid():
     dep = _make_deployment("uuid-fallback")
     models = await source.discover_for_deployment(dep)
 
-    assert list(models.keys()) == ["uuid-fallback::uuid-fallback"]
+    assert list(models.keys()) == ["uuid-fallback"]
+    assert models["uuid-fallback"].model_id == "uuid-fallback"

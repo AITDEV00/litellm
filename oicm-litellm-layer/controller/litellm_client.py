@@ -62,11 +62,12 @@ class LiteLLMClient:
             if not oicm_uuid:
                 continue
             m["model_id"] = info.get("id")
-            # A deployment can host multiple models (uuid -> N model names).
-            # Group by composite `{uuid}::{model_name}` so the reconciler can
-            # match each model to its deployment record.
-            model_name = m.get("model_name") or ""
-            grouped.setdefault(f"{oicm_uuid}::{model_name}", []).append(m)
+            # One deployment is one model, so the uuid alone is the identity.
+            # Keying on it rather than on `{uuid}::{model_name}` is what makes
+            # the join work for a deployment whose OICM GUI label differs from
+            # the id its server serves: the name here is the one the controller
+            # itself registered, so it already agrees with discovery.
+            grouped.setdefault(oicm_uuid, []).append(m)
         return grouped
 
     async def batch(

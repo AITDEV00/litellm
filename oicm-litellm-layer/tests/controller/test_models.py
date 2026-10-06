@@ -228,8 +228,14 @@ class TestToLitellmMode:
         assert to_litellm_mode("embedding") == "embedding"
 
 
-class TestCompositeKey:
-    def test_composite_key_uses_model_name(self):
+class TestDeploymentId:
+    def test_deployment_id_is_the_uuid(self):
+        """Identity is the deployment uuid alone, never the model name.
+
+        OICM stores `model_name` as the deployment's GUI label, which can differ
+        from the id the model server actually serves. The gateway row is keyed by
+        the uuid, so the label can never be load-bearing for matching.
+        """
         m = OicmModel(
             uuid="abc123",
             model_id="/org/PP-DocLayoutV3",
@@ -238,4 +244,4 @@ class TestCompositeKey:
             ready_replicas=1,
             total_replicas=1,
         )
-        assert m.composite_key == "abc123::org--PP-DocLayoutV3"
+        assert m.deployment_id == "abc123"

@@ -10,12 +10,67 @@ landed, what is verified, what is blocked, and the exact next step.
 ## Where the work is
 
 Step 1 of the implementation order (the `compute_plan` idempotence guard) is
-done, committed, deployed to dev, and measured. Part of step 2 (a non-serving
-deployment stays registered and is paused) is implemented and tested but NOT
-committed, because the half that needs the OICM join key is blocked on a
-decision.
+done, committed, deployed to dev, and measured. Step 2 (a non-serving
+deployment stays registered and is paused) is done and committed (`8ee755efe2`),
+and the rest of step 2 is now implemented: the join is keyed on `oicm_uuid`, the
+delete rule is scoped to controller-managed rows, and OICM's
+`deployment_summary` is wired into existence. See "Step 2: the uuid join and
+OICM existence" below.
 
-## Landed and verified
+## Correction: the join was never broken
+
+The "blocker" recorded below was a misdiagnosis and is left in place only as a
+record of the wrong turn. The composite key `{oicm_uuid}::{model_name}` compares
+the **gateway's** `model_name`, which is the served id the controller itself
+registered, against the **discovered** served id from `/v1/models`. Those always
+agree, so the join worked all along. The "12 mismatches" table compared OICM's
+`model_name` (the GUI label) against the gateway, which is not what the code
+ever did: the reconciler never reads OICM's `model_name`.
+
+The real gap was smaller and is now closed: a Stopped deployment has no k8s
+Deployment and no Service, so the watch could not see it and the reconciler read
+its absence as deletion. Existence now comes from OICM.
+
+## Step 2: the uuid join and OICM existence
+
+`OicmModel.composite_key` (`{uuid}::{model_name}`) is replaced by
+`OicmModel.deployment_id`, which is the uuid alone. One deployment is one model,
+so the uuid is the identity, and it is the one key OICM and the gateway reliably
+share. The composite was introduced for a multi-model deployment that does not
+exist (24 k8s Deployments yield 24 discovered models), and keeping it was the
+only thing that made the join look fragile.
+
+- `list_all_models_by_key` groups by `oicm_uuid` alone.
+- `LocalDeploymentSource.discover_for_deployment` keys by uuid and registers the
+  first served id. A deployment advertising several ids is truncated with a
+  warning, because a second row sharing the uuid could never be matched back.
+- `compute_plan` takes an optional `oicm_models` map. Existence is the union of
+  the watch and OICM, and the delete rule runs only on rows whose
+  `oicm_source == "local"`, so a Submariner import or an admin-added model is
+  never collateral damage.
+- A deployment known only to OICM (a Stopped one) keeps its registered row and
+  is paused. It is not registered from scratch: only the watch yields a served
+  model id and a resolving `api_base`, so OICM alone would create a
+  permanently-blocked row with nothing behind it.
+- `full_sync` refreshes the status poller and passes the snapshots in. An OICM
+  failure falls back to watch-only and is never read as deletion.
+- `_handle_delete` now pauses instead of removing. A k8s deletion is either a
+  stop or a real delete, and only OICM can tell them apart, so the next full
+  sync removes the row only if OICM no longer lists it.
+
+The controller watches every 300s and the status poll runs every 10s, so the
+stale window between a k8s delete and the OICM-driven removal is bounded by the
+resync interval.
+
+Verified: 218 controller tests pass (the 2 `test_config.py` failures are
+pre-existing and read a live manifest whose key changed, unrelated to this
+work). Six mutations were each killed by the new tests: making the delete scope
+unconditional, deleting an OICM-only deployment instead of pausing it,
+registering OICM-only deployments, re-keying the gateway group on the composite,
+reverting `_handle_delete` to deregister, and making `deployment_id` the model
+name.
+
+## Landed and verified (earlier)
 
 ### Step 1: idempotence guard (`13c021c355`)
 
@@ -30,10 +85,9 @@ cycle restore it).
 The guard is what makes a shorter poll interval affordable, since every gateway
 write reloads every model on the pod and fans out to the other replicas.
 
-### Step 2, k8s-visible half (uncommitted)
+### Step 2, k8s-visible half (`8ee755efe2`)
 
-Implemented, tested, and mutation-checked, but not committed because of the
-blocker below:
+Committed and verified live on dev:
 
 - `OicmModel.serving` models the lifecycle (False while the deployment exists but
   is not serving).
@@ -57,11 +111,20 @@ instead of blocking it, never resuming a restarted deployment, blocking
 unconditionally (churn), `_handle_add` ignoring not-ready, and `_handle_modify`
 never pausing or resuming.
 
-## The blocker: the OICM join key
+## The blocker that turned out not to be one: the OICM join key
 
-Step 2's remaining half needs to match an OICM deployment to its registered
-gateway model. The only join available is `{oicm_uuid}::{model_name}`, and it
-does not work. Measured on dev against all 25 deployments:
+This section is kept as a record of a wrong turn. The "blocker" was a
+misdiagnosis: the composite key compares the gateway's own `model_name` against
+the discovered served id, which always agree, so the join was never broken. The
+table below compares OICM's `model_name` (a GUI label) against the gateway, which
+the code never did. The real gap was that a Stopped deployment has no k8s object,
+and that is now closed by sourcing existence from OICM. See the correction near
+the top.
+
+The original analysis, for the record. Step 2's remaining half needs to match an
+OICM deployment to its registered gateway model. The only join available is
+`{oicm_uuid}::{model_name}`, and it was believed not to work. Measured on dev
+against all 25 deployments:
 
 ```
 Ready deployments: model_name matches gateway: 12 | mismatches: 12
@@ -152,35 +215,35 @@ Confirmed as intended behavior, not a problem:
 
 ## Next step
 
-Implement the uuid join:
+The uuid join and the OICM existence wiring are done (see "Step 2: the uuid join
+and OICM existence" near the top). The remaining steps of the implementation
+order are:
 
-1. Key `list_all_models_by_key` on `oicm_uuid` rather than `{uuid}::{model_name}`,
-   so the 12 deployments whose OICM label differs from the gateway name still
-   match.
-2. Scope the delete rule to `oicm_source == "local"` and leave Submariner imports
-   and unmanaged entries alone.
-3. Wire the OICM `deployment_summary` into existence, so a `Stopped` deployment
-   stays registered and a deployment absent from OICM is deleted.
+1. Step 10: `patch_model_info` writing the whole `model_info.oicm` block, called
+   only when the block differs, excluding `observed_at`.
+2. Step 11: the write-amplification guard for the status block, independent of
+   the model-config diff in `compute_plan`.
+3. Step 4: controller ownership of `blocked`, scoped to rows carrying
+   `model_info.oicm`, with the reason recorded. Note `blocked` is currently set
+   directly by `compute_plan` and the watch handlers, so this is a narrowing, not
+   new machinery.
+4. Step 5: the `observed_at` heartbeat on a cadence derived from
+   `STATUS_STALE_AFTER`.
+5. Step 6: parallelize `LocalDeploymentSource.discover()`, which still awaits
+   each deployment serially.
 
-Note this is a refactor of the reconciler's core matching, not an additive change:
-`compute_plan`'s shared-key loop currently relies on the composite key to pair a
-model with its entry. The composite key was introduced for the multi-model case
-that does not currently exist but might return, so its removal should be
-deliberate.
+## Still open for the OICM team
 
-## Open question for the OICM team
-
-Given that `model_name` is a GUI label, does OICM expose a stable identity for a
-deployment beyond `deployment_id`? Specifically:
+Now that the join is on the uuid, the served model id is no longer needed to
+match a deployment. It is still worth asking whether OICM can expose it, because
+it would let the controller label a Stopped row correctly instead of leaving the
+registered name as-is:
 
 - Is there a field carrying the model id the server actually serves, the one set
   by the per-deployment `MODEL_NAME`/`MODEL_ID` env var?
 - Is `registered_model_name` or `model_version_name` populated for any deployment?
   Both were `None` on every deployment sampled on 2026-10-06.
 - Is the `BIS:` prefix on some `model_name` values a display convention?
-
-If OICM can expose the served model id, that becomes the cleanest join and the
-controller would not need to key on the gateway's own uuid.
 
 ## Related: the Abu Dhabi side
 

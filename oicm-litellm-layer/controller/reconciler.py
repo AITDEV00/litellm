@@ -1,11 +1,13 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
+from .config import NAMESPACE
 from .litellm_client import LiteLLMClient
-from .models import OicmModel, to_litellm_mode
+from .models import OicmModel, build_oicm_model, to_litellm_mode
 from .pricing import PricingResolver, pricing_to_params
+from .status.snapshot import OicmStatusSnapshot
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -94,6 +96,55 @@ def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
     return entries[best_idx], loser_ids
 
 
+def _oicm_managed(existing_entry: dict) -> bool:
+    """True when the controller registered this row and may therefore remove it.
+
+    Only a local deployment carries ``oicm_source == "local"``. A Submariner
+    import (``submariner:*``) is not OICM-managed, and an entry with no
+    ``oicm_source`` at all predates the field or was added by an admin, so
+    neither is the controller's to delete when OICM stops listing it.
+    """
+    return (existing_entry.get("model_info") or {}).get("oicm_source") == "local"
+
+
+def _summaries_to_models(
+    summaries: Mapping[str, OicmStatusSnapshot],
+) -> Dict[str, OicmModel]:
+    """Build a model record for each deployment OICM still lists.
+
+    A deployment OICM reports as Stopped has no k8s Deployment and no Service,
+    so the watch cannot see it and it cannot be re-probed. It still has to stay
+    registered and visible, so existence comes from OICM instead: this turns
+    each summary into the same record shape discovery would have produced and
+    marks it non-serving, which is what pauses its routing.
+    """
+    return {
+        workload_id: build_oicm_model(
+            uuid=workload_id,
+            model_id=workload_id,
+            model_name=workload_id,
+            namespace=NAMESPACE,
+            serving=snap.serving_available,
+        )
+        for workload_id, snap in summaries.items()
+    }
+
+
+def _merge_models(
+    k8s_models: Dict[str, OicmModel],
+    oicm_models: Dict[str, OicmModel],
+) -> Dict[str, OicmModel]:
+    """One record per deployment, k8s discovery winning where both know it.
+
+    The k8s record carries the real model id, provider, mode, and api_base, so
+    it is always preferred. The OICM record only fills in the deployments the
+    watch cannot see, which is exactly the Stopped set.
+    """
+    merged = dict(oicm_models)
+    merged.update(k8s_models)
+    return merged
+
+
 class SyncReconciler:
     def __init__(self, litellm: LiteLLMClient, pricing: PricingResolver):
         self.litellm = litellm
@@ -103,7 +154,18 @@ class SyncReconciler:
         self,
         k8s_models: Dict[str, OicmModel],
         litellm_by_key: Dict[str, List[dict]],
+        oicm_models: Optional[Dict[str, OicmModel]] = None,
     ) -> SyncPlan:
+        # Existence comes from OICM, not from the k8s watch: a Stopped
+        # deployment has no k8s object but must stay registered, and a
+        # deployment absent from OICM has been deleted and must go. The watch
+        # only supplies the live record for deployments that still exist, so
+        # when OICM is unavailable the watch remains the sole source and the
+        # delete rule stays scoped to controller-managed rows.
+        oicm_models = oicm_models if oicm_models is not None else {}
+        desired = _merge_models(k8s_models, oicm_models)
+        oicm_keys = set(oicm_models.keys())
+
         k8s_keys = set(k8s_models.keys())
         litellm_keys = set(litellm_by_key.keys())
         plan = SyncPlan()
@@ -114,29 +176,62 @@ class SyncReconciler:
         for key in litellm_keys:
             entries = litellm_by_key[key]
 
-            if key not in k8s_keys:
-                for e in entries:
-                    mid = e.get("model_id")
-                    if mid:
-                        plan.deletes.append(mid)
+            if key in k8s_keys:
+                best_entry, loser_ids = _pick_richest_entry(entries)
+                plan.deletes.extend(loser_ids)
+                plan.new_id_map[key] = best_entry.get("model_id")
+                best_entry_by_key[key] = best_entry
                 continue
 
-            best_entry, loser_ids = _pick_richest_entry(entries)
-            plan.deletes.extend(loser_ids)
-            plan.new_id_map[key] = best_entry.get("model_id")
-            best_entry_by_key[key] = best_entry
+            if key in oicm_keys:
+                # Known to OICM but not to the watch: the deployment is Stopped
+                # (or otherwise not serving). Keep it registered so Stopped and
+                # Deleted stay distinguishable, and let the loop below pause it.
+                best_entry, loser_ids = _pick_richest_entry(entries)
+                plan.deletes.extend(loser_ids)
+                plan.new_id_map[key] = best_entry.get("model_id")
+                best_entry_by_key[key] = best_entry
+                continue
+
+            # Absent from both k8s and OICM: genuinely deleted. Only remove the
+            # rows the controller itself created, so an admin-added model or a
+            # Submariner import is never collateral damage.
+            for e in entries:
+                if _oicm_managed(e) and e.get("model_id"):
+                    plan.deletes.append(e["model_id"])
 
         for key in k8s_keys - litellm_keys:
-            model = k8s_models[key]
+            # Only the k8s watch yields a served model id and a resolving
+            # api_base. An OICM-only deployment has neither, so registering one
+            # would create a permanently-blocked row with nothing behind it.
+            model = desired[key]
             pricing = await self.pricing.resolve(model.model_id)
             plan.registers.append((model, pricing_to_params(pricing)))
 
-        for key in k8s_keys & litellm_keys:
-            model = k8s_models[key]
+        for key in desired.keys() & litellm_keys:
+            model = desired[key]
             existing_id = plan.new_id_map.get(key)
             existing_entry = best_entry_by_key[key]
-            existing_model_name = existing_entry.get("model_name", "")
 
+            if key not in k8s_keys:
+                # Known only from OICM: a Stopped deployment with no k8s object,
+                # so there is no live config to reconcile and only its routing
+                # state is managed. Its stored name is the real served id, which
+                # OICM does not carry, so the name must not be compared here or
+                # the row would be churned to the placeholder's uuid.
+                #
+                # It is deliberately kept out of new_state: the watch handlers
+                # key off that map, and a placeholder there would make a later
+                # redeploy with the same uuid look like a duplicate ADDED.
+                if existing_id:
+                    if model.serving:
+                        if _blocked_matches(existing_entry, blocked=True):
+                            plan.blocks.append((existing_id, False))
+                    elif not _blocked_matches(existing_entry, blocked=True):
+                        plan.blocks.append((existing_id, True))
+                continue
+
+            existing_model_name = existing_entry.get("model_name", "")
             if existing_model_name != model.model_name:
                 if existing_id:
                     plan.deletes.append(existing_id)
@@ -185,8 +280,8 @@ class SyncReconciler:
         # zip aligns each id to its model by position.
         for (model, _), litellm_id in zip(plan.registers, registered_ids):
             if litellm_id:
-                plan.new_id_map[model.composite_key] = litellm_id
-                plan.new_state[model.composite_key] = model
+                plan.new_id_map[model.deployment_id] = litellm_id
+                plan.new_state[model.deployment_id] = model
                 # A newly registered model starts unblocked, so a non-serving
                 # one has to be paused after it exists. Its id is only known
                 # here, which is why this cannot be planned in compute_plan.

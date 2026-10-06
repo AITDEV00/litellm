@@ -139,3 +139,44 @@ async def test_batch_preserves_none_placeholders_for_failed_registers():
 
     # Position-preserving: the failed register (None) stays at index 1.
     assert registered == ["id-1", None, "id-3"]
+
+
+@pytest.mark.asyncio
+async def test_list_all_models_groups_by_uuid_alone():
+    """The gateway join key must be the deployment uuid, not `{uuid}::{name}`.
+
+    OICM's `model_name` is the deployment's GUI label, which can differ from the
+    id the server serves. The gateway row is matched by uuid, so grouping on a
+    composite that includes the name would break the join for every renamed
+    deployment.
+    """
+    payload = {
+        "data": [
+            {
+                "model_id": "gw-1",
+                "model_name": "zai-org/GLM-5.3",
+                "model_info": {"id": "gw-1", "oicm_uuid": "9dcd9568"},
+            },
+            {
+                # Same uuid, but the gateway name differs from OICM's label.
+                "model_name": "Qwen/Qwen3.6-35B-A3B-FP8",
+                "model_info": {"id": "gw-2", "oicm_uuid": "894cea22"},
+            },
+            {
+                # No oicm_uuid: not controller-managed, so it is not grouped.
+                "model_name": "admin-added",
+                "model_info": {"id": "gw-3"},
+            },
+        ]
+    }
+
+    class _InfoClient:
+        async def get(self, url, **kwargs):
+            return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
+
+    client = LiteLLMClient(read_only=False, client=_InfoClient())
+    grouped = await client.list_all_models_by_key()
+
+    assert set(grouped.keys()) == {"9dcd9568", "894cea22"}
+    assert grouped["9dcd9568"][0]["model_id"] == "gw-1"
+    assert grouped["894cea22"][0]["model_id"] == "gw-2"

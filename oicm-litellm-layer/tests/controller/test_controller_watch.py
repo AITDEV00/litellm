@@ -44,7 +44,7 @@ def _controller(models, serving=True):
     )
     controller._running = True
     controller.local_source.discover_for_deployment = AsyncMock(
-        return_value={m.composite_key: m for m in models}
+        return_value={m.deployment_id: m for m in models}
     )
     controller.pricing_resolver.resolve = AsyncMock(return_value=None)
     controller.litellm.register_model = AsyncMock(return_value="litellm-id")
@@ -70,7 +70,7 @@ async def test_not_ready_deployment_is_registered_and_blocked():
     registered = controller.litellm.register_model.await_args.args[0]
     assert registered.serving is False
     controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", True)
-    assert controller._state[model.composite_key].serving is False
+    assert controller._state[model.deployment_id].serving is False
 
 
 @pytest.mark.asyncio
@@ -91,14 +91,14 @@ async def test_deployment_losing_its_pods_is_blocked():
     """Replicas dropping to zero must pause routing, not remove the model."""
     model = _model()
     controller = _controller([])
-    controller._state[model.composite_key] = model
-    controller._litellm_id_map[model.composite_key] = "litellm-id"
+    controller._state[model.deployment_id] = model
+    controller._litellm_id_map[model.deployment_id] = "litellm-id"
 
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=0))
 
     controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", True)
     controller.litellm.deregister_model.assert_not_awaited()
-    assert controller._state[model.composite_key].serving is False
+    assert controller._state[model.deployment_id].serving is False
 
 
 @pytest.mark.asyncio
@@ -106,13 +106,13 @@ async def test_deployment_regaining_pods_is_unblocked():
     """A deployment that comes back must become routable again."""
     model = _model(serving=False, ready=0)
     controller = _controller([])
-    controller._state[model.composite_key] = model
-    controller._litellm_id_map[model.composite_key] = "litellm-id"
+    controller._state[model.deployment_id] = model
+    controller._litellm_id_map[model.deployment_id] = "litellm-id"
 
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=1))
 
     controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", False)
-    assert controller._state[model.composite_key].serving is True
+    assert controller._state[model.deployment_id].serving is True
 
 
 @pytest.mark.asyncio
@@ -120,29 +120,53 @@ async def test_unchanged_serving_state_does_not_write():
     """A replica-count change alone must not pause or resume routing."""
     model = _model()
     controller = _controller([])
-    controller._state[model.composite_key] = model
-    controller._litellm_id_map[model.composite_key] = "litellm-id"
+    controller._state[model.deployment_id] = model
+    controller._litellm_id_map[model.deployment_id] = "litellm-id"
 
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=3, replicas=3))
 
     controller.litellm.set_blocked.assert_not_awaited()
-    assert controller._state[model.composite_key].ready_replicas == 3
+    assert controller._state[model.deployment_id].ready_replicas == 3
 
 
 @pytest.mark.asyncio
-async def test_delete_still_removes_the_model():
-    """An actual k8s deletion is still a removal.
+async def test_delete_pauses_instead_of_removing():
+    """A k8s deletion pauses the model and lets OICM decide removal.
 
-    This is the case that must keep working: the deployment is gone from k8s,
-    and the OICM poller is what decides whether it is also gone from OICM.
+    A k8s Deployment disappearing is either a stop or a real delete, and only
+    OICM can tell them apart. Removing the row here would make a Stopped
+    deployment indistinguishable from a deleted one, so it is paused and the
+    next full sync removes it only if OICM no longer lists it.
     """
     model = _model()
     controller = _controller([])
-    controller._state[model.composite_key] = model
-    controller._litellm_id_map[model.composite_key] = "litellm-id"
+    controller._state[model.deployment_id] = model
+    controller._litellm_id_map[model.deployment_id] = "litellm-id"
 
     await controller._handle_delete("uuid-1")
 
-    controller.litellm.deregister_model.assert_awaited_once_with("litellm-id")
-    assert controller._state == {}
-    assert controller._litellm_id_map == {}
+    controller.litellm.deregister_model.assert_not_awaited()
+    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", True)
+    assert controller._state[model.deployment_id].serving is False
+    # The id map must survive, or the next full sync could not resume it.
+    assert controller._litellm_id_map[model.deployment_id] == "litellm-id"
+
+
+@pytest.mark.asyncio
+async def test_redeploy_reusing_the_uuid_replaces_the_placeholder():
+    """A redeploy under the same uuid must reuse the row, not register twice.
+
+    A Stopped deployment keeps its row and is paused. If the k8s object comes
+    back with the same uuid, the real record has to replace the placeholder and
+    resume routing, otherwise the model stays blocked and unroutable.
+    """
+    placeholder = _model(serving=False, ready=0)
+    controller = _controller([_model()])
+    controller._state[placeholder.deployment_id] = placeholder
+    controller._litellm_id_map[placeholder.deployment_id] = "litellm-id"
+
+    await controller._handle_add("uuid-1", _deployment(ready_replicas=1))
+
+    controller.litellm.register_model.assert_not_awaited()
+    controller.litellm.set_blocked.assert_awaited_once_with("litellm-id", False)
+    assert controller._state[placeholder.deployment_id].serving is True
