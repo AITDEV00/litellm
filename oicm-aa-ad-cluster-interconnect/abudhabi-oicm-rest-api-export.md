@@ -4,9 +4,10 @@ Date: 2026-10-06
 Purpose: export the Abu Dhabi OICM REST API and auth so the controller can be
 pointed at the Abu Dhabi cluster the same way it is pointed at Al Ain.
 
-Outcome: the network is **fixed** and the exports are reachable. The remaining
-blocker is **credentials**: no account exists in Abu Dhabi's tenant realm, and the
-cluster-wide admin account cannot read tenant data. Details below.
+Outcome: the network is **fixed**, the exports are reachable, and the
+**credential blocker is resolved**. A tenant-realm account works end to end: the
+controller's own endpoint returns 200 with real deployments. One API-shape gap
+remains and is documented below.
 
 ## Status after the certificate fix
 
@@ -18,7 +19,7 @@ host, and from a pod on it:
 |---|---|
 | `242.0.0.251/realms/adeo` (keycloak) | 200 |
 | `242.0.0.252/api/openapi/openapi.json` | 200 |
-| `242.0.0.252/api/v1/workspaces/{ws}/deployment_summary` | 403, `{"error_code": 403, "message": "Missing Authorization token"}` |
+| `242.0.0.252/api/v1/workspaces/{ws}/deployment_summary` | 403 pre-auth, **200 with 10 deployments post-auth** |
 
 The clusterset DNS names resolve from inside a pod on the gateway node, so the
 controller can use them directly:
@@ -31,20 +32,32 @@ http://keycloak.keycloak.svc.clusterset.local
 Note these resolve only from pods on `adeo-gpu-03`, not from the host itself,
 because that is where the Cilium BPF path to globalnet IPs exists.
 
-## The credential blocker
+## Credentials: resolved
 
 OICM derives the tenant from the Keycloak realm in the JWT. The realm name **is**
 the tenant name, and no tenant header or query parameter exists to override it.
 Verified against Abu Dhabi's OpenAPI document: the global `security` is null, and
 the only header parameter in the whole spec is `X-Soft-Delete`.
 
-The two credential sets that exist do not work:
+A user account in the `adeo` realm works. Authenticating as `jyao@ecouncil.ae`
+against client `adeo` with a password grant returns a token, and that token sees
+the tenant's workspaces and deployments:
+
+```
+POST /realms/adeo/protocol/openid-connect/token  -> 200, access_token
+GET  /api/entities/workspace                     -> 200, 2 rows (both adeo)
+GET  /api/v1/workspaces/{ws}/deployment_summary  -> 200, 10 items
+```
+
+The two workspace-scoped routes that 404'd before now resolve, because the token
+is scoped to tenant `adeo` rather than `admin`.
+
+Two credential sets that do **not** work, recorded so nobody retries them:
 
 | Credential | Realm | Result |
 |---|---|---|
 | `oicm-admin` (found in `OICM_KEYCLOAK__PWD`) | `admin` | Token issued, `super_admin` role, but tenant data is invisible |
-| Al Ain service account | `adeo` | `invalid_grant`, does not exist in Abu Dhabi |
-| `oiansible` infra account | `adeo` | `invalid_grant` for Keycloak, it is a host account only |
+| `oiansible` infra account | `adeo` | `invalid_grant`, it is a host account, not a Keycloak user |
 
 The `admin` realm token authenticates but is scoped to tenant `admin`, which has
 no workspaces. Measured with it:
@@ -62,7 +75,13 @@ designed, not a broken API.
 Realm `adeo` has 22 users and **no service account client**: its only clients are
 `account`, `account-console`, `adeo` (public, direct grants on), `admin-cli`,
 `broker`, `realm-management`, and `security-admin-console`, none with service
-accounts enabled. No password for any of the 22 users is available in the cluster.
+accounts enabled. A password-grant user account is therefore the only workable
+shape today. Creating a dedicated service account in realm `adeo` remains the
+cleaner long-term option, since it decouples the controller from a person's
+account.
+
+The account password is not recorded here. It belongs in the controller's
+`oicm-status-api` secret only.
 
 ## What the data looks like
 
@@ -77,29 +96,99 @@ establish ground truth, since the API would not show them:
 | `3a35205f-eee0-4fcc-93fd-590e71f9b5bf` | test-workspace | `tenant02` | 0 |
 
 So the workspace the controller needs is `d7bbdde9-c8e2-4c43-8b63-4fc1f0545686`
-in tenant `adeo`, with 39 deployments. All four ids 404 with the `admin` token.
+in tenant `adeo`. All four ids 404 with the `admin` token.
 
-Deployment names there look like `Qwen/Qwen3-Next-80B-A3B-Instruct-deeeswo` and
-`openai/gpt-oss-120b-593u29h`, which is the same "GUI deployment name with a
+The live API returns 10 deployments for that workspace, not 39. The MongoDB count
+includes soft-deleted rows; `deployment_summary` returns only live ones. Status
+distribution is 1 Ready, 8 Stopped, 1 Undeploying.
+
+The one Ready deployment is the reason the Submariner tunnel exists:
+
+```json
+{
+  "deployment_id": "766b1720-f516-4077-b22c-6ce97c045470",
+  "model_name": "zai-org/GLM-5.2-FP8",
+  "model_server_name": "vLLM",
+  "status": "Ready",
+  "replicas": 1,
+  "inference_task": "Text Generation",
+  "resources": {"accelerator": "h200", "accelerator_count": 8, "use_gpu": true, "memory": 256, "storage": 1000}
+}
+```
+
+Its pod `j-766b1720-...-lzfmt` is Running on `prd-infr-k8h200`, which matches the
+ServiceImport `s-766b1720-f516-4077-b22c-6ce97c045470` and global IP
+`242.0.0.253`. Deployment names in general look like
+`Qwen/Qwen3-Next-80B-A3B-Instruct-deeeswo`, the same "GUI deployment name with a
 random suffix" problem already documented for Al Ain, not the served model id.
 
-## What is needed to unblock
+## API-shape gap: `status_detail` has no `metadata`
 
-One of these, in order of preference:
+The controller's availability logic reads `metadata.ready` off each
+`status_detail` entry. Abu Dhabi's OICM does not populate `metadata` at all. Every
+entry there carries only `kind`, `name`, `node`, `status`, and `status_msg`.
 
-1. **Create a service account in Abu Dhabi's realm `adeo`** and grant it
-   workspace read. This matches how Al Ain works and is the cleanest option.
-   Needs Keycloak admin, which is available via
-   `keycloak-secret/admin-password` in the `keycloak` namespace.
-2. **Provide a password for an existing `adeo` realm user** that has workspace
-   read, for example `infra` or `jyao@ecouncil.ae`.
-3. **Confirm the intended tenant for the controller.** If reading the `adeo`
-   tenant from a different cluster is not the design, say so and this stops here.
+Side by side for the same object kind:
 
-Once a credential exists, the controller config is `OICM_AUTH_URL` pointing at
-`http://keycloak.keycloak.svc.clusterset.local`, `OICM_REALM=adeo`,
-`OICM_CLIENT_ID=adeo`, and `OICM_WORKSPACE_ID=d7bbdde9-c8e2-4c43-8b63-4fc1f0545686`.
-No code change is needed.
+```
+Al Ain OICM 1.15.19
+  {"kind": "Pod", "name": "j-e1192ba7-...", "node": "adeo-gpu-b300-01", "status": "Running", "metadata": {"ready": true}}
+
+Abu Dhabi OICM 1.7.1
+  {"kind": "Pod", "name": "j-766b1720-...", "node": "prd-infr-k8h200", "status": "Running", "status_msg": null}
+```
+
+Parsing still succeeds, because `metadata` is optional. Availability does not.
+Run the live Abu Dhabi payload through the current logic and a genuinely serving
+deployment reports unavailable:
+
+```
+deployment 766b1720  OICM status='Ready'
+   DeploymentStatusDetail: node=None status='Ready' metadata=None
+   PodStatusDetail: node='prd-infr-k8h200' status='Running' metadata=None
+-> is_deployment_available = False
+```
+
+That `False` flows into `OicmStatusSnapshot.serving_available`, so
+`gateway_status` would report a Ready, pod-running deployment as not serving.
+
+Note this is the same class of gap the availability docstring already calls out
+for `apiVersion`: the code deliberately tolerates one missing field because OICM
+leaves it null, and Abu Dhabi leaves a different one null. The fix is to treat
+`metadata` as absent-safe in `_is_ready`, falling back to the entry's own
+`status` and `node` when `metadata` is missing. `status` is populated in both
+versions, so the fallback works for both.
+
+## Controller configuration for Abu Dhabi
+
+The controller needs no code change to authenticate. Every value is already a
+supported environment variable; only the endpoints and the workspace id differ
+from the Al Ain deployment:
+
+| Variable | Al Ain (current) | Abu Dhabi |
+|---|---|---|
+| `OICM_BASE_URL` | `http://s-mlops-nginx-be-app.mlops.svc.cluster.local` | `http://s-mlops-nginx-be-app.mlops.svc.clusterset.local` |
+| `OICM_AUTH_URL` | `http://oicm-keycloak-keycloakx-http.oicm-keycloak.svc.cluster.local` | `http://keycloak.keycloak.svc.clusterset.local` |
+| `OICM_REALM` | `adeo` | `adeo` |
+| `OICM_CLIENT_ID` | `adeo` | `adeo` |
+| `OICM_AUTH_GRANT_TYPE` | `password` | `password` |
+| `OICM_WORKSPACE_ID` | `dfec2a9f-...` | `d7bbdde9-c8e2-4c43-8b63-4fc1f0545686` |
+| `OICM_USERNAME` / `OICM_PASSWORD` | from `oicm-status-api` | needs an `adeo` realm account |
+
+`OICM_VERIFY_TLS=true` stays as is, since both endpoints are plain HTTP on the
+clusterset network and TLS is not involved.
+
+The `clusterset.local` names resolve only from pods on `adeo-gpu-03`, which is
+where the Cilium BPF path to globalnet IPs exists. A controller pod scheduled
+anywhere else will not reach them.
+
+Still outstanding, independent of credentials:
+
+1. **Make `metadata` absence-safe in `_is_ready`** so Abu Dhabi's payload does not
+   report a serving deployment as unavailable. This is a code change.
+2. **Create a service account in Abu Dhabi's realm `adeo`** and grant it
+   workspace read, to replace the personal account. Needs Keycloak admin, which
+   is available via `keycloak-secret/admin-password` in the `keycloak` namespace.
 
 ## Reusable command reference
 
