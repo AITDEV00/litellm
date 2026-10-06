@@ -4,6 +4,11 @@ Date: 2026-10-06
 Companion to `DESIGN-STATUS-PERSISTENCE.md` (the agreed design) and
 `IMPLEMENTATION-CHECKLIST.md` (the step order).
 
+For the complete record of the health-table change specifically (every file,
+route contract, data model, verification, and open threads), see
+`CHANGE-REPORT-2026-10-06-health-table.md`. It is the self-contained handoff
+document for that work.
+
 This file exists so nothing is lost while the work is paused. It records what
 landed, what is verified, what is blocked, and the exact next step.
 
