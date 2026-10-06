@@ -1,13 +1,101 @@
 # Abu Dhabi RKE2 certificate renewal: runbook
 
 Date: 2026-10-06
+Status: **DONE**. All five agent nodes renewed, verified, and the Submariner
+exports are reachable from Al Ain again.
+
 Purpose: fix the expired RKE2 node certificates that break kube-proxy on the Abu
 Dhabi cluster, which is what makes every newly exported Service unreachable over
 Submariner.
 
-This is the first and only thing to fix. Nothing else in the OICM work is
+This was the first and only thing to fix. Nothing else in the OICM work was
 blocked on code, and the API-version question is settled (see
 `abudhabi-oicm-rest-api-export.md`).
+
+## Result
+
+Restarting `rke2-agent` on the five agent nodes renewed the expired leaf
+certificates and fixed kube-proxy. Measured outcome:
+
+| Node | `client-kube-proxy` before | after | Containers before | after |
+|---|---|---|---|---|
+| `prd-oi-k8worker02` | 2026-09-29 (expired) | 2027-09-29 | 69 | 69 |
+| `prd-oi-k8worker03` | 2026-09-29 (expired) | 2027-09-29 | 70 | 70 |
+| `prd-oi-k8worker04` | 2026-09-29 (expired) | 2027-09-29 | 62 | 62 |
+| `prd-infr-k8h200` | 2026-09-29 (expired) | 2027-09-29 | 17 | 17 |
+| `prd-oi-k8worker01` | 2026-09-29 (expired) | 2027-09-29 | 42 | 42 |
+
+`rke2 certificate check` reports an `expired` count of 0 on every node, and every
+`kube-proxy` pod logs zero `Unauthorized` lines.
+
+The exported Services became reachable. From the Al Ain gateway host:
+
+```
+242.0.0.251/realms/adeo                                    -> 200
+242.0.0.251/realms/adeo/.well-known/openid-configuration   -> 200
+242.0.0.252/api/openapi/openapi.json                       -> 200
+242.0.0.252/api/v1/workspaces/{ws}/deployment_summary      -> 403 {"error_code": 403, "message": "Missing Authorization token"}
+242.0.0.252/api/v1/workspaces                              -> 404
+```
+
+Those are the same codes the Al Ain OICM gives internally, so the request is
+reaching the real Abu Dhabi backend rather than failing in the datapath. Before
+the fix, `242.0.0.251` and `242.0.0.252` had no NAT chain at all on the gateway
+node and nothing answered.
+
+## What the restart actually disrupts
+
+Only one pod restarted on the whole of worker04, and it was kube-proxy:
+
+```
+kube-system   kube-proxy-prd-oi-k8worker04   2026-10-06T12:35:44Z
+restarted today: 1
+total pods:      56
+```
+
+Application containers are untouched. The unit has `KillMode=process` and an
+`ExecStopPost` whose regex matches only processes literally named `containerd`
+and `kubelet`, so it kills 2 PIDs and leaves every containerd-shim running. The
+stateful pods confirm it, with creation timestamps unchanged and restart counts
+identical: `postgresql-0` (2025-10-16, 2), `mongodb-0` (2025-10-09, 2),
+`minio-1` (2026-06-18, 0), `vault-2` (2026-03-16, 77357).
+
+Two caveats worth knowing:
+
+- Static pods restart, because kubelet owns them. kube-proxy is one, which is the
+  point here. `rke2-canal` is another on these nodes.
+- The node reports `NotReady` for roughly 60 to 90 seconds while kubelet is down.
+  Existing pods keep serving, but avoid doing this during an active rollout.
+
+On `prd-oi-k8worker01` the restart also bounces `submariner-gateway`, so
+cross-cluster traffic is interrupted for about a minute.
+
+## Order used
+
+`worker02`, `worker03`, `worker04`, `prd-infr-k8h200`, then `worker01` last,
+because `worker01` carries the WireGuard tunnel. Each node was confirmed healthy
+before moving to the next.
+
+## What not to bother with
+
+`rke2 certificate rotate --service kube-proxy` does **not** avoid the restart. It
+stages the new certificate, backs the old one up to
+`/var/lib/rancher/rke2/agent/tls-<timestamp>`, and removes the live file, then
+tells you to restart anyway. It also leaves the live certificate missing until
+you do, so it makes the intermediate state worse. Skip it and restart directly.
+
+## Notes for next time
+
+Certificate expiry is predictable: RKE2 leaf certificates last 365 days and are
+renewed on agent start when within 120 days of expiry. These nodes had not
+restarted since March 2026 (and `prd-infr-k8h200` since November 2025), so they
+silently lapsed. A scheduled agent restart, or a check of
+`rke2 certificate check`, would catch it before it breaks kube-proxy again.
+
+The backup directories created during this work are at
+`/root/rke2-cert-backup-<timestamp>` on each agent node, and worker04 also has
+`/var/lib/rancher/rke2/agent/tls-1791289997` from the rotate experiment. They can
+be removed once the cluster has run clean for a while.
 
 ## How to reach the Abu Dhabi nodes
 
