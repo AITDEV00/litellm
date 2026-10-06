@@ -6,6 +6,8 @@ Conventions: **[C]** = controller change (`oicm-litellm-layer/controller/`), **[
 
 Milestone split (do not reorder): **M1** trustworthy model status → **M2** current engine load → **M3** historical OpenRouter statistics.
 
+Storage design for Steps 10-11 (what goes in `model_info.oicm`, how the upsert is gated, and how a `Stopped` deployment stays visible while becoming unroutable): see `DESIGN-STATUS-PERSISTENCE.md`.
+
 ---
 
 ## Milestone 1 — Trustworthy model status
