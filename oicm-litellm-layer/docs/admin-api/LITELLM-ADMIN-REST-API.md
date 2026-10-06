@@ -144,7 +144,7 @@ A custom header `litellm-changed-by` (optional) is accepted by mutation endpoint
 | `tpm_limit` | `Optional[int]` | No | Tokens-per-minute limit. |
 | `rpm_limit` | `Optional[int]` | No | Requests-per-minute limit. |
 | `model_max_budget` | `Optional[dict]` | No | Per-model budgets. |
-| `model_rpm_limit` | `Optional[dict]` | No | Per-model RPM limits. |
+| `model_rpm_limit` | `Optional[dict]` | No | Per-model RPM limits. Keys must match the requested model name exactly; see [Per-Model Rate Limits](#per-model-rate-limits). |
 | `model_tpm_limit` | `Optional[dict]` | No | Per-model TPM limits. |
 | `tpm_limit_type` | `Optional[str]` | No | `"best_effort_throughput"`, `"guaranteed_throughput"`, or `"dynamic"`. |
 | `rpm_limit_type` | `Optional[str]` | No | Same options as `tpm_limit_type`. |
@@ -201,7 +201,7 @@ curl -X POST 'http://localhost:4000/key/generate' \
 | `max_budget` | `Optional[float]` | No | Updated max budget. |
 | `rpm_limit` | `Optional[int]` | No | Updated RPM limit. |
 | `tpm_limit` | `Optional[int]` | No | Updated TPM limit. |
-| `metadata` | `Optional[dict]` | No | Updated metadata (merged). |
+| `metadata` | `Optional[dict]` | No | Updated metadata. **Replaces** the existing metadata dict; omit the field entirely to preserve it. See [Assigning Priority to Keys](#assigning-priority-to-keys). |
 | `blocked` | `Optional[bool]` | No | Block/unblock. |
 | `tags` | `Optional[List[str]]` | No | Updated tags. |
 | `budget_duration` | `Optional[str]` | No | Updated budget reset period. |
@@ -320,14 +320,60 @@ The following fields can be set on `/key/generate` and `/key/update`:
 | `tpm_limit` | `int` | Key-level | Tokens-per-minute limit. |
 | `rpm_limit` | `int` | Key-level | Requests-per-minute limit. |
 | `model_max_budget` | `dict` | Per-model | e.g. `{"gpt-4o": 5.0}`. |
-| `model_rpm_limit` | `dict` | Per-model | Per-model RPM limits. |
-| `model_tpm_limit` | `dict` | Per-model | Per-model TPM limits. |
+| `model_rpm_limit` | `dict` | Per-model | Per-model RPM limits. Keys must match the requested model name **exactly**. See [Per-Model Rate Limits](#per-model-rate-limits). |
+| `model_tpm_limit` | `dict` | Per-model | Per-model TPM limits. Same exact-match rule. |
 | `budget_duration` | `str` | Key-level | Reset window (`"1d"`, `"30d"`). |
 | `budget_limits` | `List[BudgetLimitEntry]` | Key-level | Multiple concurrent budget windows. |
 | `max_parallel_requests` | `int` | Key-level | Max concurrent requests. |
 | `tpm_limit_type` | `str` | Key-level | `"best_effort_throughput"`, `"guaranteed_throughput"`, `"dynamic"`. |
 | `rpm_limit_type` | `str` | Key-level | Same as `tpm_limit_type`. |
 | `allowed_routes` | `List[str]` | Key-level | Route groups the key may access. Empty or absent = unrestricted. See [Restricting Allowed Routes](#restricting-allowed-routes). |
+
+### Per-Model Rate Limits
+
+`model_rpm_limit` and `model_tpm_limit` live inside `metadata` and cap a key on
+specific models. They are hard caps: they apply regardless of model-group
+saturation or priority reservation. A key with `metadata.priority: "prior2"` and
+`metadata.model_rpm_limit: {"some-model": 100}` is bounded by both the priority
+reservation and the 100 RPM cap, whichever is lower.
+
+**The match is exact.** At request time the limiter checks membership of the
+requested model name in the limit dict, with no wildcard, prefix, or model-group
+resolution. Consequences:
+
+- The dict key must be the literal model name the client sends in `"model"`.
+- A model registered under several names needs an entry for each name. If a
+  deployment is reachable as both `Qwen/Qwen3.6-35B-A3B-FP8` and
+  `Qwen3.6-35B-A3B-FP8`, a limit on one name does not cover the other, and a
+  client using the unlisted name bypasses the cap.
+- Model names and model groups are distinct. Limits key off the model name, not
+  the group.
+
+**Set a per-model cap** (read-modify-write, because metadata is replaced):
+
+```bash
+current=$(curl -sk -X GET "$PROXY_BASE_URL/key/list?return_full_object=true&size=100" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  | jq -c '.keys[] | select(.key_alias=="my-key") | .metadata')
+merged=$(jq -c '. + {"model_rpm_limit": {"Qwen/Qwen3.6-35B-A3B-FP8": 100, "Qwen3.6-35B-A3B-FP8": 100}}' <<<"$current")
+curl -sk -X POST "$PROXY_BASE_URL/key/update" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"key\": \"sk-xxxx...\", \"metadata\": $merged}"
+```
+
+**Verify:**
+
+```bash
+curl -sk -X GET "$PROXY_BASE_URL/key/info?key=sk-xxxx..." \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  | jq '.info.metadata.model_rpm_limit'
+```
+
+Enforcement reference: `get_key_model_rpm_limit` in `proxy/auth/auth_utils.py`
+returns the dict, and `parallel_request_limiter_v3` matches the requested model by
+exact membership. The dict is also honored at team, project, and organization
+level; key metadata is checked first.
 
 ### Restricting Allowed Routes
 
@@ -472,16 +518,29 @@ curl -sk -X POST "$PROXY_BASE_URL/key/generate" \
 **Update a key's priority:**
 
 ```bash
+# Read-modify-write: metadata is replaced, so send the whole dict back.
+current=$(curl -sk -X GET "$PROXY_BASE_URL/key/list?return_full_object=true&size=100" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  | jq -c '.keys[] | select(.key_alias=="premium-tier-key") | .metadata')
+merged=$(jq -c '. + {"priority": "prior2"}' <<<"$current")
 curl -sk -X POST "$PROXY_BASE_URL/key/update" \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "key": "sk-xxxx...",
-    "metadata": {"priority": "prior2"}
-  }'
+  -d "{\"key\": \"sk-xxxx...\", \"metadata\": $merged}"
 ```
 
-Metadata is merged on update, so passing `{"priority": "prior2"}` only changes the priority; other metadata keys are preserved.
+Metadata is **replaced**, not merged. Passing `{"metadata": {"priority": "prior2"}}`
+sets the key's metadata to exactly that dict and drops every other metadata key it
+previously had, which is why the example above reads the current metadata first and
+sends the whole dict back.
+
+The only merge-like behavior is the omitted-metadata case: if the request body has
+no `metadata` key at all, the existing metadata is preserved untouched. The moment
+you include `metadata`, it is the full replacement.
+
+Some metadata fields are reserved and immutable once set (see
+`LiteLLM_Reserved_Metadata_Fields` in `proxy/_types.py`). Omit them and they are
+preserved; send them with a different value and the update returns `400`.
 
 **Set priority on a team (applies to all keys on that team):**
 
@@ -511,11 +570,42 @@ The response includes the `metadata` field containing `{"priority": "prior1"}`.
 | Mechanism | Field | Scope | Behavior |
 |-----------|-------|-------|----------|
 | Per-key hard cap | `rpm_limit` / `tpm_limit` | Top-level on key | Hard cap regardless of model or saturation |
-| Per-key per-model cap | `metadata.model_rpm_limit` / `metadata.model_tpm_limit` | Metadata on key | Hard cap for a specific model |
+| Per-key per-model cap | `metadata.model_rpm_limit` / `metadata.model_tpm_limit` | Metadata on key | Hard cap for a specific model (exact model-name match) |
 | Priority reservation | `metadata.priority` | Metadata on key/team | Fraction of model-group capacity reserved when saturated |
 | Model-group capacity | `model_group_info.rpm` / `.tpm` | Router config | Total capacity of the model group (100% baseline) |
 
 A key with `rpm_limit: 100` and `metadata.priority: "prior1"` (0.50 reservation on a 180 RPM model) is bounded by both: 100 RPM (key cap) and 90 RPM (priority reservation when saturated). The lower of the two wins.
+
+### Priority to Server-Side Scheduling
+
+The priority string above governs proxy-layer RPM allocation. It does not, by
+itself, reach the inference server. A separate hook bridges it to a server-side
+`priority` field that the GPU scheduler (vLLM/SGLang) uses to order and preempt
+requests:
+
+- `hooks/priority_bridge.py` reads the `htb_priority` ContextVar set by
+  `dynamic_rate_limiter_v3_htb` and looks up `litellm_settings.priority_body_fields`.
+- The mapped field-value pairs are merged into `data["extra_body"]`, which the
+  OpenAI-compatible handler spreads into the upstream request body.
+
+Config (already set on the ADEO proxy):
+
+```yaml
+litellm_settings:
+  callbacks:
+    - litellm_hooks.priority_bridge.priority_bridge
+  priority_body_fields:
+    prior1:
+      priority: 0
+    prior2:
+      priority: 100
+    prior3:
+      priority: 200
+```
+
+These integers are the server-side scheduler priorities (lower = higher
+priority), independent of the `priority_reservation` weights and of LiteLLM's
+internal `DefaultPriorities` enum. See `docs/htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md`.
 
 ### Browsing and Searching Keys
 
@@ -842,6 +932,8 @@ All inherited from `LiteLLM_BudgetTable`:
 | `tpm_limit` | `Optional[int]` | Team-level TPM limit. |
 | `rpm_limit` | `Optional[int]` | Team-level RPM limit. |
 | `model_max_budget` | `Optional[dict]` | Per-model max budget. |
+| `model_rpm_limit` | `Optional[dict]` | Per-model RPM limit. Accepted top-level or inside `metadata`; the handler relocates it into `metadata`. Exact model-name match; see [Per-Model Rate Limits](#per-model-rate-limits). |
+| `model_tpm_limit` | `Optional[dict]` | Per-model TPM limit. Same handling and matching as `model_rpm_limit`. |
 | `budget_duration` | `Optional[str]` | Reset window. |
 | `budget_limits` | `Optional[List[BudgetLimitEntry]]` | Multiple concurrent budgets. |
 
@@ -879,8 +971,8 @@ All inherited from `LiteLLM_BudgetTable`:
 | `models` | `List` | No | Models the org can access. Default `[]`. |
 | `budget_id` | `Optional[str]` | No | Existing budget ID. If omitted, one is created from budget fields. |
 | `metadata` | `Optional[dict]` | No | Free-form metadata. |
-| `model_rpm_limit` | `Optional[Dict[str, int]]` | No | Per-model RPM limit. |
-| `model_tpm_limit` | `Optional[Dict[str, int]]` | No | Per-model TPM limit. |
+| `model_rpm_limit` | `Optional[Dict[str, int]]` | No | Per-model RPM limit. Exact model-name match; see [Per-Model Rate Limits](#per-model-rate-limits). |
+| `model_tpm_limit` | `Optional[Dict[str, int]]` | No | Per-model TPM limit. Exact model-name match. |
 | `object_permission` | `Optional[LiteLLM_ObjectPermissionBase]` | No | Org-scoped object permissions (MCP, vector stores, agents). |
 | `soft_budget` | `Optional[float]` | No | Alert-only threshold. |
 | `max_budget` | `Optional[float]` | No | Hard USD budget cap. |
