@@ -17,6 +17,7 @@ invocation (namespace, node name, Harbor host, context, etc).
 5. [UFW blocking intra-cluster VXLAN (UDP 4800)](#5-ufw-blocking-intra-cluster-vxlan-udp-4800)
 6. [ServiceExport re-creation](#6-serviceexport-re-creation)
 7. [Consolidated root-cause list](#7-consolidated-root-cause-list)
+8. [Reaching a remote cluster's nodes with no SSH](#8-reaching-a-remote-clusters-nodes-with-no-ssh)
 
 ---
 
@@ -297,3 +298,94 @@ return-path"); `wg show` (via chroot) proved the handshake state; reading the op
 source revealed the chart gap; checking UFW on the actual host (not the pod) found the 4800 block.
 `subctl diagnose all` independently flagged the VXLAN(4800) and CNI issues. Ground-truth inspection
 beat reasoning-from-symptoms every time.
+
+## 8. Reaching a remote cluster's nodes with no SSH
+
+Both clusters are air-gapped and the firewall between them allows only Submariner
+traffic, so there is no SSH route across. `chroot /host` from a privileged pod is
+the established way to inspect a node, and it goes one step further than that:
+with the right pod spec it can drive the host's systemd, so a fix needs no SSH at
+all.
+
+The firewall in the Al Ain to Abu Dhabi direction, as an example of the shape:
+
+| Source | Destination | Port | Proto | Purpose |
+|---|---|---|---|---|
+| `10.34.104.19` | `10.10.128.72` | 51820 | UDP | WireGuard tunnel |
+| `10.34.104.19` | `10.10.128.72` | 4500 | UDP | tunnel data |
+| `10.34.104.19` | `10.10.128.72` | 4490 | UDP | NAT discovery |
+| `10.34.104.19` | `10.10.128.71` | 6443 | TCP | Submariner broker (API server) |
+
+Only the Al Ain gateway node `adeo-gpu-03` (`10.34.104.19`) has any of these
+rules, which is why the relay pod must be pinned there with `nodeSelector`. SSH on
+22 is absent, so `ssh` fails with `Connection timed out during banner exchange`:
+the TCP connection is accepted and then the response is dropped. sshd is healthy
+in that case, so do not go looking for a fault on the host.
+
+### The two-pod pattern
+
+1. A relay pod on the gateway node runs the remote cluster's `kubectl` through
+   `chroot /host`, since the `nettest` image has no `kubectl` binary. The remote
+   kubeconfig is shipped in with a ConfigMap, because the image has no `tar` so
+   `kubectl cp` does not work.
+2. A toolbox pod on the target node, with `privileged: true`, `hostPID: true`,
+   and `hostIPC: true`, drives the host with `nsenter`.
+
+The toolbox spec that works:
+
+```yaml
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  nodeSelector: { kubernetes.io/hostname: <node> }
+  tolerations: [{ operator: Exists }]
+  containers:
+  - name: toolbox
+    image: registry.gitlab.com/openinnovationai/platform/infra/utils/common-image:0.0.1
+    command: ["sleep", "3600"]
+    securityContext: { privileged: true }
+    volumeMounts: [{ name: host, mountPath: /host }]
+  volumes: [{ name: host, hostPath: { path: /, type: Directory } }]
+```
+
+Then host commands run as:
+
+```bash
+nsenter -t 1 -m -u -i -n -p -- <command>
+```
+
+`common-image` is the safest image because it is cached on several nodes and has
+`bash curl wget netstat nslookup ip ps nsenter awk grep sed`. The registries are
+not reachable for fresh pulls from the nodes, so use a cached image or pin
+`nodeSelector` to a node that holds the one you pick. `nsenter` is what does the
+work and busybox and alpine have it, but they are not cached everywhere.
+
+### Two traps
+
+`kubectl run` does not set `privileged`, so a pod started that way fails with
+`nsenter: setns(): can't reassociate to namespace 'ipc': Operation not
+permitted`. The explicit `securityContext` block is required. `CapEff` should read
+`000001ffffffffff`.
+
+Do not drive systemd with `chroot /host systemctl`. It looks like it works but is
+a false positive: `chroot` gives systemd the wrong dbus path so it uses its local
+fallback path, and `systemctl is-active` reports the service's own state rather
+than the host's. Use `nsenter`, and confirm any restart by checking that
+`MainPID` changed.
+
+### Checking a restart is real
+
+```bash
+nsenter -t 1 -m -u -i -n -p -- sh -c '
+  printf "[Unit]\nDescription=probe\n[Service]\nExecStart=/bin/sleep 3600\n[Install]\nWantedBy=multi-user.target\n" > /etc/systemd/system/scout-probe.service
+  systemctl daemon-reload && systemctl start scout-probe
+  echo "before: $(systemctl show scout-probe -p MainPID --value)"
+  systemctl restart scout-probe
+  echo "after:  $(systemctl show scout-probe -p MainPID --value)"
+  systemctl stop scout-probe && rm -f /etc/systemd/system/scout-probe.service && systemctl daemon-reload'
+```
+
+The two PIDs must differ. A full worked example, including the expired
+certificate fault this was used to diagnose, is in
+`abudhabi-rke2-cert-renewal-runbook.md`.

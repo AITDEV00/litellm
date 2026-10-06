@@ -25,6 +25,8 @@ Clusters:
 | `discover-k8-oicm-ip-rules.sh`       | Discover iptables / IP rules on gateway nodes            |
 | `export-submariner-creds-abudhabi.sh`| Export broker credentials from Abu Dhabi for Al Ain join |
 | `abudhabi-oicm-rest-api-export.md`   | Exporting the Abu Dhabi OICM REST API + auth over Submariner: what worked, the kube-proxy blocker |
+| `abudhabi-rke2-cert-renewal-runbook.md` | Fixing the expired RKE2 agent certificates that break kube-proxy, and the no-SSH privileged-pod method for reaching the Abu Dhabi nodes |
+| `submariner-SHARED-reference.md`     | Cluster-agnostic fixes and the no-SSH remote access pattern (§8) |
 | `submariner-operator/`               | Full clone of `submariner-io/submariner-operator` at tag `v0.24.0` (see below) |
 
 ## Download dependencies (on an internet-connected host)

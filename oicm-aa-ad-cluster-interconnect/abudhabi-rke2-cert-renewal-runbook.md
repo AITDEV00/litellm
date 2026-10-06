@@ -9,6 +9,183 @@ This is the first and only thing to fix. Nothing else in the OICM work is
 blocked on code, and the API-version question is settled (see
 `abudhabi-oicm-rest-api-export.md`).
 
+## How to reach the Abu Dhabi nodes
+
+There is no SSH access to Abu Dhabi from Al Ain, and there does not need to be.
+The firewall between the clusters allows only Submariner traffic from the Al Ain
+gateway node `adeo-gpu-03`:
+
+| Source | Destination | Port | Proto | Purpose |
+|---|---|---|---|---|
+| `10.34.104.19` | `10.10.128.72` | 51820 | UDP | WireGuard tunnel |
+| `10.34.104.19` | `10.10.128.72` | 4500 | UDP | tunnel data |
+| `10.34.104.19` | `10.10.128.72` | 4490 | UDP | NAT discovery |
+| `10.34.104.19` | `10.10.128.71` | 6443 | TCP | Submariner broker (API server) |
+
+SSH on port 22 is not in that list, which is why `ssh` to any node fails with
+`Connection timed out during banner exchange`. The TCP connection is accepted but
+no banner ever returns, because the response is dropped. sshd itself is healthy
+on every node: listening on `*:22`, `UsePAM yes`, no `AllowUsers` or custom
+`Port`, and no `iptables` or `nft` rules touching 22. The block is the firewall,
+not the host.
+
+The way in is a privileged pod, which is the same technique the ABUDHABI guide
+already uses for the kubectl relay, extended one step further: a privileged pod
+can restart host systemd services, so the whole fix can be done with no SSH.
+
+### Step 1: a relay pod on the Al Ain gateway node
+
+A pod is needed on `adeo-gpu-03` because that node is the only one with a
+firewall rule to the Abu Dhabi API server. From there it runs the Abu Dhabi
+`kubectl` via `chroot`, since the `nettest` image has no `kubectl` binary.
+
+```bash
+export KUBECONFIG=~/.kube/alain-oicm.conf
+kubectl -n oik8s-cilium-system create configmap adkc \
+  --from-file=kc=$HOME/.kube/abudhabi-kubeconfig.yaml
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata: { name: adrelay, namespace: oik8s-cilium-system }
+spec:
+  hostNetwork: true
+  hostPID: true
+  nodeSelector: { kubernetes.io/hostname: adeo-gpu-03 }
+  tolerations: [{ operator: Exists }]
+  containers:
+  - name: relay
+    image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
+    command: ["sleep","3600"]
+    securityContext: { privileged: true }
+    volumeMounts: [{ name: host, mountPath: /host }, { name: kc, mountPath: /kc }]
+  volumes:
+  - { name: host, hostPath: { path: /, type: Directory } }
+  - { name: kc, configMap: { name: adkc } }
+  restartPolicy: Never
+EOF
+
+kubectl -n oik8s-cilium-system wait --for=condition=Ready pod/adrelay --timeout=90s
+kubectl -n oik8s-cilium-system exec adrelay -- sh -c 'cp /kc/kc /host/tmp/adkc'
+```
+
+The `nettest` image has no `tar`, so `kubectl cp` does not work. Ship files in
+with a ConfigMap, or `kubectl exec -i ... -- sh -c 'cat > /host/tmp/file'` for
+plain text.
+
+### Step 2: run Abu Dhabi kubectl through the relay
+
+```bash
+AD='KUBECONFIG=/tmp/adkc kubectl'
+kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c "$AD get nodes -o wide"
+```
+
+### Step 3: a privileged pod on each Abu Dhabi node that needs host access
+
+This is the part that removes the need for SSH. With `privileged: true`,
+`hostPID: true`, and `hostIPC: true`, a pod can `nsenter` into PID 1's namespaces
+and drive the host's systemd directly.
+
+```bash
+cat <<'EOF' | kubectl -n oik8s-cilium-system exec -i adrelay -- \
+  chroot /host sh -c 'KUBECONFIG=/tmp/adkc kubectl apply -f -'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: adtoolbox
+  namespace: default
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  nodeSelector:
+    kubernetes.io/hostname: prd-oi-k8worker03
+  tolerations:
+  - operator: Exists
+  containers:
+  - name: toolbox
+    image: registry.gitlab.com/openinnovationai/platform/infra/utils/common-image:0.0.1
+    command: ["sleep", "3600"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host
+      mountPath: /host
+  volumes:
+  - name: host
+    hostPath:
+      path: /
+      type: Directory
+  restartPolicy: Never
+EOF
+```
+
+Then run host commands through `nsenter`, which enters the host's mount, UTS,
+IPC, network, and PID namespaces:
+
+```bash
+kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/adkc kubectl exec adtoolbox -- \
+   nsenter -t 1 -m -u -i -n -p -- <command>'
+```
+
+### Choosing an image
+
+The Abu Dhabi registry is not reachable from these nodes for fresh pulls
+(`harbor.ai.ecouncil.ae` and `registry.adeoaiengine.ecouncil.ae` both fail to
+respond from a node), so use an image that is already cached. Cached images and
+their useful tools:
+
+| Image | Cached on | Tools |
+|---|---|---|
+| `registry.gitlab.com/openinnovationai/platform/infra/utils/common-image:0.0.1` | worker01, worker02, worker03 | `sh bash curl wget netstat nslookup ip ps nsenter awk grep sed` |
+| `docker.io/library/alpine:3.21.2` | worker03, prd-infr-k8h200 | `sh wget netstat nslookup ip ps nsenter ...` |
+| `docker.io/library/busybox:1.31.1` | worker03 | `sh wget netstat nslookup ip ps nsenter ...` |
+| `docker.io/bitnami/os-shell:11-debian-11-r77` | worker02, worker03, worker04 | `sh bash curl ps nsenter ...` |
+
+`nsenter` is what does the work and busybox and alpine both have it, but neither
+is cached on worker01, worker02, or worker04. `common-image` is the safest
+default, or pin `nodeSelector` to a node that holds the image you pick. To list
+what a node has:
+
+```bash
+kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/adkc kubectl exec adtoolbox -- \
+   chroot /host /var/lib/rancher/rke2/bin/crictl \
+     --runtime-endpoint unix:///run/k3s/containerd/containerd.sock images'
+```
+
+### Two traps
+
+`kubectl run` does not set `privileged`, so a pod started that way fails with
+`nsenter: setns(): can't reassociate to namespace 'ipc': Operation not
+permitted`. The explicit `securityContext` block above is required, and
+`CapEff` should read `000001ffffffffff`.
+
+Do not try to drive systemd with `chroot /host systemctl`. It appears to work
+but is a false positive: `chroot` gives systemd the wrong dbus path so it falls
+back to its local path, and `systemctl is-active` then reports the service's own
+state rather than the host's. Always use `nsenter`, and confirm a restart by
+checking that `MainPID` actually changed.
+
+### Verifying the method without touching a real service
+
+To prove host control before doing anything, start and restart a throwaway unit
+and check that its PID changes:
+
+```bash
+nsenter -t 1 -m -u -i -n -p -- sh -c '
+  printf "[Unit]\nDescription=probe\n[Service]\nExecStart=/bin/sleep 3600\n[Install]\nWantedBy=multi-user.target\n" > /etc/systemd/system/scout-probe.service
+  systemctl daemon-reload && systemctl start scout-probe
+  echo "before: $(systemctl show scout-probe -p MainPID --value)"
+  systemctl restart scout-probe
+  echo "after:  $(systemctl show scout-probe -p MainPID --value)"
+  systemctl stop scout-probe && rm -f /etc/systemd/system/scout-probe.service && systemctl daemon-reload'
+```
+
+The PID must differ between the two lines. That is the check that distinguishes a
+real restart from the `chroot` false positive.
+
 ## The fault
 
 kube-proxy on every Abu Dhabi agent node cannot authenticate to the API server,
@@ -69,33 +246,50 @@ explicit rotation, which must follow the gate order.
 
 ## What to do
 
-Take a snapshot or backup first if the platform has one. Rotate one agent node at
-a time and confirm before moving on, so a bad result is contained and cluster
+Take a snapshot or backup first if the platform has one. Do one agent node at a
+time and confirm before moving on, so a bad result is contained and cluster
 capacity is preserved.
 
-For each of `prd-oi-k8worker01`, `prd-oi-k8worker02`, `prd-oi-k8worker03`,
-`prd-oi-k8worker04`, and `prd-infr-k8h200`, in that order:
+Order: `prd-oi-k8worker02`, `prd-oi-k8worker03`, `prd-oi-k8worker04`,
+`prd-infr-k8h200`, then `prd-oi-k8worker01` last.
+
+The steps below use the privileged-pod method from the section above, since SSH
+is not available. Set `NODE` to the node you are working on and `POD` to the
+toolbox pod on it.
 
 ```bash
+export KUBECONFIG=~/.kube/alain-oicm.conf
+R='kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c'
+AD='KUBECONFIG=/tmp/adkc kubectl'
+NODE=prd-oi-k8worker02
+POD=adtoolbox
+
 # 1. record the current expiry so you can tell renewal happened
-openssl x509 -in /var/lib/rancher/rke2/agent/client-kube-proxy.crt -noout -enddate
+$R "$AD exec $POD -- nsenter -t 1 -m -u -i -n -p -- \
+  openssl x509 -in /var/lib/rancher/rke2/agent/client-kube-proxy.crt -noout -enddate"
 
 # 2. restart the agent; this reissues the expired leaf certificates
-systemctl restart rke2-agent
+$R "$AD exec $POD -- nsenter -t 1 -m -u -i -n -p -- systemctl restart rke2-agent"
 
 # 3. confirm the service came back
-systemctl is-active rke2-agent
+$R "$AD exec $POD -- nsenter -t 1 -m -u -i -n -p -- systemctl is-active rke2-agent"
 
-# 4. confirm the certificate now expires about a year out
-openssl x509 -in /var/lib/rancher/rke2/agent/client-kube-proxy.crt -noout -enddate
-openssl x509 -in /var/lib/rancher/rke2/agent/client-rke2-controller.crt -noout -enddate
+# 4. confirm the certificates now expire about a year out
+$R "$AD exec $POD -- nsenter -t 1 -m -u -i -n -p -- sh -c '
+  for f in client-kube-proxy client-rke2-controller; do
+    printf \"%s: \" \$f
+    openssl x509 -in /var/lib/rancher/rke2/agent/\$f.crt -noout -enddate
+  done'"
 
 # 5. confirm kube-proxy stopped failing
-journalctl -u rke2-agent --since "2 min ago" | grep -i "kube-proxy" | tail -20
+$R "$AD exec $POD -- nsenter -t 1 -m -u -i -n -p -- \
+  journalctl -u rke2-agent --since '2 min ago' | grep -i kube-proxy | tail -20"
 ```
 
-Restarting `rke2-agent` does not restart application containers, but it does
-restart the static pods, including kube-proxy, which is the point.
+Then delete the toolbox pod from that node and create it on the next one, since
+it is pinned by `nodeSelector`. Restarting `rke2-agent` does not restart
+application containers, but it does restart the static pods, including
+kube-proxy, which is the point.
 
 `prd-oi-k8worker01` at `10.10.128.72` is the Submariner gateway node. Restarting
 it briefly interrupts the WireGuard tunnel and the Submariner datapath. Do that
@@ -104,17 +298,24 @@ afterwards.
 
 ## How to confirm the fix worked
 
-From a shell on any Abu Dhabi node:
+The same privileged-pod method works for the checks. From Al Ain, with the relay
+and a toolbox pod on the node you are checking:
 
 ```bash
+export KUBECONFIG=~/.kube/alain-oicm.conf
+R='kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c'
+AD='KUBECONFIG=/tmp/adkc kubectl'
+
 # kube-proxy should be quiet. This should print nothing, or only old lines.
-kubectl -n kube-system logs kube-proxy-prd-oi-k8worker01 --since=2m | grep -c Unauthorized
+$R "$AD -n kube-system logs kube-proxy-prd-oi-k8worker01 --since=2m | grep -c Unauthorized"
 
 # the certificate should be renewed
-openssl x509 -in /var/lib/rancher/rke2/agent/client-kube-proxy.crt -noout -enddate
+$R "$AD exec adtoolbox -- nsenter -t 1 -m -u -i -n -p -- \
+  openssl x509 -in /var/lib/rancher/rke2/agent/client-kube-proxy.crt -noout -enddate"
 
 # a new Service should now get its NAT chain programmed on the gateway node
-nft list ruleset | grep -E 'KUBE-EXT-|242\.0\.0\.25'
+$R "$AD exec adtoolbox -- nsenter -t 1 -m -u -i -n -p -- \
+  nft list ruleset | grep -E 'KUBE-EXT-|242\.0\.0\.25'"
 ```
 
 The decisive test is the last one. Before the fix there are `KUBE-EXT-*` chains
@@ -149,6 +350,21 @@ Fall back to an explicit rotation, respecting the version gate order for
 `rke2 certificate rotate` backs up the old certificates to
 `/var/lib/rancher/rke2/server/tls-<timestamp>` (or the agent equivalent), so a
 rollback is a matter of restoring that directory and restarting the service.
+
+## Cleaning up afterwards
+
+Delete the toolbox pod from each node and the relay pod and ConfigMap from Al
+Ain. Nothing else should be left behind.
+
+```bash
+R='kubectl -n oik8s-cilium-system exec adrelay -- chroot /host sh -c'
+$R 'KUBECONFIG=/tmp/adkc kubectl delete pod adtoolbox --ignore-not-found'
+kubectl -n oik8s-cilium-system delete pod adrelay --ignore-not-found
+kubectl -n oik8s-cilium-system delete configmap adkc --ignore-not-found
+```
+
+Note that the toolbox pod is created in Abu Dhabi's `default` namespace, so
+delete it there rather than from Al Ain.
 
 ## What is still needed after the certificates are renewed
 
