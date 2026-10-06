@@ -79,7 +79,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: controller
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-3d0bbac
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261006-a90f655
           # The version tag is immutable (semver + date + git SHA), so a node
           # reboot or rollout can never pull a different build than the one
           # pinned here. Use IfNotPresent so a re-pull only happens when the tag

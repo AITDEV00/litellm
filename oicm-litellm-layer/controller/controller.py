@@ -126,14 +126,18 @@ class DiscoveryController:
                 "error_msg": snap.error_msg,
                 "status_changed_at": snap.status_changed_at,
                 "observed_at": snap.observed_at,
-                "checked_at": self._checked_at(snap.cluster),
+                "source_alive": self._source_alive(snap.cluster),
             }
             for workload_id, snap in self.status_poller.snapshots.items()
         }
         return web.json_response(body)
 
-    def _checked_at(self, cluster: str) -> Optional[str]:
-        """When this source was last polled successfully, if the persister ran."""
+    def _source_alive(self, cluster: str) -> Optional[bool]:
+        """Whether this source's last liveness report reached the gateway.
+
+        The authoritative `checked_at` is the gateway's own (server-stamped),
+        so the controller's view is only whether the last report succeeded.
+        """
         if self.status_poller.persister is None:
             return None
         return self.status_poller.persister.checked_at.get(cluster)

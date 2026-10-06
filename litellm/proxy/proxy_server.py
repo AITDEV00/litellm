@@ -18892,6 +18892,12 @@ from litellm.proxy.voice_routes import router as oicm_voice_router
 
 app.include_router(oicm_voice_router)
 
+# OICM status ingestion routes (co-located vertical slice). Writes OICM truth
+# into the native health table via /oicm/v1/status-reports and /oicm/v1/heartbeats.
+from litellm.proxy.oicm_routes import router as oicm_status_router
+
+app.include_router(oicm_status_router)
+
 attach_lazy_features(app)
 app.router.routes = hot_routes_first(app.router.routes)
 app.add_middleware(

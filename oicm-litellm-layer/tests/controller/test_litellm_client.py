@@ -261,3 +261,62 @@ async def test_register_payload_stamps_the_cluster():
     payload = _register_payload(model, None)
 
     assert payload["model_info"]["oicm_cluster"] == "abudhabi"
+
+
+@pytest.mark.asyncio
+async def test_report_status_posts_one_batch_and_requires_full_save():
+    """The whole cycle's reports ride one POST, and a short save is a failure.
+
+    Treating a partial save as success would let the controller skip rows it
+    believes were written, so the loop's refresh bookkeeping would go silent for
+    models the gateway never stored.
+    """
+    seen = {}
+
+    class _PostClient:
+        async def post(self, url, json=None, **kwargs):
+            seen["url"] = url
+            seen["json"] = json
+            return httpx.Response(200, json={"saved": len(json["reports"]), "received": len(json["reports"])}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False, client=_PostClient())
+    ok = await client.report_status(
+        [{"model_name": "m1", "litellm_model_id": "id-1", "healthy": True}]
+    )
+
+    assert ok is True
+    assert seen["url"].endswith("/oicm/v1/status-reports")
+    assert seen["json"]["reporter"] == "oicm-controller"
+    assert len(seen["json"]["reports"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_report_status_empty_batch_writes_nothing():
+    client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ConnectError("boom")))
+    assert await client.report_status([]) is True
+
+
+@pytest.mark.asyncio
+async def test_report_heartbeats_maps_per_cluster_results():
+    """One POST carries every source; the answer must stay keyed per cluster."""
+    seen = {}
+
+    class _PostClient:
+        async def post(self, url, json=None, **kwargs):
+            seen["url"] = url
+            seen["json"] = json
+            return httpx.Response(200, json={"saved": len(json["heartbeats"]), "received": len(json["heartbeats"])}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False, client=_PostClient())
+    result = await client.report_heartbeats(["alain", "abudhabi"])
+
+    assert seen["url"].endswith("/oicm/v1/heartbeats")
+    assert [h["cluster"] for h in seen["json"]["heartbeats"]] == ["alain", "abudhabi"]
+    assert result == {"alain": True, "abudhabi": True}
+
+
+@pytest.mark.asyncio
+async def test_report_heartbeats_failure_returns_empty_not_false():
+    """A refused heartbeat must read as 'not recorded', never as 'alive'."""
+    client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ConnectError("boom")))
+    assert await client.report_heartbeats(["alain"]) == {}

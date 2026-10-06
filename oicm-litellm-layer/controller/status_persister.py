@@ -1,14 +1,18 @@
 """Persist OICM status onto the LiteLLM model rows.
 
-Runs after every ``StatusPoller.refresh()`` and writes two things:
+Runs after every ``StatusPoller.refresh()`` and writes three things:
 
 - Per model: the ``model_info.oicm`` block and the routing flag ``blocked``, in
   one PATCH. Written only when a fact differs, so a steady-state cluster issues
   zero status writes.
-- Per source: a liveness row carrying ``checked_at``, on its own slower cadence.
-  Liveness belongs to the source rather than the model, so this is one write per
-  source instead of one per model, and a consumer reads it to decide whether a
-  persisted status is still fresh.
+- Per model: a row in the gateway's native health table, so `/health/latest`
+  and the Admin UI health column carry OICM truth. Written on the native loop's
+  rule: on change, else when the last row is older than an hour, so a stable
+  model does not read as "last checked 3 days ago".
+- Per source: a liveness row in the same table, on its own slower cadence.
+  Liveness belongs to the source rather than the model, so this is one write
+  per source instead of one per model, and a consumer reads it to decide whether
+  a persisted status is still fresh.
 
 The block deliberately does not include ``api_base``: ``litellm_params.api_base``
 already survives independently and is what routing reads, so a second copy could
@@ -23,10 +27,10 @@ import asyncio
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from types import MappingProxyType
 
 from .config import HEARTBEAT_INTERVAL
-from .litellm_client import LiteLLMClient, heartbeat_payload
+from .litellm_client import LiteLLMClient
 from .status.snapshot import OicmStatusSnapshot
 
 logger = logging.getLogger("oicm-discovery")
@@ -35,8 +39,10 @@ logger = logging.getLogger("oicm-discovery")
 # needs a discriminator to tell an old row from a new one.
 BLOCK_VERSION = 1
 
-# Heartbeat rows are named so they sort together and read as controller-owned.
-HEARTBEAT_NAME_PREFIX = "oicm-heartbeat-"
+# Mirrors the native background loop's periodic-refresh threshold
+# (`_should_persist_health_check_result`): a stable model still gets a fresh
+# health row once an hour so the Admin UI's "last check" column stays honest.
+HEALTH_REFRESH_SECONDS = 3600
 
 # The facts a change is judged on. `observed_at` is absent on purpose: it moves
 # every cycle, so comparing it would defeat the write guard entirely.
@@ -154,13 +160,16 @@ class StatusPersister:
         self,
         litellm: LiteLLMClient,
         heartbeat_interval: int = HEARTBEAT_INTERVAL,
+        health_refresh_seconds: int = HEALTH_REFRESH_SECONDS,
     ):
         self.litellm = litellm
         self.heartbeat_interval = heartbeat_interval
+        self.health_refresh_seconds = health_refresh_seconds
         self._last_heartbeat: float | None = None
-        # Last confirmed `checked_at` per source, so the health endpoint can show
-        # liveness without a gateway read.
-        self.checked_at: Mapping[str, str] = {}
+        # Last per-model health write, so the hourly refresh rule can decide
+        # without a gateway read. Keys are LiteLLM model ids.
+        self._last_health_at: dict[str, float] = {}
+        self.checked_at: Mapping[str, bool] = {}
 
     async def persist_snapshots(
         self,
@@ -192,6 +201,7 @@ class StatusPersister:
         costs no extra gateway read. The heartbeat is a separate, slower write
         and is not part of the returned count.
         """
+        current = now if now is not None else _monotonic()
         writes = plan_writes(snapshots, litellm_by_uuid)
         if writes:
             results = await asyncio.gather(
@@ -209,8 +219,51 @@ class StatusPersister:
             written = sum(1 for r in results if r)
             logger.info("Persisted status on %d/%d models", written, len(writes))
 
-        await self._maybe_heartbeat(snapshots, now=now)
+        await self._maybe_report_health(snapshots, litellm_by_uuid, current)
+        await self._maybe_heartbeat(snapshots, now=current)
         return len(writes)
+
+    async def _maybe_report_health(
+        self,
+        snapshots: Mapping[str, OicmStatusSnapshot],
+        litellm_by_uuid: Mapping[str, Sequence[dict]],
+        now: float,
+    ) -> None:
+        """Send one health-report batch for the rows that need a health row.
+
+        The native loop's rule, applied to OICM truth: a row just PATCHed this
+        cycle is reported (that is the change), and a row whose last report is
+        older than an hour is refreshed, so a stable model still shows a recent
+        "last check" in the Admin UI instead of reading as long-unchecked.
+        """
+        reports: list[dict] = []
+        for workload_id, snapshot in snapshots.items():
+            entries = litellm_by_uuid.get(workload_id)
+            if not entries:
+                continue
+            block = build_block(snapshot)
+            for entry in entries:
+                model_id = entry.get("model_id")
+                if not model_id:
+                    continue
+                last = self._last_health_at.get(model_id)
+                if last is not None and (now - last) < self.health_refresh_seconds:
+                    continue
+                reports.append(
+                    {
+                        "model_name": entry.get("model_name") or model_id,
+                        "litellm_model_id": model_id,
+                        "healthy": snapshot.serving_available,
+                        "error_message": snapshot.error_msg,
+                        "details": {**block, "cluster": snapshot.cluster},
+                    }
+                )
+        if not reports:
+            return
+        if await self.litellm.report_status(reports):
+            for r in reports:
+                self._last_health_at[r["litellm_model_id"]] = now
+            logger.debug("Reported %d health rows", len(reports))
 
     async def _maybe_heartbeat(
         self,
@@ -218,11 +271,15 @@ class StatusPersister:
         *,
         now: float | None = None,
     ) -> None:
-        """Advance the per-source liveness rows, at most once per heartbeat.
+        """Record per-source liveness, at most once per heartbeat.
 
         Skipped entirely when there are no snapshots: a source that is down
         should not look alive, and a cycle with nothing to report is exactly when
         a heartbeat would be a lie.
+
+        The server stamps `checked_at`, so the timestamp is the gateway's own
+        "when did I last hear from the controller" and cannot drift from what a
+        consumer reads back.
         """
         if not snapshots:
             return
@@ -235,24 +292,9 @@ class StatusPersister:
         self._last_heartbeat = current
 
         clusters = sorted({snap.cluster for snap in snapshots.values()})
-        checked_at = datetime.now(timezone.utc).isoformat()
-        existing = await self.litellm.list_heartbeats()
-        results = await asyncio.gather(
-            *(
-                self.litellm.upsert_heartbeat(
-                    heartbeat_payload(
-                        f"{HEARTBEAT_NAME_PREFIX}{cluster}", checked_at, cluster
-                    ),
-                    existing_id=existing.get(f"{HEARTBEAT_NAME_PREFIX}{cluster}"),
-                )
-                for cluster in clusters
-            )
-        )
-        self.checked_at = {
-            cluster: checked_at
-            for cluster, ok in zip(clusters, results, strict=True)
-            if ok
-        }
+        results = await self.litellm.report_heartbeats(clusters)
+        if results:
+            self.checked_at = MappingProxyType(dict(results))
 
 
 def _monotonic() -> float:

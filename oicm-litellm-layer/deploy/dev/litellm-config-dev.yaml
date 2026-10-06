@@ -122,6 +122,10 @@ data:
       maximum_spend_logs_cleanup_batch_size: 1000
       maximum_spend_logs_cleanup_max_batches: 20000
       maximum_spend_logs_cleanup_run_budget: "20m"
+      # Bounds the OICM health rows the controller writes into the native
+      # health table (per-model reports plus per-source liveness). A month of
+      # history keeps incident review possible; unset means rows never delete.
+      maximum_health_check_retention_period: "30d"
       # The whole point of DB-less dev: with no DATABASE_URL and this flag,
       # auth falls back to a restricted synthetic identity and the proxy
       # starts/serves without Postgres. Validates the prod decoupling.

@@ -2,22 +2,32 @@
 
 Pins behavior, not structure: a status change must reach the gateway exactly
 once, an unchanged cycle must write nothing, a lone `observed_at` must not be
-mistaken for a change, the block must be complete, and liveness must be written
-per source rather than per model.
+mistaken for a change, the block must be complete, liveness must be written
+per source rather than per model, and health reports must follow the native
+loop's on-change-plus-hourly-refresh rule.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from controller.litellm_client import gateway_uuid, heartbeat_payload
+from controller.litellm_client import gateway_uuid
 from controller.status.snapshot import DeploymentStatus, OicmStatusSnapshot
 from controller.status_persister import (
-    HEARTBEAT_NAME_PREFIX,
+    HEALTH_REFRESH_SECONDS,
     StatusPersister,
     build_block,
     plan_writes,
 )
+
+def _litellm_mock():
+    litellm = MagicMock()
+    litellm.patch_status = AsyncMock(return_value=True)
+    litellm.report_status = AsyncMock(return_value=True)
+    litellm.report_heartbeats = AsyncMock(
+        return_value={"alain": True, "abudhabi": True}
+    )
+    return litellm
 
 def _snapshot(
     workload_id="dep1",
@@ -213,10 +223,7 @@ class TestWriteGuard:
 async def test_persist_writes_only_the_changed_rows():
     """One changed row must not drag its unchanged siblings into a write."""
     stored = build_block(_snapshot(workload_id="dep2"))
-    litellm = MagicMock()
-    litellm.patch_status = AsyncMock(return_value=True)
-    litellm.list_heartbeats = AsyncMock(return_value={})
-    litellm.upsert_heartbeat = AsyncMock(return_value=True)
+    litellm = _litellm_mock()
     persister = StatusPersister(litellm)
 
     await persister.persist(
@@ -234,10 +241,7 @@ async def test_persist_writes_only_the_changed_rows():
 @pytest.mark.asyncio
 async def test_status_and_blocked_ride_one_patch():
     """A status change must be a single write, not one per changed field."""
-    litellm = MagicMock()
-    litellm.patch_status = AsyncMock(return_value=True)
-    litellm.list_heartbeats = AsyncMock(return_value={})
-    litellm.upsert_heartbeat = AsyncMock(return_value=True)
+    litellm = _litellm_mock()
     persister = StatusPersister(litellm)
 
     await persister.persist(
@@ -257,15 +261,12 @@ async def test_status_and_blocked_ride_one_patch():
 class TestHeartbeat:
     @pytest.mark.asyncio
     async def test_one_heartbeat_per_source_not_per_model(self):
-        """Liveness is a per-source fact, so it is written once per source.
+        """Liveness is a per-source fact, so it is reported once per source.
 
-        Writing it per model would be one full reload per model per tick for a
-        timestamp that is identical across a whole source.
+        Writing it per model would multiply rows for a fact that is identical
+        across a whole source.
         """
-        litellm = MagicMock()
-        litellm.patch_status = AsyncMock(return_value=True)
-        litellm.list_heartbeats = AsyncMock(return_value={})
-        litellm.upsert_heartbeat = AsyncMock(return_value=True)
+        litellm = _litellm_mock()
         persister = StatusPersister(litellm)
 
         await persister.persist(
@@ -277,47 +278,23 @@ class TestHeartbeat:
             {"dep1": [_entry("id-1")], "dep2": [_entry("id-2")], "dep3": [_entry("id-3")]},
         )
 
-        assert litellm.upsert_heartbeat.await_count == 2
-        names = {call.args[0]["model_name"] for call in litellm.upsert_heartbeat.await_args_list}
-        assert names == {
-            f"{HEARTBEAT_NAME_PREFIX}alain",
-            f"{HEARTBEAT_NAME_PREFIX}abudhabi",
-        }
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_reuses_the_existing_row(self):
-        """An existing heartbeat must be advanced, not duplicated.
-
-        Without the existing id every tick would POST a new row and the gateway
-        would accumulate one heartbeat row per tick.
-        """
-        litellm = MagicMock()
-        litellm.patch_status = AsyncMock(return_value=True)
-        litellm.list_heartbeats = AsyncMock(return_value={"oicm-heartbeat-alain": "id-hb"})
-        litellm.upsert_heartbeat = AsyncMock(return_value=True)
-        persister = StatusPersister(litellm)
-
-        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]})
-
-        assert litellm.upsert_heartbeat.await_args.kwargs["existing_id"] == "id-hb"
+        litellm.report_heartbeats.assert_awaited_once()
+        assert litellm.report_heartbeats.await_args.args[0] == ["abudhabi", "alain"]
 
     @pytest.mark.asyncio
     async def test_heartbeat_is_rate_limited_to_its_own_cadence(self):
         """The heartbeat must not write on every 10s poll."""
-        litellm = MagicMock()
-        litellm.patch_status = AsyncMock(return_value=True)
-        litellm.list_heartbeats = AsyncMock(return_value={})
-        litellm.upsert_heartbeat = AsyncMock(return_value=True)
+        litellm = _litellm_mock()
         persister = StatusPersister(litellm, heartbeat_interval=30)
 
         await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=0.0)
         await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=10.0)
 
-        assert litellm.upsert_heartbeat.await_count == 1
+        assert litellm.report_heartbeats.await_count == 1
 
         await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=31.0)
 
-        assert litellm.upsert_heartbeat.await_count == 2
+        assert litellm.report_heartbeats.await_count == 2
 
     @pytest.mark.asyncio
     async def test_no_heartbeat_without_snapshots(self):
@@ -327,44 +304,148 @@ class TestHeartbeat:
         report has to leave the next real cycle free to write immediately, or a
         source would look quieter than it is.
         """
-        litellm = MagicMock()
-        litellm.patch_status = AsyncMock(return_value=True)
-        litellm.list_heartbeats = AsyncMock(return_value={})
-        litellm.upsert_heartbeat = AsyncMock(return_value=True)
+        litellm = _litellm_mock()
         persister = StatusPersister(litellm, heartbeat_interval=30)
 
         await persister.persist({}, {}, now=0.0)
         await persister.persist({}, {}, now=1.0)
-        litellm.upsert_heartbeat.assert_not_awaited()
+        litellm.report_heartbeats.assert_not_awaited()
 
         await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=2.0)
 
-        assert litellm.upsert_heartbeat.await_count == 1
+        assert litellm.report_heartbeats.await_count == 1
 
-    def test_heartbeat_row_is_not_a_deployment(self):
-        """The row must carry no `oicm_uuid`, or rules would treat it as real."""
-        row = heartbeat_payload("oicm-heartbeat-alain", "2026-10-06T00:00:00+00:00", "alain")
+    @pytest.mark.asyncio
+    async def test_failed_heartbeat_is_not_recorded_as_alive(self):
+        """A source the gateway refused must not appear in `checked_at`.
 
-        assert "oicm_uuid" not in row["model_info"]
-        assert row["model_info"]["oicm_heartbeat"] == "oicm-heartbeat-alain"
-        assert row["model_info"]["checked_at"] == "2026-10-06T00:00:00+00:00"
-
-    def test_heartbeat_row_names_its_cluster(self):
-        """A consumer must read the cluster, not parse it out of the row name.
-
-        The freshness question is "the latest `checked_at` for cluster X". If the
-        cluster only existed inside the name, every consumer would re-implement
-        the naming rule, and renaming a row would silently break them.
+        `checked_at` feeds the controller's own /status, so a failed write
+        recorded as success would let the controller claim liveness it does not
+        have.
         """
-        row = heartbeat_payload("oicm-heartbeat-abudhabi", "2026-10-06T00:00:00+00:00", "abudhabi")
+        litellm = _litellm_mock()
+        litellm.report_heartbeats = AsyncMock(return_value={})
+        persister = StatusPersister(litellm)
 
-        assert row["model_info"]["oicm_cluster"] == "abudhabi"
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]})
 
-    def test_heartbeat_cluster_is_not_derived_from_the_name(self):
-        """The two must be independent, or the field is decoration."""
-        row = heartbeat_payload("oicm-heartbeat-alain", "2026-10-06T00:00:00+00:00", "abudhabi")
+        assert persister.checked_at == {}
 
-        assert row["model_info"]["oicm_cluster"] == "abudhabi"
+
+class TestHealthReports:
+    """The per-model rows the gateway's native /health/latest reads."""
+
+    @pytest.mark.asyncio
+    async def test_first_cycle_reports_every_registered_model(self):
+        """A model with no health row yet must get one, or /health/latest stays empty."""
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]})
+
+        litellm.report_status.assert_awaited_once()
+        report = litellm.report_status.await_args.args[0][0]
+        assert report["litellm_model_id"] == "id-1"
+        assert report["model_name"] == "hosted_vllm/test-model"
+        assert report["healthy"] is True
+
+    @pytest.mark.asyncio
+    async def test_steady_state_reports_nothing(self):
+        """A stable model must not gain a health row on every 10s poll.
+
+        The hourly refresh rule is what keeps the volume bounded: identical
+        cycles write nothing, exactly like the PATCH guard.
+        """
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=0.0)
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=10.0)
+
+        assert litellm.report_status.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stable_model_is_refreshed_after_an_hour(self):
+        """A long-stable model must still get a fresh row eventually.
+
+        Without the refresh, the Admin UI's "last check" column would read
+        "3 days ago" for a perfectly healthy model, which looks like an outage.
+        This mirrors the native loop's one-hour threshold exactly, so if that
+        loop is ever enabled both writers behave identically.
+        """
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=0.0)
+        await persister.persist(
+            {"dep1": _snapshot()},
+            {"dep1": [_entry()]},
+            now=HEALTH_REFRESH_SECONDS + 1,
+        )
+
+        assert litellm.report_status.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_serving_flip_is_reported_even_without_the_patch(self):
+        """`healthy` must follow `serving_available`, the same verdict a probe would return.
+
+        A `Ready` deployment whose pods are down is unhealthy here; writing
+        `healthy` would publish a model that fails every request.
+        """
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist(
+            {"dep1": _snapshot(serving=False)}, {"dep1": [_entry()]}, now=0.0
+        )
+
+        report = litellm.report_status.await_args.args[0][0]
+        assert report["healthy"] is False
+        assert report["error_message"] is None
+
+    @pytest.mark.asyncio
+    async def test_report_carries_the_block_and_cluster(self):
+        """The gateway row must carry the OICM truth inside `details`.
+
+        The health column can only say healthy/unhealthy; the lifecycle word,
+        replicas and cluster are what make the row worth reading, and they ride
+        in `details` so `/health/latest` exposes them verbatim.
+        """
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]})
+
+        report = litellm.report_status.await_args.args[0][0]
+        assert report["details"]["status"] == "Ready"
+        assert report["details"]["cluster"] == "alain"
+        assert report["details"]["serving_available"] is True
+
+    @pytest.mark.asyncio
+    async def test_snapshot_without_a_gateway_row_is_not_reported(self):
+        """An OICM-only deployment has no LiteLLM row to attach a health report to."""
+        litellm = _litellm_mock()
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {})
+
+        litellm.report_status.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_report_retries_next_cycle(self):
+        """A refused batch must not be recorded as reported.
+
+        The refresh bookkeeping only advances on success, so a gateway hiccup
+        costs one extra attempt rather than an hour of missing health rows.
+        """
+        litellm = _litellm_mock()
+        litellm.report_status = AsyncMock(side_effect=[False, True])
+        persister = StatusPersister(litellm)
+
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=0.0)
+        await persister.persist({"dep1": _snapshot()}, {"dep1": [_entry()]}, now=10.0)
+
+        assert litellm.report_status.await_count == 2
 
 
 class TestGatewayUuid:

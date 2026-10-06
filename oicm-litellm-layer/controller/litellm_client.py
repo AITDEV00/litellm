@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Dict, List, Optional, Tuple
+from types import MappingProxyType
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import httpx
 
@@ -147,93 +148,96 @@ class LiteLLMClient:
                 )
                 return False
 
-    async def upsert_heartbeat(
-        self, row: dict, existing_id: Optional[str] = None
+    async def report_status(
+        self,
+        reports: Sequence[dict],
+        *,
+        reporter: str = "oicm-controller",
     ) -> bool:
-        """Create or advance one controller-owned liveness row per cluster.
+        """Persist observed per-model health into the gateway's health table.
 
-        Liveness is a per-cluster fact, so this is one write per cluster per
-        heartbeat rather than one per model. The row carries no `oicm_uuid`,
-        which is what keeps it invisible to ``list_all_models_by_key`` and to
-        every reconciliation rule, and it is blocked so it is never routable.
-
-        This is a deliberate placeholder. LiteLLM has no generic key-value write
-        endpoint, so a model row is the only place a controller-owned timestamp
-        can live today. It shows up in admin `/model/info` as a non-model row,
-        which is the cost. It is meant to be replaced once the gateway exposes a
-        dedicated status surface for the `/endpoints` view.
-
-        `existing_id` makes this an upsert: without it, every heartbeat would
-        POST a new row and the gateway would accumulate one per tick.
+        One POST carries the whole cycle's changed models, and the gateway
+        reuses its native health write path, so the rows come back through
+        `/health/latest` and the Admin UI health column with no read-side
+        work. The write is a plain insert: no model row is touched and no
+        router reload runs.
         """
         if self.read_only:
-            logger.info("[READ-ONLY] would upsert heartbeat %s", row["model_name"])
+            logger.info(
+                "[READ-ONLY] would report %d status rows as %s",
+                len(reports),
+                reporter,
+            )
             return False
-        if existing_id is not None:
-            return await self._patch_heartbeat(existing_id, row)
+        if not reports:
+            return True
         async with self._semaphore:
             try:
                 resp = await self._client.post(
-                    f"{self.base_url}/model/new",
-                    json=row,
+                    f"{self.base_url}/oicm/v1/status-reports",
+                    json={"reporter": reporter, "reports": list(reports)},
                     timeout=self._write_timeout,
                 )
                 resp.raise_for_status()
-                created_id = resp.json().get("model_id")
-                if created_id:
-                    await self.set_blocked(created_id, True)
-                return True
+                return bool(resp.json().get("saved") == len(reports))
             except Exception as e:
                 logger.error(
-                    "Failed to create heartbeat %s: %s",
-                    row["model_name"],
+                    "Failed to report %d status rows: %s",
+                    len(reports),
                     _error_detail(e),
                 )
                 return False
 
-    async def _patch_heartbeat(self, litellm_model_id: str, row: dict) -> bool:
+    async def report_heartbeats(
+        self,
+        clusters: Sequence[str],
+        *,
+        reporter: str = "oicm-controller",
+    ) -> Mapping[str, bool]:
+        """Record per-source liveness rows in the gateway's health table.
+
+        One POST per heartbeat tick carries every source, so liveness stays one
+        write per source per tick. The server stamps `checked_at`, so the
+        timestamp means "when the gateway heard from the controller", which the
+        controller itself cannot forge or drift.
+        """
+        if self.read_only:
+            logger.info(
+                "[READ-ONLY] would report heartbeats for %s as %s",
+                list(clusters),
+                reporter,
+            )
+            return {}
+        if not clusters:
+            return {}
         async with self._semaphore:
             try:
-                resp = await self._client.patch(
-                    f"{self.base_url}/model/{litellm_model_id}/update",
+                resp = await self._client.post(
+                    f"{self.base_url}/oicm/v1/heartbeats",
                     json={
-                        "blocked": True,
-                        "model_info": row["model_info"],
+                        "reporter": reporter,
+                        "heartbeats": [{"cluster": c} for c in clusters],
                     },
                     timeout=self._write_timeout,
                 )
                 resp.raise_for_status()
-                return True
+                body = resp.json()
             except Exception as e:
                 logger.error(
-                    "Failed to advance heartbeat %s: %s",
-                    row["model_name"],
+                    "Failed to report heartbeats for %s: %s",
+                    list(clusters),
                     _error_detail(e),
                 )
-                return False
-
-    async def list_heartbeats(self) -> Dict[str, str]:
-        """Map heartbeat name to its LiteLLM model id, one row per source.
-
-        Read from the same `/model/info` payload the reconciler already uses, so
-        the heartbeat costs no extra call. Rows are matched on
-        `model_info.oicm_heartbeat`, the tag that distinguishes them from real
-        deployments.
-        """
-        try:
-            resp = await self._client.get(f"{self.base_url}/model/info")
-            resp.raise_for_status()
-        except Exception as e:
-            logger.error("Failed to list heartbeats: %s", e)
-            return {}
-        found: Dict[str, str] = {}
-        for m in resp.json().get("data", []):
-            info = m.get("model_info") or {}
-            name = info.get("oicm_heartbeat")
-            model_id = info.get("id")
-            if name and model_id:
-                found[name] = model_id
-        return found
+                return {}
+        saved: dict[str, bool] = {}
+        for cluster, ok in zip(clusters, body.get("saved_per_cluster", []), strict=False):
+            saved[cluster] = bool(ok)
+        if len(saved) != len(clusters):
+            # The route saves per source; treat a short answer as all-or-nothing
+            # so the caller cannot mistake a partial save for a full one.
+            all_ok = bool(body.get("saved") == len(clusters))
+            saved = {cluster: all_ok for cluster in clusters}
+        return MappingProxyType(saved)
 
     async def batch(
         self,
@@ -396,34 +400,6 @@ def _error_detail(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.text
     return str(exc)
-
-
-def heartbeat_payload(name: str, checked_at: str, cluster: str) -> dict:
-    """The request body for one cluster's liveness row.
-
-    The `api_base` is an unroutable placeholder and the model is a passthrough
-    id, because the row exists only to carry a timestamp. It is created blocked,
-    so it is never selected, and having no `oicm_uuid` keeps it out of every
-    rule that reconciles real deployments.
-
-    `oicm_cluster` is set explicitly rather than left to be parsed out of the row
-    name. A consumer asks "what is the latest `checked_at` for cluster X", and a
-    name-shaped answer would make every consumer re-implement the naming rule.
-    """
-    return {
-        "model_name": name,
-        "litellm_params": {
-            "model": "hosted_vllm/__oicm_heartbeat__",
-            "api_base": "http://127.0.0.1:1/v1",
-            "api_key": "",
-        },
-        "model_info": {
-            "mode": "chat",
-            "oicm_heartbeat": name,
-            "oicm_cluster": cluster,
-            "checked_at": checked_at,
-        },
-    }
 
 
 def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dict:
