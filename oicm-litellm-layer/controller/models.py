@@ -115,10 +115,6 @@ class OicmModel:
             return base
         return f"{base}/v1"
 
-    @property
-    def is_ready(self) -> bool:
-        return self.ready_replicas > 0
-
 
 def parse_model_list(resp: dict) -> List[str]:
     """Normalize a `/v1/models` response into a flat list of model ids.
@@ -162,46 +158,53 @@ RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
 HAMSA_TTS_PATH = "/tts/stream"
 HAMSA_TRANSCRIPTION_PATH = "/transcribe"
 
+# Ordered path to mode, most specific first. A path only implies a mode when the
+# chat path is absent, so this is consulted once that is established. A frozenset
+# value means any one of its members implies the mode.
+_PATH_MODES: Final[Tuple[Tuple[object, str], ...]] = (
+    (EMBEDDING_PATH, "embedding"),
+    (RERANK_PATHS, "rerank"),
+    (TRANSCRIPTION_PATH, "audio_transcription"),
+    (TTS_PATH, "text_to_speech"),
+    (HAMSA_TTS_PATH, "text_to_speech"),
+    (HAMSA_TRANSCRIPTION_PATH, "audio_transcription"),
+    (OCR_PATH, "ocr"),
+)
+
+# Name fallback for pods whose openapi.json probe fails. Hyphen-delimited
+# capability tokens, so an id like "settings" does not trip the "tts" check.
+_NAME_MODES: Final[Tuple[Tuple[str, str], ...]] = (
+    ("whisper", "audio_transcription"),
+    ("asr", "audio_transcription"),
+    ("-tts", "text_to_speech"),
+    ("-stt", "audio_transcription"),
+)
+
 
 def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str) -> str:
+    """Infer the LiteLLM mode from the pod's exposed paths, then its name.
+
+    A path only implies a mode when the chat path is absent, because a server
+    that serves both is a chat model with extra endpoints. The name fallback
+    covers pods whose ``openapi.json`` probe fails: it matches hyphen-delimited
+    capability tokens (``hamsa-tts-new``, ``hamsa-stt-v2``) rather than bare
+    substrings, so an id like ``settings`` does not trip the ``tts`` check.
+    """
+    if "--runner pooling" in extra_args.lower() and CHAT_PATH not in paths:
+        return "embedding"
+
+    if CHAT_PATH not in paths:
+        for candidate, mode in _PATH_MODES:
+            if isinstance(candidate, frozenset):
+                if candidate & paths:
+                    return mode
+            elif candidate in paths:
+                return mode
+
     mid_lower = model_id.lower()
-    extra_lower = extra_args.lower()
-
-    if "--runner pooling" in extra_lower and CHAT_PATH not in paths:
-        return "embedding"
-
-    if EMBEDDING_PATH in paths and CHAT_PATH not in paths:
-        return "embedding"
-
-    if RERANK_PATHS & paths and CHAT_PATH not in paths:
-        return "rerank"
-
-    if TRANSCRIPTION_PATH in paths and CHAT_PATH not in paths:
-        return "audio_transcription"
-
-    if TTS_PATH in paths and CHAT_PATH not in paths:
-        return "text_to_speech"
-
-    if HAMSA_TTS_PATH in paths and CHAT_PATH not in paths:
-        return "text_to_speech"
-
-    if HAMSA_TRANSCRIPTION_PATH in paths and CHAT_PATH not in paths:
-        return "audio_transcription"
-
-    if OCR_PATH in paths and CHAT_PATH not in paths:
-        return "ocr"
-
-    if "whisper" in mid_lower or "asr" in mid_lower:
-        return "audio_transcription"
-
-    # Name fallback for pods whose openapi.json probe fails: hyphen-delimited
-    # capability tokens ("hamsa-tts-new", "hamsa-stt-v2") rather than bare
-    # substrings, so ids like "settings" don't trip the "tts" check.
-    if "-tts" in mid_lower or mid_lower.startswith("tts"):
-        return "text_to_speech"
-
-    if "-stt" in mid_lower or mid_lower.startswith("stt"):
-        return "audio_transcription"
+    for token, mode in _NAME_MODES:
+        if token in mid_lower or mid_lower.startswith(token.lstrip("-")):
+            return mode
 
     return "chat"
 

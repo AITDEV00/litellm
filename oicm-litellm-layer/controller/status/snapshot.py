@@ -24,18 +24,6 @@ class DeploymentStatus(str, Enum):
     UNDEPLOYING = "Undeploying"
 
 
-class WorkloadStatus(str, Enum):
-    """OICM ``WorkloadStatus``; drives ``DeploymentStatus`` in refresh_status."""
-
-    CREATING = "Creating"
-    PENDING = "Pending"
-    INITIALIZING = "Initializing"
-    RUNNING = "Running"
-    FAILED = "Failed"
-    DELETING = "Deleting"
-    COMPLETED = "Completed"
-
-
 @dataclass(frozen=True, slots=True)
 class OicmStatusSnapshot:
     """One observed status snapshot for a single OICM model deployment.
@@ -73,8 +61,5 @@ class OicmStatusSnapshot:
 
     error_msg: Optional[str]
 
-    source_updated_at: Optional[str]
-
-    previous_source_status: Optional[DeploymentStatus]
     status_changed_at: Optional[str]
     observed_at: str

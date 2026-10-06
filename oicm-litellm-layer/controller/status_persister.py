@@ -241,7 +241,7 @@ class StatusPersister:
         )
         self.checked_at = {
             cluster: checked_at
-            for cluster, ok in zip(clusters, results)
+            for cluster, ok in zip(clusters, results, strict=True)
             if ok
         }
 

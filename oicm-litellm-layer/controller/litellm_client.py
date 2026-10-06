@@ -277,13 +277,6 @@ class LiteLLMClient:
         _, registered_ids, _ = await self.batch([], [(model, inherited_params)], [])
         return next((r for r in registered_ids if r), None)
 
-    async def deregister_model(self, litellm_model_id: str) -> bool:
-        if self.read_only:
-            logger.info("[READ-ONLY] would deregister %s", litellm_model_id)
-            return False
-        deleted, _, _ = await self.batch([litellm_model_id], [], [])
-        return deleted > 0
-
     async def set_blocked(self, litellm_model_id: str, blocked: bool) -> bool:
         """Pause or resume a registered model without touching its config.
 

@@ -88,7 +88,7 @@ class OicmDeploymentSummary(BaseModel):
     This is the workspace-wide status payload: one call returns every
     deployment already carrying its ``status_detail``, so the controller never
     needs a per-deployment fetch. It keys the deployment as ``deployment_id``
-    (not ``id``), so it is deliberately not an ``OicmDeployment``.
+    rather than ``id``, so it is its own model and not a deployment record.
     """
 
     model_config = _EXTRA
@@ -100,7 +100,6 @@ class OicmDeploymentSummary(BaseModel):
     error_msg: Optional[str] = None
     replicas: Optional[int] = None
     status_detail: tuple[StatusDetail, ...] = ()
-    updated_at: Optional[str] = Field(default=None, alias="_updated_at")
 
     @field_validator("status_detail", mode="before")
     @classmethod

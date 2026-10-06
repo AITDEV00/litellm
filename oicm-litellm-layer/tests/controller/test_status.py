@@ -222,10 +222,6 @@ class TestBuildSnapshot:
         assert snap.source_status is None
         assert snap.serving_available is False
 
-    def test_wire_alias_populates_updated_at(self):
-        snap = _build(_summary("Ready", []))
-        assert snap.source_updated_at == "2026-09-18T14:06:27Z"
-
     def test_available_status_with_ready_run_is_serving(self):
         snap = _build(_summary("Available", [_pod(True)]))
         assert snap.source_status is DeploymentStatus.AVAILABLE
@@ -283,7 +279,6 @@ class TestTransitionMemory:
             now=datetime(2026, 10, 2, tzinfo=timezone.utc),
         )
         assert later.status_changed_at == first.status_changed_at
-        assert later.previous_source_status is DeploymentStatus.READY
 
     def test_serving_flip_moves_status_changed_at_despite_same_source_status(self):
         # Regression guard: OICM can keep reporting "Ready" while the pod drops

@@ -56,17 +56,6 @@ async def test_read_only_register_model_is_noop(caplog):
 
 
 @pytest.mark.asyncio
-async def test_read_only_deregister_is_noop(caplog):
-    client = LiteLLMClient(read_only=True)
-    client._delete_one = AsyncMock(return_value=True)
-
-    result = await client.deregister_model("litellm-id")
-
-    assert result is False
-    client._delete_one.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_read_write_batch_still_writes(monkeypatch):
     client = LiteLLMClient(read_only=False)
     # Simulate successful writes to confirm the normal (non-debug) path still

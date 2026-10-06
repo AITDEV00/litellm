@@ -231,10 +231,8 @@ class DiscoveryController:
             return
 
         serving = (dep.status.ready_replicas or 0) > 0
-        for key, model in models.items():
-            if not serving:
-                # OicmModel is frozen, and this is the only field that differs.
-                model = replace(model, serving=False)
+        for key, discovered in models.items():
+            model = discovered if serving else replace(discovered, serving=False)
             if key in self._state:
                 # A redeploy can reuse the uuid, so the k8s object is the real
                 # record and has to replace any non-serving placeholder from

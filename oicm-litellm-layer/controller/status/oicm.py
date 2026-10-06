@@ -2,9 +2,8 @@
 
 Owns the OICM REST transport (auth, token lifecycle, connection reuse) and
 validates responses into the typed ``wire`` models at the boundary. Everything
-OICM-specific, the tenant-realm auth recipe, the URL layout, the
-``_version``/``_updated_at`` wire names, is confined here; swap this one class
-to change backends.
+OICM-specific, the tenant-realm auth recipe, the URL layout, the wire field
+names, is confined here; swap this one class to change backends.
 """
 
 from __future__ import annotations

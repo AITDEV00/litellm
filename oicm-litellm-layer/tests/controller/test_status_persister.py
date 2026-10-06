@@ -40,8 +40,6 @@ def _snapshot(
         unavailable_replicas=None,
         serving_available=serving,
         error_msg=error_msg,
-        source_updated_at=None,
-        previous_source_status=None,
         status_changed_at=status_changed_at,
         observed_at=observed_at,
     )

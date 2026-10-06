@@ -12,8 +12,8 @@ from ..config import (
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
-from ..models import OicmModel, build_model, detect_mode, parse_model_list
-from .base import ModelSource
+from ..models import OicmModel, build_model, detect_mode
+from .base import ModelSource, probe_v1_models
 from .local_deployments import load_kube_config
 
 logger = logging.getLogger("oicm-discovery")
@@ -134,18 +134,7 @@ class SubmarinerImportSource(ModelSource):
     ) -> list[str]:
         url = f"http://{globalnet_ip}:{port}/v1/models"
         try:
-            resp = await self._client.get(url)
-            if resp.status_code == 405:
-                logger.info(
-                    "Model at %s:%s returned 405 on /v1/models, non-OpenAI, skipping",
-                    globalnet_ip,
-                    port,
-                )
-                return []
-            resp.raise_for_status()
-            return parse_model_list(resp.json())
+            return await probe_v1_models(self._client, url)
         except Exception as e:
-            logger.debug(
-                "Failed to query /v1/models at %s:%s: %s", globalnet_ip, port, e
-            )
-        return []
+            logger.warning("Could not query %s: %s", url, e)
+            return []

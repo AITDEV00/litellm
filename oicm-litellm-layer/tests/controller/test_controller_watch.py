@@ -49,7 +49,6 @@ def _controller(models, serving=True):
     controller.pricing_resolver.resolve = AsyncMock(return_value=None)
     controller.litellm.register_model = AsyncMock(return_value="litellm-id")
     controller.litellm.set_blocked = AsyncMock(return_value=True)
-    controller.litellm.deregister_model = AsyncMock(return_value=True)
     controller.fallback_reconciler.reconcile = AsyncMock()
     return controller
 
@@ -102,7 +101,6 @@ async def test_deployment_losing_its_pods_updates_state_without_writing_blocked(
     await controller._handle_modify("uuid-1", _deployment(ready_replicas=0))
 
     controller.litellm.set_blocked.assert_not_awaited()
-    controller.litellm.deregister_model.assert_not_awaited()
     assert controller._state[model.deployment_id].serving is False
 
 
@@ -149,7 +147,6 @@ async def test_delete_keeps_the_row_and_lets_oicm_decide_removal():
 
     await controller._handle_delete("uuid-1")
 
-    controller.litellm.deregister_model.assert_not_awaited()
     controller.litellm.set_blocked.assert_not_awaited()
     assert controller._state[model.deployment_id].serving is False
     # The id map must survive, or the next full sync could not resume it.

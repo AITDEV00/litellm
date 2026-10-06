@@ -87,8 +87,6 @@ def build_snapshot(
         ),
         serving_available=serving_available,
         error_msg=summary.error_msg,
-        source_updated_at=summary.updated_at,
-        previous_source_status=previous.source_status if previous else None,
         status_changed_at=status_changed_at,
         observed_at=observed,
     )

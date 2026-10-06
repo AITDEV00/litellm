@@ -9,7 +9,7 @@ as absent-safe rather than required:
 
 - ``apiVersion``: OICM's own check requires ``"v1"``, but the API returns null
   for every ``status_detail`` entry, so requiring it makes OICM's availability
-  (and hence ``/health.is_ready``) report False for every deployment.
+  (and hence its own health check) report False for every deployment.
 - ``metadata``: OICM ``1.7.1`` (Abu Dhabi) does not populate it at all. Every
   entry there carries only ``kind``, ``name``, ``node``, ``status``, and
   ``status_msg``, so requiring ``metadata.ready`` makes a genuinely serving
@@ -44,7 +44,7 @@ def _status_says_serving(status: Optional[str]) -> bool:
     return isinstance(status, str) and status.strip().lower() in _SERVING_STATUSES
 
 
-def _is_ready(entry: StatusDetail) -> bool:
+def _entry_is_serving(entry: StatusDetail) -> bool:
     match entry:
         case PodStatusDetail(node=node, status=status, metadata=meta):
             # A pod with no node is not scheduled, so it cannot serve.
@@ -70,4 +70,4 @@ def is_deployment_available(status_detail: tuple[StatusDetail, ...]) -> bool:
     Works for either topology without a topology flag: a Pod entry matches the
     single-node branch, a LeaderWorkerSet the multi-node branch.
     """
-    return any(_is_ready(entry) for entry in status_detail)
+    return any(_entry_is_serving(entry) for entry in status_detail)

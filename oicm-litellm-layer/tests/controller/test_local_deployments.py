@@ -2,8 +2,10 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
+from controller.sources.base import probe_v1_models
 from controller.sources.local_deployments import LocalDeploymentSource
 
 
@@ -124,3 +126,43 @@ async def test_no_model_id_falls_back_to_uuid():
 
     assert list(models.keys()) == ["uuid-fallback"]
     assert models["uuid-fallback"].model_id == "uuid-fallback"
+
+class TestProbeV1Models:
+    """The shared /v1/models probe, used by both discovery sources."""
+
+    @pytest.mark.asyncio
+    async def test_openai_shape_returns_the_ids(self):
+        class _Client:
+            async def get(self, url):
+                return httpx.Response(
+                    200,
+                    json={"object": "list", "data": [{"id": "org/model"}]},
+                    request=httpx.Request("GET", url),
+                )
+
+        assert await probe_v1_models(_Client(), "http://x/v1/models") == ["org/model"]
+
+    @pytest.mark.asyncio
+    async def test_405_means_no_openai_surface_not_a_failure(self):
+        """A native-surface pod answers 405, which is a normal result."""
+
+        class _Client:
+            async def get(self, url):
+                return httpx.Response(
+                    405, request=httpx.Request("GET", url)
+                )
+
+        assert await probe_v1_models(_Client(), "http://x/v1/models") == []
+
+    @pytest.mark.asyncio
+    async def test_server_error_raises_so_the_caller_decides(self):
+        """A 500 is a real failure; each source handles it its own way."""
+
+        class _Client:
+            async def get(self, url):
+                return httpx.Response(
+                    500, request=httpx.Request("GET", url)
+                )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await probe_v1_models(_Client(), "http://x/v1/models")

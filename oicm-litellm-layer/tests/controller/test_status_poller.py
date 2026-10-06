@@ -84,7 +84,6 @@ async def test_status_change_is_tracked_across_refreshes():
     source._summaries = (stopped,)
     second = (await poller.refresh())[ready.deployment_id]
 
-    assert second.previous_source_status.value == "Ready"
     assert second.source_status.value == "Stopped"
     assert second.status_changed_at != first.status_changed_at
 

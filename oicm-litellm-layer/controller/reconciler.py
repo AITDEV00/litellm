@@ -289,7 +289,9 @@ class SyncReconciler:
 
         # registered_ids preserves input order (None for a failed register), so
         # zip aligns each id to its model by position.
-        for (model, _), litellm_id in zip(plan.registers, registered_ids):
+        for (model, _), litellm_id in zip(
+            plan.registers, registered_ids, strict=True
+        ):
             if litellm_id:
                 plan.new_id_map[model.deployment_id] = litellm_id
                 plan.new_state[model.deployment_id] = model
