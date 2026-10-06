@@ -142,6 +142,42 @@ class TestDetectApiSurface:
         paths = frozenset({"/tts/stream"})
         assert detect_mode_from_paths(paths, "hamsa-tts-new", "") == "text_to_speech"
 
+    def test_detect_mode_transcription_with_chat_is_chat(self):
+        """A chat server that also serves transcription is still a chat model.
+
+        Some chat pods advertise /v1/chat/completions alongside
+        /v1/audio/transcriptions. Registering one as an audio model makes the
+        gateway POST /v1/audio/transcriptions, which the pod does not serve, so
+        the model 404s even though it is healthy.
+        """
+        paths = frozenset({"/v1/chat/completions", "/v1/audio/transcriptions"})
+        assert detect_mode_from_paths(paths, "microsoft/VibeVoice-ASR", "") == "chat"
+
+    def test_detect_mode_speech_with_chat_is_chat(self):
+        paths = frozenset({"/v1/chat/completions", "/v1/audio/speech"})
+        assert detect_mode_from_paths(paths, "some-chat-tts", "") == "chat"
+
+    def test_detect_mode_embedding_with_chat_is_chat(self):
+        paths = frozenset({"/v1/chat/completions", "/v1/embeddings"})
+        assert detect_mode_from_paths(paths, "some-chat-embed", "") == "chat"
+
+    def test_detect_mode_ocr_with_chat_is_chat(self):
+        paths = frozenset({"/v1/chat/completions", "/v1/ocr"})
+        assert detect_mode_from_paths(paths, "PP-DocLayoutV3", "") == "chat"
+
+    def test_detect_mode_audio_only_still_detected(self):
+        # The chat rule must not swallow a genuine audio-only pod.
+        paths = frozenset({"/v1/audio/transcriptions", "/v1/models"})
+        assert (
+            detect_mode_from_paths(paths, "CohereLabs/cohere-transcribe", "")
+            == "audio_transcription"
+        )
+
+    def test_detect_mode_chat_path_beats_the_name_fallback(self):
+        # A chat pod whose name looks like TTS stays a chat pod.
+        paths = frozenset({"/v1/chat/completions"})
+        assert detect_mode_from_paths(paths, "some-tts-chat", "") == "chat"
+
     def test_detect_mode_hamsa_native_transcription_path(self):
         paths = frozenset({"/transcribe"})
         assert (

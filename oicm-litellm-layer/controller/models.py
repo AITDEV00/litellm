@@ -182,22 +182,30 @@ _NAME_MODES: Final[Tuple[Tuple[str, str], ...]] = (
 def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str) -> str:
     """Infer the LiteLLM mode from the pod's exposed paths, then its name.
 
-    A path only implies a mode when the chat path is absent, because a server
-    that serves both is a chat model with extra endpoints. The name fallback
-    covers pods whose ``openapi.json`` probe fails: it matches hyphen-delimited
-    capability tokens (``hamsa-tts-new``, ``hamsa-stt-v2``) rather than bare
-    substrings, so an id like ``settings`` does not trip the ``tts`` check.
+    A server that can chat is a chat model, whatever else it also serves. The
+    reverse does not hold: a pod exposing only ``/v1/audio/transcriptions`` is an
+    audio model. So the chat path decides first, and the table below is consulted
+    only once chat is ruled out. Without that ordering, a chat server that also
+    exposes a transcription endpoint gets registered as an audio model, and every
+    request then 404s against an endpoint the pod does not serve.
+
+    The name fallback covers pods whose ``openapi.json`` probe fails: it matches
+    hyphen-delimited capability tokens (``hamsa-tts-new``, ``hamsa-stt-v2``)
+    rather than bare substrings, so an id like ``settings`` does not trip the
+    ``tts`` check.
     """
     if "--runner pooling" in extra_args.lower() and CHAT_PATH not in paths:
         return "embedding"
 
-    if CHAT_PATH not in paths:
-        for candidate, mode in _PATH_MODES:
-            if isinstance(candidate, frozenset):
-                if candidate & paths:
-                    return mode
-            elif candidate in paths:
+    if CHAT_PATH in paths:
+        return "chat"
+
+    for candidate, mode in _PATH_MODES:
+        if isinstance(candidate, frozenset):
+            if candidate & paths:
                 return mode
+        elif candidate in paths:
+            return mode
 
     mid_lower = model_id.lower()
     for token, mode in _NAME_MODES:
