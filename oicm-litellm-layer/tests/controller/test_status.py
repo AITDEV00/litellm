@@ -34,7 +34,7 @@ def _health():
     )
 
 
-def _build(deployment, health, run):
+def _build(deployment, health, run, previous=None):
     return build_snapshot(
         workspace_id="ws1",
         workload_id="dep1",
@@ -42,7 +42,7 @@ def _build(deployment, health, run):
         deployment=deployment,
         health=health,
         workload_run=run,
-        previous=None,
+        previous=previous,
         now=datetime(2026, 10, 1, tzinfo=timezone.utc),
     )
 
@@ -160,3 +160,64 @@ class TestBuildSnapshot:
         snap = _build(_deployment("Ready"), _health(), None)
         assert snap.source_version == 6
         assert snap.source_updated_at == "2026-09-18T14:06:27Z"
+
+    def test_available_status_with_ready_run_is_serving(self):
+        snap = _build(
+            _deployment("Available"),
+            _health(),
+            _run([{"kind": "Pod", "node": "n", "metadata": {"ready": True}}]),
+        )
+        assert snap.source_status is DeploymentStatus.AVAILABLE
+        assert snap.serving_available is True
+
+    def test_missing_health_leaves_is_ready_none(self):
+        snap = _build(_deployment("Ready"), None, None)
+        assert snap.is_ready is None
+        assert snap.health_supported is False
+        assert snap.health_message is None
+
+
+class TestTransitionMemory:
+    def test_status_changed_at_is_stable_when_nothing_changes(self):
+        first = _build(
+            _deployment("Ready"),
+            _health(),
+            _run([{"kind": "Pod", "node": "n", "metadata": {"ready": True}}]),
+        )
+        later = build_snapshot(
+            workspace_id="ws1",
+            workload_id="dep1",
+            workload_run_id="run1",
+            deployment=_deployment("Ready"),
+            health=_health(),
+            workload_run=_run([{"kind": "Pod", "node": "n", "metadata": {"ready": True}}]),
+            previous=first,
+            now=datetime(2026, 10, 2, tzinfo=timezone.utc),
+        )
+        assert later.status_changed_at == first.status_changed_at
+        assert later.previous_source_status is DeploymentStatus.READY
+        assert later.previous_workload_run_id == "run1"
+
+    def test_serving_flip_moves_status_changed_at_despite_same_source_status(self):
+        # Regression guard: OICM can keep reporting "Ready" while the pod drops
+        # out of service. That transition must move status_changed_at.
+        first = _build(
+            _deployment("Ready"),
+            _health(),
+            _run([{"kind": "Pod", "node": "n", "metadata": {"ready": True}}]),
+        )
+        assert first.serving_available is True
+        degraded = build_snapshot(
+            workspace_id="ws1",
+            workload_id="dep1",
+            workload_run_id="run1",
+            deployment=_deployment("Ready"),
+            health=_health(),
+            workload_run=_run([{"kind": "Pod", "node": "n", "metadata": {"ready": False}}]),
+            previous=first,
+            now=datetime(2026, 10, 2, tzinfo=timezone.utc),
+        )
+        assert degraded.source_status is DeploymentStatus.READY
+        assert degraded.serving_available is False
+        assert degraded.status_changed_at != first.status_changed_at
+        assert degraded.status_changed_at == degraded.observed_at

@@ -111,8 +111,8 @@ spec:
               value: "false"
             # OICM status API. Non-secret connection config is inline; the
             # service-account credentials come from the oicm-status-api Secret
-            # (created out-of-band, never committed). Used by the OicmClient
-            # (M1) to read deployment status/health for gateway_status.
+            # (created out-of-band, never committed). Read by OicmStatusSource
+            # (M1) for gateway_status.
             - name: OICM_BASE_URL
               value: "https://oicm.adeoaiengine.ecouncil.ae"
             - name: OICM_AUTH_URL

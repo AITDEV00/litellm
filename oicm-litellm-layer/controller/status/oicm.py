@@ -1,15 +1,15 @@
 """OICM-backed ``StatusSource``.
 
-Owns the OICM REST transport (auth, token lifecycle, retries) and validates
-responses into the typed ``models`` at the boundary. Everything OICM-specific —
-the tenant-realm auth recipe, the URL layout, the ``_version``/``_updated_at``
-wire names — is confined here; swap this one class to change backends.
+Owns the OICM REST transport (auth, token lifecycle, connection reuse) and
+validates responses into the typed ``wire`` models at the boundary. Everything
+OICM-specific, the tenant-realm auth recipe, the URL layout, the
+``_version``/``_updated_at`` wire names, is confined here; swap this one class
+to change backends.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
 from typing import Any, Optional
 
@@ -25,11 +25,10 @@ from ..config import (
     OICM_REALM,
     OICM_TIMEOUT,
     OICM_USERNAME,
+    OICM_VERIFY_TLS,
 )
 from .base import StatusSource
 from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
-
-logger = logging.getLogger("oicm-discovery")
 
 # Refresh the token this many seconds before its stated expiry.
 _TOKEN_REFRESH_MARGIN_SECONDS = 30.0
@@ -55,6 +54,7 @@ class _OicmTokenAuth(httpx.Auth):
         password: str,
         grant_type: str,
         timeout: float,
+        verify: bool,
     ):
         self._token_url = f"{auth_url}/realms/{realm}/protocol/openid-connect/token"
         self._payload = {
@@ -64,7 +64,7 @@ class _OicmTokenAuth(httpx.Auth):
             "grant_type": grant_type,
             "scope": "openid",
         }
-        self._timeout = timeout
+        self._client = httpx.AsyncClient(timeout=timeout, verify=verify)
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
         self._lock = asyncio.Lock()
@@ -73,10 +73,9 @@ class _OicmTokenAuth(httpx.Auth):
         async with self._lock:
             if self._token and time.monotonic() < self._token_expiry:
                 return self._token
-            async with httpx.AsyncClient(timeout=self._timeout, verify=False) as client:
-                resp = await client.post(self._token_url, data=self._payload)
-                resp.raise_for_status()
-                body = resp.json()
+            resp = await self._client.post(self._token_url, data=self._payload)
+            resp.raise_for_status()
+            body = resp.json()
             token = body.get("access_token")
             if not token:
                 raise RuntimeError("OICM auth response missing access_token")
@@ -85,6 +84,13 @@ class _OicmTokenAuth(httpx.Auth):
                 time.monotonic() + float(body.get("expires_in", 300)) - _TOKEN_REFRESH_MARGIN_SECONDS
             )
             return token
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def token(self) -> str:
+        """Return a valid bearer token, refreshing when near expiry."""
+        return await self._fetch_token()
 
     async def async_auth_flow(self, request: httpx.Request):
         request.headers["Authorization"] = f"Bearer {await self._fetch_token()}"
@@ -109,11 +115,11 @@ class OicmStatusSource(StatusSource):
         grant_type: str = OICM_AUTH_GRANT_TYPE,
         timeout: float = OICM_TIMEOUT,
         concurrency: int = OICM_CONCURRENCY,
+        verify: bool = OICM_VERIFY_TLS,
     ):
         self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
         self._semaphore = asyncio.Semaphore(concurrency)
-        self._auth = _OicmTokenAuth(
+        self.auth = _OicmTokenAuth(
             auth_url=auth_url.rstrip("/"),
             realm=realm,
             client_id=client_id,
@@ -121,15 +127,19 @@ class OicmStatusSource(StatusSource):
             password=password,
             grant_type=grant_type,
             timeout=timeout,
+            verify=verify,
         )
+        self._client = httpx.AsyncClient(timeout=timeout, verify=verify, auth=self.auth)
 
     async def _get(self, path: str, params: Optional[dict[str, str]] = None) -> Any:
-        async with self._semaphore, httpx.AsyncClient(
-            timeout=self.timeout, verify=False, auth=self._auth
-        ) as client:
-            resp = await client.get(f"{self.base_url}{path}", params=params)
+        async with self._semaphore:
+            resp = await self._client.get(f"{self.base_url}{path}", params=params)
             resp.raise_for_status()
             return resp.json()
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+        await self.auth.aclose()
 
     def _deployment_path(self, workspace_id: str, workload_id: str) -> str:
         return f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}"

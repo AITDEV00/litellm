@@ -8,8 +8,9 @@ class StatusSource(ABC):
     """Reads deployment status facts for one workload.
 
     Abstraction over the status backend (OICM today). Implementations translate
-    their native payloads into the typed ``models`` so call sites never depend
-    on the OICM REST shape; a backend change is confined to one implementation.
+    their native payloads into the typed ``wire`` models so call sites never
+    depend on the OICM REST shape; a backend change is confined to one
+    implementation.
     """
 
     @abstractmethod
@@ -31,3 +32,7 @@ class StatusSource(ABC):
     @abstractmethod
     async def list_deployments(self, workspace_id: str) -> list[OicmDeployment]:
         ...
+
+    async def aclose(self) -> None:
+        """Release transport resources. Default no-op for stateless sources."""
+        return

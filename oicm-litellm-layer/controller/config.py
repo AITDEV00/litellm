@@ -56,8 +56,6 @@ CONTROLLER_READ_ONLY = os.getenv("CONTROLLER_READ_ONLY", "false").lower() in (
 
 WORKLOAD_TYPE_LABEL = "oip/workload-type"
 WORKLOAD_ID_LABEL = "oip/workload-id"
-WORKLOAD_RUN_ID_LABEL = "oip/workload-run-id"
-WORKSPACE_ID_LABEL = "oip/workspace-id"
 MODEL_DEPLOYMENT_TYPE = "model_deployment"
 
 # OICM status API (gateway_status source). The tenant is the Keycloak realm:
@@ -72,7 +70,9 @@ OICM_PASSWORD = os.getenv("OICM_PASSWORD", "")
 OICM_AUTH_GRANT_TYPE = os.getenv("OICM_AUTH_GRANT_TYPE", "password")
 OICM_TIMEOUT = float(os.getenv("OICM_TIMEOUT", "20"))
 OICM_CONCURRENCY = int(os.getenv("OICM_CONCURRENCY", "20"))
-OICM_STATUS_ENABLED = os.getenv("OICM_STATUS_ENABLED", "false").lower() in (
+# OICM presents an internal-CA certificate the controller does not yet trust;
+# flip to true once that CA is mounted into the pod.
+OICM_VERIFY_TLS = os.getenv("OICM_VERIFY_TLS", "false").lower() in (
     "true",
     "1",
     "yes",

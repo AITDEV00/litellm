@@ -2,11 +2,12 @@
 
 Pure mapping. No HTTP, no LiteLLM. Transition fields (``previous_*``,
 ``status_changed_at``) come from the caller's stored last snapshot, not from
-OICM ``_updated_at`` — that timestamp can move for reasons unrelated to status.
+OICM ``_updated_at``: that timestamp can move for reasons unrelated to status.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, TypeVar
@@ -14,6 +15,8 @@ from typing import Optional, TypeVar
 from .availability import is_deployment_available
 from .snapshot import DeploymentStatus, OicmStatusSnapshot, WorkloadStatus
 from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+
+logger = logging.getLogger("oicm-discovery")
 
 _E = TypeVar("_E", bound=Enum)
 
@@ -24,6 +27,7 @@ def _enum_or_none(enum_cls: type[_E], value: Optional[str]) -> Optional[_E]:
     try:
         return enum_cls(value)
     except ValueError:
+        logger.debug("unknown %s value from OICM: %r", enum_cls.__name__, value)
         return None
 
 
@@ -57,9 +61,17 @@ def build_snapshot(
     workload_status = _enum_or_none(
         WorkloadStatus, workload_run.workload_status if workload_run else None
     )
+    serving_available = _serving_available(source_status, workload_run)
 
+    # ``status_changed_at`` tracks both the source status and the serving
+    # signal: a pod dropping out of service while OICM still reports ``Ready``
+    # is the transition a gateway_status consumer cares about most.
     status_changed_at = previous.status_changed_at if previous else None
-    if previous is None or previous.source_status != source_status:
+    if (
+        previous is None
+        or previous.source_status != source_status
+        or previous.serving_available != serving_available
+    ):
         status_changed_at = observed
 
     return OicmStatusSnapshot(
@@ -73,7 +85,7 @@ def build_snapshot(
         health_message=health.message if health else None,
         desired_replicas=deployment.replicas,
         available_replicas=workload_run.ready_pod_count if workload_run else None,
-        serving_available=_serving_available(source_status, workload_run),
+        serving_available=serving_available,
         error_msg=deployment.error_msg,
         source_version=deployment.version,
         source_updated_at=deployment.updated_at,

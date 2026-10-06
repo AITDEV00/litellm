@@ -8,47 +8,38 @@ document to stdout.
 Usage:
   kubectl exec deploy/oicm-discovery-controller-dev -- \
       python3 /app/scripts/probe_oicm_status_api.py > oicm-api-catalog.md
+
+Workspace, workload, and run ids default to a representative deployment;
+override with --workspace, --workload, --workload-run, --metric-id, and
+--metrics-start.
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from controller.config import (
-    OICM_AUTH_URL,
     OICM_BASE_URL,
     OICM_CLIENT_ID,
-    OICM_PASSWORD,
     OICM_REALM,
     OICM_USERNAME,
+    OICM_VERIFY_TLS,
 )
+from controller.status import OicmStatusSource
 
-WS = "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+DEFAULT_WS = "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
 # One representative workload + its workload-run-id label (K8s oip/workload-run-id).
-WL = "4f0a7c56-2ce3-4968-8022-c1d80fdd6ed8"
-WR = "bdaab232-7c78-40fb-8c84-a2c888486f25"
-METRIC_ID = "num_of_requests_waiting_in_queue"
+DEFAULT_WL = "4f0a7c56-2ce3-4968-8022-c1d80fdd6ed8"
+DEFAULT_WR = "bdaab232-7c78-40fb-8c84-a2c888486f25"
+DEFAULT_METRIC_ID = "num_of_requests_waiting_in_queue"
 # Short recent window keeps the metrics query fast (a 24h window times out).
-METRICS_START = "2026-09-29T06:00:00Z"
-
-
-async def get_token() -> str:
-    url = f"{OICM_AUTH_URL}/realms/{OICM_REALM}/protocol/openid-connect/token"
-    payload = {
-        "client_id": OICM_CLIENT_ID,
-        "username": OICM_USERNAME,
-        "password": OICM_PASSWORD,
-        "grant_type": "password",
-        "scope": "openid",
-    }
-    async with httpx.AsyncClient(timeout=30, verify=False) as c:
-        r = await c.post(url, data=payload)
-        r.raise_for_status()
-        return r.json()["access_token"]
+DEFAULT_METRICS_START = "2026-09-29T06:00:00Z"
 
 
 def schema_of(value: Any, depth: int = 0) -> Any:
@@ -123,71 +114,87 @@ async def probe(c: httpx.AsyncClient, label: str, path: str, note: str = "", sse
 
 
 async def main() -> None:
-    token = await get_token()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", default=DEFAULT_WS)
+    parser.add_argument("--workload", default=DEFAULT_WL)
+    parser.add_argument("--workload-run", default=DEFAULT_WR)
+    parser.add_argument("--metric-id", default=DEFAULT_METRIC_ID)
+    parser.add_argument("--metrics-start", default=DEFAULT_METRICS_START)
+    args = parser.parse_args()
+
+    ws, wl, wr = args.workspace, args.workload, args.workload_run
+
+    source = OicmStatusSource()
+    token = await source.auth.token()
     headers = {"Authorization": f"Bearer {token}"}
     jobs = [
-        ("List deployments (workspace)", f"/workspaces/{WS}/deployments",
+        ("List deployments (workspace)", f"/workspaces/{ws}/deployments",
          "All model deployments in the workspace.", False),
-        ("Get deployment", f"/workspaces/{WS}/deployments/{WL}",
+        ("Get deployment", f"/workspaces/{ws}/deployments/{wl}",
          "Single deployment record. id == workload_id.", False),
-        ("Deployment health", f"/workspaces/{WS}/deployments/{WL}/health",
+        ("Deployment health", f"/workspaces/{ws}/deployments/{wl}/health",
          "Independent readiness signal (is_ready).", False),
-        ("Deployment summary (workspace)", f"/workspaces/{WS}/deployment_summary",
+        ("Deployment summary (workspace)", f"/workspaces/{ws}/deployment_summary",
          "Roll-up of deployment states.", False),
-        ("Inference metrics meta", f"/workspaces/{WS}/deployments/{WL}/inference_metrics_meta",
+        ("Inference metrics meta", f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta",
          "The metric-id vocabulary + units.", False),
-        ("Inference metrics (queue)", f"/workspaces/{WS}/deployments/{WL}/inference_metrics?metric_id={METRIC_ID}&start={METRICS_START}",
+        ("Inference metrics (queue)", f"/workspaces/{ws}/deployments/{wl}/inference_metrics?metric_id={args.metric_id}&start={args.metrics_start}",
          "Prometheus-style series [[epoch, value], ...]. Requires metric_id + start (ISO).", False),
-        ("List workload runs", f"/workspaces/{WS}/workloads/{WL}/workload_runs",
+        ("List workload runs", f"/workspaces/{ws}/workloads/{wl}/workload_runs",
          "Runs of a workload.", False),
-        ("Get workload run", f"/workspaces/{WS}/workloads/{WL}/workload_runs/{WR}",
+        ("Get workload run", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}",
          "One run incl. status_detail[].", False),
-        ("Workload run events", f"/workspaces/{WS}/workloads/{WL}/workload_runs/{WR}/events",
+        ("Workload run events", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/events",
          "SSE stream of K8s events. NOTE: this endpoint buffers/streams slowly and "
          "may exceed the read timeout on a busy run; the captured stream is in "
          "evidence/workload-run-events.sse.", True),
-        ("Workload run resources", f"/workspaces/{WS}/workloads/{WL}/workload_runs/{WR}/resources",
+        ("Workload run resources", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/resources",
          "Resource objects of the run.", False),
-        ("Workload run workers", f"/workspaces/{WS}/workloads/{WL}/workload_runs/{WR}/workers",
+        ("Workload run workers", f"/workspaces/{ws}/workloads/{wl}/workload_runs/{wr}/workers",
          "Worker pods of the run.", False),
         ("Model servers summary", "/model_servers/summary",
          "Serving-image catalog (NOT workspace-scoped).", False),
     ]
 
+    captured = datetime.now(timezone.utc).date().isoformat()
+
     # Emit markdown header immediately, then stream each section as it lands.
     print("# OICM Status REST API - live catalog\n")
     print(f"- Base URL: `{OICM_BASE_URL}`")
     print(f"- Auth: realm `{OICM_REALM}`, client `{OICM_CLIENT_ID}`, password grant (`{OICM_USERNAME}`)")
-    print(f"- Workspace: `{WS}`")
-    print("- Captured: 2026-09-29 (dev controller, live responses)\n")
+    print(f"- Workspace: `{ws}`")
+    print(f"- Captured: {captured} (dev controller, live responses)\n")
     print("Every endpoint below was probed live. Schemas are derived from the "
           "captured payload, not guessed.\n")
     print("---\n", flush=True)
 
-    async with httpx.AsyncClient(timeout=30, verify=False, headers=headers) as c:
-        for label, path, note, sse in jobs:
-            r = await probe(c, label, path, note, sse=sse)
-            out = []
-            out.append(f"## {r['label']}")
-            out.append(f"`{r['method']} {r['path']}`  ")
-            if r["note"]:
-                out.append(f"{r['note']}  ")
-            out.append(f"**HTTP {r['http']}**\n")
-            if r["json"] is not None:
-                out.append("**Response (truncated):**\n")
-                out.append("```json")
-                out.append(json.dumps(truncate(r["json"]), indent=2)[:2500])
-                out.append("```")
-                out.append("**Field schema:**\n")
-                out.append("```json")
-                out.append(json.dumps(schema_of(r["json"]), indent=2)[:1800])
-                out.append("```\n")
-            else:
-                out.append("```")
-                out.append(str(r["text"])[:1500])
-                out.append("```\n")
-            out.append("---\n")
-            print("\n".join(out), flush=True)
+    try:
+        async with httpx.AsyncClient(timeout=30, verify=OICM_VERIFY_TLS, headers=headers) as c:
+            for label, path, note, sse in jobs:
+                r = await probe(c, label, path, note, sse=sse)
+                out = []
+                out.append(f"## {r['label']}")
+                out.append(f"`{r['method']} {r['path']}`  ")
+                if r["note"]:
+                    out.append(f"{r['note']}  ")
+                out.append(f"**HTTP {r['http']}**\n")
+                if r["json"] is not None:
+                    out.append("**Response (truncated):**\n")
+                    out.append("```json")
+                    out.append(json.dumps(truncate(r["json"]), indent=2)[:2500])
+                    out.append("```")
+                    out.append("**Field schema:**\n")
+                    out.append("```json")
+                    out.append(json.dumps(schema_of(r["json"]), indent=2)[:1800])
+                    out.append("```\n")
+                else:
+                    out.append("```")
+                    out.append(str(r["text"])[:1500])
+                    out.append("```\n")
+                out.append("---\n")
+                print("\n".join(out), flush=True)
+    finally:
+        await source.aclose()
 
 
 if __name__ == "__main__":
