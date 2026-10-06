@@ -34,6 +34,12 @@ LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
+# The kubeconfig for the Al Ain cluster, where every target here runs. One
+# variable so a renamed or relocated kubeconfig is a one-line change, and so no
+# target can point at a file that does not exist. An exported KUBECONFIG still
+# wins at run time, which is what makes these targets overridable per shell.
+ALAIN_KUBECONFIG ?= $(HOME)/.kube/alain-oicm.conf
+
 # Master key for local runs, derived from the single source of truth: the
 # `litellm-master-key` Secret in deploy/prod/litellm-proxy.yaml. A rotation in the
 # manifest propagates here automatically.
@@ -108,41 +114,41 @@ controller-deploy-dev: controller-release-dev deploy-dev
 
 ## Apply the dev controller manifest only
 deploy-dev:
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
 
 ## Deploy all manifests to the cluster
 deploy:
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 
 ## Build the ConfigMap that carries the service-account provisioner script.
 ## Both cluster Jobs mount it, so the script lives in exactly one place.
 oicm-sa-config:
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm \
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm \
 		create configmap oicm-service-account-provisioner \
 		--from-file=provision_keycloak_service_account.py=deploy/oicm/provision_keycloak_service_account.py \
 		--dry-run=client -o yaml | \
-		KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f -
+		KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f -
 
 ## Provision the Al Ain OICM service account and verify it end to end.
 ## Run oicm-sa-secrets first, which creates the two Secrets it mounts.
 oicm-sa-provision: oicm-sa-config
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-alain.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm delete job provision-oicm-sa-alain --ignore-not-found
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-alain.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-alain --timeout=180s
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm logs job/provision-oicm-sa-alain
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/provision-alain.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm delete job provision-oicm-sa-alain --ignore-not-found
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/provision-alain.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-alain --timeout=180s
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm logs job/provision-oicm-sa-alain
 
 ## Provision the Abu Dhabi OICM service account and verify it end to end.
 ## Runs in Al Ain, because that is where the controller consuming the credential
 ## lives and where the clusterset names to Abu Dhabi resolve (pods on
 ## adeo-gpu-03). Run `make oicm-sa-secrets CLUSTER=abudhabi` first.
 oicm-sa-provision-abudhabi: oicm-sa-config
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm delete job provision-oicm-sa-abudhabi --ignore-not-found
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl apply -f deploy/oicm/provision-abudhabi.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-abudhabi --timeout=180s
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/alain-oicm.conf} kubectl -n adeo-litellm logs job/provision-oicm-sa-abudhabi
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm delete job provision-oicm-sa-abudhabi --ignore-not-found
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/provision-abudhabi.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm wait --for=condition=Complete job/provision-oicm-sa-abudhabi --timeout=180s
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm logs job/provision-oicm-sa-abudhabi
 
 ## Generate the two Secrets the provisioning Jobs mount. Rotates the service
 ## account password, so follow with the matching provisioning target.
@@ -185,12 +191,12 @@ litellm-src-deploy:
 	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/prod/litellm-proxy.yaml"
 	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/prod/litellm-proxy.yaml
 	@echo "Deploying to cluster"
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/litellm-proxy.yaml
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 	@echo "Restarting litellm-proxy to pull the freshly tagged image"
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl -n mlops rollout restart deployment/litellm-proxy
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl -n mlops rollout status deployment/litellm-proxy --timeout=300s
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy --timeout=300s
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
@@ -204,12 +210,12 @@ docs:
 ## Create the litellm-logo ConfigMap from the optimized logo and favicon files
 litellm-logo:
 	@echo "Creating litellm-logo ConfigMap"
-	KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} \
-		kubectl create configmap litellm-logo -n mlops \
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} \
+		kubectl create configmap litellm-logo -n adeo-litellm \
 		--from-file=adeo-ai-gateway.jpg=decor/adeo-ai-gateway.jpg \
 		--from-file=favicon.png=decor/favicon.png \
 		--dry-run=client -o yaml | \
-		KUBECONFIG=$${KUBECONFIG:-$$HOME/.kube/oicm-alain.conf} kubectl apply -f -
+		KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f -
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the
