@@ -28,7 +28,7 @@ from ..config import (
     OICM_VERIFY_TLS,
 )
 from .base import StatusSource
-from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .wire import OicmDeploymentSummary
 
 # Refresh the token this many seconds before its stated expiry.
 _TOKEN_REFRESH_MARGIN_SECONDS = 30.0
@@ -141,30 +141,14 @@ class OicmStatusSource(StatusSource):
         await self._client.aclose()
         await self.auth.aclose()
 
-    def _deployment_path(self, workspace_id: str, workload_id: str) -> str:
-        return f"/api/v1/workspaces/{workspace_id}/deployments/{workload_id}"
+    async def summaries(self, workspace_id: str) -> tuple[OicmDeploymentSummary, ...]:
+        """Every deployment in the workspace with its status and status_detail.
 
-    async def get_deployment(self, workspace_id: str, workload_id: str) -> OicmDeployment:
-        raw = await self._get(self._deployment_path(workspace_id, workload_id))
-        return OicmDeployment.model_validate(raw)
-
-    async def get_deployment_health(
-        self, workspace_id: str, workload_id: str
-    ) -> OicmDeploymentHealth:
-        raw = await self._get(f"{self._deployment_path(workspace_id, workload_id)}/health")
-        return OicmDeploymentHealth.model_validate(raw)
-
-    async def get_workload_run(
-        self, workspace_id: str, workload_id: str, workload_run_id: str
-    ) -> Optional[OicmWorkloadRun]:
-        raw = await self._get(
-            f"/api/v1/workspaces/{workspace_id}/workloads/{workload_id}/workload_runs/{workload_run_id}"
-        )
-        if not isinstance(raw, dict) or "id" not in raw:
-            return None
-        return OicmWorkloadRun.model_validate(raw)
-
-    async def list_deployments(self, workspace_id: str) -> list[OicmDeployment]:
-        raw = await self._get(f"/api/v1/workspaces/{workspace_id}/deployments")
+        One call replaces the former get_deployment + get_deployment_health +
+        get_workload_run fan-out: the payload already carries ``status``,
+        ``error_msg``, ``replicas``, and the per-Pod/Deployment ``status_detail``
+        that availability is derived from.
+        """
+        raw = await self._get(f"/api/v1/workspaces/{workspace_id}/deployment_summary")
         items = raw.get("items", []) if isinstance(raw, dict) else []
-        return [OicmDeployment.model_validate(item) for item in items]
+        return tuple(OicmDeploymentSummary.model_validate(item) for item in items)

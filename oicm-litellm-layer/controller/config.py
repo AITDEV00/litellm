@@ -86,6 +86,14 @@ OICM_VERIFY_TLS = os.getenv("OICM_VERIFY_TLS", "false").lower() in (
     "yes",
 )
 
+# Workspace whose deployments are polled for status. There is no
+# workspace-list endpoint, so it must be supplied.
+OICM_WORKSPACE_ID = os.getenv("OICM_WORKSPACE_ID", "")
+# Status poll cadence. OICM itself refreshes deployment status on a 5s DB sync
+# plus a 10s informer reload, so polling faster than 10s adds load without
+# fresher data. One call covers every deployment in the workspace.
+STATUS_SYNC_INTERVAL = int(os.getenv("STATUS_SYNC_INTERVAL", "10"))
+
 ENABLE_SUBMARINER_IMPORTS = os.getenv("ENABLE_SUBMARINER_IMPORTS", "true").lower() in (
     "true",
     "1",

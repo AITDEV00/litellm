@@ -44,33 +44,32 @@ Add the OICM env vars to the controller Deployment manifests in `oicm-litellm-la
 - Test: pod env resolves from secret; no secret in `kubectl describe` output beyond the ref name; `git status` shows no committed secret.
 
 ### Step 5 [C] — Status snapshot builder
-Create `controller/status_builder.py`: pure function `(OicmModel, deployment, health, workload_run|None) -> OicmStatusSnapshot`. Zero HTTP/LiteLLM code.
-- Maps `status`→`source_status`, `health.is_ready`→`is_ready` (kept independent), `replicas`→`desired_replicas`, `workload_run.status_detail[]`→`available_replicas` + `workload_status`, `error_msg`, `_version`→`source_version`, `_updated_at`→`source_updated_at`.
-- Test: from fixtures; `Ready`/`is_ready=false` does not collapse; `available_replicas` derived from `status_detail` when present, else from K8s.
+Create `controller/status/builder.py`: pure function `(workspace_id, summary, previous|None) -> OicmStatusSnapshot`. Zero HTTP/LiteLLM code.
+- Maps `status`→`source_status`, `replicas`→`desired_replicas`, `status_detail[]`→`available_replicas`/`unavailable_replicas`/`serving_available`, `error_msg`, `_updated_at`→`source_updated_at`.
+- `serving_available` is False for the terminal `Stopped`/`Failed` statuses regardless of `status_detail` (a Stopped deployment returns an empty `status_detail`; the status is what makes the answer correct).
+- Test: from fixtures; `Ready`+pod-ready is serving; `Deploying` with `unavailable_replicas=1` is not; `Stopped` with empty `status_detail` is not.
 
-### Step 6 [C] — Cheap vs rich fetch policy
-In the refresh logic, default to `get_deployment` + `get_deployment_health`. Fetch `get_workload_run` only when: `workload_run_id` changed, `health.is_ready` disagrees with `status`, replica readiness is needed, or failure diagnosis. Encode as a small predicate, not inline `if`s scattered around.
-- Test: normal refresh issues exactly 2 OICM calls; a run-id change issues 3.
+### Step 6 [C] — One workspace call, not a per-deployment fan-out
+Use `GET /workspaces/{ws}/deployment_summary` once per cycle. It returns every deployment already carrying `status`, `error_msg`, `replicas`, and the per-Pod/Deployment `status_detail[]`, so the former `get_deployment` + `get_deployment_health` + `get_workload_run` fan-out (1 + 3N calls) is unnecessary. `StatusSource` exposes a single `summaries(workspace_id)`.
+- The earlier "cheap vs rich fetch policy" is deleted: one call has nothing to triage.
+- `workload_status` and `workload_run_id` are dropped: no consumer used them, and the run id is stable across a whole lifecycle (see Step 15).
+- Test: a refresh issues exactly 1 OICM call regardless of deployment count.
 
-### Step 7 [C] — Event-driven trigger, debounced, off the watch loop
-Edit `controller/controller.py`. Do not do OICM HTTP inside `_watch_once`'s event handling.
-- Add a per-workload async queue + worker: `_handle_add`/`_handle_modify` (`controller.py` lines ~155, ~196) extract `workload_id` and call `self.status_refresher.schedule(workload_id)` instead of only mutating in-memory `ready_replicas`.
-- `StatusRefresher` (new class in `oicm_status.py` or its own module): per-workload lock + in-flight suppression + debounce (coalesce bursts). If 10 MODIFIEDs arrive during one OICM call, exactly one follow-up refresh runs.
-- The watch loop today batches events then handles them sequentially in `_watch_once` — scheduling is non-blocking and safe here.
-- Test: N rapid MODIFIEDs → ~1 OICM fetch + at most 1 LiteLLM PATCH; no OICM call awaited inline in the watch path.
+### Step 7 [C] — Periodic status poll, 10s
+`controller/status_poller.py` runs `StatusPoller.run()` alongside the watch and resync loops. `STATUS_SYNC_INTERVAL` (default 10s) is the only cadence knob; one call covers every deployment, so the interval is independent of the model count.
+- Cadence rationale: OICM's own status pipeline is a 5s DB sync plus a 10s informer reload, so polling faster than 10s adds load without fresher data. There is no push channel for deployment status (the only SSE stream carries pod events and is itself a 5s DB poll), so polling is the correct and only option.
+- On failure, retain the previous snapshot map and log; never map a fetch failure to `offline`.
+- Disabled when `OICM_WORKSPACE_ID` is unset (there is no workspace-list endpoint to discover it).
+- Test: one call per refresh; failed poll retains previous snapshots; disabled without a workspace.
 
-### Step 8 [C] — Periodic pass, cheap, workspace-scoped
-Edit `_periodic_resync` / `full_sync` (`controller.py` lines ~91, ~221) to also refresh status.
-- Add `STATUS_SYNC_INTERVAL` (config, default 45s) separate from `SYNC_INTERVAL=300`.
-- Per workspace, one `list_deployments(workspace_id)`; diff against known models; only detailed-refresh the ones whose list-entry `status`/`error_msg`/`_version` changed or that need rich data (Step 6).
-- Test: periodic cycle issues 1 list call per workspace, not 3 calls × deployment.
+### Step 8 [C] — Expose the polled status
+The controller's health server serves `GET /status` returning the latest snapshot per workload (status, serving, replicas, error), so every status is viewable without a LiteLLM round trip.
+- Test: `/status` returns one entry per polled deployment with a non-null status.
 
-### Step 9 [C] — Transition memory + hydration
-Track previous `source_status` + `workload_run_id` per model.
-- Store the canonical previous snapshot in LiteLLM `model_info.oicm` (Step 10) so it survives restarts; keep a hot in-memory copy for the common path.
-- On controller start, hydrate previous state from LiteLLM (`LiteLLMClient.list_all_models_by_key` already returns `model_info`).
-- Compute `status_changed_at` when `source_status` actually changes; record `previous_source_status`, `previous_workload_run_id`.
-- Test: restart controller → transition context retained from LiteLLM; a run-id change is detected as a new run.
+### Step 9 [C] — Transition memory
+`StatusPoller` keeps the previous snapshot per workload and passes it into `build_snapshot`, which computes `status_changed_at` when `source_status` or `serving_available` changes and records `previous_source_status`.
+- Persistence of the previous snapshot in LiteLLM `model_info.oicm` (so it survives restarts) is deferred to Step 10.
+- Test: unchanged facts keep `status_changed_at`; a serving flip moves it even when `source_status` stays `Ready`.
 
 ### Step 10 [C] — Persist the complete `model_info.oicm` block
 Add a `patch_model_info(model_id, oicm_block)` method to `LiteLLMClient` (separate from full model reconciliation) calling `/model/{id}/update`.
@@ -116,8 +115,10 @@ Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mappin
 Add the extension to the mapper:
 `gateway_status: {availability, lifecycle, stale, source, source_status, healthy, replicas:{desired,available}, observed_at}`.
 - Centralize policy in one `GatewayStateResolver`:
-  `Ready`+`is_ready=true`→online/stable; `Ready`+`is_ready=false`→degraded/stable; `Stopped`→offline/stopped; first `Deploying`→offline/deploying; `Deploying` after serving→online-or-degraded/deploying; `Failed`→offline/failed; stale→unknown.
-- Keep the mapping configurable/testable (the transitional `Pending`/`Deploying`/`Failed` strings are the one thing not yet observed live). Use `previous_workload_run_id` change + transitional state for `restarting`, never a bare pod recreation.
+  `Ready`+`serving_available=true`→online/stable; `Ready`+`serving_available=false`→degraded/stable; `Stopped`→offline/stopped; `Deploying`→offline/deploying; `Available`→online/stable; `Failed`→offline/failed; stale→unknown.
+- **`serving_available` replaces the old `is_ready` signal.** OICM's `/health.is_ready` was advisory and stale (recomputed only on lifecycle events), and `serving_available` comes from the same `status_detail` the live K8s pod readiness produces. There is no separate `is_ready` field to consult.
+- **Do not use a `workload_run_id` change for `restarting`.** Live evidence (see `evidence/lifecycle-transitions.json`) shows the run id is stable across a whole `Deploying -> Ready -> Stopped` lifecycle; it changes only when a new lifecycle starts, which `status` already shows as `Ready -> Deploying`. Use the `status` transition, and for a pod-level restart within a run use the `serving_available` flip, never a run-id change.
+- Test: the transition matrix; stale → unknown; a `Ready` deployment whose pod drops out of service yields degraded, not online.
 - Test: the full transition matrix from `FEASIBILITY-ANSWERS.md`; stale → unknown.
 
 ### Step 16 [L] — Freshness at request time

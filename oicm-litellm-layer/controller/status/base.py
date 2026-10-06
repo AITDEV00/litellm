@@ -1,36 +1,19 @@
 from abc import ABC, abstractmethod
-from typing import Optional
 
-from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .wire import OicmDeploymentSummary
 
 
 class StatusSource(ABC):
-    """Reads deployment status facts for one workload.
+    """Reads deployment status facts for a workspace.
 
-    Abstraction over the status backend (OICM today). Implementations translate
-    their native payloads into the typed ``wire`` models so call sites never
-    depend on the OICM REST shape; a backend change is confined to one
-    implementation.
+    One method, because the OICM status API has exactly one workspace-wide
+    status payload (``deployment_summary``) that already carries every
+    deployment's ``status`` and ``status_detail``. Fetching per deployment
+    would be N+1 for data this single call returns whole.
     """
 
     @abstractmethod
-    async def get_deployment(self, workspace_id: str, workload_id: str) -> OicmDeployment:
-        ...
-
-    @abstractmethod
-    async def get_deployment_health(
-        self, workspace_id: str, workload_id: str
-    ) -> OicmDeploymentHealth:
-        ...
-
-    @abstractmethod
-    async def get_workload_run(
-        self, workspace_id: str, workload_id: str, workload_run_id: str
-    ) -> Optional[OicmWorkloadRun]:
-        ...
-
-    @abstractmethod
-    async def list_deployments(self, workspace_id: str) -> list[OicmDeployment]:
+    async def summaries(self, workspace_id: str) -> tuple[OicmDeploymentSummary, ...]:
         ...
 
     async def aclose(self) -> None:

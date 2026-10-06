@@ -39,6 +39,7 @@ class DeploymentStatusDetailMeta(BaseModel):
 
     available: Optional[bool] = None
     available_replicas: Optional[int] = None
+    unavailable_replicas: Optional[int] = None
     progressing: Optional[bool] = None
 
 
@@ -81,43 +82,29 @@ StatusDetail = Annotated[
 _KNOWN_KINDS: Final = frozenset({KIND_DEPLOYMENT, KIND_POD, KIND_LEADER_WORKER_SET})
 
 
-class OicmDeployment(BaseModel):
+class OicmDeploymentSummary(BaseModel):
+    """One item from ``GET /workspaces/{ws}/deployment_summary``.
+
+    This is the workspace-wide status payload: one call returns every
+    deployment already carrying its ``status_detail``, so the controller never
+    needs a per-deployment fetch. It keys the deployment as ``deployment_id``
+    (not ``id``), so it is deliberately not an ``OicmDeployment``.
+    """
+
     model_config = _EXTRA
 
-    id: str
+    deployment_id: str
+    deployment_name: Optional[str] = None
     workspace_id: Optional[str] = None
-    name: Optional[str] = None
     status: Optional[str] = None
     error_msg: Optional[str] = None
     replicas: Optional[int] = None
-    enable_auto_scaling: Optional[bool] = None
-    version: Optional[int] = Field(default=None, alias="_version")
-    updated_at: Optional[str] = Field(default=None, alias="_updated_at")
-
-
-class OicmDeploymentHealth(BaseModel):
-    model_config = _EXTRA
-
-    is_health_check_supported: Optional[bool] = None
-    is_ready: Optional[bool] = None
-    message: Optional[str] = None
-
-
-class OicmWorkloadRun(BaseModel):
-    model_config = _EXTRA
-
-    id: str
-    workload_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    workload_status: Optional[str] = None
     status_detail: tuple[StatusDetail, ...] = ()
+    updated_at: Optional[str] = Field(default=None, alias="_updated_at")
 
     @field_validator("status_detail", mode="before")
     @classmethod
     def _drop_unknown_kinds(cls, value: Any) -> Any:
-        # Forward-compat: skip status_detail entries whose ``kind`` we have not
-        # modeled, so a new OICM kind cannot crash the discriminated union. The
-        # dropped entry counts as not-available, which is the safe default.
         if not isinstance(value, (list, tuple)):
             return value
         return [

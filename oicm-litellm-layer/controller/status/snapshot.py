@@ -40,45 +40,36 @@ class WorkloadStatus(str, Enum):
 class OicmStatusSnapshot:
     """One observed status snapshot for a single OICM model deployment.
 
-    Populated from the deployment, its health, and optionally its workload run.
-    ``observed_at`` / ``status_changed_at`` are controller-computed; never taken
-    from OICM ``_updated_at`` (which can reflect unrelated edits).
+    Sourced from the workspace-wide ``deployment_summary`` payload, which
+    carries ``status`` and the per-Pod/Deployment ``status_detail`` for every
+    deployment in one call. ``observed_at`` / ``status_changed_at`` are
+    controller-computed; never taken from OICM ``_updated_at`` (which can
+    reflect unrelated edits).
 
     Facts only. No presentation words ("online"/"degraded"); that mapping lives
-    in LiteLLM's GatewayStateResolver.
-
-    ``is_ready`` is the OICM ``/health`` readiness boolean. It is ADVISORY ONLY:
-    OICM recomputes it from a celery task that fires only on deploy/scale/run
-    lifecycle events (no periodic sweep), so it lags real pod state after a
-    self-heal. Use ``serving_available`` (computed from the workload run's
-    ``status_detail``, the live signal) for the availability decision instead.
+    in LiteLLM's GatewayStateResolver. "Degraded" is ``source_status`` READY
+    with ``serving_available`` False; the two are kept as separate facts so a
+    consumer can decide.
     """
 
     workspace_id: str
     workload_id: str  # == deployment_id (proven)
-    workload_run_id: Optional[str]
 
     source_status: Optional[DeploymentStatus]
-    workload_status: Optional[WorkloadStatus]
-
-    health_supported: bool
-    is_ready: Optional[bool]  # advisory only; see serving_available
-    health_message: Optional[str]
 
     desired_replicas: Optional[int]
     available_replicas: Optional[int]
+    unavailable_replicas: Optional[int]
 
-    # Serving availability computed from the workload run's status_detail (the
-    # accurate, continuously-updated signal), NOT from /health.is_ready (stale).
-    # None when no workload run is known.
-    serving_available: Optional[bool]
+    # Serving availability computed from the status_detail entries (a Pod on a
+    # node reporting ready, or a LeaderWorkerSet reporting available). False for
+    # the terminal STOPPED/FAILED statuses regardless of status_detail.
+    serving_available: bool
 
     error_msg: Optional[str]
 
-    source_version: Optional[int]
     source_updated_at: Optional[str]
 
     previous_source_status: Optional[DeploymentStatus]
-    previous_workload_run_id: Optional[str]
     status_changed_at: Optional[str]
     observed_at: str

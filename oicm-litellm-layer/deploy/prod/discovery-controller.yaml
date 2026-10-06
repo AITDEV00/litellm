@@ -147,6 +147,34 @@ spec:
               value: "300"
             - name: ENABLE_SUBMARINER_IMPORTS
               value: "true"
+            # OICM deployment-status polling. One deployment_summary call per
+            # STATUS_SYNC_INTERVAL covers every deployment; OICM refreshes
+            # status on a ~5s DB sync plus a ~10s informer reload, so 10s
+            # matches the source's own cadence.
+            - name: OICM_BASE_URL
+              value: "https://oicm.adeoaiengine.ecouncil.ae"
+            - name: OICM_AUTH_URL
+              value: "https://auth-oicm.adeoaiengine.ecouncil.ae"
+            - name: OICM_REALM
+              value: "adeo"
+            - name: OICM_CLIENT_ID
+              value: "adeo"
+            - name: OICM_AUTH_GRANT_TYPE
+              value: "password"
+            - name: OICM_WORKSPACE_ID
+              value: "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+            - name: STATUS_SYNC_INTERVAL
+              value: "10"
+            - name: OICM_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-status-api
+                  key: username
+            - name: OICM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oicm-status-api
+                  key: password
           resources:
             requests:
               cpu: 50m

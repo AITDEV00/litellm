@@ -1,4 +1,4 @@
-"""Build an ``OicmStatusSnapshot`` from wire models + transition memory.
+"""Build an ``OicmStatusSnapshot`` from a deployment-summary item.
 
 Pure mapping. No HTTP, no LiteLLM. Transition fields (``previous_*``,
 ``status_changed_at``) come from the caller's stored last snapshot, not from
@@ -13,12 +13,18 @@ from enum import Enum
 from typing import Optional, TypeVar
 
 from .availability import is_deployment_available
-from .snapshot import DeploymentStatus, OicmStatusSnapshot, WorkloadStatus
-from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .snapshot import DeploymentStatus, OicmStatusSnapshot
+from .wire import DeploymentStatusDetail, OicmDeploymentSummary, StatusDetail
 
 logger = logging.getLogger("oicm-discovery")
 
 _E = TypeVar("_E", bound=Enum)
+
+# Terminal statuses that are never serving, regardless of any status_detail a
+# deleted/completed workload may still carry. Load-bearing: a Stopped
+# deployment returns an empty status_detail, so ``status`` is what makes the
+# availability answer correct rather than accidentally False.
+_NOT_SERVING_STATUSES = frozenset({DeploymentStatus.STOPPED, DeploymentStatus.FAILED})
 
 
 def _enum_or_none(enum_cls: type[_E], value: Optional[str]) -> Optional[_E]:
@@ -31,37 +37,31 @@ def _enum_or_none(enum_cls: type[_E], value: Optional[str]) -> Optional[_E]:
         return None
 
 
-def _serving_available(
-    source_status: Optional[DeploymentStatus],
-    workload_run: Optional[OicmWorkloadRun],
-) -> Optional[bool]:
-    # Terminal non-serving state: definitively not available, regardless of
-    # whether a (deleted/completed) run with status_detail still exists.
-    if source_status in (DeploymentStatus.STOPPED, DeploymentStatus.FAILED):
-        return False
-    if workload_run is None:
-        return None
-    return is_deployment_available(workload_run.status_detail)
+def _deployment_meta_field(
+    status_detail: tuple[StatusDetail, ...], field: str
+) -> Optional[int]:
+    """Read one int field off the Deployment entry's metadata, if present."""
+    for entry in status_detail:
+        if isinstance(entry, DeploymentStatusDetail) and entry.metadata is not None:
+            return getattr(entry.metadata, field)
+    return None
 
 
 def build_snapshot(
     *,
     workspace_id: str,
-    workload_id: str,
-    workload_run_id: Optional[str],
-    deployment: OicmDeployment,
-    health: Optional[OicmDeploymentHealth],
-    workload_run: Optional[OicmWorkloadRun],
+    summary: OicmDeploymentSummary,
     previous: Optional[OicmStatusSnapshot],
     now: Optional[datetime] = None,
 ) -> OicmStatusSnapshot:
     observed = (now or datetime.now(timezone.utc)).isoformat()
 
-    source_status = _enum_or_none(DeploymentStatus, deployment.status)
-    workload_status = _enum_or_none(
-        WorkloadStatus, workload_run.workload_status if workload_run else None
+    source_status = _enum_or_none(DeploymentStatus, summary.status)
+    serving_available = (
+        False
+        if source_status in _NOT_SERVING_STATUSES
+        else is_deployment_available(summary.status_detail)
     )
-    serving_available = _serving_available(source_status, workload_run)
 
     # ``status_changed_at`` tracks both the source status and the serving
     # signal: a pod dropping out of service while OICM still reports ``Ready``
@@ -76,21 +76,17 @@ def build_snapshot(
 
     return OicmStatusSnapshot(
         workspace_id=workspace_id,
-        workload_id=workload_id,
-        workload_run_id=workload_run_id,
+        workload_id=summary.deployment_id,
         source_status=source_status,
-        workload_status=workload_status,
-        health_supported=bool(health and health.is_health_check_supported),
-        is_ready=health.is_ready if health else None,
-        health_message=health.message if health else None,
-        desired_replicas=deployment.replicas,
-        available_replicas=workload_run.ready_pod_count if workload_run else None,
+        desired_replicas=summary.replicas,
+        available_replicas=_deployment_meta_field(summary.status_detail, "available_replicas"),
+        unavailable_replicas=_deployment_meta_field(
+            summary.status_detail, "unavailable_replicas"
+        ),
         serving_available=serving_available,
-        error_msg=deployment.error_msg,
-        source_version=deployment.version,
-        source_updated_at=deployment.updated_at,
+        error_msg=summary.error_msg,
+        source_updated_at=summary.updated_at,
         previous_source_status=previous.source_status if previous else None,
-        previous_workload_run_id=previous.workload_run_id if previous else None,
         status_changed_at=status_changed_at,
         observed_at=observed,
     )

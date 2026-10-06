@@ -3,15 +3,13 @@ from .base import StatusSource
 from .builder import build_snapshot
 from .oicm import OicmStatusSource
 from .snapshot import DeploymentStatus, OicmStatusSnapshot, WorkloadStatus
-from .wire import OicmDeployment, OicmDeploymentHealth, OicmWorkloadRun
+from .wire import OicmDeploymentSummary
 
 __all__ = [
     "DeploymentStatus",
-    "OicmDeployment",
-    "OicmDeploymentHealth",
+    "OicmDeploymentSummary",
     "OicmStatusSnapshot",
     "OicmStatusSource",
-    "OicmWorkloadRun",
     "StatusSource",
     "WorkloadStatus",
     "build_snapshot",

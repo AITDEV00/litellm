@@ -25,6 +25,7 @@ from .reconciler import SyncReconciler
 from .sources import ModelSource
 from .sources.local_deployments import LocalDeploymentSource
 from .sources.submariner_imports import SubmarinerImportSource
+from .status_poller import StatusPoller
 
 logger = logging.getLogger("oicm-discovery")
 
@@ -34,6 +35,7 @@ class DiscoveryController:
         self,
         sources: List[ModelSource] | None = None,
         litellm: LiteLLMClient | None = None,
+        status_poller: StatusPoller | None = None,
     ):
         if sources is not None:
             self.sources = sources
@@ -59,6 +61,7 @@ class DiscoveryController:
             headers=self.litellm.headers,
         )
         self.fallback_reconciler = FallbackReconciler(self.fallback_client)
+        self.status_poller = status_poller or StatusPoller()
         self._state: Dict[str, OicmModel] = {}
         self._litellm_id_map: Dict[str, str] = {}
         self._running = False
@@ -68,6 +71,7 @@ class DiscoveryController:
         self._running = True
         self._runner = web.AppRunner(web.Application())
         self._runner.app.router.add_get("/health", self._health)
+        self._runner.app.router.add_get("/status", self._status)
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, "0.0.0.0", HEALTH_PORT)
         await self._site.start()
@@ -76,20 +80,44 @@ class DiscoveryController:
         await asyncio.gather(
             self._watch_loop(),
             self._periodic_resync(),
+            self.status_poller.run(),
         )
 
     async def stop(self):
         self._running = False
+        self.status_poller.stop()
         if hasattr(self, "_runner"):
             await self._runner.cleanup()
         for closeable in (self.litellm, self.pricing_source, self.fallback_client):
             await closeable.aclose()
+        await self.status_poller.aclose()
         for source in self.sources:
             await source.aclose()
         logger.info("Stopped OICM Discovery Controller")
 
     async def _health(self, _request):
         return web.Response(text="ok")
+
+    async def _status(self, _request):
+        """Expose the latest polled status per workload as JSON.
+
+        Read-only view for verifying that every deployment's status is visible
+        without a LiteLLM round trip.
+        """
+        body = {
+            workload_id: {
+                "source_status": snap.source_status.value if snap.source_status else None,
+                "serving_available": snap.serving_available,
+                "desired_replicas": snap.desired_replicas,
+                "available_replicas": snap.available_replicas,
+                "unavailable_replicas": snap.unavailable_replicas,
+                "error_msg": snap.error_msg,
+                "status_changed_at": snap.status_changed_at,
+                "observed_at": snap.observed_at,
+            }
+            for workload_id, snap in self.status_poller.snapshots.items()
+        }
+        return web.json_response(body)
 
     async def full_sync(self):
         logger.info("Starting full sync...")
