@@ -198,23 +198,24 @@ class DiscoveryController:
             logger.debug("Deployment j-%s already tracked, skipping", uuid[:8])
             return
 
-        ready = dep.status.ready_replicas or 0
-        if ready == 0:
-            logger.info("Deployment j-%s not ready yet, skipping", uuid[:8])
-            return
-
         models = await self.local_source.discover_for_deployment(dep)
         if not models:
             logger.warning("No models discovered for j-%s", uuid[:8])
             return
 
+        serving = (dep.status.ready_replicas or 0) > 0
         for key, model in models.items():
+            if not serving:
+                # OicmModel is frozen, and this is the only field that differs.
+                model = replace(model, serving=False)
             pricing = await self.pricing_resolver.resolve(model.model_id)
             inherited = pricing_to_params(pricing)
             litellm_id = await self.litellm.register_model(model, inherited)
             if litellm_id:
                 self._litellm_id_map[key] = litellm_id
                 self._state[key] = model
+                if not serving:
+                    await self.litellm.set_blocked(litellm_id, True)
 
     async def _handle_delete(self, uuid: str):
         # A deployment owns multiple composite keys ({uuid}::{model_id}). Remove
@@ -239,18 +240,27 @@ class DiscoveryController:
 
     async def _handle_modify(self, uuid: str, dep):
         ready = dep.status.ready_replicas or 0
+        serving = ready > 0
         old_keys = [key for key in self._state if _uuid_of(key) == uuid]
 
         if old_keys:
             for key in old_keys:
                 # OicmModel is frozen; replace() is the only way to apply the
                 # replica update.
+                previous = self._state[key]
                 self._state[key] = replace(
-                    self._state[key],
+                    previous,
                     ready_replicas=ready,
                     total_replicas=dep.status.replicas or 0,
+                    serving=serving,
                 )
-        elif ready > 0:
+                if previous.serving != serving:
+                    litellm_id = self._litellm_id_map.get(key)
+                    if litellm_id:
+                        # Pause on the way down, resume on the way back up, so
+                        # routing tracks the deployment without a re-register.
+                        await self.litellm.set_blocked(litellm_id, not serving)
+        else:
             await self._handle_add(uuid, dep)
 
     async def _periodic_resync(self):

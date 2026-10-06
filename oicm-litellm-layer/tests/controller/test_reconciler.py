@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -366,3 +367,139 @@ async def test_missing_stored_params_is_patched():
 
     assert len(plan.patches) == 1
     assert plan.patches[0][0] == "id-7"
+
+
+def _entry_blocked(model, model_id, blocked):
+    entry = _entry_matching(model, model_id)
+    entry["model_info"]["blocked"] = blocked
+    return entry
+
+
+def _stopped_model(uuid, model_id="test-model"):
+    """A deployment OICM still reports but that is no longer serving."""
+    return replace(_make_model(uuid, model_id=model_id), serving=False, ready_replicas=0)
+
+
+@pytest.mark.asyncio
+async def test_stopped_deployment_stays_registered_and_is_blocked():
+    """A Stopped deployment must stay visible but leave the routing pool.
+
+    OICM keeps the record after the k8s Deployment is deleted, so the model must
+    not be removed. Leaving it routable would send every request at a Service
+    that no longer exists, so it is paused instead.
+    """
+    reconciler = _reconciler_with_costs(None)
+    model = _stopped_model("stopped-uuid")
+    entry = _entry_blocked(_make_model("stopped-uuid"), "id-8", blocked=False)
+
+    plan = await reconciler.compute_plan(
+        {"stopped-uuid": model}, {"stopped-uuid": [entry]}
+    )
+
+    assert plan.deletes == []
+    assert plan.registers == []
+    assert plan.blocks == [("id-8", True)]
+    assert plan.new_state["stopped-uuid"].serving is False
+
+
+@pytest.mark.asyncio
+async def test_stopped_deployment_does_not_rewrite_config():
+    """Pausing must not also rewrite the config, which would reload the gateway."""
+    reconciler = _reconciler_with_costs(None)
+    model = _stopped_model("stopped-uuid-2")
+    entry = _entry_blocked(_make_model("stopped-uuid-2"), "id-9", blocked=True)
+
+    plan = await reconciler.compute_plan(
+        {"stopped-uuid-2": model}, {"stopped-uuid-2": [entry]}
+    )
+
+    assert plan.patches == []
+    assert plan.blocks == []
+
+
+@pytest.mark.asyncio
+async def test_restarted_deployment_is_unblocked():
+    """A deployment that came back must become routable again."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("restarted-uuid")
+    entry = _entry_blocked(model, "id-10", blocked=True)
+
+    plan = await reconciler.compute_plan(
+        {"restarted-uuid": model}, {"restarted-uuid": [entry]}
+    )
+
+    assert plan.blocks == [("id-10", False)]
+    assert plan.new_state["restarted-uuid"].serving is True
+
+
+@pytest.mark.asyncio
+async def test_serving_deployment_is_not_blocked():
+    """A healthy model must not be paused."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("healthy-uuid")
+    entry = _entry_matching(model, "id-11")
+
+    plan = await reconciler.compute_plan(
+        {"healthy-uuid": model}, {"healthy-uuid": [entry]}
+    )
+
+    assert plan.blocks == []
+
+
+@pytest.mark.asyncio
+async def test_non_serving_deployment_is_registered_then_blocked():
+    """A deployment discovered for the first time while not serving.
+
+    It has to be registered so it is visible, and paused once it has an id,
+    because a new model always starts unblocked.
+    """
+    reconciler = _reconciler_with_costs(None)
+    litellm = MagicMock()
+    litellm.batch = AsyncMock(return_value=(0, ["id-12"], 0))
+    litellm.set_blocked = AsyncMock(return_value=True)
+    reconciler.litellm = litellm
+    model = _stopped_model("new-stopped-uuid")
+
+    plan = await reconciler.compute_plan({"new-stopped-uuid": model}, {})
+    assert len(plan.registers) == 1
+
+    await reconciler.execute(plan)
+
+    litellm.set_blocked.assert_awaited_once_with("id-12", True)
+    assert plan.new_id_map[model.composite_key] == "id-12"
+
+
+@pytest.mark.asyncio
+async def test_execute_applies_planned_blocks():
+    """execute() must issue the block calls compute_plan asked for."""
+    reconciler = _reconciler_with_costs(None)
+    litellm = MagicMock()
+    litellm.batch = AsyncMock(return_value=(0, [], 0))
+    litellm.set_blocked = AsyncMock(return_value=True)
+    reconciler.litellm = litellm
+
+    plan = SyncPlan()
+    plan.blocks = [("id-a", True), ("id-b", False)]
+
+    await reconciler.execute(plan)
+
+    assert litellm.set_blocked.await_count == 2
+    litellm.set_blocked.assert_any_await("id-a", True)
+    litellm.set_blocked.assert_any_await("id-b", False)
+
+
+@pytest.mark.asyncio
+async def test_deployment_absent_from_oicm_is_deleted():
+    """Deletion is signalled by absence from OICM, not by a status value.
+
+    This is the case that must still remove a model: nothing in OICM knows about
+    it, so the k8s watch no longer sees it either.
+    """
+    reconciler = _reconciler_with_costs(None)
+    entry = _entry_blocked(_make_model("gone-uuid"), "id-13", blocked=True)
+
+    plan = await reconciler.compute_plan({}, {"gone-uuid": [entry]})
+
+    assert plan.deletes == ["id-13"]
+    assert plan.blocks == []
+    assert plan.new_state == {}

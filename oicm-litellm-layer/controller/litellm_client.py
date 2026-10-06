@@ -132,6 +132,39 @@ class LiteLLMClient:
         deleted, _, _ = await self.batch([litellm_model_id], [], [])
         return deleted > 0
 
+    async def set_blocked(self, litellm_model_id: str, blocked: bool) -> bool:
+        """Pause or resume a registered model without touching its config.
+
+        `blocked` is a top-level column, so it cannot ride along in a
+        litellm_params patch. This is what makes a non-serving deployment stay
+        registered and visible while being excluded from routing.
+        """
+        if self.read_only:
+            logger.info(
+                "[READ-ONLY] would set blocked=%s on %s", blocked, litellm_model_id
+            )
+            return False
+        async with self._semaphore:
+            try:
+                resp = await self._client.patch(
+                    f"{self.base_url}/model/{litellm_model_id}/update",
+                    json={"blocked": blocked},
+                    timeout=self._write_timeout,
+                )
+                resp.raise_for_status()
+                logger.info(
+                    "Set blocked=%s on litellm_id=%s", blocked, litellm_model_id
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    "Failed to set blocked=%s on %s: %s",
+                    blocked,
+                    litellm_model_id,
+                    _error_detail(e),
+                )
+                return False
+
     async def _delete_one(self, mid: str) -> bool:
         async with self._semaphore:
             try:

@@ -8,6 +8,8 @@ Milestone split (do not reorder): **M1** trustworthy model status → **M2** cur
 
 Storage design for Steps 10-11 (what goes in `model_info.oicm`, how the upsert is gated, and how a `Stopped` deployment stays visible while becoming unroutable): see `DESIGN-STATUS-PERSISTENCE.md`.
 
+Current progress, the OICM join-key blocker, and the next step: see `PROGRESS-AND-PAUSED-WORK.md`.
+
 ---
 
 ## Milestone 1 — Trustworthy model status

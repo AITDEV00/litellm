@@ -5,6 +5,9 @@ Status: design agreed, not yet implemented
 Scope: how the controller stores OICM deployment status on the LiteLLM model row, and how a
 stopped deployment stays visible while becoming unroutable
 
+For what has landed so far, the blocker on the OICM join key, and the exact next step, see
+`PROGRESS-AND-PAUSED-WORK.md`.
+
 ## The problem
 
 A model deployment that OICM reports as `Stopped` currently disappears from the LiteLLM

@@ -95,3 +95,41 @@ async def test_read_only_logs_would_write(caplog):
     with caplog.at_level("INFO"):
         await client.register_model(_make_model())
     assert any("[READ-ONLY]" in r.message for r in caplog.records)
+
+@pytest.mark.asyncio
+async def test_read_only_set_blocked_is_noop():
+    """The debug controller must not be able to pause a model either."""
+    client = LiteLLMClient(read_only=True)
+    client._client = AsyncMock()
+
+    result = await client.set_blocked("litellm-id", True)
+
+    assert result is False
+    client._client.patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_set_blocked_patches_only_the_flag():
+    """`blocked` is a top-level column, so it must not be sent under model_info."""
+    client = LiteLLMClient(read_only=False)
+    response = AsyncMock()
+    response.raise_for_status = lambda: None
+    client._client = AsyncMock()
+    client._client.patch = AsyncMock(return_value=response)
+
+    result = await client.set_blocked("litellm-id", True)
+
+    assert result is True
+    _, kwargs = client._client.patch.call_args
+    assert kwargs["json"] == {"blocked": True}
+    assert "litellm_params" not in kwargs["json"]
+    assert "model_info" not in kwargs["json"]
+
+
+@pytest.mark.asyncio
+async def test_set_blocked_reports_failure():
+    client = LiteLLMClient(read_only=False)
+    client._client = AsyncMock()
+    client._client.patch = AsyncMock(side_effect=RuntimeError("boom"))
+
+    assert await client.set_blocked("litellm-id", True) is False

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -24,6 +25,10 @@ class SyncPlan:
     deletes: List[str] = field(default_factory=list)
     registers: List[Tuple[OicmModel, Optional[dict]]] = field(default_factory=list)
     patches: List[Tuple[str, dict, Optional[dict]]] = field(default_factory=list)
+    # (model_id, blocked) to flip routing for a registered model. Separate from
+    # patches because `blocked` is a top-level column, not a litellm_params key,
+    # and it must be settable on a model whose config is otherwise unchanged.
+    blocks: List[Tuple[str, bool]] = field(default_factory=list)
     new_state: Dict[str, OicmModel] = field(default_factory=dict)
     new_id_map: Dict[str, str] = field(default_factory=dict)
 
@@ -55,6 +60,17 @@ def _patch_is_noop(
     if patch_model_info is None:
         return True
     return _subset_matches(existing_entry.get("model_info"), patch_model_info)
+
+
+def _blocked_matches(existing_entry: dict, blocked: bool) -> bool:
+    """True when the stored entry already carries this routing state.
+
+    LiteLLM surfaces the `blocked` column inside model_info, so that is where
+    the current value is read from. An entry that has never been blocked and has
+    no flag at all reads as False, which is why the default is compared rather
+    than treated as unknown.
+    """
+    return (existing_entry.get("model_info") or {}).get("blocked", False) is blocked
 
 
 def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
@@ -112,8 +128,6 @@ class SyncReconciler:
 
         for key in k8s_keys - litellm_keys:
             model = k8s_models[key]
-            if not model.is_ready:
-                continue
             pricing = await self.pricing.resolve(model.model_id)
             plan.registers.append((model, pricing_to_params(pricing)))
 
@@ -131,6 +145,14 @@ class SyncReconciler:
                 continue
 
             if existing_id:
+                # A non-serving deployment keeps its registration and is paused
+                # instead, so it stays visible while being excluded from routing.
+                if not model.serving:
+                    if not _blocked_matches(existing_entry, blocked=True):
+                        plan.blocks.append((existing_id, True))
+                    plan.new_state[key] = model
+                    continue
+
                 patch_params: dict = {
                     "model": f"{model.provider}/{model.model_id}",
                     "api_base": model.api_base,
@@ -144,6 +166,10 @@ class SyncReconciler:
                 patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
                 if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
                     plan.patches.append((existing_id, patch_params, patch_model_info))
+                # A deployment that came back must be routable again. This is
+                # what makes a stop-then-start round trip work.
+                if _blocked_matches(existing_entry, blocked=True):
+                    plan.blocks.append((existing_id, False))
             plan.new_state[key] = model
 
         return plan
@@ -161,8 +187,20 @@ class SyncReconciler:
             if litellm_id:
                 plan.new_id_map[model.composite_key] = litellm_id
                 plan.new_state[model.composite_key] = model
+                # A newly registered model starts unblocked, so a non-serving
+                # one has to be paused after it exists. Its id is only known
+                # here, which is why this cannot be planned in compute_plan.
+                if not model.serving:
+                    plan.blocks.append((litellm_id, True))
 
         if plan.patches:
             logger.info("Patched %d/%d models", patched, len(plan.patches))
+
+        if plan.blocks:
+            blocked_results = await asyncio.gather(
+                *(self.litellm.set_blocked(mid, blocked) for mid, blocked in plan.blocks)
+            )
+            blocked = sum(1 for r in blocked_results if r)
+            logger.info("Set blocked on %d/%d models", blocked, len(plan.blocks))
 
         return deleted, len(registered_ids), patched

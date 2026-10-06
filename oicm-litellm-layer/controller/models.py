@@ -55,6 +55,12 @@ class OicmModel:
     source: str = "local"
     api_base_override: Optional[str] = None
     api_surface: Optional[str] = None
+    # Lifecycle: False while the deployment exists in OICM but is not serving,
+    # which is a Stopped deployment (no k8s Deployment, no Service) or one with
+    # no ready replicas yet. A non-serving deployment stays registered and
+    # visible but is paused, because leaving it routable would send every
+    # request at a Service that no longer exists.
+    serving: bool = True
 
     @property
     def composite_key(self) -> str:
@@ -208,6 +214,44 @@ def to_litellm_mode(mode: str) -> str:
     if mode == "text_to_speech":
         return "audio_speech"
     return mode
+
+
+def build_oicm_model(
+    *,
+    uuid: str,
+    model_id: str,
+    model_name: str,
+    namespace: str,
+    serving: bool,
+    source: str = "oicm",
+    provider: str = "hosted_vllm",
+    api_base_override: Optional[str] = None,
+) -> OicmModel:
+    """Build the model record for a deployment known only from OICM.
+
+    A Stopped deployment has no k8s Deployment and no Service, so it cannot be
+    probed and its ClusterIP does not resolve. It still has to stay registered
+    and visible, so this derives the same shape discovery would have produced
+    and marks it non-serving, which is what pauses its routing.
+
+    The provider defaults to hosted_vllm because the probe that would have
+    distinguished a native surface cannot run. That is safe only because a
+    non-serving deployment is never routed, and a deployment that starts again
+    is re-discovered from k8s before it can serve.
+    """
+    return OicmModel(
+        uuid=uuid,
+        model_id=model_id,
+        model_name=sanitize_model_id(model_name),
+        namespace=namespace,
+        ready_replicas=0,
+        total_replicas=0,
+        mode=to_litellm_mode("chat"),
+        provider=provider,
+        source=source,
+        api_base_override=api_base_override,
+        serving=serving,
+    )
 
 
 def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozenset()) -> str:
