@@ -6417,11 +6417,19 @@ class PrismaClient:
             return None
 
     def _clean_details(self, details: dict | None) -> dict | None:
-        """Clean and validate details JSON"""
+        """Clean and validate details JSON
+
+        The generated Prisma client rejects plain dicts for `Json?` columns
+        (the query engine only accepts `prisma.Json` inputs), so the parsed
+        value is wrapped here at the single choke point every health-row
+        writer goes through.
+        """
         if not isinstance(details, dict):
             return None
         try:
-            return safe_json_loads(safe_dumps(details))
+            from prisma import Json  # noqa: PLC0415  # generated client may be absent in tools that never touch the DB
+
+            return Json(safe_json_loads(safe_dumps(details)))
         except Exception as e:
             verbose_proxy_logger.warning("Failed to clean details JSON: %s", e)
             return None
