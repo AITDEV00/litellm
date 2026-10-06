@@ -1,12 +1,15 @@
 # Model status persistence in LiteLLM `model_info`
 
 Date: 2026-10-06
-Status: design agreed, not yet implemented
+Status: design agreed. Steps 1-9 of the implementation order (the controller-side facts,
+transport, poll, and the existence rule) are implemented and committed. Steps 10-11
+(persisting the block and gating the write) are not.
 Scope: how the controller stores OICM deployment status on the LiteLLM model row, and how a
 stopped deployment stays visible while becoming unroutable
 
-For what has landed so far, the blocker on the OICM join key, and the exact next step, see
-`PROGRESS-AND-PAUSED-WORK.md`.
+For what has landed so far and the exact next step, see `PROGRESS-AND-PAUSED-WORK.md`. Note
+that the OICM join key was never actually the blocker it was once recorded as; see the
+correction in that file.
 
 ## The problem
 
@@ -154,13 +157,17 @@ testable on its own.
 
 ## Implementation order
 
-1. Idempotence guard in `compute_plan` (compare the computed patch to the existing entry,
-   skip when equal). Independent, safe, removes the existing churn.
-2. Existence keyed on OICM `deployment_summary`: register when present in OICM, delete only
-   when absent from it. Bypass the `if not model.is_ready: continue` gate in `compute_plan`
-   for deployments present in OICM but not serving.
-3. `patch_model_info` writing the whole `model_info.oicm` block, called only when the block
-   differs, excluding `observed_at`.
+Status of each item, as of 2026-10-06: 1 and 2 done, 3-6 not.
+
+1. **Done** (`13c021c355`). Idempotence guard in `compute_plan` (compare the computed patch
+   to the existing entry, skip when equal). Independent, safe, removes the existing churn.
+2. **Done** (`792c09ee60`). Existence keyed on OICM `deployment_summary`: keep a deployment
+   that is present in OICM even when the watch cannot see it, and delete a row only when it
+   is absent from both. The `if not model.is_ready: continue` gate this step once named was
+   removed in `8ee755efe2`, so there is nothing left to bypass. The rule is scoped to rows
+   carrying `oicm_source == "local"`, so imports and admin rows are never deleted.
+3. **Next.** `patch_model_info` writing the whole `model_info.oicm` block, called only when
+   the block differs, excluding `observed_at`.
 4. Controller ownership of `blocked`, scoped to rows carrying `model_info.oicm`, with the
    reason recorded.
 5. `observed_at` heartbeat on a cadence derived from `STATUS_STALE_AFTER`.

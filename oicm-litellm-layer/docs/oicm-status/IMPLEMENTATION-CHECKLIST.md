@@ -1,6 +1,6 @@
 # OICM → OpenRouter Model Status — Implementation Checklist
 
-Status: ready to implement. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
+Status: M1's controller half is implemented (Steps 3-9); Steps 10-18 are not. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
 
 Conventions: **[C]** = controller change (`oicm-litellm-layer/controller/`), **[L]** = LiteLLM change (`litellm/proxy/`), **[D]** = deploy/config. Test = the acceptance check that must pass before the step is done.
 
@@ -8,13 +8,17 @@ Milestone split (do not reorder): **M1** trustworthy model status → **M2** cur
 
 Storage design for Steps 10-11 (what goes in `model_info.oicm`, how the upsert is gated, and how a `Stopped` deployment stays visible while becoming unroutable): see `DESIGN-STATUS-PERSISTENCE.md`.
 
-Current progress, the OICM join-key blocker, and the next step: see `PROGRESS-AND-PAUSED-WORK.md`.
+Current progress, the roadmap position, and the current problems: see `PROGRESS-AND-PAUSED-WORK.md`.
+
+Some steps below were written before the implementation and now describe an earlier shape than what landed. Those carry a `Status:` line. Do not implement a superseded step as written.
 
 ---
 
 ## Milestone 1 — Trustworthy model status
 
 ### Step 1 [C] — Freeze the internal facts DTO
+**Status: superseded by what landed.** The DTO became the `controller/status/` package (`snapshot.py` for `OicmStatusSnapshot`, `wire.py` for the OICM payloads, `builder.py` for the mapping). `controller/oicm_status.py` was never created. The field list below is stale: `is_ready` was replaced by `serving_available` (Step 15), and `workload_status` / `workload_run_id` / `previous_workload_run_id` were dropped in Step 6 as having no consumer.
+
 Create `controller/oicm_status.py` with `OicmStatusSnapshot` (facts only, no presentation words like "online"):
 `workspace_id, workload_id, workload_run_id, source_status, workload_status, health_supported, is_ready, health_message, desired_replicas, available_replicas, error_msg, source_version, source_updated_at, previous_source_status, previous_workload_run_id, status_changed_at, observed_at`
 - Use a frozen dataclass / pydantic model, `ReadOnly` fields where a TypedDict is used, per repo rules.
@@ -22,6 +26,8 @@ Create `controller/oicm_status.py` with `OicmStatusSnapshot` (facts only, no pre
 - Test: construct from the captured fixtures in `docs/oicm-status/evidence/` (`deployment-detail.json`, `deployment-health.json`, `workload-run.json`); assert all fields populate and `Ready`+`is_ready=false` stays two distinct signals.
 
 ### Step 2 [C] — Enrich `OicmModel` with OICM identity
+**Status: superseded, not done.** No consumer needs the three ids. `deployment_id == workload_id` is the uuid the reconciler already keys on (Step 2 of the design order, `792c09ee60`), and Step 6 dropped `workload_run_id` and `workload_status` outright. Revisit only if a consumer for `workspace_id` or `workload_run_id` appears.
+
 Edit `controller/models.py` (`OicmModel`, line ~45) to carry `workspace_id`, `workload_id`, `workload_run_id`.
 - Source labels: `oip/workspace-id`, `oip/workload-id` (already `WORKLOAD_ID_LABEL` in `controller/config.py`), `oip/workload-run-id`. Add a `WORKSPACE_ID_LABEL` / `WORKLOAD_RUN_ID_LABEL` constant in `config.py` next to the existing ones.
 - Treat `deployment_id == workload_id` (proven); do NOT add an id-resolution layer.
@@ -76,12 +82,16 @@ The controller's health server serves `GET /status` returning the latest snapsho
 - Test: unchanged facts keep `status_changed_at`; a serving flip moves it even when `source_status` stays `Ready`.
 
 ### Step 10 [C] — Persist the complete `model_info.oicm` block
+**Status: not started. This is the current blocker.** Nothing persists status today, so LiteLLM cannot read a deployment's lifecycle and `/endpoints` has no source for `gateway_status`. Steps 11, 12, 14, 15, and 16 all depend on this.
+
 Add a `patch_model_info(model_id, oicm_block)` method to `LiteLLMClient` (separate from full model reconciliation) calling `/model/{id}/update`.
 - Always PATCH the **whole** `oicm` object (LiteLLM shallow-merges `model_info`; a partial nested patch would drop keys). The block mirrors the Step-1 DTO.
 - Never put the OICM password/token in `model_info`.
 - Test: PATCH with the full block; a subsequent read shows all nested keys intact; a partial patch would have dropped keys (regression guard).
 
 ### Step 11 [C] — Write-amplification guard
+**Status: moot until Step 10.** The design order's Step 1 (the `compute_plan` idempotence guard, `13c021c355`) is the config half and is done. There is no status block to guard yet, because nothing persists one.
+
 In the refresh path, diff meaningful fields before PATCHing.
 - PATCH immediately when status facts change.
 - If nothing changed, refresh persisted `observed_at` at most once per periodic cycle, not per K8s MODIFIED.
@@ -89,10 +99,16 @@ In the refresh path, diff meaningful fields before PATCHing.
 - Test: repeated identical observations → no PATCH; only `observed_at` updates on the periodic cadence.
 
 ### Step 12 [C] — OICM failure = staleness, not outage
+**Status: partial.** The poller already retains the previous snapshot map on a failed fetch and never maps a failure to `offline`. What is missing is the persisted `observed_at` that a consumer reads, which needs Step 10. `STATUS_STALE_AFTER` is not defined yet.
+
 On OICM timeout/5xx: retain last snapshot, do not advance `observed_at`, log the collection failure. Never map a fetch failure to `offline`.
 - Test: kill OICM connectivity → `model_info.oicm.observed_at` stops advancing, `source_status` unchanged; LiteLLM later computes stale.
 
+**Abu Dhabi caveat for `serving_available`.** AD OICM `1.7.1` returns `status_detail[]` entries with no `metadata` key at all, only `kind`, `name`, `node`, `status`, and `status_msg`. `status/availability.py::_is_ready` requires `meta is not None`, so every AD deployment evaluates `serving_available=False`. It degrades safely, but a serving AD deployment is read as not serving, which would pause a healthy model once the controller targets AD. The fix is a fallback to the entry's own `status`/`node` when `metadata` is absent. Live payload: `oicm-aa-ad-cluster-interconnect/abudhabi-oicm-rest-api-export.md`.
+
 ### Step 13 [L] — Replace the `/endpoints` debug body with official OpenRouter schema
+**Status: not started. The installed SDK version is confirmed (see the first paragraph).**
+
 Edit `litellm/proxy/openrouter_compat/models_service.py::get_model_endpoints` (currently returns a custom dict at lines ~84-130) and `routes/models.py`.
 
 **Package confirmed**: `openrouter==1.1.28` (Speakeasy-generated) is installed at `.venv/.../openrouter/`, declared in `pyproject.toml` (`openrouter>=1.2.0,<2.0` — note installed 1.1.28 is below the floor, reconcile this). The existing boundary is `litellm/proxy/openrouter_compat/openrouter_schema/models.py`, which re-exports official SDK component models with a docstring "Only the mapper layer uses these." Add a sibling `openrouter_schema/endpoints.py` re-exporting, all present in `openrouter/components/`:
@@ -110,6 +126,8 @@ The generated base uses a `@model_serializer` that strips `UNSET_SENTINEL` and N
 - Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry; absent `latency_last_30m` is omitted from JSON, not `null`.
 
 ### Step 14 [L] — Implement `OpenRouterEndpointsMapper`
+**Status: not started.** It depends on Step 10: the mapper's input includes `model_info.oicm`, which nothing writes yet.
+
 Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mapping/openrouter.py::OpenRouterModelMapper`). Input: one `DeploymentDescriptor` + its `model_info.oicm` + optional telemetry. Output: `PublicEndpoint` + `gateway_status`.
 - Confirm `model_info.oicm` reaches `DeploymentDescriptor` (the resolver already surfaces `model_info`).
 - Keep OpenRouter-owned `status` integer semantics untouched.
@@ -189,5 +207,5 @@ Per repo rules: tests must fail if the feature breaks (mutation-test mindset), t
 
 ---
 
-## Doc-consistency fix (carry-over)
-`OICM-STATUS-FEASIBILITY.md` lists `GET /workspaces/{ws}/deployments` as 200 in the route table but also names it in the "confirmed non-routes" prose. The captured `evidence/deployments-list.json` is authoritative — remove it from the non-routes list.
+## Doc-consistency fix (done 2026-10-06)
+`OICM-STATUS-FEASIBILITY.md` listed `GET /workspaces/{ws}/deployments` as 200 in the route table but also named it in the "confirmed non-routes" prose. The captured `evidence/deployments-list.json` is authoritative, so the non-routes list now points at the route table instead of naming it. Note this route is the one the design superseded: the controller uses `deployment_summary` (one call for every deployment) rather than the `deployments` list, so the list is a feasibility finding, not the production path.

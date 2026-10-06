@@ -17,6 +17,76 @@ delete rule is scoped to controller-managed rows, and OICM's
 `deployment_summary` is wired into existence. See "Step 2: the uuid join and
 OICM existence" below.
 
+## Roadmap position
+
+The plan is `IMPLEMENTATION-CHECKLIST.md` (25 steps, three milestones) plus the
+six-step implementation order in `DESIGN-STATUS-PERSISTENCE.md`.
+
+Milestone 1's **controller half is complete**. The controller fetches OICM
+status in one call every 10s, derives `serving_available`, remembers
+transitions, serves `GET /status`, and uses OICM as the source of existence so a
+Stopped deployment stays registered and paused instead of disappearing.
+
+| Step | Scope | Status |
+|---|---|---|
+| Design 1 | Idempotence guard in `compute_plan` | Done, measured on dev (`13c021c355`) |
+| Design 2 | Existence from OICM `deployment_summary` | Done (`792c09ee60`) |
+| 1 | Facts DTO | Done, reshaped as the `controller/status/` package |
+| 2 | `OicmModel` carries workspace/workload/run ids | Superseded, not done |
+| 3 | OICM client + token lifecycle | Done as `status/oicm.py::OicmStatusSource` |
+| 4 | Secrets + config | Done, dev and prod |
+| 5 | Snapshot builder | Done |
+| 6 | One workspace call | Done |
+| 7 | 10s status poll | Done |
+| 8 | `GET /status` | Done |
+| 9 | Transition memory | Done |
+| 10 | Persist `model_info.oicm` | **Not started, current blocker** |
+| 11 | Write-amplification guard | Partial (config guard done, status guard moot) |
+| 12 | OICM failure = staleness | Partial (retains snapshots, nothing persists `observed_at`) |
+| 13-18 | LiteLLM `/endpoints` schema, mapper, `gateway_status`, dev validation | Not started |
+| 19-23 | M2 engine-load telemetry | Not started |
+| 24-25 | M3 historical statistics | Not started |
+
+Steps 1, 2, 11, 13, and 14 in the checklist describe an earlier shape than what
+landed and have been annotated there.
+
+## Current problems
+
+Two, and they are different in kind.
+
+### The blocker: nothing is persisted (Step 10)
+
+Everything the controller computes lives in `StatusPoller._snapshots`, in memory.
+Nothing writes `model_info.oicm`, so LiteLLM cannot read a deployment's lifecycle
+and `/endpoints` has no source for `gateway_status`. That is also why Steps 12
+and 16 cannot land: staleness needs a persisted `observed_at` to compute from,
+and `STATUS_STALE_AFTER` is not defined yet. This is the single next code step
+and it unblocks the whole LiteLLM half of M1.
+
+### The correctness gap: Abu Dhabi has no `status_detail` metadata
+
+AD OICM `1.7.1`'s `status_detail[]` carries no `metadata` at all, only `kind`,
+`name`, `node`, `status`, and `status_msg`. `status/availability.py::_is_ready`
+requires `meta is not None` for both the Pod and the LeaderWorkerSet branches, so
+every AD deployment evaluates `serving_available=False`. It degrades safely, no
+exception, but a genuinely serving AD deployment is read as not serving. Once
+the controller is retargeted to AD that would pause a healthy model. The fix is
+a fallback to the entry's own `status`/`node` when `metadata` is absent, with a
+regression test built from the live AD payload. The live payload is captured in
+`oicm-aa-ad-cluster-interconnect/abudhabi-oicm-rest-api-export.md`.
+
+### Smaller items
+
+- `full_sync` calls `status_poller.refresh()`, and the poller's own `run()` loop
+  also refreshes on the same 10s cadence, so there are two refreshes per cycle.
+  Harmless but wasteful; worth collapsing to one.
+- The checklist's Step 1 says "create `controller/oicm_status.py`", which never
+  happened (it became the `status/` package with `serving_available` replacing
+  `is_ready`), and Step 2's three ids were never added. Both are superseded rather
+  than missed: Step 6 dropped `workload_run_id` and `workload_status` as having no
+  consumer, and `deployment_id == workload_id` is the uuid the reconciler already
+  keys on.
+
 ## Correction: the join was never broken
 
 The "blocker" recorded below was a misdiagnosis and is left in place only as a
@@ -62,13 +132,19 @@ The controller watches every 300s and the status poll runs every 10s, so the
 stale window between a k8s delete and the OICM-driven removal is bounded by the
 resync interval.
 
-Verified: 218 controller tests pass (the 2 `test_config.py` failures are
+Verified: 219 controller tests pass (the 2 `test_config.py` failures are
 pre-existing and read a live manifest whose key changed, unrelated to this
-work). Six mutations were each killed by the new tests: making the delete scope
-unconditional, deleting an OICM-only deployment instead of pausing it,
+work). Eight mutations were each killed by the new tests: making the delete
+scope unconditional, deleting an OICM-only deployment instead of pausing it,
 registering OICM-only deployments, re-keying the gateway group on the composite,
-reverting `_handle_delete` to deregister, and making `deployment_id` the model
-name.
+reverting `_handle_delete` to deregister, making `deployment_id` the model name,
+skipping a tracked uuid on re-add, and letting an OICM-only placeholder into
+`new_state`.
+
+Run them with `uv run --extra test --python 3.13 python -m pytest tests/controller`
+from `oicm-litellm-layer/`. `pydantic` was added to `pyproject.toml`: the status
+wire models import it and the image installs it, so the test extra was not
+self-contained without it.
 
 ## Landed and verified (earlier)
 
@@ -216,21 +292,25 @@ Confirmed as intended behavior, not a problem:
 ## Next step
 
 The uuid join and the OICM existence wiring are done (see "Step 2: the uuid join
-and OICM existence" near the top). The remaining steps of the implementation
-order are:
+and OICM existence" near the top). The remaining steps, in order:
 
 1. Step 10: `patch_model_info` writing the whole `model_info.oicm` block, called
-   only when the block differs, excluding `observed_at`.
-2. Step 11: the write-amplification guard for the status block, independent of
-   the model-config diff in `compute_plan`.
-3. Step 4: controller ownership of `blocked`, scoped to rows carrying
+   only when the block differs, excluding `observed_at`. This is the blocker:
+   nothing persists status today, so nothing downstream can read it.
+2. The AD `metadata` fallback in `status/availability.py::_is_ready`. Small, and
+   it closes a correctness gap that bites as soon as AD is targeted.
+3. Step 11: the write-amplification guard for the status block, independent of
+   the model-config diff in `compute_plan`. Moot until Step 10 exists.
+4. Step 4: controller ownership of `blocked`, scoped to rows carrying
    `model_info.oicm`, with the reason recorded. Note `blocked` is currently set
    directly by `compute_plan` and the watch handlers, so this is a narrowing, not
    new machinery.
-4. Step 5: the `observed_at` heartbeat on a cadence derived from
-   `STATUS_STALE_AFTER`.
-5. Step 6: parallelize `LocalDeploymentSource.discover()`, which still awaits
+5. Step 12 and Step 5: OICM failure as staleness, with the `observed_at`
+   heartbeat on a cadence derived from `STATUS_STALE_AFTER`. Both need the
+   persisted block from Step 10.
+6. Step 6: parallelize `LocalDeploymentSource.discover()`, which still awaits
    each deployment serially.
+7. Steps 13-18: the LiteLLM half of M1, then M2 and M3.
 
 ## Still open for the OICM team
 

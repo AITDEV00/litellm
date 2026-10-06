@@ -50,6 +50,8 @@ This confirms the plan's Phase 13 split: **OICM is the lifecycle + queue + reque
 
 `OicmDeploymentStatusSnapshot` can be populated as follows:
 
+**Superseded in part (2026-10-06).** `healthy` / `is_ready` is no longer the serving signal. `serving_available` (derived from `status_detail`, see Step 15 of `IMPLEMENTATION-CHECKLIST.md`) replaced it, because `is_ready` is advisory and recomputed only on lifecycle events. `workload_run_id` and `workload_status` were also dropped as having no consumer. The rest below still holds.
+
 - `workspace_id`, `workload_id`, `workload_run_id` — from the `oip/*` labels (already free).
 - `deployment_id` — equal to `workload_id` (see 0B).
 - `source_status` — `status` field.
@@ -74,6 +76,8 @@ Assumed, not yet observed in this snapshot:
 - `Pending`, `Deploying`, `Failed` status strings. The plan's transition table (`Pending→starting`, `Ready→Deploying→redeploying`, `Ready→Failed→…→restarting`) cannot be fully validated until a deployment actually cycles. The `workload_run_id` change and the events stream give the signals; the exact `source_status` strings for the transitional phases should be confirmed the first time a real rollout is observed.
 
 ## Recommended `source_status` → gateway_status mapping (to validate on first live rollout)
+
+**Superseded in part (2026-10-06).** `is_ready` below is `serving_available`. The shape of the table still holds; the signal name changed.
 
 ```
 Ready     + is_ready=true   -> availability=online,  lifecycle=stable

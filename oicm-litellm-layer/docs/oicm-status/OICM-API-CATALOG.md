@@ -760,6 +760,9 @@ Runs of a workload.
 
 `GET /api/v1/workspaces/dfec2a9f-cc5c-4b7b-b608-990d3804e80c/workloads/4f0a7c56-2ce3-4968-8022-c1d80fdd6ed8/workload_runs/bdaab232-7c78-40fb-8c84-a2c888486f25`
 One run incl. status_detail[].
+
+**Version difference: Al Ain `1.15.19` vs Abu Dhabi `1.7.1`.** Every `status_detail[]` entry above carries a `metadata` object (`ready`, `available`, `available_replicas`, `progressing`). Abu Dhabi's `1.7.1` returns entries with no `metadata` key at all, only `kind`, `name`, `node`, `status`, and `status_msg`. Anything deriving availability from `metadata.ready` / `metadata.available` therefore reads False for every AD deployment. Captured in `oicm-aa-ad-cluster-interconnect/abudhabi-oicm-rest-api-export.md`; the controller's `status/availability.py::_is_ready` has the same gap and needs a fallback to the entry's own `status`/`node`.
+
 **HTTP 200**
 
 **Response (truncated):**
