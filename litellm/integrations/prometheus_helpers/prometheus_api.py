@@ -3,6 +3,7 @@ Helper functions to query prometheus API
 """
 
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Final, Optional
@@ -161,7 +162,7 @@ async def get_daily_spend_from_prometheus(api_key: str | None) -> list[Prometheu
     results: Final = PrometheusQueryResponse.model_validate(_json_response).data.result
     formatted_results: Final[list[PrometheusDailySpend]] = [
         {
-            "date": datetime.fromtimestamp(float(timestamp)).isoformat() + "+00:00",
+            "date": datetime.fromtimestamp(float(timestamp), tz=timezone.utc).isoformat(),
             "spend": float(value),
         }
         for result in results
@@ -238,11 +239,11 @@ def _parse_range_result(result: list[dict]) -> list[dict]:
     for series in result:
         for ts, val in series.get("values", []):
             parsed = float(val)
-            if parsed != parsed:
+            if math.isnan(parsed):
                 continue
             points.append(
                 {
-                    "timestamp": datetime.fromtimestamp(float(ts)).isoformat() + "+00:00",
+                    "timestamp": datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat(),
                     "value": parsed,
                 }
             )

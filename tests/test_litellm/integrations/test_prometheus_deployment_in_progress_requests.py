@@ -46,6 +46,24 @@ def isolated_registry():
     yield reg
 
 
+@pytest.fixture(autouse=True)
+def _no_real_sweeper_thread():
+    """Keep the per-worker sweeper from spawning a real (60s-sleeping) thread in tests.
+
+    Pre-marks the process-global sweeper as already started so the admit path's
+    ``ensure_in_flight_sweeper_started`` returns immediately. Tests that need to
+    observe the start behavior set ``started = False`` and patch ``threading.Thread``.
+    """
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    original = slice_mod._sweeper_state.started
+    slice_mod._sweeper_state.started = True
+    try:
+        yield
+    finally:
+        slice_mod._sweeper_state.started = original
+
+
 @pytest.fixture
 def logger(isolated_registry):
     """Create a PrometheusLogger with only the in-progress gauge registered."""
@@ -1154,6 +1172,13 @@ def test_sweeper_loop_evicts_each_tick():
             slice_mod._sweeper_loop()
 
     assert len(evictions) == 2, "the loop must evict on every tick"
+
+
+def test_sweeper_interval_is_under_the_ttl():
+    """The sweep interval must stay below the TTL, or self-healing would not bound staleness."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    assert 0 < slice_mod._IN_FLIGHT_SWEEP_INTERVAL_SECONDS < slice_mod._IN_FLIGHT_TTL_SECONDS
 
 
 def test_evict_all_prometheus_loggers_swallows_errors():

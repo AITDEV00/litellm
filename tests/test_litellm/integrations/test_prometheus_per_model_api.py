@@ -89,7 +89,11 @@ def test_parse_range_result():
     assert len(points) == 2
     assert points[0]["value"] == 1.0
     assert points[1]["value"] == 2.0
-    assert "timestamp" in points[0]
+    # Prometheus timestamps are Unix epoch seconds (UTC); the formatted value
+    # must be a single UTC-offset ISO string, never a local-time value with a
+    # hard-coded "+00:00" appended.
+    assert points[0]["timestamp"] == "2023-11-14T22:13:20+00:00"
+    assert points[0]["timestamp"].count("+00:00") == 1
 
 
 def test_parse_range_result_filters_nan():
