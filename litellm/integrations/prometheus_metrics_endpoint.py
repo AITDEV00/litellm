@@ -48,10 +48,32 @@ def parse_scrape_request(accept: str, accept_encoding: str, metric_names: tuple[
 
 
 def render_scrape(registry: CollectorRegistry, request: ScrapeRequest) -> bytes:
+    _evict_stale_in_flight()
     rendered: Final = request.encoder(
         registry.restricted_registry(request.metric_names) if request.metric_names else registry  # pyright: ignore[reportArgumentType]  # RestrictedRegistry is registry-shaped but not a subclass
     )
     return gzip.compress(rendered) if request.gzipped else rendered
+
+
+def _evict_stale_in_flight() -> None:
+    """Drop in-flight registry entries whose dec never fired before rendering.
+
+    Runs on the render worker thread, off the event loop, and only when the
+    prometheus logger is active. A leaked entry (terminal event skipped:
+    crashed logging path, client abort) is evicted once the request is
+    provably over, so an idle deployment's gauge self-heals at the next
+    scrape instead of freezing at its last phantom value forever.
+    """
+    try:
+        import litellm
+        from litellm.integrations.prometheus import PrometheusLogger
+
+        for prometheus_logger in litellm.logging_callback_manager.get_custom_loggers_for_type(
+            callback_type=PrometheusLogger
+        ):
+            prometheus_logger.evict_stale_deployment_in_flight()
+    except Exception:  # noqa: BLE001  # a scrape must never fail because housekeeping did
+        pass
 
 
 class CoalescedScrapeRenderer:

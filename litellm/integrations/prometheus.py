@@ -1413,11 +1413,12 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
         get_end_user_id_for_cost_tracking: Final = _get_cached_end_user_id_for_cost_tracking()
 
         end_user_id: Final = get_end_user_id_for_cost_tracking(litellm_params, service_type="prometheus")
-        user_id: Final = standard_logging_payload["metadata"]["user_api_key_user_id"]
-        user_api_key = standard_logging_payload["metadata"]["user_api_key_hash"]
-        user_api_key_alias: Final = standard_logging_payload["metadata"]["user_api_key_alias"]
-        user_api_team: Final = standard_logging_payload["metadata"]["user_api_key_team_id"]
-        user_api_team_alias: Final = standard_logging_payload["metadata"]["user_api_key_team_alias"]
+        _success_metadata: Final = standard_logging_payload["metadata"]
+        user_id: Final = _success_metadata.get("user_api_key_user_id")
+        user_api_key = _success_metadata.get("user_api_key_hash")
+        user_api_key_alias: Final = _success_metadata.get("user_api_key_alias")
+        user_api_team: Final = _success_metadata.get("user_api_key_team_id")
+        user_api_team_alias: Final = _success_metadata.get("user_api_key_team_alias")
         user_api_key_org_id: Final = standard_logging_payload["metadata"].get("user_api_key_org_id")
         user_api_key_org_alias: Final = standard_logging_payload["metadata"].get("user_api_key_org_alias")
         output_tokens: Final = standard_logging_payload["completion_tokens"]
@@ -2383,12 +2384,17 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
         get_end_user_id_for_cost_tracking: Final = _get_cached_end_user_id_for_cost_tracking()
 
         end_user_id: Final = get_end_user_id_for_cost_tracking(litellm_params, service_type="prometheus")
-        user_id: Final = standard_logging_payload["metadata"]["user_api_key_user_id"]
-        user_api_key: Final = standard_logging_payload["metadata"]["user_api_key_hash"]
-        user_api_key_alias: Final = standard_logging_payload["metadata"]["user_api_key_alias"]
-        user_api_team: Final = standard_logging_payload["metadata"]["user_api_key_team_id"]
-        user_api_team_alias: Final = standard_logging_payload["metadata"]["user_api_key_team_alias"]
-        user_api_key_org_id: Final = standard_logging_payload["metadata"].get("user_api_key_org_id")
+        # Direct-indexing these metadata keys raised for failure payloads whose
+        # metadata block was not yet populated (observed on prod STT failures:
+        # zero deployment counters, zero spend rows, leaked in-flight gauge).
+        # A failure metric must still be recorded with whatever identity exists.
+        _failure_metadata: Final = standard_logging_payload.get("metadata") or {}
+        user_id: Final = _failure_metadata.get("user_api_key_user_id")
+        user_api_key: Final = _failure_metadata.get("user_api_key_hash")
+        user_api_key_alias: Final = _failure_metadata.get("user_api_key_alias")
+        user_api_team: Final = _failure_metadata.get("user_api_key_team_id")
+        user_api_team_alias: Final = _failure_metadata.get("user_api_key_team_alias")
+        user_api_key_org_id: Final = _failure_metadata.get("user_api_key_org_id")
 
         try:
             enum_values: Final = UserAPIKeyLabelValues(
@@ -2914,12 +2920,9 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
             )
 
             if deployment_selected:
-                self._reconcile_deployment_in_flight(
+                self._release_deployment_in_flight(
                     model_id=label_model_id,
-                    litellm_model_name=standard_logging_payload.get("model", "") or label_litellm_model_name or "",
-                    api_base=_litellm_params.get("api_base", "") or label_api_base or "",
-                    api_provider=label_api_provider,
-                    delta=-1,
+                    call_id=str(standard_logging_payload.get("litellm_call_id") or _litellm_params.get("litellm_call_id") or ""),
                 )
         except Exception as e:
             verbose_logger.debug("Prometheus Error: set_llm_deployment_failure_metrics. Exception occured - %s", e)
@@ -3168,12 +3171,14 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
             )
 
             if model_id:
-                self._reconcile_deployment_in_flight(
+                self._release_deployment_in_flight(
                     model_id=model_id,
-                    litellm_model_name=standard_logging_payload.get("model", "") or litellm_model_name or "",
-                    api_base=_litellm_params.get("api_base", "") or api_base or "",
-                    api_provider=llm_provider or "",
-                    delta=-1,
+                    call_id=str(
+                        standard_logging_payload.get("litellm_call_id")
+                        or request_kwargs.get("litellm_call_id")
+                        or _litellm_params.get("litellm_call_id")
+                        or ""
+                    ),
                 )
 
             # Track deployment Latency

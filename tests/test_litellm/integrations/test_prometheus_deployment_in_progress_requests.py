@@ -9,8 +9,19 @@ We test the inc/dec contract at three levels:
 2. async_pre_call_deployment_hook: incs the gauge when model_id present; noop when absent
 3. set_llm_deployment_failure_metrics / set_llm_deployment_success_metrics: decs
    the gauge after the call completes
+
+Plus the three measured prod leak modes (2026-10-07 audit,
+docs/openrouter/MAPPING-usage-metrics.md):
+4. Router retries re-enter the pre-call hook but the terminal logging events
+   fire once per logical request: an admit keyed by litellm_call_id must be
+   idempotent and a repeated release a no-op.
+5. A terminal event that never fires (crashed logging path, client abort)
+   must be healed by TTL eviction at scrape time, not frozen forever.
+6. Failure logging with a partially-populated standard_logging_object must
+   not raise before the metrics are recorded.
 """
 
+import time
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -141,11 +152,13 @@ async def test_pre_call_incs_gauge_when_model_id_present(logger, isolated_regist
     kwargs = {
         "model": "Qwen3.6-35B",
         "messages": [],
+        "litellm_call_id": "call-simple-inc",
         "standard_logging_object": {
             "model_id": "abc-123",
             "api_base": "http://vllm:8000",
             "model": "Qwen3.6-35B",
             "custom_llm_provider": "hosted_vllm",
+            "litellm_call_id": "call-simple-inc",
         },
     }
     await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
@@ -186,10 +199,12 @@ async def test_deployment_hook_incs_gauge_with_only_litellm_params(logger, isola
     """Production scenario: async_pre_call_deployment_hook fires after the
     router picks a deployment but before standard_logging_object is populated.
     The hook must still inc the gauge using kwargs.metadata.model_info
-    (the router puts model_info in top-level metadata, not litellm_params)."""
+    (the router puts model_info in top-level metadata, not litellm_params).
+    The @client wrapper seeds litellm_call_id on kwargs before this hook runs."""
     kwargs = {
         "model": "Qwen3.6-35B",
         "messages": [],
+        "litellm_call_id": "call-router-path",
         "metadata": {
             "model_info": {"id": "abc-123"},
             "api_base": "http://vllm:8000/v1/chat/completions",
@@ -212,6 +227,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
                 "api_base": "http://vllm:8000",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-a",
             },
         },
         call_type=None,
@@ -227,6 +243,7 @@ async def test_failure_metrics_decs_gauge(logger, isolated_registry):
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
                 "model_group": "Qwen3.6-35B",
+                "litellm_call_id": "call-a",
             },
             "litellm_params": {"custom_llm_provider": "hosted_vllm", "api_base": "http://vllm:8000"},
             "exception": Exception("timeout"),
@@ -241,12 +258,14 @@ async def test_failure_metrics_no_dec_when_model_id_missing(logger, isolated_reg
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_call_id": "call-no-dec",
             "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8000",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-no-dec",
             },
         },
         call_type=None,
@@ -276,11 +295,13 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
             "model": "Qwen3.6-35B",
             "messages": [],
             "litellm_params": {"api_base": "http://vllm:8080", "custom_llm_provider": "hosted_vllm"},
+            "litellm_call_id": "call-b",
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8080",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-b",
             },
         },
         call_type=None,
@@ -307,6 +328,7 @@ async def test_success_metrics_decs_gauge(logger, isolated_registry):
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-b",
             },
             "litellm_params": {
                 "custom_llm_provider": "hosted_vllm",
@@ -343,6 +365,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "api_base": "http://vllm:8000",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-a",
             },
         },
         call_type=None,
@@ -358,6 +381,7 @@ async def test_failure_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
                 "model_group": "Qwen3.6-35B",
+                "litellm_call_id": "call-a",
             },
             "litellm_params": {"api_base": "http://vllm:8000"},
             "exception": Exception("timeout"),
@@ -374,11 +398,13 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
             "model": "Qwen3.6-35B",
             "messages": [],
             "litellm_params": {"api_base": "http://vllm:8080"},
+            "litellm_call_id": "call-d",
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8080",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-d",
             },
         },
         call_type=None,
@@ -405,6 +431,7 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-d",
             },
             "litellm_params": {
                 "api_base": "http://vllm:8080",
@@ -417,6 +444,271 @@ async def test_success_metrics_decs_gauge_when_litellm_params_missing_provider(l
         output_tokens=10.0,
     )
     assert _gauge_value(isolated_registry) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Leak mode 1: router retries re-inc but terminal events fire once.
+# An admit keyed by litellm_call_id must be idempotent; a repeated release
+# must be a no-op (never negative).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_same_call_id_admits_once(logger, isolated_registry):
+    """Three pre-call-hook fires for one litellm_call_id (2 retries) count as ONE in-flight request."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "litellm_call_id": "call-1",
+        "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+            "litellm_call_id": "call-1",
+        },
+    }
+    for _ in range(3):
+        await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
+    assert _gauge_value(isolated_registry) == 1.0
+
+    logger.set_llm_deployment_failure_metrics(
+        {
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hosted_vllm",
+                "model_group": "Qwen3.6-35B",
+                "litellm_call_id": "call-1",
+            },
+            "litellm_params": {"custom_llm_provider": "hosted_vllm", "api_base": "http://vllm:8000"},
+            "exception": Exception("timeout"),
+        }
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_repeated_release_never_goes_negative(logger, isolated_registry):
+    """Terminal events can fire more than once per admit (dedup gate races); the count must clamp at 0."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "litellm_call_id": "call-1",
+        "litellm_params": {"api_base": "http://vllm:8000"},
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+            "litellm_call_id": "call-1",
+        },
+    }
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
+
+    failure_kwargs = {
+        "model": "Qwen3.6-35B",
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+            "model_group": "Qwen3.6-35B",
+            "litellm_call_id": "call-1",
+        },
+        "litellm_params": {"api_base": "http://vllm:8000"},
+        "exception": Exception("timeout"),
+    }
+    for _ in range(3):
+        logger.set_llm_deployment_failure_metrics(failure_kwargs)
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_inc_skipped_without_call_id(logger, isolated_registry):
+    """No litellm_call_id means the admit cannot be deduped; skipping is safer than double-counting."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+        },
+    }
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Leak mode 2: a terminal event that never fires must be healed by TTL
+# eviction at scrape time (the hamsa-stt prod case: 644 frozen forever).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_evict_expired_heals_abandoned_entry(logger, isolated_registry):
+    """An entry whose dec never fired is dropped once it exceeds the TTL."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "litellm_call_id": "call-abandoned",
+        "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+            "litellm_call_id": "call-abandoned",
+        },
+    }
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
+    assert _gauge_value(isolated_registry) == 1.0
+
+    # no dec ever fires; age the entry past the TTL
+    entries = logger._deployment_in_flight_ledger._entries["abc-123"]
+    entries["call-abandoned"] = time.monotonic() - 3600.0
+
+    logger.evict_stale_deployment_in_flight()
+    assert _gauge_value(isolated_registry) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_evict_keeps_live_entries(logger, isolated_registry):
+    """Eviction must not drop requests that are genuinely still in flight."""
+    kwargs = {
+        "model": "Qwen3.6-35B",
+        "messages": [],
+        "litellm_call_id": "call-live",
+        "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hosted_vllm"},
+        "standard_logging_object": {
+            "model_id": "abc-123",
+            "api_base": "http://vllm:8000",
+            "model": "Qwen3.6-35B",
+            "custom_llm_provider": "hosted_vllm",
+            "litellm_call_id": "call-live",
+        },
+    }
+    await logger.async_pre_call_deployment_hook(kwargs=kwargs, call_type=None)
+    logger.evict_stale_deployment_in_flight()
+    assert _gauge_value(isolated_registry) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Leak mode 3: failure logging with a partially-populated payload must not
+# raise before the metrics block (the STT prod case: zero counters recorded).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_failure_logging_with_missing_metadata_block(logger, isolated_registry):
+    """A failure payload with no metadata block must still dec and record the failure counter."""
+    await logger.async_pre_call_deployment_hook(
+        kwargs={
+            "model": "Qwen3.6-35B",
+            "messages": [],
+            "litellm_call_id": "call-stt",
+            "litellm_params": {"api_base": "http://vllm:8000", "custom_llm_provider": "hamsa"},
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hamsa",
+                "litellm_call_id": "call-stt",
+            },
+        },
+        call_type=None,
+    )
+    assert _gauge_value(isolated_registry) == 1.0
+
+    logger.set_llm_deployment_failure_metrics(
+        {
+            "model": "Qwen3.6-35B",
+            "standard_logging_object": {
+                "model_id": "abc-123",
+                "api_base": "http://vllm:8000",
+                "model": "Qwen3.6-35B",
+                "custom_llm_provider": "hamsa",
+                "model_group": "Qwen3.6-35B",
+                "litellm_call_id": "call-stt",
+                "metadata": {},
+            },
+            "litellm_params": {"custom_llm_provider": "hamsa", "api_base": "http://vllm:8000"},
+            "exception": Exception("upstream 502"),
+        }
+    )
+    assert _gauge_value(isolated_registry) == 0.0
+
+    output = generate_latest(isolated_registry).decode()
+    failure_lines = [
+        line
+        for line in output.splitlines()
+        if line.startswith("litellm_deployment_failure_responses") and 'model_id="abc-123"' in line
+    ]
+    assert failure_lines, "failure counter must be recorded even with an empty metadata block"
+
+
+# ---------------------------------------------------------------------------
+# Ledger unit tests: idempotency, clamping and eviction invariants.
+# ---------------------------------------------------------------------------
+
+
+def test_ledger_admit_is_idempotent_per_call_id():
+    ledger = DeploymentInFlightLedger()
+    emitted: list[tuple[tuple[str, str, str, str], int]] = []
+
+    def emit(labels, value):
+        emitted.append((labels, value))
+
+    now = time.monotonic()
+    ledger.admit("m1", "c1", now, "model-a", "http://a:8000", "hosted_vllm", emit)
+    ledger.admit("m1", "c1", now + 100.0, "model-a", "http://a:8000", "hosted_vllm", emit)
+    ledger.admit("m1", "c2", now + 50.0, "model-a", "http://a:8000", "hosted_vllm", emit)
+
+    values = [v for _, v in emitted]
+    assert values[-1] == 2, "two distinct call ids must count 2"
+    assert max(values) == 2, "repeated admit of the same call id must not raise the count"
+
+
+def test_ledger_release_clamps_at_zero():
+    ledger = DeploymentInFlightLedger()
+    emitted: list[tuple[tuple[str, str, str, str], int]] = []
+
+    def emit(labels, value):
+        emitted.append((labels, value))
+
+    ledger.release("m1", "never-admitted", emit)
+    assert emitted == [], "release without a prior admit emits nothing"
+
+    ledger.admit("m1", "c1", time.monotonic(), "model-a", "http://a:8000", "hosted_vllm", emit)
+    ledger.release("m1", "c1", emit)
+    ledger.release("m1", "c1", emit)
+    values = [v for _, v in emitted]
+    assert values[-1] == 0, "release after release must stay at 0"
+
+
+def test_ledger_labels_assigned_once_at_admit():
+    """The dec paths never re-derive labels, so an admit with drifted labels on a later
+    attempt must keep the canonical series of the first admit, not fork a new one."""
+    ledger = DeploymentInFlightLedger()
+    emitted: dict[tuple[str, str, str, str], int] = {}
+
+    def emit(labels, value):
+        emitted[labels] = value
+
+    now = time.monotonic()
+    ledger.admit("m1", "c1", now, "model-a", "http://a:8000", "hosted_vllm", emit)
+    ledger.admit("m1", "c1", now + 1.0, "model-a-different-name", "http://b:9000", "other", emit)
+    ledger.release("m1", "c1", emit)
+
+    live = {labels: v for labels, v in emitted.items() if v != 0}
+    assert live == {}, "all series must be reset to 0 after release"
+    assert len(emitted) == 1, "no second series may be created by a re-admit with drifted labels"
 
 
 @pytest.mark.asyncio
@@ -435,6 +727,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
         kwargs={
             "model": "zai-org/GLM-5.2-FP8",
             "messages": [],
+            "litellm_call_id": "call-suffix",
             "litellm_params": {
                 "api_base": "http://vllm:8080/v1/chat/completions",
                 "custom_llm_provider": "hosted_vllm",
@@ -444,6 +737,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
                 "api_base": "http://vllm:8080/v1/chat/completions",
                 "model": "zai-org/GLM-5.2-FP8",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-suffix",
             },
         },
         call_type=None,
@@ -470,6 +764,7 @@ async def test_inc_dec_normalize_api_base_endpoint_suffix_mismatch(logger, isola
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-suffix",
             },
             "litellm_params": {
                 "api_base": "http://vllm:8080/v1",
@@ -491,6 +786,7 @@ async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_call_id": "call-suffix-failure",
             "litellm_params": {
                 "api_base": "http://vllm:8080/v1/chat/completions",
                 "custom_llm_provider": "hosted_vllm",
@@ -500,6 +796,7 @@ async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry
                 "api_base": "http://vllm:8080/v1/chat/completions",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-suffix-failure",
             },
         },
         call_type=None,
@@ -515,6 +812,7 @@ async def test_inc_dec_normalize_api_base_failure_path(logger, isolated_registry
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
                 "model_group": "Qwen3.6-35B",
+                "litellm_call_id": "call-suffix-failure",
             },
             "litellm_params": {"api_base": "http://vllm:8080/v1", "custom_llm_provider": "hosted_vllm"},
             "exception": Exception("timeout"),
@@ -554,6 +852,7 @@ async def test_inc_dec_model_name_label_match_with_provider_prefix(logger, isola
         kwargs={
             "model": "hosted_vllm/zai-org/GLM-5.2-FP8",
             "messages": [],
+            "litellm_call_id": "call-prefix",
             "metadata": {
                 "model_info": {"id": "abc-123"},
                 "api_base": "http://vllm:8080/v1",
@@ -584,6 +883,7 @@ async def test_inc_dec_model_name_label_match_with_provider_prefix(logger, isola
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-prefix",
             },
             "litellm_params": {
                 "api_base": "http://vllm:8080/v1",
@@ -626,11 +926,13 @@ async def test_label_divergence_self_heals_no_phantom_one(logger, isolated_regis
         kwargs={
             "model": "Qwen3.6-35B",
             "messages": [],
+            "litellm_call_id": "call-divergence",
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://vllm:8000",
                 "model": "Qwen3.6-35B",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-divergence",
             },
         },
         call_type=None,
@@ -657,6 +959,7 @@ async def test_label_divergence_self_heals_no_phantom_one(logger, isolated_regis
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-divergence",
             },
             "litellm_params": {
                 "custom_llm_provider": "hosted_vllm",
@@ -735,11 +1038,13 @@ async def test_success_dec_falls_back_to_standard_logging_model_id(logger, isola
         kwargs={
             "model": "hamsa/hamsa-stt",
             "messages": [],
+            "litellm_call_id": "call-stt-fallback",
             "standard_logging_object": {
                 "model_id": "abc-123",
                 "api_base": "http://stt:8080",
                 "model": "hamsa/hamsa-stt",
                 "custom_llm_provider": "hosted_vllm",
+                "litellm_call_id": "call-stt-fallback",
             },
         },
         call_type=None,
@@ -768,6 +1073,7 @@ async def test_success_dec_falls_back_to_standard_logging_model_id(logger, isola
                 "hidden_params": {"additional_headers": {}, "litellm_overhead_time_ms": 0},
                 "metadata": {},
                 "completion_tokens": 10,
+                "litellm_call_id": "call-stt-fallback",
             },
             "litellm_params": {
                 "custom_llm_provider": "hosted_vllm",
