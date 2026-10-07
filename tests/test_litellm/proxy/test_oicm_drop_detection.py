@@ -99,7 +99,9 @@ def test_prometheus_in_flight_ledger_wired() -> None:
 
     assert issubclass(PrometheusLogger, DeploymentInFlightMetricsMixin), "PrometheusLogger lost the in-flight mixin"
     assert hasattr(PrometheusLogger, "async_pre_call_deployment_hook")
-    assert hasattr(PrometheusLogger, "_reconcile_deployment_in_flight")
+    assert hasattr(PrometheusLogger, "_admit_deployment_in_flight")
+    assert hasattr(PrometheusLogger, "_release_deployment_in_flight")
+    assert hasattr(PrometheusLogger, "evict_stale_deployment_in_flight")
     # The ledger class lives in the slice, not grafted into prometheus.py.
     assert DeploymentInFlightLedger is not None
 

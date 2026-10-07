@@ -22,6 +22,8 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from litellm._logging import verbose_logger
+
 RESPONSE_CHUNK_SIZE_BYTES: Final = 64 * 1024
 
 _GZIP_HEADERS: Final = MappingProxyType({"Content-Encoding": "gzip"})
@@ -73,7 +75,7 @@ def _evict_stale_in_flight() -> None:
         ):
             prometheus_logger.evict_stale_deployment_in_flight()
     except Exception:  # noqa: BLE001  # a scrape must never fail because housekeeping did
-        pass
+        verbose_logger.debug("metrics scrape: in-flight eviction skipped (prometheus logger unavailable)")
 
 
 class CoalescedScrapeRenderer:

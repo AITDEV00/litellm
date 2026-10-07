@@ -17,10 +17,10 @@ on the concrete logger (set by ``PrometheusLogger.__init__``):
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import litellm
 from litellm._logging import verbose_logger
@@ -97,7 +97,7 @@ class DeploymentInFlightLedger:
     sums the per-worker values into the per-pod total.
     """
 
-    __slots__ = ("_entries", "_canonical_labels", "_emitted_series", "_lock")
+    __slots__ = ("_canonical_labels", "_emitted_series", "_entries", "_lock")
 
     def __init__(self) -> None:
         # model_id -> litellm_call_id -> admission monotonic timestamp
@@ -293,7 +293,7 @@ class DeploymentInFlightMetricsMixin:
 
     def _inc_deployment_in_progress(self, model: str, kwargs: dict[str, Any]) -> None:
         try:
-            standard_logging_payload: Optional[StandardLoggingPayload] = kwargs.get("standard_logging_object")
+            standard_logging_payload: StandardLoggingPayload | None = kwargs.get("standard_logging_object")
             _litellm_params = kwargs.get("litellm_params", {}) or {}
             if standard_logging_payload is None:
                 _metadata = get_litellm_metadata_from_kwargs(kwargs)
@@ -348,13 +348,13 @@ class DeploymentInFlightMetricsMixin:
                 call_id=call_id,
             )
         except Exception as e:  # noqa: BLE001
-            verbose_logger.debug("Prometheus: _inc_deployment_in_progress error: {}".format(str(e)))
+            verbose_logger.debug(f"Prometheus: _inc_deployment_in_progress error: {e!s}")
 
     async def async_pre_call_deployment_hook(
         self,
         kwargs: dict[str, Any],
-        call_type: Optional[CallTypes],
-    ) -> Optional[dict]:
+        call_type: CallTypes | None,
+    ) -> dict | None:
         model = kwargs.get("model", "")
         self._inc_deployment_in_progress(model, kwargs)
         return None
