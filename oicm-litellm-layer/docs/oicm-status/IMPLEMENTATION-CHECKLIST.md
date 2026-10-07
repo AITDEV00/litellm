@@ -1,6 +1,8 @@
 # OICM → OpenRouter Model Status — Implementation Checklist
 
-Status: M1's controller half is complete (Steps 3-12). Steps 13-18 (the LiteLLM half of M1) are not started and are now unblocked. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
+Status: M1's controller half is complete (Steps 3-12). Steps 13-18 (the LiteLLM half of M1) are **done** and deployed to dev, landed in `2c7cf3bb64`. All external unknowns resolved (see `FEASIBILITY-ANSWERS.md` + `evidence/`). This document is the step-by-step execution plan, grounded in the actual code. Each step names the file it touches.
+
+M2 (Steps 19-23) is genuinely not started: there is no `RuntimeTelemetryProvider` in the tree. M3 Step 24 is superseded, and Step 25 shipped (see those steps).
 
 Conventions: **[C]** = controller change (`oicm-litellm-layer/controller/`), **[L]** = LiteLLM change (`litellm/proxy/`), **[D]** = deploy/config. Test = the acceptance check that must pass before the step is done.
 
@@ -156,64 +158,60 @@ model row was the wrong shape.
 **Abu Dhabi caveat for `serving_available`: RESOLVED (2026-10-06).** AD OICM `1.7.1` returns `status_detail[]` entries with no `metadata` key at all, only `kind`, `name`, `node`, `status`, and `status_msg`. `metadata` is absent from that version's `StatusDetail` / `WorkloadStatusDetail` / `DeploymentInstance` schemas entirely, while Al Ain's declare it. `status/availability.py::_is_ready` now treats `metadata` as optional and falls back to the entry's own `status` when it is absent (`metadata` still wins when present). Verified live: the Abu Dhabi deployment `766b1720` reads `serving_available: true`. Both clusters are now polled as separate sources; see `PROGRESS-AND-PAUSED-WORK.md`.
 
 ### Step 13 [L] — Replace the `/endpoints` debug body with official OpenRouter schema
-**Status: not started. The installed SDK version is confirmed (see the first paragraph).**
+**Status: done** (`2c7cf3bb64`). The route serves the official `ListEndpointsResponse`; `openrouter_schema/endpoints.py` re-exports the SDK components.
 
-Edit `litellm/proxy/openrouter_compat/models_service.py::get_model_endpoints` (currently returns a custom dict at lines ~84-130) and `routes/models.py`.
+Edit `litellm/proxy/openrouter_compat/models_service.py::get_model_endpoints` and `routes/models.py`.
 
-**Package confirmed**: `openrouter==1.1.28` (Speakeasy-generated) is installed at `.venv/.../openrouter/`, declared in `pyproject.toml` (`openrouter>=1.2.0,<2.0` — note installed 1.1.28 is below the floor, reconcile this). The existing boundary is `litellm/proxy/openrouter_compat/openrouter_schema/models.py`, which re-exports official SDK component models with a docstring "Only the mapper layer uses these." Add a sibling `openrouter_schema/endpoints.py` re-exporting, all present in `openrouter/components/`:
+**Package confirmed**: `openrouter>=1.2.0,<2.0` is declared in `pyproject.toml`, and `1.3.22` is installed, so the earlier "installed 1.1.28 is below the floor" note is resolved. The boundary is `litellm/proxy/openrouter_compat/openrouter_schema/models.py` ("Only the mapper layer uses these"), with the sibling `openrouter_schema/endpoints.py` re-exporting, all present in `openrouter/components/`:
 - `publicendpoint.PublicEndpoint` + `Pricing` (nested; `completion`/`prompt` required strings, the rest Optional)
 - `listendpointsresponse.ListEndpointsResponse` (fields: `architecture`, `created`, `description`, `endpoints`, `id`, `name`) + its nested `Architecture`
 - `endpointstatus.EndpointStatus` = `Union[Literal[0,-1,-2,-3,-5,-10], UnrecognizedInt]`
 - `percentilestats.PercentileStats` (`p50,p75,p90,p99` floats, all required)
 - `quantization.Quantization`, `providername.ProviderName`, `parameter.Parameter` (Literal unions)
 
-**`PublicEndpoint` required vs optional** (confirmed from source): required = `context_length, latency_last_30m, max_completion_tokens, max_prompt_tokens, model_id, model_name, name, pricing, provider_name, quantization, supported_parameters, supports_implicit_caching, tag, throughput_last_30m, uptime_last_1d, uptime_last_30m, uptime_last_5m`; Optional = `status`, `supports_voice_cloning`. Note `latency_last_30m / throughput_last_30m / uptime_* / max_*_tokens / quantization` are typed `Nullable[...]` — the model_serializer drops them from JSON when `None` (nullable fields), so **absent metrics serialize as omitted, not null**; the historical fields can be left `None` in M2 cleanly. `pricing` itself is required (only `completion`+`prompt` inside it are).
+**`PublicEndpoint` required vs optional** (confirmed from source): required = `context_length, latency_last_30m, max_completion_tokens, max_prompt_tokens, model_id, model_name, name, pricing, provider_name, quantization, supported_parameters, supports_implicit_caching, tag, throughput_last_30m, uptime_last_1d, uptime_last_30m, uptime_last_5m`; Optional = `status`, `supports_voice_cloning`. `pricing` itself is required (only `completion`+`prompt` inside it are).
 
-The generated base uses a `@model_serializer` that strips `UNSET_SENTINEL` and None-nullable fields, so unknown extra keys are not part of the contract — attach `gateway_status` by **composition**, not subclassing (build a wrapper that serializes the official `PublicEndpoint` then adds the `gateway_status` key).
+**Nullable fields serialize as explicit `null`, not omitted.** This was originally documented the other way round and is worth stating correctly, because M2/M3 were planned around the wrong assumption. The generated `@model_serializer` keeps a key when it is nullable and explicitly set, so a `None` `latency_last_30m` / `throughput_last_30m` / `uptime_*` / `max_*_tokens` / `quantization` appears in the JSON as `null`. Only `perf_last_30m_by_workload` (optional, never set) is dropped. Verified two ways on 2026-10-07: constructing the mapper output directly, and scraping the live dev payload, both show `latency_last_30m: null` present rather than absent.
 
-- Confirm `get_model_endpoints` resolves the **individual deployments** (`model.deployments` → `DeploymentDescriptor`, already present) — one LiteLLM/OICM deployment = one `PublicEndpoint`.
-- Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry; absent `latency_last_30m` is omitted from JSON, not `null`.
+The `@model_serializer` strips `UNSET_SENTINEL` and unknown keys are not part of the contract, so `gateway_status` is attached by **subclassing** `PublicEndpoint` and redeclaring `endpoints` on a `ListEndpointsResponse` subclass, which keeps the extra keys in the payload without a cast (see `mapping/endpoints.py`).
+
+- `get_model_endpoints` resolves the **individual deployments** (`model.deployments`) — one LiteLLM/OICM deployment = one `PublicEndpoint`.
+- Test: response parses with the official OpenRouter SDK; one deployment per endpoint entry; nullable metrics present as `null`.
 
 ### Step 14 [L] — Implement `OpenRouterEndpointsMapper`
-**Status: not started. Unblocked:** the `model_info.oicm` block it reads is now written by the controller (Step 10).
+**Status: done** (`2c7cf3bb64`). `mapping/endpoints.py::OpenRouterEndpointsMapper` reads the deployments and their statuses; the telemetry it also consumes is described at Step 25.
 
-Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mapping/openrouter.py::OpenRouterModelMapper`). Input: one `DeploymentDescriptor` + its `model_info.oicm` + optional telemetry. Output: `PublicEndpoint` + `gateway_status`.
-- Confirm `model_info.oicm` reaches `DeploymentDescriptor` (the resolver already surfaces `model_info`).
-- Keep OpenRouter-owned `status` integer semantics untouched.
+Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mapping/openrouter.py::OpenRouterModelMapper`). Input: one deployment + its `model_info.oicm` + optional telemetry. Output: `PublicEndpoint` + `gateway_status`.
+- `model_info.oicm` reaches the deployment through the resolver's `model_info`.
+- OpenRouter-owned `status` integer semantics are untouched (`GatewayStatus.endpoint_status()`).
 - Test: mapper emits a valid `PublicEndpoint`; `gateway_status` attached separately.
 
 ### Step 15 [L] — `gateway_status` extension model + state resolver
-Add the extension to the mapper:
-`gateway_status: {availability, lifecycle, stale, source, source_status, healthy, replicas:{desired,available}, observed_at, checked_at}`.
+**Status: done** (`2c7cf3bb64`). The DTO is `gateway_status: {oicm_status, availability, stale, source, healthy, replicas:{desired,available}, observed_at, checked_at}`. Note `lifecycle` and `source_status` were dropped from the original shape: `lifecycle` was a lossy grouping of the raw status, and `source_status` duplicated `healthy` instead of carrying the OICM status. The raw OICM status is now `oicm_status`, passed through verbatim.
 - `observed_at` is when this model's status was last seen; `checked_at` is when its source was last polled at all. `stale` derives from `checked_at` (per source), never from `observed_at` (per model).
-- Centralize policy in one `GatewayStateResolver`:
-  `Ready`+`serving_available=true`→online/stable; `Ready`+`serving_available=false`→degraded/stable; `Stopped`→offline/stopped; `Deploying`→offline/deploying; `Available`→online/stable; `Failed`→offline/failed; stale→unknown.
+- Policy is centralized in `GatewayStateResolver` (`gateway_status.py`).
 - **`serving_available` replaces the old `is_ready` signal.** OICM's `/health.is_ready` was advisory and stale (recomputed only on lifecycle events), and `serving_available` comes from the same `status_detail` the live K8s pod readiness produces. There is no separate `is_ready` field to consult.
-- **Do not use a `workload_run_id` change for `restarting`.** Live evidence (see `evidence/lifecycle-transitions.json`) shows the run id is stable across a whole `Deploying -> Ready -> Stopped` lifecycle; it changes only when a new lifecycle starts, which `status` already shows as `Ready -> Deploying`. Use the `status` transition, and for a pod-level restart within a run use the `serving_available` flip, never a run-id change.
-- Test: the transition matrix; stale → unknown; a `Ready` deployment whose pod drops out of service yields degraded, not online.
-- Test: the full transition matrix from `FEASIBILITY-ANSWERS.md`; stale → unknown.
+- **Do not use a `workload_run_id` change for `restarting`.** Live evidence (`evidence/lifecycle-transitions.json`) shows the run id is stable across a whole `Deploying -> Ready -> Stopped` lifecycle; it changes only when a new lifecycle starts, which `status` already shows as `Ready -> Deploying`. Use the `status` transition, and for a pod-level restart within a run use the `serving_available` flip, never a run-id change.
+- Test: the transition matrix from `FEASIBILITY-ANSWERS.md`; stale → unknown; a `Ready` deployment whose pod drops out of service yields degraded, not online.
 
 ### Step 16 [L] — Freshness at request time
-Never persist `stale`. Compute `stale = now - checked_at > STATUS_STALE_AFTER` in the mapper at serve time, where `checked_at` is the per-source heartbeat the controller writes (Step 12), not a per-model timestamp. `STATUS_STALE_AFTER` is configurable and defaults to 90s.
+**Status: done** (`2c7cf3bb64`). `stale` is never persisted; it is computed at serve time from the per-source heartbeat `checked_at`, with `STATUS_STALE_AFTER` defaulting to 90s.
 - Test: old `checked_at` → `stale=true`, `availability=unknown`; fresh → `stale=false`.
 
 ### Step 17 [L] — Preserve auth/visibility semantics + missing-model behavior
-Apply the existing model visibility/authorization rules before exposing a deployment in `/endpoints`.
-- unknown logical model → 404; known model with no deployments → `{…, "data": []}`; unauthorized → same concealment as `/models`.
-- Test: unauthorized caller gets the same concealment as `/models`; empty deployment list returns valid `[]` not 500.
+**Status: done** (`2c7cf3bb64`).
+- unknown logical model → 404; known model with no deployments → an empty-but-valid endpoint list; unauthorized → same concealment as `/models`.
 - A model id with no author segment (e.g. `hamsa-tts`) is canonically namespaced as `litellm/hamsa-tts`. Both URL forms are served: `/api/v1/models/{author}/{slug}/endpoints` and `/api/v1/models/{slug}/endpoints`, returning the same body keyed by the canonical id. The lookup is exact on the canonical id, so a wrong author (`/api/v1/models/wrong/hamsa-tts/endpoints`) is a 404, not a match on the bare slug.
 - Test: bare form and namespaced form both resolve to the canonical id; wrong author 404s.
 
 ### Step 18 [D] — M1 end-to-end validation on dev
-Deploy controller + LiteLLM to **dev** (never prod first) via the established flow (`make litellm-src-build/push`, `kubectl rollout restart deploy/litellm-proxy-dev`).
-- Drive real transitions: initial deploy→online; restart/redeploy→online; health failure→degraded; stop→offline; OICM down→stale.
-- Capture fixtures for the previously-unobserved `Pending`/`Deploying`/`Failed` statuses and add them to `docs/oicm-status/evidence/`.
-- Proof via curl against the live dev proxy `/api/v1/models/{author}/{slug}/endpoints`, real provider, real spend path — not pytest screenshots.
+**Status: done.** Verified live on dev: all 28 canonical `/endpoints` URLs return 200, the bare forms return byte-identical bodies, wrong author 404s, unauthenticated 401, unknown model 404. See `docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md` §8 for the full scrape.
 
 ---
 
 ## Milestone 2 — Current engine load
 
+**Not started.** There is no `RuntimeTelemetryProvider` (nor `SGLangTelemetryProvider` / `VllmTelemetryProvider`) in the tree, so Steps 19-23 are all still open. This milestone covers the *instantaneous* engine view (running/queued requests, KV utilization) scraped from each runtime's own `/metrics`. It is distinct from M3, which is the windowed historical statistics and has shipped (Step 25).
 ### Step 19 [L] — `RuntimeTelemetryProvider` abstraction
 Create provider interface with `SGLangTelemetryProvider` / `VllmTelemetryProvider`. Deployment runtime is known from `model_server.name/family` (present in the OICM deployment record).
 - Test: provider selected by runtime, not by branching in the route.
@@ -240,12 +238,22 @@ Expose genuine instantaneous data only (`requests.running`, `requests.queued`, `
 ## Milestone 3 — Historical OpenRouter statistics
 
 ### Step 24 [L] — Omit what you can't honestly provide
-Do NOT populate `uptime_last_5m/30m/1d`, `latency_last_30m.p90`, `throughput_last_30m.p50` from a single instantaneous scrape (wrong semantics). The DTO allows this cleanly: those fields are `Nullable[...]` and the serializer **omits them from JSON when `None`** (confirmed in `PublicEndpoint.serialize_model`), so leave them `None` in M2 — they won't appear as `null`.
-- Test: those fields absent (not `null`) in M2 responses; SDK still parses.
+**Status: superseded.** This step said not to populate the windowed fields from a single instantaneous scrape, and to leave them `None`. Step 25 shipped instead, and the windowed fields are populated from genuine Prometheus 30m windows, so there is nothing to omit. The original assumption that `None` serializes as omitted was also wrong: nullable fields serialize as explicit `null` (see Step 13).
 
 ### Step 25 [L] — Real rolling stats from Prometheus/Thanos
-If full OpenRouter fidelity is wanted, query genuine 30-min windows (`histogram_quantile`, `increase`, `rate`) from the cluster's Prometheus/Thanos, then populate `latency_last_30m` / `throughput_last_30m` / `uptime_*`.
-- Separate milestone; not a prerequisite for useful status.
+**Status: done, with a source change.** The windowed fields are populated from genuine 30-minute Prometheus windows via `histogram_quantile` and `increase`, in `litellm/proxy/openrouter_compat/enrichment/telemetry.py` (`PrometheusDeploymentTelemetryReader`).
+
+What shipped, per field:
+- `latency_last_30m`: p50/p75/p90/p99 of `litellm_llm_api_time_to_first_token_metric` (time to first token, reported in ms). Streaming only, since that histogram is observed for streamed requests.
+- `throughput_last_30m`: p50/p75/p90/p99 of the inverse of `litellm_deployment_latency_per_output_token` (tokens/second, matching OpenRouter's per-request generation-speed semantics).
+- `uptime_last_5m/30m/1d`: `success / (success + failure) * 100`, read from the two counters separately so a deployment with zero failures still reports 100 rather than a missing series.
+- Two gateway extensions beyond the OpenRouter contract: `live_concurrency` (from `litellm_deployment_in_progress_requests`) and `requests_last_30m`.
+
+**Source change from this step's plan.** The plan named the rollup table / SpendLogs as the source (see `MAPPING-usage-metrics.md` §8h) and this step named Thanos. The implementation reads the cluster Prometheus instead, because the metrics already carry a `model_id` label, which makes per-deployment grouping a plain `sum by (model_id)` with no join, and because the 15s reader cache bounds the query load. The rollup/DB alternative would need a per-deployment key the rollup does not carry. See the decision note at the top of `MAPPING-usage-metrics.md`.
+
+`perf_last_30m_by_workload` remains unimplemented: OpenRouter keys it by workload (`text_generation`/`stt`/`tts`), and we have no metric-to-workload classifier.
+
+- Test: `tests/test_litellm/proxy/openrouter_compat/test_telemetry.py` covers the PromQL construction, the unit transforms, the "all four quantiles or nothing" rule, uptime semantics, and the cache.
 
 ---
 
@@ -253,7 +261,7 @@ If full OpenRouter fidelity is wanted, query genuine 30-min windows (`histogram_
 
 Controller: token cache/refresh, label extraction (incl. missing `workload_run_id`), DTO parsing from fixtures, `Ready`+`serving_available=false`, run-id change, debounce/coalescing, watch+periodic no double-PATCH, no-op suppression, OICM timeout → staleness, 401 refresh+retry, startup hydration, full nested `oicm` preserved across shallow merge, cross-cluster `submariner:<cluster>:` prefix join on BOTH sides (so an import is not double-registered), `oicm_cluster` backfilled onto a row that predates it, deletion only when the owning source was polled successfully.
 
-LiteLLM: OpenRouter SDK compatibility, multiple deployments per logical model, stale, missing status, stopped, unhealthy-ready, runtime metric failure, absent-metrics-stay-null, authorization filtering, telemetry single-flight, official DTO still parses with `gateway_status` attached.
+LiteLLM: OpenRouter SDK compatibility, multiple deployments per logical model, stale, missing status, stopped, unhealthy-ready, runtime metric failure, absent-metrics-stay-null, authorization filtering, telemetry single-flight, official DTO still parses with `gateway_status` attached. The telemetry reader adds its own set in `test_telemetry.py` (unit transforms, all-four-or-nothing, uptime, cache TTL, concurrent single-fetch).
 
 Per repo rules: tests must fail if the feature breaks (mutation-test mindset), test function not structure, one focused regression over many shallow ones; `tests/test_litellm/` mirrors `litellm/` paths; match the existing test-file naming in the dir you touch.
 

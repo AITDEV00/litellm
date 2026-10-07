@@ -10,7 +10,44 @@ Live verification: prod `https://litellm.ecouncil.ae`, 2026-10-07
 findings below were observed on the actual deployment, not inferred.
 
 Companion doc: `MAPPING-litellm-to-endpoints.md` (the field-by-field
-`/endpoints` mapping; its "needs telemetry" rows are the consumers here).
+`/endpoints` mapping; its §4b describes the fields this doc sources).
+
+## 0. What shipped, and where it diverged from this doc
+
+This doc is the audit that fed the source decision. Two of its recommendations
+were not followed, deliberately, and one finding it recorded as blocking was
+fixed. Read this before §3.
+
+**Source: Prometheus, not the rollup table.** §8h recommends the rollup table /
+SpendLogs. The implementation reads the cluster Prometheus instead
+(`enrichment/telemetry.py`), for two reasons: every relevant metric already
+carries a `model_id` label, so per-deployment grouping is a plain
+`sum by (model_id)` with no join, and the rollup does not carry a per-deployment
+key to join on (it is keyed by `model_group`). A 15s reader cache bounds the
+query load, so the extra Prometheus traffic is one query set per TTL per proxy
+process, not one per request.
+
+**Concurrency: the Prometheus gauge, now that the leak is fixed.** §8e says the
+in-flight gauge is unusable. That finding was correct against the prod image at
+the time, and the leak was then fixed at the source (`deployment_in_flight.py`:
+a keyed registry with TTL eviction, plus a per-worker sweeper). On dev the gauge
+now reads `0` at idle and flips to `1` mid-request. The endpoints field is
+`live_concurrency`, sourced from that gauge. Prod still runs the pre-fix image,
+so prod will keep showing the phantom values until prod is deployed.
+
+**Throughput: followed as recommended.** §8g says to use per-request generation
+speed, not the counter rate. `throughput_last_30m` is the inverse of the
+`litellm_deployment_latency_per_output_token` histogram, which is the per-request
+definition.
+
+**Latency: followed as recommended**, with the histogram rather than the rollup
+(as above). `latency_last_30m` is TTFT percentiles from
+`litellm_llm_api_time_to_first_token_metric`.
+
+**Uptime: counters, as §8h's alternative.** §8h offered the health table or the
+success/failure counters. The counters shipped
+(`success/(success+failure)*100`), read as two separate queries so a zero-failure
+deployment still reports 100.
 
 ## 1. What litellm natively captures (the inventory)
 
@@ -154,6 +191,14 @@ gauge is periodically reconciled against DB truth), no endpoint field
 should be fed from it. The DB/rollup running-sum is the trustworthy
 concurrency source at all horizons.
 
+**Resolved 2026-10-07.** The leak was fixed at the source: the gauge is now a
+keyed registry with TTL eviction plus a per-worker sweeper
+(`litellm/integrations/prometheus_helpers/deployment_in_flight.py`). Verified on
+dev: idle reads `0`, a single in-flight request reads `1`, three parallel read
+`3`, and a killed client returns to `0`. `live_concurrency` is therefore fed
+from the gauge. The historical note above still describes the prod image, which
+has not been redeployed.
+
 **8f. The two concurrency read surfaces disagree by construction** (max
 across pods in `per_model` vs sum across pods in `/model/performance`,
 690 vs 1334 observed for the same model in the same minute). Whichever
@@ -165,6 +210,10 @@ makes sense at model-group level.
 should be per-request generation speed (completion_tokens / request
 duration), the DB/rollup definition. The prometheus counter rate is a
 fleet capacity metric and under-reports speed under low load.
+
+**Implemented 2026-10-07.** `throughput_last_30m` is the inverse of the
+`litellm_deployment_latency_per_output_token` histogram, i.e. per-request
+generation speed in tokens/second, matching this finding.
 
 **8h. Best-fit sources for the telemetry fields** (all already persisted;
 no new capture needed):
@@ -183,6 +232,14 @@ no new capture needed):
 - reserved `-1` status (SGLang load telemetry): the DB concurrency
   running-sum over a short window is the only trustworthy input; do not
   gate it on the prometheus gauge.
+
+**As implemented 2026-10-07.** The shape above held; the source is Prometheus
+rather than the rollup, for the per-deployment key reason in §0. Concretely:
+`latency_last_30m` is `histogram_quantile` over `rate(TTFT_bucket[30m])`,
+`throughput_last_30m` is the inverted per-token-latency histogram,
+`uptime_last_*` is the success/failure counters (the second option above), and
+the reserved `-1` status is still unassigned. `perf_last_30m_by_workload` is not
+implemented.
 
 ## 4. Proof-of-verification commands (read-only, prod)
 

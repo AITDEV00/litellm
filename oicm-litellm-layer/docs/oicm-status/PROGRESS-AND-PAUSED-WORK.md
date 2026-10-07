@@ -31,6 +31,14 @@ per-source liveness ride the native `LiteLLM_HealthCheckTable` through the new
 2026-10-06), so a consumer can tell fresh status from a dead controller. See
 "The status writer" and "Staleness: a per-source heartbeat" below.
 
+The LiteLLM half of M1 (Steps 13-18) then landed in `2c7cf3bb64`: the official
+OpenRouter `/endpoints` contract, `OpenRouterEndpointsMapper`, `GatewayStateResolver`
+for `gateway_status`, freshness at request time, and the auth/visibility rules,
+all verified live on dev. M3's rolling statistics (Step 25) shipped on top of
+that (`15e02f87cf`, `9b6218a2bb`, plus the slice refactor), so the payload now
+carries per-deployment latency, throughput, and uptime from real 30-minute
+Prometheus windows. See `docs/openrouter/` for the mapping and logic map.
+
 ## Roadmap position
 
 The plan is `IMPLEMENTATION-CHECKLIST.md` (25 steps, three milestones) plus the
@@ -57,9 +65,10 @@ Stopped deployment stays registered and paused instead of disappearing.
 | 10 | Persist `model_info.oicm` | Done, written by the status poller on the 10s clock |
 | 11 | Write-amplification guard | Done for both writers (config diff in `compute_plan`, fact diff in the status writer) |
 | 12 | OICM failure = staleness | Done, via native health-table rows (`oicm-source-*`) + `STATUS_STALE_AFTER` |
-| 13-18 | LiteLLM `/endpoints` schema, mapper, `gateway_status`, dev validation | Not started |
-| 19-23 | M2 engine-load telemetry | Not started |
-| 24-25 | M3 historical statistics | Not started |
+| 13-18 | LiteLLM `/endpoints` schema, mapper, `gateway_status`, dev validation | Done (`2c7cf3bb64`), deployed to dev |
+| 19-23 | M2 engine-load telemetry | Not started (no `RuntimeTelemetryProvider` in the tree) |
+| 24 | M3 omit what you can't provide | Superseded by Step 25 |
+| 25 | M3 rolling stats from Prometheus | Done (`15e02f87cf` + `9b6218a2bb` + the slice refactor) |
 
 Steps 1, 2, 11, 13, and 14 in the checklist describe an earlier shape than what
 landed and have been annotated there. `controller/oicm_status.py` (a compat shim
@@ -67,7 +76,11 @@ for the `status/` package move) was deleted; nothing imported it.
 
 ## Current problems
 
-No blockers. The LiteLLM half of M1 (Steps 13-18) is the next milestone and is
+No blockers. The LiteLLM half of M1 (Steps 13-18) is done and deployed, and M3's
+rolling statistics (Step 25) shipped with it, so the `/endpoints` payload now
+carries live latency, throughput, and uptime per deployment. The remaining work
+is M2 (Steps 19-23), the instantaneous engine view from each runtime's own
+`/metrics`, which is genuinely not started.
 unblocked: the `model_info.oicm` block it reads now exists.
 
 ### Smaller items
@@ -560,20 +573,25 @@ Confirmed as intended behavior, not a problem:
 
 ## Next step
 
-The controller half of M1 is complete: facts, transport, poll, existence, the
-persisted block, `blocked` ownership, and staleness all landed. The remaining
-steps, in order:
+The controller half of M1 is complete, and the LiteLLM half (Steps 13-18) plus
+M3's rolling statistics (Step 25) shipped on top of it. What remains, in order:
 
-1. Steps 13-18: the LiteLLM half of M1. The official OpenRouter `/endpoints`
-   schema, `OpenRouterEndpointsMapper` reading `model_info.oicm`,
-   `GatewayStateResolver` for `gateway_status`, freshness at request time, the
-   auth/visibility rules, and end-to-end validation on dev.
+1. M2 (Steps 19-23): current engine load from each runtime's `/metrics`. This is
+the instantaneous view (running/queued requests, KV utilization), distinct from
+the windowed statistics Step 25 already serves. No `RuntimeTelemetryProvider`
+exists yet.
 2. Step 6 of the design order: parallelize `LocalDeploymentSource.discover()`,
-   which still awaits each deployment serially.
-3. M2 (Steps 19-23): current engine load from each runtime's `/metrics`, then
-   M3 (Steps 24-25): real rolling statistics from Prometheus/Thanos.
+which still awaits each deployment serially.
+3. `perf_last_30m_by_workload`: needs a metric-to-workload classifier before it
+can be filled.
 
-## Still open for the OICM team
+Known honest gaps in the `/endpoints` payload, none of them telemetry:
+`max_prompt_tokens` / `max_completion_tokens` are always null (only the
+openai-compatible adapter constructs `ModelLimits`, and it sets `context_length`
+alone), `data.architecture` is hardcoded empty, runtime detection reports every
+deployment as `openai-compatible` so the vLLM/SGLang adapters never run, and the
+capability enrichment result is discarded on this route. See
+`docs/openrouter/MAPPING-litellm-to-endpoints.md` §8.
 
 Now that the join is on the uuid, the served model id is no longer needed to
 match a deployment. It is still worth asking whether OICM can expose it, because

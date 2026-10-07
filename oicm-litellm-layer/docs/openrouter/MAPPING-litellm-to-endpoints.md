@@ -4,13 +4,13 @@ Reference for deciding what to fill next. Every field of
 `GET /api/v1/models/{author}/{slug}/endpoints`, where its value comes from, and
 what litellm data is currently unused.
 
-Line refs are against commit `95059edfe1`. Live values verified on dev
-2026-10-07.
+Line refs are against commit `1a0b9d23c4`. Live values verified on dev
+2026-10-07, the telemetry fields scraped after traffic warmed the 30m window.
 
-The `needs telemetry` rows (latency/throughput/uptime) are covered by
-`MAPPING-usage-metrics.md`, which inventories all natively captured usage
-data, verifies realtime-vs-historical accuracy on prod, and picks the
-source per field.
+The latency/throughput/uptime rows are populated by
+`litellm/proxy/openrouter_compat/enrichment/telemetry.py`; the source decision
+and the realtime-vs-historical accuracy audit are in
+`MAPPING-usage-metrics.md`.
 
 ## 1. The two names (read this first)
 
@@ -73,10 +73,12 @@ One endpoint object per deployment.
 | `supports_voice_cloning` | `false` | — | hardcoded |
 | `native_tools` | `{}` | — | hardcoded |
 | `quantization` | `null` | — | hardcoded |
-| `latency_last_30m` | `null` | — | needs telemetry |
-| `throughput_last_30m` | `null` | — | needs telemetry |
-| `uptime_last_5m/30m/1d` | `null` | — | needs telemetry |
-| `perf_last_30m_by_workload` | absent | — | not set |
+| `latency_last_30m` | p50/p75/p90/p99 of TTFT, ms | Prometheus TTFT histogram | §4b; `null` until a stream lands in the window |
+| `throughput_last_30m` | p50/p75/p90/p99 of tokens/sec | Prometheus per-token latency histogram, inverted | §4b |
+| `uptime_last_5m/30m/1d` | `success/(success+failure)*100` | Prometheus success/failure counters | §4b |
+| `live_concurrency` | our extension | Prometheus in-progress gauge | §4b; int |
+| `requests_last_30m` | our extension | Prometheus total-requests counter | §4b |
+| `perf_last_30m_by_workload` | absent | — | not set (needs a metric-to-workload classifier) |
 
 ## 4. Pricing precedence
 
@@ -90,6 +92,56 @@ Verified: `litellm.get_model_info("Qwen/Qwen3.6-35B-A3B-FP8")` **misses**, so fo
 a deployment without explicit cost keys the price is `0`, not a registry price.
 The live non-zero prices come from `model_info` (which litellm populates from
 `litellm_params` for a DB-registered model).
+
+## 4b. Telemetry fields (latency / throughput / uptime)
+
+Read by `litellm/proxy/openrouter_compat/enrichment/telemetry.py`
+(`PrometheusDeploymentTelemetryReader`), keyed by `model_id`, from the cluster
+Prometheus. All queries run concurrently, and the whole `model_id` map is cached
+for 15s so a burst of `/endpoints` calls costs one query set per TTL.
+
+| Field | Metric | Transform |
+|---|---|---|
+| `latency_last_30m` | `litellm_llm_api_time_to_first_token_metric` | `histogram_quantile` over `rate(...[30m])`, seconds to ms |
+| `throughput_last_30m` | `litellm_deployment_latency_per_output_token` | `histogram_quantile` over `rate(...[30m])`, inverted to tokens/sec |
+| `uptime_last_5m/30m/1d` | `litellm_deployment_success_responses_total` and `..._failure_responses_total` | `increase` per window, then `success/(success+failure)*100` |
+| `live_concurrency` | `litellm_deployment_in_progress_requests` | direct gauge value, truncated to int |
+| `requests_last_30m` | `litellm_deployment_total_requests_total` | `increase` over 30m |
+
+Semantics, all chosen to match OpenRouter's contract:
+
+- Latency is **time to first token**, not total duration. The TTFT histogram is
+  observed only for streamed requests, so a deployment with no recent stream
+  reports `null`. This is honest, not a defect: at the moment of one dev check
+  the TTFT count in the window was 1, so `histogram_quantile` could not resolve
+  and the field was `null`; once a second sample landed it read
+  `{p50: 38.4, p75: 45.1, p90: 49.2, p99: 92.7}`.
+- Throughput is **per-request generation speed** (the inverse of the
+  latency-per-output-token histogram), which is OpenRouter's definition. The
+  counter-rate alternative (`rate(output_tokens)`) is a fleet capacity metric
+  that under-reports speed under low load; see `MAPPING-usage-metrics.md` §2.4.
+- Uptime is `success/(success+failure)*100` over the window. Success and failure
+  are read as **two separate queries** rather than one ratio, because a
+  deployment with zero failures has no failure series at all and a PromQL vector
+  division against a missing operand yields an empty vector. A missing success
+  series means no traffic, reported as `null`; a missing failure series defaults
+  to 0, so a healthy deployment reports 100.
+- All four percentiles are required. If any quantile is missing the whole
+  distribution is reported as absent rather than fabricated from fewer points.
+
+Two fields are **extensions beyond the OpenRouter contract**, on the same
+`GatewayEndpoint` subclass as `gateway_status`: `live_concurrency` (the live
+in-flight count) and `requests_last_30m`. OpenRouter has no top-level field for
+either; it only exposes request volume nested per workload inside
+`perf_last_30m_by_workload`, which we do not implement.
+
+### Nullable fields serialize as `null`, not omitted
+
+The SDK's `@model_serializer` keeps a nullable field when it is explicitly set,
+so `latency_last_30m`, `throughput_last_30m`, the `uptime_*` fields,
+`max_*_tokens`, and `quantization` all appear in the JSON as `null` when absent.
+Only `perf_last_30m_by_workload` (optional, never set) is dropped. Verified on
+live dev 2026-10-07.
 
 ## 5. The response envelope
 
@@ -160,8 +212,10 @@ live on the list route.
 
 Nothing populates `limits.max_input_tokens` or `limits.max_completion_tokens`:
 the probe sets only `context_length`, and the aggregator would compute them from
-those same unset fields. They are not per-deployment values today, they are
-structurally empty.
+those same unset fields. Confirmed by construction: the only non-test
+`ModelLimits(...)` call is `discovery/adapters/openai_compatible.py:78`, which
+sets `context_length` alone. They are not per-deployment values today, they are
+structurally empty. Verified live: both serialize as `null`.
 
 ### 8d. `data.architecture` is hardcoded empty
 
@@ -170,3 +224,37 @@ structurally empty.
 `model.architecture` for SGLang deployments, and the modalities are in
 `model.capabilities`, but the endpoints route emits neither. The list route does
 map modalities.
+
+### 8e. `perf_last_30m_by_workload` is not implemented
+
+OpenRouter keys this by workload type (`text_generation`, `stt`, `tts`). We have
+the per-deployment data to fill the `text_generation` bucket, but classifying a
+metric series by workload needs a mapping that does not exist yet. Left absent
+rather than fabricated.
+
+### 8f. `live_concurrency` and `requests_last_30m` are extensions
+
+Both sit on the `GatewayEndpoint` subclass alongside `gateway_status`. OpenRouter
+has no top-level field for either, so a strict OpenRouter client ignores them.
+They are the only two telemetry fields not in the official contract, and they are
+documented as such at §4b.
+
+## 9. Verified live (dev, 2026-10-07)
+
+`GET /api/v1/models/zai-org/GLM-5.3/endpoints`, after six streaming requests
+warmed the window:
+
+```
+latency_last_30m    : {p50: 37.7, p75: 44.1, p90: 47.9, p99: 68.0}     ms
+throughput_last_30m : {p50: 400.0, p75: 266.7, p90: 222.2, p99: 202.0} tok/s
+uptime_last_5m/30m/1d : 0.0 / 100.0 / 100.0
+live_concurrency    : 0
+requests_last_30m   : 11.35
+status              : 0
+max_prompt_tokens   : null (present, not omitted)
+```
+
+`live_concurrency` was also observed flipping `0 -> 1` mid-request, and the
+windowed fields were observed reading `null` / `0.0` while the window held no
+qualifying samples, then populating once it did. Those are the honest no-data
+answers, not defects.

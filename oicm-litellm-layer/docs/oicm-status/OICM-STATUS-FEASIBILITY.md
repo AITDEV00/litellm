@@ -6,6 +6,14 @@ Credentials used: `svc-litellm-controller` (dedicated service user, Keycloak rea
 
 This document answers the open questions in the gateway-status architecture plan ("Phase 0 — resolve the three remaining blockers") with live API evidence, and states what is and is not currently buildable.
 
+**Superseded in part (2026-10-07).** This is the feasibility study, written before implementation. The build shipped and diverged from it in three ways worth knowing before reading the design sketches below:
+
+- `health.is_ready` (referenced throughout, e.g. the `OicmDeploymentStatusSnapshot` sketch at "Two payload nuances" below) is **not** the serving signal. It is advisory and recomputed only on lifecycle events. `serving_available`, derived from `status_detail`, replaced it. `is_ready` appears below as history, not as the current contract.
+- The per-deployment fan-out (`get_deployment` + `get_deployment_health` + `get_workload_run`, sketched below) was replaced by one `deployment_summary` call per cycle. `workload_run_id` and `workload_status` were dropped as having no consumer.
+- The `gateway_status` shape sketched below is `{availability, lifecycle}`. What shipped is `{oicm_status, availability, stale, source, healthy, replicas, observed_at, checked_at}`: `lifecycle` was a lossy grouping of the raw status, and the raw status is now `oicm_status`.
+
+The route table, IAM mechanism, and evidence in this document remain accurate and are still the reference for the OICM API surface. For the current state see `IMPLEMENTATION-CHECKLIST.md` and `PROGRESS-AND-PAUSED-WORK.md`.
+
 ## TL;DR
 
 The plan's central assumption — that the controller can read OICM deployment status and inference metrics over REST — **holds**. All three Phase 0 blockers are resolved:
@@ -117,7 +125,7 @@ Field-mapping consequence: OICM gives request-count and queue-depth series, but 
 | Needed field | OICM has it? | Best source |
 |---|---|---|
 | lifecycle / status | yes (`status`, `error_msg`) | OICM |
-| ready/health | yes (`health.is_ready`) | OICM |
+| ready/health | yes (`health.is_ready`; superseded by `serving_available`, see the banner above) | OICM |
 | replicas | yes (`replicas`, `status_detail[].metadata`) | OICM |
 | queued requests | yes (`num_of_requests_waiting_in_queue`) | OICM |
 | request rate / success / fail | yes (`successful_requests`, `failed_requests`) | OICM |

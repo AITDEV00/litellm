@@ -1,6 +1,6 @@
 # OpenRouter-Compatible Model Discovery — Implementation Study
 
-**Status:** Implementation study / scratch pad  
+**Status:** Implementation study / scratch pad (historical). Written 2026-08-14 before the package existed. The phases below have since landed; for the current state read `MAPPING-litellm-to-endpoints.md` (field-by-field) and `LOGIC-MAP-2026-10-07-endpoints-consumer.md` (the full flow). Keep this as the phase-by-phase rationale.
 **Design source:** [litellm_openrouter_models_design.md](litellm_openrouter_models_design.md)  
 **Target branch:** `jya0-v1.96.2` (fork of BerriAI/litellm)  
 **Date:** 2026-08-14
@@ -367,6 +367,11 @@ new client. Wrap it in a small `DiscoveryHTTPClient` that:
   / `max_model_len` presence, but explicit override is more robust. Recommend controller
   stamping `litellm_params.model_info.discovery_runtime` on registration (a small change in
   `controller/litellm_client.py`).
+  **Resolved as a finding, not a fix.** `_detect_runtime_kind` matches only the literal
+  `"sglang"` / `"vllm"`, and a DB-registered model carries `hosted_vllm`, so every
+  deployment falls through to the generic adapter and reports `openai-compatible`. The
+  per-deployment `discovery_runtime` override is the only way to reach the richer
+  adapters today. See `MAPPING-litellm-to-endpoints.md` §8a.
 - **`api_base` trailing `/v1`.** Some registered bases include `/v1` (`...:8080/v1`), some
   not. The probe must normalize the path (strip a trailing `/v1` before appending the probe
   path).

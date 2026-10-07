@@ -73,7 +73,7 @@ Proven from data:
 - The `events` SSE stream carries the transition vocabulary needed for the `restarting`/`redeploying` derivation: `ScalingReplicaSet`, `Killing`, `SuccessfulCreate`, `SuccessfulDelete`, `Unhealthy`, `BackOff`, `FailedScheduling`, `TaintManagerEviction`, `Pulled`/`Pulling`/`Started`/`Created` (`workload-run-events.sse`, 81 Pod + 8 ReplicaSet + 7 Deployment + 3 PVC events).
 
 Assumed, not yet observed in this snapshot:
-- `Pending`, `Deploying`, `Failed` status strings. The plan's transition table (`Pending→starting`, `Ready→Deploying→redeploying`, `Ready→Failed→…→restarting`) cannot be fully validated until a deployment actually cycles. The `workload_run_id` change and the events stream give the signals; the exact `source_status` strings for the transitional phases should be confirmed the first time a real rollout is observed.
+- `Pending`, `Deploying`, `Failed` status strings. The plan's transition table (`Pending→starting`, `Ready→Deploying→redeploying`, `Ready→Failed→…→restarting`) could not be validated from this snapshot alone. The `workload_run_id` change and the events stream give the signals; the exact `source_status` strings for the transitional phases should be confirmed the first time a real rollout is observed. **Partially resolved 2026-10-07:** `Deploying` has since been observed (2 rows in the dev health table, see `LOGIC-MAP-2026-10-07-health-table.md` §8), so the `Deploying` string and its mapping are confirmed. `Pending` and `Failed` remain unobserved.
 
 ## Recommended `source_status` → gateway_status mapping (to validate on first live rollout)
 
@@ -117,7 +117,7 @@ Two consequences of the enum being undocumented are worth restating. First, beca
 
 ## What is NOT yet proven (the honest gap)
 
-1. The transitional status strings (`Pending`/`Deploying`/`Failed`) — none exist in the current snapshot, so the strings are inferred from the events vocabulary and the backend constant names, not from a captured `status` value. Confirm on the next real rollout.
+1. The `Pending` and `Failed` status strings — `Deploying` was observed later (2026-10-07, 2 dev rows) and its mapping is confirmed, but these two are still inferred from the events vocabulary and the backend constant names, not from a captured `status` value. Confirm on the next real rollout or failure.
 2. `num_of_requests_waiting_in_queue` semantics — the plan correctly warned not to assume `Queued` == SGLang scheduler depth. The metric exists and has data, but whether it reflects the engine's internal queue or OICM's gateway queue is unconfirmed. Treat it as a generic queue-depth signal until verified against a known-loaded deployment.
 3. `concurrent_requests` and `response_time` were empty on this deployment, so their time-resolution/step behavior under load is uncharacterized.
 
