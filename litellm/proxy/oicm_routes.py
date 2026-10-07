@@ -27,6 +27,7 @@ only by the background probe loop, never from this table.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Final
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -43,6 +44,12 @@ _UNHEALTHY: Final = "unhealthy"
 
 _DEFAULT_CHECKED_BY: Final = "oicm-controller"
 _SOURCE_ROW_PREFIX: Final = "oicm-source-"
+
+# Caps one batch so a buggy caller cannot make the proxy materialize an
+# unbounded gather. The controller sends one entry per deployment (tens), so
+# this is far above any real cycle; it matches the house batch cap used
+# elsewhere in the proxy.
+_MAX_BATCH_SIZE: Final = 500
 
 
 class OicmStatusReport(BaseModel):
@@ -66,7 +73,7 @@ class OicmStatusReportBatch(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     reporter: str = _DEFAULT_CHECKED_BY
-    reports: list[OicmStatusReport] = Field(min_length=1)
+    reports: list[OicmStatusReport] = Field(min_length=1, max_length=_MAX_BATCH_SIZE)
 
 
 class OicmSourceHeartbeat(BaseModel):
@@ -75,14 +82,13 @@ class OicmSourceHeartbeat(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     cluster: str = Field(min_length=1)
-    details: dict[str, object] | None = None
 
 
 class OicmHeartbeatBatch(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     reporter: str = _DEFAULT_CHECKED_BY
-    heartbeats: list[OicmSourceHeartbeat] = Field(min_length=1)
+    heartbeats: list[OicmSourceHeartbeat] = Field(min_length=1, max_length=_MAX_BATCH_SIZE)
 
 
 def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -129,7 +135,6 @@ async def oicm_status_reports(
         )
         for report in batch.reports
     )
-    import asyncio  # noqa: PLC0415  # defer so route import stays light
 
     rows = await asyncio.gather(*writes)
     saved = sum(1 for r in rows if r is not None)
@@ -168,12 +173,11 @@ async def oicm_heartbeats(
             unhealthy_count=0,
             error_message=None,
             response_time_ms=None,
-            details=hb.details,
+            details=None,
             checked_by=batch.reporter,
         )
         for hb in batch.heartbeats
     )
-    import asyncio  # noqa: PLC0415  # defer so route import stays light
 
     rows = await asyncio.gather(*writes)
     saved = sum(1 for r in rows if r is not None)

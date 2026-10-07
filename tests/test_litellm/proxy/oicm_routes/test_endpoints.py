@@ -5,7 +5,6 @@ with the native status vocabulary, the native loop's row shape is produced,
 heartbeats cannot collide with any model row, and non-admins are refused.
 """
 
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,9 +14,9 @@ from fastapi.testclient import TestClient
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.oicm_routes import (
+    _MAX_BATCH_SIZE,
     OicmHeartbeatBatch,
     OicmSourceHeartbeat,
-    OicmStatusReport,
     OicmStatusReportBatch,
     oicm_heartbeats,
     oicm_status_reports,
@@ -202,6 +201,20 @@ class TestStatusReports:
     def test_empty_batch_is_rejected_at_validation(self):
         client = _client()
         resp = client.post("/oicm/v1/status-reports", json={"reports": []})
+        assert resp.status_code == 422
+
+    def test_oversized_batch_is_rejected_at_validation(self):
+        """A batch cap stops a buggy caller materializing an unbounded gather.
+
+        The controller sends tens of entries per cycle, so the cap only ever
+        fires on a caller bug, and it must reject rather than attempt the write.
+        """
+        client = _client()
+        reports = [
+            {"model_name": f"m{i}", "healthy": True}
+            for i in range(_MAX_BATCH_SIZE + 1)
+        ]
+        resp = client.post("/oicm/v1/status-reports", json={"reports": reports})
         assert resp.status_code == 422
 
     def test_serving_false_is_not_required_to_carry_an_error(self):
