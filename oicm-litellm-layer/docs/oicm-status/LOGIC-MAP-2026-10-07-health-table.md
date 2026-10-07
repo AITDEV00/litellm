@@ -133,7 +133,11 @@ Source row: `model_name`=oicm-source-<cluster>, `model_id`=null, `status`=health
 |---|---|---|
 | Admin UI health column | `/health/latest` (via model_id join) | source rows skipped (no model_id) |
 | Controller `/status` `source_alive` | its own in-memory `checked_at` | does NOT read source rows |
-| openrouter_compat status (Steps 13-18) | not built | the intended consumer of source-row freshness |
+| openrouter_compat `/endpoints` | source rows via `GatewayStatusReader._read_heartbeats` | **built** (Steps 13-18, commit `2c7cf3bb64`); it is the consumer of source-row freshness |
+
+Superseded 2026-10-07: this row read "not built" when this map was written. The
+consumer is now live and mapped in full at
+`docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md`.
 
 ## 9. Audit findings (code smell + logic map, 2026-10-07)
 

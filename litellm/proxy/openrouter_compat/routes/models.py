@@ -38,7 +38,7 @@ def _get_service(request: Request) -> OpenRouterModelsService:
     base_url = str(request.base_url).rstrip("/")
     built = OpenRouterModelsService(llm_router, details_base_url=base_url)
     if app_state is not None:
-        setattr(app_state, "openrouter_service", built)  # pyright: ignore[reportAny]  # dynamic app state
+        app_state.openrouter_service = built  # pyright: ignore[reportAny]  # dynamic app state
     return built
 
 

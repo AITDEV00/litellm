@@ -58,6 +58,19 @@ _ENDPOINT_STATUS_DEPLOYING: Final[EndpointStatus] = -3
 _ENDPOINT_STATUS_FAILED: Final[EndpointStatus] = -5
 _ENDPOINT_STATUS_STOPPED: Final[EndpointStatus] = -10
 
+# Lifecycle wins over availability: a failed deployment is failed even if its
+# last known availability was not offline. No lifecycle maps to 0, so a lookup
+# miss is unambiguous.
+_ENDPOINT_STATUS_BY_LIFECYCLE: Final[Mapping[Lifecycle, EndpointStatus]] = {
+    "failed": _ENDPOINT_STATUS_FAILED,
+    "stopped": _ENDPOINT_STATUS_STOPPED,
+    "deploying": _ENDPOINT_STATUS_DEPLOYING,
+}
+_ENDPOINT_STATUS_BY_AVAILABILITY: Final[Mapping[Availability, EndpointStatus]] = {
+    "degraded": _ENDPOINT_STATUS_ATTENTION,
+    "online": _ENDPOINT_STATUS_OK,
+}
+
 
 class ReplicaCounts(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -87,17 +100,10 @@ class GatewayStatus(BaseModel):
         """
         if self.stale:
             return None
-        if self.lifecycle == "failed":
-            return _ENDPOINT_STATUS_FAILED
-        if self.lifecycle == "stopped":
-            return _ENDPOINT_STATUS_STOPPED
-        if self.lifecycle == "deploying":
-            return _ENDPOINT_STATUS_DEPLOYING
-        if self.availability == "degraded":
-            return _ENDPOINT_STATUS_ATTENTION
-        if self.availability == "online":
-            return _ENDPOINT_STATUS_OK
-        return None
+        by_lifecycle = _ENDPOINT_STATUS_BY_LIFECYCLE.get(self.lifecycle)
+        if by_lifecycle is not None:
+            return by_lifecycle
+        return _ENDPOINT_STATUS_BY_AVAILABILITY.get(self.availability)
 
 
 @dataclass(frozen=True, slots=True)
