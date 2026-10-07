@@ -12,7 +12,7 @@
 #   1  prompt (required)
 #   2  output png path (optional; default OUT_DIR/<slug>-<timestamp>.png)
 #
-# Env: MODEL (default Qwen/Qwen-Image-2.1), OUT_DIR (default ./out, gitignored)
+# Env: MODEL (default Qwen/Qwen-Image-2.1), OUT_DIR (default ./out/generations, gitignored)
 #
 # Requires: curl, python3
 
@@ -25,7 +25,7 @@ OUT="${2:-}"
 : "${LITELLM_API_KEY:?set LITELLM_API_KEY}"
 
 MODEL="${MODEL:-Qwen/Qwen-Image-2.1}"
-OUT_DIR="${OUT_DIR:-$(cd "$(dirname "$0")" && pwd)/out}"
+OUT_DIR="${OUT_DIR:-$(cd "$(dirname "$0")" && pwd)/out/generations}"
 mkdir -p "$OUT_DIR"
 
 if [[ -z "$OUT" ]]; then
@@ -38,7 +38,7 @@ BODY=$(python3 -c 'import json,sys; print(json.dumps({"model":sys.argv[1],"promp
 echo "model:  $MODEL"
 echo "prompt: $PROMPT"
 
-curl -sk -X POST "$PROXY_BASE_URL/v1/images/generations" \
+curl -sS --fail-with-body -X POST "$PROXY_BASE_URL/v1/images/generations" \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
   -H 'Content-Type: application/json' \
   -d "$BODY" \

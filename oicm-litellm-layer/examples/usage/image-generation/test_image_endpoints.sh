@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Exercise /v1/images/generations and /v1/images/edits through the gateway.
 #
-# For every case it saves, under OUT_DIR/<case>/:
+# Every case is saved under OUT_DIR/<endpoint>/<case>/, where <endpoint> is
+# "generations" or "edits":
 #   request.sh     the exact curl sent, with the bearer token redacted
 #   response.json  the raw response, with any b64 payload elided
-#   result.txt     http code, timing, and decoded image dimensions
+#   result.txt     http code, timing, response metadata, and the parameter note
 #   output-N.png   each returned image, decoded
 #
 # Usage:
 #   export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 #   export LITELLM_API_KEY="sk-..."
 #   ./test_image_endpoints.sh                 # all cases
-#   ./test_image_endpoints.sh edits-two-images-transparent   # one case
+#   ./test_image_endpoints.sh gen-size-512    # one case
+#   ./test_image_endpoints.sh gen-size-512 edit-mask
 #
 # Env: MODEL (default Qwen/Qwen-Image-2.1), OUT_DIR (default ./out)
 #
@@ -130,15 +132,18 @@ PY
 }
 
 # --- one case ---------------------------------------------------------------
-# run_case <name> <note> <curl args...>. The note names the parameter under
-# test and lands in result.txt.
+# run_case <name> <note> <curl args...>. The name is prefixed gen- or edit-, which
+# selects the output subdirectory. The note names the parameter under test and
+# lands in result.txt.
 run_case() {
   local name="$1" note="$2"; shift 2
-  local case_dir="$OUT_DIR/$name"
+  local group=generations
+  [[ "$name" == edit-* ]] && group=edits
+  local case_dir="$OUT_DIR/$group/$name"
   mkdir -p "$case_dir"
   printf '%s\n' "$note" >"$case_dir/note.txt"
   LAST_REQUEST=("$@")
-  echo "== $name  [$note]"
+  echo "== $group/$name  [$note]"
   local out
   out=$(curl -sS --fail-with-body "${LAST_REQUEST[@]}" \
         -o "$case_dir/response.raw.json" \
@@ -478,10 +483,10 @@ case_edit-mixed-resolutions() {
 # is rejected with "image_conditioning".
 run_concurrent_batch() {
   local name="$1" note="$2" sizes="$3"
-  local case_dir="$OUT_DIR/$name"
+  local case_dir="$OUT_DIR/generations/$name"
   mkdir -p "$case_dir"
   printf '%s\n' "$note" >"$case_dir/note.txt"
-  echo "== $name  [$note]"
+  echo "== generations/$name  [$note]"
   PROXY_BASE_URL="$PROXY_BASE_URL" LITELLM_API_KEY="$LITELLM_API_KEY" MODEL="$MODEL" \
     CASE_DIR="$case_dir" SIZES="$sizes" python3 - <<'PY'
 import base64, concurrent.futures as cf, json, os, ssl, time, urllib.request
@@ -572,4 +577,4 @@ for name in "${SELECTED[@]}"; do
   "$fn"
 done
 echo
-echo "done. inspect $OUT_DIR/<case>/request.sh, result.txt, output-*.png"
+echo "done. inspect $OUT_DIR/{generations,edits}/<case>/{request.sh,result.txt,output-*.png}"

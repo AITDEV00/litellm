@@ -74,6 +74,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Hamsa TTS New `/v1` guide | `docs/usage-guides/HAMSA-TTS-NEW-V1-GUIDE.md` |
 | Inception TTS/STT guide | `docs/usage-guides/INCEPTION_TTS_STT_GUIDE.md` |
 | OmniVoice TTS guide | `docs/usage-guides/OMNIVOICE_TTS_GUIDE.md` |
+| Qwen image generation & editing guide | `docs/usage-guides/QWEN_IMAGE_GUIDE.md` |
 | Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
 
 ## Dashboard / frontend

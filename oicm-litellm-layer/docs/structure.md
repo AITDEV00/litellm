@@ -101,7 +101,7 @@ oicm-litellm-layer/
 │   ├── incidents/          ← dated incident reports (one dir per incident)
 │   ├── model-pricing/      ← pricing logic maps
 │   ├── oicm-status/        ← status-API feasibility + evidence artifacts
-│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen, VibeVoice, reasoning control)
+│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen image/vision, VibeVoice, reasoning control)
 │   ├── performance/        ← performance before/after + OOM logic maps (+ live-data/ evidence)
 │   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
 │   ├── session-identity/   ← session-id resolver implementation plan
@@ -147,7 +147,7 @@ oicm-litellm-layer/
 │
 ├── examples/usage/         ← runnable usage tests for gateway endpoints
 │   ├── hamsa-stt/          ← HAMSA STT WebSocket test page
-│   ├── image-generation/   ← gen_image.sh (images/generations); out/ is gitignored
+│   ├── image-generation/   ← gen_image.sh + test_image_endpoints.sh (images/generations & edits); out/ is gitignored
 │   └── openrouter/         ← /api/v1/models demo
 │
 ├── tests/                  ← tests (controller, hooks)
