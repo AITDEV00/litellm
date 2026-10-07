@@ -15,6 +15,10 @@ units, the window, and the uptime formula. Only the generic Prometheus client
 - throughput is per-request generation speed (tokens/second), the inverse of the
   ``litellm_deployment_latency_per_output_token`` histogram.
 - uptime is ``success / (success + failure) * 100`` over the window.
+- live concurrency is the peak in-flight count on the busiest pod of that
+  deployment, i.e. ``max`` across the deployment's replica series, not the
+  fleet-wide sum. Summing would make one busy replica and four idle ones read the
+  same as five moderately busy ones, which is not the load on that endpoint.
 
 The reader runs its queries concurrently and caches the whole ``model_id`` map
 for a short TTL, so a burst of ``/endpoints`` calls costs one query set per TTL
@@ -76,7 +80,12 @@ class Percentiles:
 
 @dataclass(frozen=True, slots=True)
 class PerDeploymentMetrics:
-    """Everything the ``/endpoints`` telemetry fields need for one deployment."""
+    """Everything the ``/endpoints`` telemetry fields need for one deployment.
+
+    ``live_concurrency`` is the peak load on the busiest replica, not a
+    fleet-wide total. ``requests_last_30m`` is a sum, since request counts add up
+    across replicas while concurrent occupancy does not.
+    """
 
     live_concurrency: int | None = None
     ttft_latency_ms: Percentiles | None = None
@@ -127,7 +136,7 @@ def _query_specs() -> tuple[_QuerySpec, ...]:
         ),
         *(_QuerySpec(f"success_{window}", _success_query(window)) for window in _UPTIME_WINDOWS),
         *(_QuerySpec(f"failure_{window}", _failure_query(window)) for window in _UPTIME_WINDOWS),
-        _QuerySpec("concurrency", "sum by (model_id) (litellm_deployment_in_progress_requests)"),
+        _QuerySpec("concurrency", "max by (model_id) (litellm_deployment_in_progress_requests)"),
         _QuerySpec("requests", f"sum by (model_id) (increase(litellm_deployment_total_requests_total[{_WINDOW}]))"),
     )
 
@@ -160,7 +169,10 @@ def _flatten_by_model_id(series: Mapping[str, Mapping[str, float]]) -> Mapping[s
     """Invert ``query key -> (model_id -> value)`` into ``model_id -> (query key -> value)``."""
     model_ids: Final = frozenset(mid for group in series.values() for mid in group)
     return MappingProxyType(
-        {model_id: MappingProxyType({key: group[model_id] for key, group in series.items() if model_id in group}) for model_id in model_ids}
+        {
+            model_id: MappingProxyType({key: group[model_id] for key, group in series.items() if model_id in group})
+            for model_id in model_ids
+        }
     )
 
 

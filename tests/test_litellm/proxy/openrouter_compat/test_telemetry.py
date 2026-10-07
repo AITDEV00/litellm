@@ -142,6 +142,26 @@ async def test_fetch_missing_metrics_are_none_not_zero():
     assert m.requests_last_30m is None
 
 
+def test_concurrency_query_takes_max_not_sum():
+    """``live_concurrency`` is the busiest replica, so the query must aggregate with ``max``.
+
+    The gauge carries one series per pod. Summing would report a deployment
+    spread over N replicas as N times busier than the same load on one replica,
+    which is not the load on the registered model.
+    """
+    spec = next(s for s in dm._query_specs() if s.key == "concurrency")
+    assert spec.promql == "max by (model_id) (litellm_deployment_in_progress_requests)"
+    assert "sum by" not in spec.promql
+
+
+@pytest.mark.asyncio
+async def test_live_concurrency_reports_busiest_replica_value():
+    """End to end through the reader: a replica fan-out collapses to the peak, not the total."""
+    values = {"litellm_deployment_in_progress_requests": {"m1": 4.0}}
+    snapshot = await _reader(values)._fetch()
+    assert snapshot["m1"].live_concurrency == 4
+
+
 @pytest.mark.asyncio
 async def test_snapshot_is_cached_within_ttl():
     """A second read inside the TTL must not re-query Prometheus."""
