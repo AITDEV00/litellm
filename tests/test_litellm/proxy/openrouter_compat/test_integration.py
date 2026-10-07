@@ -7,6 +7,8 @@ OpenRouter SDK into the expected public shape.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -281,9 +283,9 @@ class _FakeTelemetry:
 
     def __init__(self, metrics: dict[str, PerDeploymentMetrics]) -> None:
         self._metrics = metrics
-        self.requested: list[list[str]] = []
+        self.requested: list[Sequence[str]] = []
 
-    async def read(self, model_ids: list[str]) -> dict[str, PerDeploymentMetrics]:
+    async def read(self, model_ids: Sequence[str]) -> Mapping[str, PerDeploymentMetrics]:
         self.requested.append(model_ids)
         return {mid: self._metrics[mid] for mid in model_ids if mid in self._metrics}
 
@@ -341,7 +343,7 @@ async def test_injected_telemetry_reaches_the_endpoint_response():
     )
     await service.aclose()
 
-    assert telemetry.requested == [["dep-1"]]
+    assert telemetry.requested == [("dep-1",)]
     assert result is not None
     endpoint = result["data"]["endpoints"][0]
     assert endpoint["live_concurrency"] == 2

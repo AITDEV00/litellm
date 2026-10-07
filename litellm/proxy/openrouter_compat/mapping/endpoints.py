@@ -4,17 +4,12 @@ Only this layer imports the OpenRouter schema. The mapper is a pure function of
 its inputs: the logical model, its deployments, and the gateway status resolved
 for each deployment. Everything the endpoint advertises that we cannot observe
 is left null.
-
-``gateway_status`` is attached through a ``PublicEndpoint`` subclass. The extra
-field survives because each endpoint is serialized on its own; nesting the
-subclass in ``ListEndpointsResponse.endpoints`` (declared ``list[PublicEndpoint]``)
-would serialize through the declared base type and drop it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Final, cast
+from collections.abc import Mapping, Sequence
+from typing import Final
 
 from pydantic import Field
 
@@ -56,6 +51,18 @@ class GatewayEndpoint(PublicEndpoint):
     requests_last_30m: float | None = Field(default=None)
 
 
+class GatewayListEndpointsResponse(ListEndpointsResponse):
+    """``ListEndpointsResponse`` whose endpoint list carries the gateway's extra fields.
+
+    Redeclaring ``endpoints`` as the subclass is what keeps ``gateway_status``,
+    ``live_concurrency``, and ``requests_last_30m`` in the payload: the base
+    field is ``list[PublicEndpoint]``, so assigning ``GatewayEndpoint`` values
+    to it would validate each one down to the base type and drop them.
+    """
+
+    endpoints: Sequence[GatewayEndpoint]
+
+
 def _percentile_stats(percentiles: Percentiles | None) -> PercentileStats | None:
     if percentiles is None:
         return None
@@ -80,29 +87,24 @@ class OpenRouterEndpointsMapper:
         statuses: Mapping[str, GatewayStatus],
         metrics: Mapping[str, PerDeploymentMetrics] | None = None,
     ) -> dict[str, object]:
-        metrics = metrics or {}
-        gateway_endpoints = [
-            self._to_endpoint(
-                model,
-                deployment,
-                statuses.get(deployment.runtime.deployment_id),
-                metrics.get(deployment.runtime.deployment_id),
-            )
-            for deployment in model.deployments
-        ]
-        response = ListEndpointsResponse(
+        resolved_metrics: Final = metrics or {}
+        response: Final = GatewayListEndpointsResponse(
             id=public_id,
             name=self._display_name(model, public_id),
             created=model.identity.created or 0,
             description=self._description(model, public_id),
             architecture=self._response_architecture(),
-            endpoints=cast(
-                list[PublicEndpoint], gateway_endpoints
-            ),  # cast-ok: GatewayEndpoint subclasses PublicEndpoint; list invariance needs the upcast
+            endpoints=tuple(
+                self._to_endpoint(
+                    model,
+                    deployment,
+                    statuses.get(deployment.runtime.deployment_id),
+                    resolved_metrics.get(deployment.runtime.deployment_id),
+                )
+                for deployment in model.deployments
+            ),
         )
-        serialized = response.model_dump(mode="json")
-        serialized["endpoints"] = [endpoint.model_dump(mode="json") for endpoint in gateway_endpoints]
-        return {"data": serialized}
+        return {"data": response.model_dump(mode="json")}
 
     def map_empty(self, *, public_id: str, logical_model_name: str) -> dict[str, object]:
         """A conformant response for a model with no discoverable deployment.
@@ -110,7 +112,7 @@ class OpenRouterEndpointsMapper:
         Keeps the ``links.details`` the list route advertises from being a dead
         URL: the shape is valid, the endpoint list is honestly empty.
         """
-        response = ListEndpointsResponse(
+        response: Final = GatewayListEndpointsResponse(
             id=public_id,
             name=logical_model_name,
             created=0,
@@ -119,7 +121,7 @@ class OpenRouterEndpointsMapper:
                 "discovery produced no usable endpoint."
             ),
             architecture=self._response_architecture(),
-            endpoints=[],
+            endpoints=(),
         )
         return {"data": response.model_dump(mode="json")}
 

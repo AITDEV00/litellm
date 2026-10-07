@@ -6,23 +6,19 @@ Feeds the ``PublicEndpoint`` telemetry fields (``latency_last_30m``,
 ``throughput_last_30m``, ``uptime_last_*``) plus this gateway's live-concurrency
 extension.
 
-This lives in the slice's enrichment layer, not in the shared Prometheus
-helpers, because the decisions here are all OpenRouter-contract decisions: the
-units, the window, and the uptime formula below. Only the generic Prometheus
-client (``query_prometheus_instant``) is shared.
+This lives in the slice's enrichment layer rather than the shared Prometheus
+helpers because the decisions here are all OpenRouter-contract decisions: the
+units, the window, and the uptime formula. Only the generic Prometheus client
+(``query_prometheus_instant``) is shared.
 
-Semantics match OpenRouter's contract and the source decision in
-``docs/openrouter/MAPPING-usage-metrics.md`` §8g/8h:
-
-- latency is **time to first token** (streaming only; the TTFT histogram is
-  observed for streamed requests), reported in milliseconds.
-- throughput is **per-request generation speed** (tokens/second), the inverse of
-  the ``litellm_deployment_latency_per_output_token`` histogram.
+- latency is time to first token (streaming only), in milliseconds.
+- throughput is per-request generation speed (tokens/second), the inverse of the
+  ``litellm_deployment_latency_per_output_token`` histogram.
 - uptime is ``success / (success + failure) * 100`` over the window.
 
 The reader runs its queries concurrently and caches the whole ``model_id`` map
-for a short TTL, so a burst of ``/endpoints`` calls costs at most one query set
-per TTL rather than one per request.
+for a short TTL, so a burst of ``/endpoints`` calls costs one query set per TTL
+rather than one per request.
 """
 
 from __future__ import annotations
@@ -30,8 +26,9 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final, Protocol
 
 from litellm._logging import verbose_logger
@@ -42,14 +39,19 @@ from litellm.integrations.prometheus_helpers.prometheus_api import (
 
 _WINDOW: Final = "30m"
 _CACHE_TTL_SECONDS: Final = 15.0
+_TTFT_METRIC: Final = "litellm_llm_api_time_to_first_token_metric"
+_THROUGHPUT_METRIC: Final = "litellm_deployment_latency_per_output_token"
 
-_QUANTILES: Final[tuple[tuple[str, float], ...]] = (("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("p99", 0.99))
-
-_UPTIME_WINDOWS: Final[tuple[tuple[str, str], ...]] = (
-    ("uptime_last_5m", "5m"),
-    ("uptime_last_30m", "30m"),
-    ("uptime_last_1d", "1d"),
+_QUANTILES: Final[tuple[tuple[str, float], ...]] = (
+    ("p50", 0.50),
+    ("p75", 0.75),
+    ("p90", 0.90),
+    ("p99", 0.99),
 )
+
+_UPTIME_WINDOWS: Final[tuple[str, ...]] = ("5m", "30m", "1d")
+
+_EMPTY: Final[Mapping[str, float]] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,21 +84,15 @@ class DeploymentTelemetryReader(Protocol):
     test inject a fake reader instead of patching the reader's module internals.
     """
 
-    async def read(self, model_ids: list[str]) -> dict[str, PerDeploymentMetrics]: ...
+    async def read(self, model_ids: Sequence[str]) -> Mapping[str, PerDeploymentMetrics]: ...
 
 
-def _series_by_model_id(raw: list[dict]) -> dict[str, float]:
-    """Flatten an instant-query result into ``model_id -> value``, dropping NaN."""
-    out: dict[str, float] = {}
-    for entry in raw:
-        model_id = entry.get("metric", {}).get("model_id", "")
-        if not model_id:
-            continue
-        value = float(entry.get("value", [0, "0"])[1])
-        if math.isnan(value):
-            continue
-        out[model_id] = value
-    return out
+@dataclass(frozen=True, slots=True)
+class _QuerySpec:
+    """One PromQL query and the key its result is stored under."""
+
+    key: str
+    promql: str
 
 
 def _histogram_quantile_query(metric: str, quantile: float, window: str) -> str:
@@ -111,20 +107,62 @@ def _failure_query(window: str) -> str:
     return f"sum by (model_id) (increase(litellm_deployment_failure_responses_total[{window}]))"
 
 
+def _query_specs() -> tuple[_QuerySpec, ...]:
+    """Every query a snapshot needs, each keyed so results never depend on order."""
+    return (
+        *(_QuerySpec(f"ttft_{label}", _histogram_quantile_query(_TTFT_METRIC, q, _WINDOW)) for label, q in _QUANTILES),
+        *(
+            _QuerySpec(f"throughput_{label}", _histogram_quantile_query(_THROUGHPUT_METRIC, q, _WINDOW))
+            for label, q in _QUANTILES
+        ),
+        *(_QuerySpec(f"success_{window}", _success_query(window)) for window in _UPTIME_WINDOWS),
+        *(_QuerySpec(f"failure_{window}", _failure_query(window)) for window in _UPTIME_WINDOWS),
+        _QuerySpec("concurrency", "sum by (model_id) (litellm_deployment_in_progress_requests)"),
+        _QuerySpec("requests", f"sum by (model_id) (increase(litellm_deployment_total_requests_total[{_WINDOW}]))"),
+    )
+
+
 def _uptime_percent(success: float, failure: float) -> float:
-    total = success + failure
+    total: Final = success + failure
     return success / total * 100.0 if total > 0 else 0.0
 
 
-async def _query(query: str) -> dict[str, float]:
+def _model_id_and_value(entry: Mapping[str, object]) -> tuple[str, float] | None:
+    """Read one instant-query sample, or ``None`` when it has no usable value."""
+    metric: Final = entry.get("metric")
+    model_id: Final = metric.get("model_id") if isinstance(metric, Mapping) else None
+    if not isinstance(model_id, str) or not model_id:
+        return None
+    value: Final = entry.get("value")
+    if not isinstance(value, Sequence) or isinstance(value, str) or len(value) < 2:
+        return None
+    parsed: Final = float(value[1])  # pyright: ignore[reportArgumentType]  # Prometheus renders the value as a numeric string
+    return None if math.isnan(parsed) else (model_id, parsed)
+
+
+def _series_by_model_id(raw: Sequence[Mapping[str, object]]) -> Mapping[str, float]:
+    """Flatten a single-value instant-query result into ``model_id -> value``, dropping NaN."""
+    pairs: Final = tuple(pair for entry in raw if (pair := _model_id_and_value(entry)) is not None)
+    return MappingProxyType(dict(pairs))
+
+
+def _flatten_by_model_id(series: Mapping[str, Mapping[str, float]]) -> Mapping[str, Mapping[str, float]]:
+    """Invert ``query key -> (model_id -> value)`` into ``model_id -> (query key -> value)``."""
+    model_ids: Final = frozenset(mid for group in series.values() for mid in group)
+    return MappingProxyType(
+        {model_id: MappingProxyType({key: group[model_id] for key, group in series.items() if model_id in group}) for model_id in model_ids}
+    )
+
+
+async def _query(promql: str) -> Mapping[str, float]:
     try:
-        return _series_by_model_id(await query_prometheus_instant(query))
+        return _series_by_model_id(await query_prometheus_instant(promql))
     except Exception as e:  # noqa: BLE001  # one failed metric must not blank the whole view
-        verbose_logger.debug("per-deployment metrics query failed (%s): %s", query, e)
-        return {}
+        verbose_logger.debug("per-deployment metrics query failed (%s): %s", promql, e)
+        return _EMPTY
 
 
-def _percentiles_from(values: dict[str, float], transform: Callable[[float], float]) -> Percentiles | None:
+def _percentiles_from(values: Mapping[str, float], transform: Callable[[float], float]) -> Percentiles | None:
     """Build a ``Percentiles`` when all four quantiles resolved for one model_id.
 
     ``values`` maps quantile name -> raw value; ``transform`` converts a raw
@@ -142,108 +180,91 @@ def _percentiles_from(values: dict[str, float], transform: Callable[[float], flo
     )
 
 
+def _seconds_to_ms(seconds: float) -> float:
+    return seconds * 1000.0
+
+
+def _tokens_per_second(seconds_per_token: float) -> float:
+    return 1.0 / seconds_per_token if seconds_per_token > 0 else 0.0
+
+
+def _quantile_values(cells: Mapping[str, float], prefix: str) -> Mapping[str, float]:
+    return MappingProxyType(
+        {label: cells[f"{prefix}_{label}"] for label, _ in _QUANTILES if f"{prefix}_{label}" in cells}
+    )
+
+
+def _uptime_for(window: str, cells: Mapping[str, float]) -> float | None:
+    """Uptime for one window, or ``None`` when the deployment had no success in it.
+
+    Success and failure are read separately rather than as one ratio: a
+    deployment with zero failures has no failure series at all, and a PromQL
+    vector division against a missing operand yields an empty vector (uptime
+    would vanish for the healthiest deployments). So a missing failure term
+    defaults to zero, while a missing success term means no traffic.
+    """
+    success: Final = cells.get(f"success_{window}")
+    if success is None:
+        return None
+    return _uptime_percent(success, cells.get(f"failure_{window}", 0.0))
+
+
+def _build_one(cells: Mapping[str, float]) -> PerDeploymentMetrics:
+    concurrency: Final = cells.get("concurrency")
+    return PerDeploymentMetrics(
+        live_concurrency=int(concurrency) if concurrency is not None else None,
+        ttft_latency_ms=_percentiles_from(_quantile_values(cells, "ttft"), _seconds_to_ms),
+        throughput_tokens_per_sec=_percentiles_from(_quantile_values(cells, "throughput"), _tokens_per_second),
+        requests_last_30m=cells.get("requests"),
+        uptime_last_5m=_uptime_for(_UPTIME_WINDOWS[0], cells),
+        uptime_last_30m=_uptime_for(_UPTIME_WINDOWS[1], cells),
+        uptime_last_1d=_uptime_for(_UPTIME_WINDOWS[2], cells),
+    )
+
+
+def _snapshot_from(flat: Mapping[str, Mapping[str, float]]) -> Mapping[str, PerDeploymentMetrics]:
+    return MappingProxyType({model_id: _build_one(cells) for model_id, cells in flat.items()})
+
+
 class PrometheusDeploymentTelemetryReader:
     """Reads and caches per-deployment telemetry from Prometheus."""
 
     def __init__(self, cache_ttl_seconds: float = _CACHE_TTL_SECONDS) -> None:
         self._cache_ttl_seconds = cache_ttl_seconds
-        # ``None`` means "never fetched"; an empty dict is a valid snapshot (no
-        # deployments had data), so it must still count as a cache hit.
-        self._cache: dict[str, PerDeploymentMetrics] | None = None
+        # ``None`` means "never fetched"; an empty mapping is a valid snapshot
+        # (no deployments had data), so it must still count as a cache hit.
+        self._cache: Mapping[str, PerDeploymentMetrics] | None = None
         self._cache_at: float = 0.0
         self._lock = asyncio.Lock()
+        self._query_specs: Final = _query_specs()
 
-    async def read(self, model_ids: list[str]) -> dict[str, PerDeploymentMetrics]:
+    async def read(self, model_ids: Sequence[str]) -> Mapping[str, PerDeploymentMetrics]:
         """Return telemetry for the requested deployments.
 
         Reads the whole ``model_id`` map (cached) and returns the requested
         subset; an unknown ``model_id`` is simply absent.
         """
         if PROMETHEUS_URL is None or not model_ids:
-            return {}
-        snapshot = await self._snapshot()
-        return {model_id: snapshot[model_id] for model_id in model_ids if model_id in snapshot}
+            return MappingProxyType({})
+        snapshot: Final = await self._snapshot()
+        return MappingProxyType({model_id: snapshot[model_id] for model_id in model_ids if model_id in snapshot})
 
-    async def _snapshot(self) -> dict[str, PerDeploymentMetrics]:
-        now = time.monotonic()
+    async def _snapshot(self) -> Mapping[str, PerDeploymentMetrics]:
+        now: Final = time.monotonic()
         if self._cache is not None and now - self._cache_at < self._cache_ttl_seconds:
             return self._cache
         async with self._lock:
-            now = time.monotonic()
-            if self._cache is not None and now - self._cache_at < self._cache_ttl_seconds:
+            now_locked: Final = time.monotonic()
+            if self._cache is not None and now_locked - self._cache_at < self._cache_ttl_seconds:
                 return self._cache
-            fetched = await self._fetch()
+            fetched: Final = await self._fetch()
             self._cache = fetched
             self._cache_at = time.monotonic()
             return fetched
 
-    async def _fetch(self) -> dict[str, PerDeploymentMetrics]:
-        ttft_queries = [
-            _histogram_quantile_query("litellm_llm_api_time_to_first_token_metric", q, _WINDOW)
-            for _, q in _QUANTILES
-        ]
-        throughput_queries = [
-            _histogram_quantile_query("litellm_deployment_latency_per_output_token", q, _WINDOW)
-            for _, q in _QUANTILES
-        ]
-        # Success and failure are read separately rather than as one ratio: a
-        # deployment with zero failures has no failure series at all, and a
-        # PromQL vector division against a missing operand yields an empty
-        # vector (uptime would vanish for the healthiest deployments).
-        success_queries = [_success_query(window) for _, window in _UPTIME_WINDOWS]
-        failure_queries = [_failure_query(window) for _, window in _UPTIME_WINDOWS]
-        other_queries = [
-            "sum by (model_id) (litellm_deployment_in_progress_requests)",
-            f"sum by (model_id) (increase(litellm_deployment_total_requests_total[{_WINDOW}]))",
-        ]
-
-        all_queries = [*ttft_queries, *throughput_queries, *success_queries, *failure_queries, *other_queries]
-        results = await asyncio.gather(*(_query(q) for q in all_queries))
-
-        n_ttft = len(ttft_queries)
-        n_throughput = len(throughput_queries)
-        n_windows = len(_UPTIME_WINDOWS)
-        ttft_results = results[:n_ttft]
-        throughput_results = results[n_ttft : n_ttft + n_throughput]
-        success_results = results[n_ttft + n_throughput : n_ttft + n_throughput + n_windows]
-        failure_results = results[n_ttft + n_throughput + n_windows : n_ttft + n_throughput + 2 * n_windows]
-        concurrency_by_id = results[n_ttft + n_throughput + 2 * n_windows]
-        requests_by_id = results[n_ttft + n_throughput + 2 * n_windows + 1]
-
-        model_ids = {
-            *concurrency_by_id,
-            *requests_by_id,
-            *(mid for r in ttft_results for mid in r),
-            *(mid for r in throughput_results for mid in r),
-            *(mid for r in success_results for mid in r),
-            *(mid for r in failure_results for mid in r),
-        }
-
-        def _quantiles_for(results_for_metric: list[dict[str, float]], model_id: str) -> dict[str, float]:
-            return {
-                name: r[model_id] for (name, _), r in zip(_QUANTILES, results_for_metric, strict=True) if model_id in r
-            }
-
-        def _uptime_for(window_index: int, model_id: str) -> float | None:
-            success = success_results[window_index].get(model_id)
-            if success is None:
-                return None
-            failure = failure_results[window_index].get(model_id, 0.0)
-            return _uptime_percent(success, failure)
-
-        def _build(model_id: str) -> PerDeploymentMetrics:
-            ttft = _quantiles_for(ttft_results, model_id)
-            throughput = _quantiles_for(throughput_results, model_id)
-            return PerDeploymentMetrics(
-                live_concurrency=int(concurrency_by_id[model_id]) if model_id in concurrency_by_id else None,
-                ttft_latency_ms=_percentiles_from(ttft, lambda seconds: seconds * 1000.0),
-                throughput_tokens_per_sec=_percentiles_from(
-                    throughput, lambda seconds_per_token: 1.0 / seconds_per_token if seconds_per_token > 0 else 0.0
-                ),
-                requests_last_30m=requests_by_id.get(model_id),
-                uptime_last_5m=_uptime_for(0, model_id),
-                uptime_last_30m=_uptime_for(1, model_id),
-                uptime_last_1d=_uptime_for(2, model_id),
-            )
-
-        return {model_id: _build(model_id) for model_id in model_ids}
+    async def _fetch(self) -> Mapping[str, PerDeploymentMetrics]:
+        results: Final = await asyncio.gather(*(_query(spec.promql) for spec in self._query_specs))
+        series: Final[Mapping[str, Mapping[str, float]]] = MappingProxyType(
+            {spec.key: result for spec, result in zip(self._query_specs, results, strict=True)}
+        )
+        return _snapshot_from(_flatten_by_model_id(series))
