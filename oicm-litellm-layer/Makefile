@@ -199,6 +199,29 @@ litellm-src-deploy:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy --timeout=300s
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
+## Build, push, then roll the DEV gateway out. The dev counterpart of
+## `litellm-src-release`, and the ONLY safe way to ship the gateway to dev.
+##
+## CAVEAT: dev and prod reference the SAME tag (`litellm-src:$(LITELLM_SRC_TAG)`),
+## so a build overwrites the bytes behind that tag for both. This target only
+## restarts the dev Deployment, so prod keeps serving its already-running
+## container until prod is deliberately restarted. Treat the tag as a dev
+## channel until prod is moved to its own tag.
+litellm-src-release-dev: litellm-src-build-push litellm-src-deploy-dev
+
+## Pin the current LITELLM_SRC_TAG in the DEV proxy manifest and roll it out.
+## Prod's manifest and Deployment are never touched.
+litellm-src-deploy-dev:
+	@echo "Pinning image tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/dev/litellm-proxy-dev.yaml"
+	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/dev/litellm-proxy-dev.yaml
+	@echo "Deploying dev gateway"
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/litellm-config-dev.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/litellm-proxy-dev.yaml
+	@echo "Restarting litellm-proxy-dev to pull the freshly tagged image"
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy-dev
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy-dev --timeout=300s
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod manifest untouched."
+
 ## Build the MkDocs documentation site. Requires the docs venv (see
 ## requirements-docs.txt). Used by the rotation runbook in docs/credentials.md
 ## to re-inject the current master key into the built docs.

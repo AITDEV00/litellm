@@ -344,13 +344,18 @@ Dev controller image pinned to `0.1.0-20261006-31409b8` by
   apply, rollout). One command for the whole dev loop.
 - Gateway image: `make litellm-src-build-push` (podman build + push, tag derived
   from branch -> `jya0-v1.102.0`).
-- **There is no make target to deploy the gateway to dev.** `litellm-src-deploy`
-  targets PROD (it edits `deploy/prod/litellm-proxy.yaml` and restarts the prod
-  proxy) and must not be run for dev work. The dev proxy pins
-  `litellm-src:jya0-v1.102.0` with `imagePullPolicy: Always`, so deploying to dev
-  is: rebuild+push the tag, then
-  `kubectl -n adeo-litellm rollout restart deployment/litellm-proxy-dev` and
-  `rollout status`. Consider adding a `litellm-src-deploy-dev` target.
+- Gateway to dev: `make litellm-src-deploy-dev` (added 2026-10-07). It pins the
+  current tag in `deploy/dev/litellm-proxy-dev.yaml`, applies the dev ConfigMap
+  and dev proxy manifest, and rolls `litellm-proxy-dev` out. Prod's manifest and
+  Deployment are never touched. `make litellm-src-release-dev` is the one-shot
+  build + push + deploy.
+- `litellm-src-deploy` targets PROD (it edits `deploy/prod/litellm-proxy.yaml`
+  and restarts the prod proxy) and must not be run for dev work.
+- CAVEAT: dev and prod reference the SAME image tag (`litellm-src:jya0-v1.102.0`),
+  so a build overwrites the bytes behind that tag for both. `litellm-src-deploy-dev`
+  only restarts the dev Deployment, so prod keeps serving its already-running
+  container until prod is deliberately restarted. Treat the tag as a dev channel
+  until prod is moved to its own tag.
 
 ## 7. Live verification on dev (2026-10-06)
 
@@ -461,8 +466,7 @@ DB unavailable -> 500.
    action was taken here.
 3. **Optional `saved_per_cluster`.** Add it to the heartbeats route response if
    per-source partial results ever matter; the client already prefers it.
-4. **Optional `litellm-src-deploy-dev` make target** to close the dev gateway
-   deploy gap noted in section 6.
+
 5. **Stale `test_config.py` failures.** Two pre-existing failures
    (`test_admin_key_defaults_to_manifest_value`,
    `test_master_key_from_manifest_reads_prod_manifest`) expect a stale prod
