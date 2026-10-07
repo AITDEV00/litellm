@@ -97,15 +97,40 @@ async def test_fetch_builds_metrics_with_correct_units():
 
 @pytest.mark.asyncio
 async def test_fetch_uptime_is_success_over_total_times_100():
-    """Uptime comes from success/(success+failure)*100 per window."""
-    # The uptime query combines both counters in one expression, so it is keyed
-    # by its distinctive trailing ``* 100`` rather than either counter name.
-    values = {"* 100": {"m1": 90.0}}
+    """Uptime comes from success/(success+failure)*100, computed per window."""
+    values = {
+        "success_responses_total[5m]": {"m1": 9.0},
+        "failure_responses_total[5m]": {"m1": 1.0},
+    }
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
         snapshot = await DeploymentMetricsReader()._fetch()
     assert snapshot["m1"].uptime_last_5m == pytest.approx(90.0)
-    assert snapshot["m1"].uptime_last_30m == pytest.approx(90.0)
-    assert snapshot["m1"].uptime_last_1d == pytest.approx(90.0)
+
+
+@pytest.mark.asyncio
+async def test_uptime_is_100_when_no_failures():
+    """A deployment with successes and no failure series must report 100%, not None.
+
+    Regression: a PromQL success/(success+failure) division against a missing
+    failure series yields an empty vector, so the healthiest deployments lost
+    their uptime entirely. The failure term must default to 0.
+    """
+    values = {
+        "success_responses_total[30m]": {"m1": 5.0},
+        # no failure series at all
+    }
+    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
+        snapshot = await DeploymentMetricsReader()._fetch()
+    assert snapshot["m1"].uptime_last_30m == 100.0
+
+
+@pytest.mark.asyncio
+async def test_uptime_is_none_when_no_traffic():
+    """A deployment with no success series in the window has no uptime, not 0%."""
+    values = {"litellm_deployment_in_progress_requests": {"m1": 0.0}}
+    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
+        snapshot = await DeploymentMetricsReader()._fetch()
+    assert snapshot["m1"].uptime_last_30m is None
 
 
 @pytest.mark.asyncio
@@ -136,7 +161,7 @@ async def test_snapshot_is_cached_within_ttl():
         await reader.read(["m1"])
         first = len(calls)
         await reader.read(["m1"])
-    assert first == 13
+    assert first == 16
     assert len(calls) == first, "the second read must hit the cache, not Prometheus"
 
 
@@ -170,5 +195,5 @@ async def test_concurrent_reads_share_one_fetch():
     reader = DeploymentMetricsReader()
     with patch.object(dm, "query_prometheus_instant", side_effect=_counting):
         await asyncio.gather(reader.read(["m1"]), reader.read(["m1"]))
-    # 13 queries is one full fetch; a second concurrent fetch would double it.
-    assert len(calls) == 13
+    # 16 queries is one full fetch; a second concurrent fetch would double it.
+    assert len(calls) == 16
