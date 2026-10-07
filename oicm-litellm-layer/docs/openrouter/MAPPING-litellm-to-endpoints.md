@@ -76,7 +76,7 @@ One endpoint object per deployment.
 | `latency_last_30m` | p50/p75/p90/p99 of TTFT, ms | Prometheus TTFT histogram | §4b; `null` until a stream lands in the window |
 | `throughput_last_30m` | p50/p75/p90/p99 of tokens/sec | Prometheus per-token latency histogram, inverted | §4b |
 | `uptime_last_5m/30m/1d` | `success/(success+failure)*100` | Prometheus success/failure counters | §4b |
-| `live_concurrency` | our extension | Prometheus in-progress gauge | §4b; int |
+| `live_concurrency` | our extension | Prometheus in-progress gauge | §4b; int, peak replica |
 | `requests_last_30m` | our extension | Prometheus total-requests counter | §4b |
 | `perf_last_30m_by_workload` | absent | — | not set (needs a metric-to-workload classifier) |
 
@@ -105,7 +105,7 @@ for 15s so a burst of `/endpoints` calls costs one query set per TTL.
 | `latency_last_30m` | `litellm_llm_api_time_to_first_token_metric` | `histogram_quantile` over `rate(...[30m])`, seconds to ms |
 | `throughput_last_30m` | `litellm_deployment_latency_per_output_token` | `histogram_quantile` over `rate(...[30m])`, inverted to tokens/sec |
 | `uptime_last_5m/30m/1d` | `litellm_deployment_success_responses_total` and `..._failure_responses_total` | `increase` per window, then `success/(success+failure)*100` |
-| `live_concurrency` | `litellm_deployment_in_progress_requests` | direct gauge value, truncated to int |
+| `live_concurrency` | `litellm_deployment_in_progress_requests` | `max by (model_id)`, truncated to int |
 | `requests_last_30m` | `litellm_deployment_total_requests_total` | `increase` over 30m |
 
 Semantics, all chosen to match OpenRouter's contract:
@@ -135,8 +135,8 @@ in-flight count) and `requests_last_30m`. OpenRouter has no top-level field for
 either; it only exposes request volume nested per workload inside
 `perf_last_30m_by_workload`, which we do not implement.
 
-`live_concurrency` is the **fleet-wide** in-flight count for the deployment
-(`sum by (model_id)`), not the peak on the busiest pod. See §8g.
+`live_concurrency` is the **peak in-flight count on the busiest replica** of the
+deployment (`max by (model_id)`), not the fleet-wide sum. See §8g.
 
 ### Nullable fields serialize as `null`, not omitted
 
@@ -242,18 +242,22 @@ has no top-level field for either, so a strict OpenRouter client ignores them.
 They are the only two telemetry fields not in the official contract, and they are
 documented as such at §4b.
 
-### 8g. `live_concurrency` sums across replicas (semantics to confirm)
+### 8g. `live_concurrency` is the busiest replica's load
 
-The query is `sum by (model_id) (litellm_deployment_in_progress_requests)`. One
-`model_id` is one deployment, but a deployment can have several pods, so the
-value is the **fleet-wide in-flight count for that deployment**. The alternative
-is per-replica max, the "peak load on the busiest pod" reading.
+The query is `max by (model_id) (litellm_deployment_in_progress_requests)`. The
+gauge carries one series per pod, so a `model_id` (one deployment) can have
+several. The field reports the **peak in-flight count on the busiest replica**,
+the load on that endpoint, not the fleet-wide sum across its pods.
 
-`MAPPING-usage-metrics.md` §8f discusses this max-vs-sum tension for the
-historical surfaces, and the same choice is embedded here without being stated.
-It is not a bug, it is an unstated contract: a reader will assume one or the
-other, so the field should either say which it is or expose both. Until then,
-read it as the sum.
+This matches the reading `MAPPING-usage-metrics.md` §8f already called the honest
+one for a per-endpoint (deployment) field. Summing would make a deployment spread
+over four pods read four times busier than the same load on one pod, which is
+fleet occupancy rather than per-endpoint load. A model-group level surface can
+sum later if it needs the fleet view; this route is per-deployment, so it does
+not.
+
+`requests_last_30m` stays a sum: request counts add up across replicas, concurrent
+occupancy does not.
 
 ## 9. What is still open
 
@@ -269,10 +273,10 @@ priorities, is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
 | discarded enrichment (§8b) | `models_service.py` | dead work per request |
 | `max_*_tokens` always null (§8c) | `openai_compatible.py:78` | two always-null fields |
 | `data.architecture` empty (§8d) | `_response_architecture()` | one always-empty envelope field |
-| `live_concurrency` semantics (§8g) | telemetry query | an unstated contract |
 
 Not open: M1 (Steps 13-18) and M3 Step 25, including all four telemetry fields
-and their percentiles.
+and their percentiles. `live_concurrency` semantics were pinned down on
+2026-10-07 (§8g): it is the busiest replica's load, `max by (model_id)`.
 
 ## 10. Verified live (dev, 2026-10-07)
 

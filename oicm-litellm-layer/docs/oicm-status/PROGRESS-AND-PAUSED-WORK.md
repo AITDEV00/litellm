@@ -108,17 +108,17 @@ All four are documented as findings in
 | 6 | `max_prompt_tokens` / `max_completion_tokens` always `null` (§8c) | Structurally empty, not per-deployment values. Verified: only `openai_compatible.py:78` constructs `ModelLimits`, and it sets `context_length` alone. | Populate the limit fields from the probe or the registry, or accept the nulls. |
 | 7 | `data.architecture` hardcoded empty (§8d) | The real architecture (`model_type`, `architectures`, `tokenizer`, `instruct_type`) exists in `model.architecture` for SGLang deployments, and modalities in `model.capabilities`, but this route emits neither. The list route does map modalities. | Read `model.architecture` in `_response_architecture()`. |
 
-### LiteLLM: semantic decision to confirm
+### LiteLLM: semantic decisions
 
 | # | Item | Notes |
 |---|---|---|
-| 10 | `live_concurrency` sums across replicas | The query is `sum by (model_id) (litellm_deployment_in_progress_requests)`. One `model_id` is one deployment, but a deployment can have several pods, so the value is the fleet-wide in-flight count for that deployment. The alternative is per-replica max ("peak load on the busiest pod"). `MAPPING-usage-metrics.md` §8f discusses this max-vs-sum tension for the historical surfaces, but the field itself does not state which it is. Pin it down and document it, since a reader will assume one or the other. Not a bug, a contract clarification. |
+| 10 | `live_concurrency` replicas semantics | **Resolved 2026-10-07 (commit `377fc75394`).** The query is now `max by (model_id) (litellm_deployment_in_progress_requests)`, so the field is the peak in-flight count on the busiest replica, not the fleet-wide sum. Summing made a deployment spread over N pods read N times busier than the same load on one pod, and it contradicted the per-endpoint reading `MAPPING-usage-metrics.md` §8f already called the honest one. `requests_last_30m` stays a sum, since request counts add up across replicas while concurrent occupancy does not. Documented at `MAPPING-litellm-to-endpoints.md` §8g and stated on the field at §4b. Mutation-tested: flipping back to `sum by` fails `test_concurrency_query_takes_max_not_sum`. |
 
 ### Controller
 
 | # | Item | Notes |
 |---|---|---|
-| 8 | `LocalDeploymentSource.discover()` is serial | Verified: it awaits `discover_for_deployment` inside a `for` loop, each doing a configmap read plus two HTTP probes. 24 deployments take about 2.6s. Parallelizing with `asyncio.gather` is a pure latency win. This is Step 6 of the design order. |
+| 8 | `LocalDeploymentSource.discover()` is serial | **Resolved 2026-10-07 (commit `fbcc4a49fc`).** `discover()` now gathers `discover_for_deployment` behind a `DISCOVER_CONCURRENCY` semaphore (default 20) instead of awaiting each deployment in a `for` loop. The serial fan-out cost a configmap read plus two HTTP probes per deployment, so 24 deployments took about 2.6s. `TestDiscoverFanOut` asserts every deployment is still discovered and keyed by uuid, that the fan-out is concurrent (3 x 50ms sleeps finish well under the serial sum), and that deployments without a workload id are skipped. Mutation-tested: reverting to a serial loop fails the concurrency test. |
 
 ### Deployment
 
@@ -619,17 +619,16 @@ Confirmed as intended behavior, not a problem:
 
 The controller half of M1 is complete, and the LiteLLM half (Steps 13-18) plus
 M3's rolling statistics (Step 25) shipped on top of it. The full list of what
-remains is the "Open work register" above. Ranked by value, the recommended
-order is:
+remains is the "Open work register" above. Items 8 and 10 were resolved on
+2026-10-07 (concurrent controller discovery; `live_concurrency` pinned to
+per-replica max). Ranked by value, the recommended order for what is left is:
 
 1. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
    capability fields wrong for every deployment, so it is the highest-value fix.
-2. Item 8: parallelize `LocalDeploymentSource.discover()`. Small and purely a
-   latency win.
-3. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
+2. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
    limit fields, `data.architecture`).
-4. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
-5. Item 10: pin down the `live_concurrency` max-vs-sum semantics and document it.
+3. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
+4. Item 9: redeploy prod so the gauge-leak fix and the telemetry fields reach it.
 
 Known honest gaps in the `/endpoints` payload, none of them telemetry:
 `max_prompt_tokens` / `max_completion_tokens` are always null (only the

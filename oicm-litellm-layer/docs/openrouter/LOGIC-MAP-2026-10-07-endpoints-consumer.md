@@ -386,7 +386,8 @@ with priorities is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
 | discarded capability enrichment | dead work per request | `map_endpoints` never reads `capabilities`. |
 | `max_prompt_tokens` / `max_completion_tokens` | always `null` | Only `openai_compatible.py:78` builds `ModelLimits`, with `context_length` alone. |
 | `data.architecture` | hardcoded empty | `_response_architecture()` returns all-null. |
-| `live_concurrency` semantics | unstated | `sum by (model_id)`, i.e. fleet-wide, not per-replica max. See `MAPPING-litellm-to-endpoints.md` §8g. |
 
 Closed: M1 (Steps 13-18) and M3 Step 25, including all four telemetry fields and
-their percentiles.
+their percentiles. `live_concurrency` semantics were pinned on 2026-10-07: it is
+`max by (model_id)`, the busiest replica's load, not the fleet-wide sum (see
+`MAPPING-litellm-to-endpoints.md` §8g).

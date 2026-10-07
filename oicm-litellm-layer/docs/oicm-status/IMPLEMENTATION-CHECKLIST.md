@@ -248,7 +248,7 @@ What shipped, per field:
 - `latency_last_30m`: p50/p75/p90/p99 of `litellm_llm_api_time_to_first_token_metric` (time to first token, reported in ms). Streaming only, since that histogram is observed for streamed requests.
 - `throughput_last_30m`: p50/p75/p90/p99 of the inverse of `litellm_deployment_latency_per_output_token` (tokens/second, matching OpenRouter's per-request generation-speed semantics).
 - `uptime_last_5m/30m/1d`: `success / (success + failure) * 100`, read from the two counters separately so a deployment with zero failures still reports 100 rather than a missing series.
-- Two gateway extensions beyond the OpenRouter contract: `live_concurrency` (from `litellm_deployment_in_progress_requests`) and `requests_last_30m`.
+- Two gateway extensions beyond the OpenRouter contract: `live_concurrency` (from `litellm_deployment_in_progress_requests`, `max by (model_id)` so it is the busiest replica's load) and `requests_last_30m` (a `sum by (model_id)`, since request counts add up across replicas).
 
 **Source change from this step's plan.** The plan named the rollup table / SpendLogs as the source (see `MAPPING-usage-metrics.md` §8h) and this step named Thanos. The implementation reads the cluster Prometheus instead, because the metrics already carry a `model_id` label, which makes per-deployment grouping a plain `sum by (model_id)` with no join, and because the 15s reader cache bounds the query load. The rollup/DB alternative would need a per-deployment key the rollup does not carry. See the decision note at the top of `MAPPING-usage-metrics.md`.
 
