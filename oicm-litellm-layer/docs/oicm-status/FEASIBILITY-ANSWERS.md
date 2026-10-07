@@ -89,6 +89,28 @@ Failed                      -> availability=offline, lifecycle=failed
 stale observation           -> availability=unknown, stale=true
 ```
 
+## Decision record — OpenRouter `PublicEndpoint.status` mapping (2026-10-07)
+
+**Status: implemented, numbers unverified against OpenRouter itself.**
+
+OpenRouter's `EndpointStatus` enum is `0, -1, -2, -3, -5, -10` and is documented nowhere: no description in the 1.9MB OpenAPI spec, no docs page, no SDK docstring, and no sibling schema that shares the vocabulary. Every published example (spec, docs pages, the ZDR preview response) uses `status: 0` only. `PrivateEndpointStatus` is a different vocabulary (`draft`/`active`/`disabled`) and does not help. So there is no authoritative mapping to copy, and these numbers are our own reading. They are deliberately kept in one place, `GatewayStatus.endpoint_status()` in `litellm/proxy/openrouter_compat/gateway_status.py`, so a correction is a single edit.
+
+| `gateway_status` fact | `status` | Rationale |
+|---|---|---|
+| `Ready`/`Available` + `serving_available=true` | `0` | Serving normally. The only value OpenRouter ever publishes. |
+| `Ready`/`Available` + `serving_available=false` | `-2` | A registered, routable endpoint that is not serving. On a multi-replica OICM deployment this means at least one replica is deploying or down, which warrants attention. |
+| `Deploying` / `Pending` | `-3` | In transition, not yet serving. |
+| `Failed` | `-5` | Terminal failure. |
+| `Stopped` / `Undeploying` | `-10` | Terminal stopped. |
+| stale observation | omitted | A stale source must not keep asserting a confident status. |
+| no OICM block (unmanaged) | omitted | No gateway opinion, so no invented number. |
+
+`-1` is deliberately left unassigned. It is reserved for a load-based signal (an endpoint that is idle and then takes a burst of traffic), which needs SGLang server-side telemetry that is not collected yet. See Steps 19-25 of `IMPLEMENTATION-CHECKLIST.md`.
+
+Two consequences of the enum being undocumented are worth restating. First, because `status` is optional in the spec and we omit it when we have no opinion, a client filtering on `status == 0` sees our healthy endpoints and silently drops the rest; that is intended, since the dropped ones are exactly the ones not serving. Second, if OpenRouter's real meaning for `-2`/`-3`/`-5`/`-10` ever becomes observable (an OpenRouter API key pointed at a real model would settle it), the table above is the only thing that needs to change.
+
+`supported_parameters`, `supports_tool_choice`, `supports_implicit_caching`, `supports_image_reference`, `supports_multiple_audio_references`, `supports_voice_cloning` and `quantization` are intentionally left empty/null until a confirmed mapping exists. `ToolChoiceSupport` is emitted as all-false, which is honest for the runtimes we currently serve (none of them passed tool-choice testing), not a placeholder to be filled from a guess.
+
 ## What is NOT yet proven (the honest gap)
 
 1. The transitional status strings (`Pending`/`Deploying`/`Failed`) — none exist in the current snapshot, so the strings are inferred from the events vocabulary and the backend constant names, not from a captured `status` value. Confirm on the next real rollout.

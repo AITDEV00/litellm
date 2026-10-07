@@ -308,3 +308,71 @@ def test_empty_response_is_valid_and_has_no_endpoints():
     parsed = ListEndpointsResponse.model_validate(payload["data"])
     assert parsed.id == "litellm/hamsa-tts"
     assert parsed.endpoints == []
+
+
+@pytest.mark.parametrize(
+    ("oicm_status", "serving_available", "replicas_available", "expected_status"),
+    [
+        ("Ready", True, 1, 0),
+        ("Available", True, 1, 0),
+        ("Ready", False, 0, -2),
+        ("Deploying", False, 0, -3),
+        ("Pending", False, 0, -3),
+        ("Failed", False, 0, -5),
+        ("Stopped", False, 0, -10),
+        ("Undeploying", False, 0, -10),
+    ],
+)
+def test_endpoint_status_mapping(
+    oicm_status: str,
+    serving_available: bool,
+    replicas_available: int,
+    expected_status: int,
+):
+    """Each OICM lifecycle maps to the agreed OpenRouter numeric status.
+
+    These numbers are our own reading of an undocumented enum (see
+    ``docs/oicm-status/FEASIBILITY-ANSWERS.md``), so the mapping is asserted
+    here rather than inferred from the spec.
+    """
+    model = _aggregated([_deployment("dep-1")])
+    endpoint = _payload(
+        model,
+        _statuses(
+            model,
+            oicm_status=oicm_status,
+            serving_available=serving_available,
+            replicas_available=replicas_available,
+        ),
+    )["data"]["endpoints"][0]
+
+    assert endpoint["status"] == expected_status
+
+
+def test_endpoint_status_omitted_when_unmanaged():
+    """No gateway status means no invented status number."""
+    model = _aggregated([_deployment("dep-1")])
+    endpoint = _payload(model, {})["data"]["endpoints"][0]
+
+    assert "status" not in endpoint
+
+
+def test_endpoint_status_omitted_when_stale():
+    """A stale observation must not keep asserting a confident status."""
+    model = _aggregated([_deployment("dep-1")])
+    endpoint = _payload(
+        model,
+        _statuses(model, source_checked_at=_NOW - timedelta(seconds=91)),
+    )["data"]["endpoints"][0]
+
+    assert "status" not in endpoint
+    assert endpoint["gateway_status"]["stale"] is True
+
+
+def test_status_plus_gateway_status_still_parses_as_official_dto():
+    """Adding status must not break the OpenRouter contract."""
+    model = _aggregated([_deployment("dep-1")])
+    payload = _payload(model, _statuses(model))
+
+    parsed = ListEndpointsResponse.model_validate(payload["data"])
+    assert parsed.endpoints[0].status == 0

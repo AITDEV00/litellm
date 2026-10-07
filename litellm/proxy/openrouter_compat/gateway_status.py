@@ -7,6 +7,13 @@ by the deployment id). This module turns those facts into one
 ``gateway_status`` object, and owns the single place where OICM's lifecycle
 vocabulary becomes a gateway availability verdict.
 
+It also owns the mapping onto OpenRouter's numeric ``PublicEndpoint.status``.
+That enum is documented nowhere: OpenRouter's spec lists six bare integers with
+no description, no docs page and no sibling schema, and every published example
+uses only ``0``. The mapping below is therefore our own reading, kept in one
+function so a correction is a single edit. See
+``docs/oicm-status/FEASIBILITY-ANSWERS.md`` for the decision record.
+
 Freshness is judged per source, not per model: model health is written hourly
 or on change, so its ``observed_at`` is routinely older than the source that
 produced it. Only the source heartbeat says whether anyone is still watching.
@@ -20,6 +27,8 @@ from datetime import datetime, timezone
 from typing import Final, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict
+
+from litellm.proxy.openrouter_compat.openrouter_schema.endpoints import EndpointStatus
 
 Availability: TypeAlias = Literal["online", "degraded", "offline", "unknown"]
 Lifecycle: TypeAlias = Literal["stable", "deploying", "stopped", "failed", "unknown"]
@@ -39,6 +48,15 @@ _AVAILABILITY_BY_SERVING: Final[Mapping[bool | None, Availability]] = {
     False: "degraded",
     None: "unknown",
 }
+
+# OpenRouter ``PublicEndpoint.status`` values. Unverified: see the module
+# docstring. ``-1`` is deliberately unassigned; it is reserved for a load-based
+# signal that needs SGLang server-side telemetry we do not collect yet.
+_ENDPOINT_STATUS_OK: Final[EndpointStatus] = 0
+_ENDPOINT_STATUS_ATTENTION: Final[EndpointStatus] = -2
+_ENDPOINT_STATUS_DEPLOYING: Final[EndpointStatus] = -3
+_ENDPOINT_STATUS_FAILED: Final[EndpointStatus] = -5
+_ENDPOINT_STATUS_STOPPED: Final[EndpointStatus] = -10
 
 
 class ReplicaCounts(BaseModel):
@@ -60,6 +78,26 @@ class GatewayStatus(BaseModel):
     replicas: ReplicaCounts
     observed_at: str | None = None
     checked_at: str | None = None
+
+    def endpoint_status(self) -> EndpointStatus | None:
+        """This deployment's OpenRouter numeric status, or None if unassigned.
+
+        ``None`` omits the field rather than emitting a guess, which is what
+        happens for an unmanaged deployment and for a stale observation.
+        """
+        if self.stale:
+            return None
+        if self.lifecycle == "failed":
+            return _ENDPOINT_STATUS_FAILED
+        if self.lifecycle == "stopped":
+            return _ENDPOINT_STATUS_STOPPED
+        if self.lifecycle == "deploying":
+            return _ENDPOINT_STATUS_DEPLOYING
+        if self.availability == "degraded":
+            return _ENDPOINT_STATUS_ATTENTION
+        if self.availability == "online":
+            return _ENDPOINT_STATUS_OK
+        return None
 
 
 @dataclass(frozen=True, slots=True)

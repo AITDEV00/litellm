@@ -132,7 +132,7 @@ class OpenRouterEndpointsMapper:
             uptime_last_1d=None,
             uptime_last_30m=None,
             uptime_last_5m=None,
-            status=None,
+            status=status.endpoint_status() if status else None,
             supports_image_reference=False,
             supports_multiple_audio_references=False,
             supports_voice_cloning=False,
