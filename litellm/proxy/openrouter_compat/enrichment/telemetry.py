@@ -6,6 +6,11 @@ Feeds the ``PublicEndpoint`` telemetry fields (``latency_last_30m``,
 ``throughput_last_30m``, ``uptime_last_*``) plus this gateway's live-concurrency
 extension.
 
+This lives in the slice's enrichment layer, not in the shared Prometheus
+helpers, because the decisions here are all OpenRouter-contract decisions: the
+units, the window, and the uptime formula below. Only the generic Prometheus
+client (``query_prometheus_instant``) is shared.
+
 Semantics match OpenRouter's contract and the source decision in
 ``docs/openrouter/MAPPING-usage-metrics.md`` §8g/8h:
 
@@ -27,7 +32,7 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Protocol
 
 from litellm._logging import verbose_logger
 from litellm.integrations.prometheus_helpers.prometheus_api import (
@@ -68,6 +73,16 @@ class PerDeploymentMetrics:
     uptime_last_5m: float | None = None
     uptime_last_30m: float | None = None
     uptime_last_1d: float | None = None
+
+
+class DeploymentTelemetryReader(Protocol):
+    """The read surface the models service depends on.
+
+    Depending on this port rather than the concrete Prometheus reader lets a
+    test inject a fake reader instead of patching the reader's module internals.
+    """
+
+    async def read(self, model_ids: list[str]) -> dict[str, PerDeploymentMetrics]: ...
 
 
 def _series_by_model_id(raw: list[dict]) -> dict[str, float]:
@@ -127,7 +142,7 @@ def _percentiles_from(values: dict[str, float], transform: Callable[[float], flo
     )
 
 
-class DeploymentMetricsReader:
+class PrometheusDeploymentTelemetryReader:
     """Reads and caches per-deployment telemetry from Prometheus."""
 
     def __init__(self, cache_ttl_seconds: float = _CACHE_TTL_SECONDS) -> None:
@@ -163,8 +178,14 @@ class DeploymentMetricsReader:
             return fetched
 
     async def _fetch(self) -> dict[str, PerDeploymentMetrics]:
-        ttft_queries = [_histogram_quantile_query("litellm_llm_api_time_to_first_token_metric", q, _WINDOW) for _, q in _QUANTILES]
-        throughput_queries = [_histogram_quantile_query("litellm_deployment_latency_per_output_token", q, _WINDOW) for _, q in _QUANTILES]
+        ttft_queries = [
+            _histogram_quantile_query("litellm_llm_api_time_to_first_token_metric", q, _WINDOW)
+            for _, q in _QUANTILES
+        ]
+        throughput_queries = [
+            _histogram_quantile_query("litellm_deployment_latency_per_output_token", q, _WINDOW)
+            for _, q in _QUANTILES
+        ]
         # Success and failure are read separately rather than as one ratio: a
         # deployment with zero failures has no failure series at all, and a
         # PromQL vector division against a missing operand yields an empty

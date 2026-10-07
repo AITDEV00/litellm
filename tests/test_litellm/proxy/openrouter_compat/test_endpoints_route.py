@@ -139,7 +139,7 @@ def test_unobservable_statistics_are_null_not_fabricated():
 
 def test_telemetry_is_populated_when_metrics_are_injected():
     """Injected per-deployment metrics fill the latency/throughput/uptime fields."""
-    from litellm.integrations.prometheus_helpers.deployment_metrics import (
+    from litellm.proxy.openrouter_compat.enrichment.telemetry import (
         PerDeploymentMetrics,
         Percentiles,
     )
@@ -171,7 +171,7 @@ def test_telemetry_is_populated_when_metrics_are_injected():
 
 def test_telemetry_missing_for_one_deployment_stays_null():
     """A deployment with no metrics keeps nulls even when its sibling has data."""
-    from litellm.integrations.prometheus_helpers.deployment_metrics import (
+    from litellm.proxy.openrouter_compat.enrichment.telemetry import (
         PerDeploymentMetrics,
         Percentiles,
     )

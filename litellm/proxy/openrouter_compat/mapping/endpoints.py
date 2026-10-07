@@ -18,10 +18,10 @@ from typing import Final, cast
 
 from pydantic import Field
 
-from litellm.integrations.prometheus_helpers.deployment_metrics import Percentiles, PerDeploymentMetrics
 from litellm.proxy.openrouter_compat.domain.deployment import DiscoveredDeploymentModel
 from litellm.proxy.openrouter_compat.domain.logical_model import AggregatedModel
 from litellm.proxy.openrouter_compat.enrichment.pricing import Pricing, PricingResolver
+from litellm.proxy.openrouter_compat.enrichment.telemetry import Percentiles, PerDeploymentMetrics
 from litellm.proxy.openrouter_compat.gateway_status import GatewayStatus
 from litellm.proxy.openrouter_compat.openrouter_schema.base import UnrecognizedStr
 from litellm.proxy.openrouter_compat.openrouter_schema.endpoints import (

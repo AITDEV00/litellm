@@ -18,6 +18,10 @@ from litellm.proxy.openrouter_compat.discovery.resolver import (
     DeploymentDescriptor,
     DeploymentResolver,
 )
+from litellm.proxy.openrouter_compat.enrichment.telemetry import (
+    PerDeploymentMetrics,
+    Percentiles,
+)
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
 from litellm.proxy.openrouter_compat.models_service import OpenRouterModelsService
 from litellm.proxy.openrouter_compat.routes import router
@@ -270,6 +274,79 @@ async def test_get_model_endpoints_matches_namespaced_slug():
     assert result is not None
     assert result["data"]["id"] == "deepseek-ai/DeepSeek-V4-Flash-0111"
     assert len(result["data"]["endpoints"]) == 1
+
+
+class _FakeTelemetry:
+    """Injected telemetry port; records the ids it was asked to read."""
+
+    def __init__(self, metrics: dict[str, PerDeploymentMetrics]) -> None:
+        self._metrics = metrics
+        self.requested: list[list[str]] = []
+
+    async def read(self, model_ids: list[str]) -> dict[str, PerDeploymentMetrics]:
+        self.requested.append(model_ids)
+        return {mid: self._metrics[mid] for mid in model_ids if mid in self._metrics}
+
+
+async def test_injected_telemetry_reaches_the_endpoint_response():
+    """The service must read telemetry through the injected port, keyed by deployment.
+
+    This is the wiring the DTO depends on: the deployment id the service asks
+    about must be the same id the mapper looks up, or the endpoint silently
+    reports nulls while the reader holds real data.
+    """
+    client = FakeClient(
+        {
+            "http://sglang:8000": {
+                "/v1/models": {"data": [{"id": "deepseek-v4", "max_model_len": 262144}]},
+                "/model_info": {"is_generation": True, "model_type": "deepseek_v4"},
+            }
+        }
+    )
+    descriptor = DeploymentDescriptor(
+        deployment_id="dep-1",
+        logical_model_name="deepseek-ai/DeepSeek-V4-Flash-0111",
+        provider="sglang",
+        model="deepseek-v4",
+        api_base="http://sglang:8000",
+        model_info={"discovery_runtime": "sglang"},
+    )
+    telemetry = _FakeTelemetry(
+        {
+            "dep-1": PerDeploymentMetrics(
+                live_concurrency=2,
+                ttft_latency_ms=Percentiles(p50=10.0, p75=20.0, p90=30.0, p99=40.0),
+                uptime_last_30m=99.0,
+            )
+        }
+    )
+    service = OpenRouterModelsService(
+        llm_router=None,
+        details_base_url="http://proxy:4000",
+        http_client=client,  # type: ignore[arg-type]  # duck-typed
+        deployment_telemetry=telemetry,
+    )
+    service._resolver = _FakeResolver([descriptor])  # type: ignore[assignment]  # test-only override
+    user = UserAPIKeyAuth(user_id="u", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    result = await service.get_model_endpoints(
+        author="deepseek-ai",
+        slug="DeepSeek-V4-Flash-0111",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+
+    assert telemetry.requested == [["dep-1"]]
+    assert result is not None
+    endpoint = result["data"]["endpoints"][0]
+    assert endpoint["live_concurrency"] == 2
+    assert endpoint["latency_last_30m"] == {"p50": 10.0, "p75": 20.0, "p90": 30.0, "p99": 40.0}
+    assert endpoint["uptime_last_30m"] == 99.0
 
 
 async def test_get_model_endpoints_matches_namespaced_bare_slug():

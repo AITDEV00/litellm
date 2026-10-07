@@ -13,10 +13,10 @@ from unittest.mock import patch
 
 import pytest
 
-from litellm.integrations.prometheus_helpers import deployment_metrics as dm
-from litellm.integrations.prometheus_helpers.deployment_metrics import (
-    DeploymentMetricsReader,
+from litellm.proxy.openrouter_compat.enrichment import telemetry as dm
+from litellm.proxy.openrouter_compat.enrichment.telemetry import (
     Percentiles,
+    PrometheusDeploymentTelemetryReader,
     _percentiles_from,
     _series_by_model_id,
 )
@@ -84,7 +84,7 @@ async def test_fetch_builds_metrics_with_correct_units():
     }
 
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await DeploymentMetricsReader()._fetch()
+        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
 
     m = snapshot["m1"]
     assert m.ttft_latency_ms == Percentiles(p50=500.0, p75=500.0, p90=500.0, p99=500.0)
@@ -103,7 +103,7 @@ async def test_fetch_uptime_is_success_over_total_times_100():
         "failure_responses_total[5m]": {"m1": 1.0},
     }
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await DeploymentMetricsReader()._fetch()
+        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
     assert snapshot["m1"].uptime_last_5m == pytest.approx(90.0)
 
 
@@ -120,7 +120,7 @@ async def test_uptime_is_100_when_no_failures():
         # no failure series at all
     }
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await DeploymentMetricsReader()._fetch()
+        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
     assert snapshot["m1"].uptime_last_30m == 100.0
 
 
@@ -129,7 +129,7 @@ async def test_uptime_is_none_when_no_traffic():
     """A deployment with no success series in the window has no uptime, not 0%."""
     values = {"litellm_deployment_in_progress_requests": {"m1": 0.0}}
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await DeploymentMetricsReader()._fetch()
+        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
     assert snapshot["m1"].uptime_last_30m is None
 
 
@@ -138,7 +138,7 @@ async def test_fetch_missing_metrics_are_none_not_zero():
     """A deployment present only in the concurrency query has null elsewhere."""
     values = {"litellm_deployment_in_progress_requests": {"m1": 2.0}}
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await DeploymentMetricsReader()._fetch()
+        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
     m = snapshot["m1"]
     assert m.live_concurrency == 2
     assert m.ttft_latency_ms is None
@@ -157,7 +157,7 @@ async def test_snapshot_is_cached_within_ttl():
         return []
 
     with patch.object(dm, "query_prometheus_instant", side_effect=_counting):
-        reader = DeploymentMetricsReader()
+        reader = PrometheusDeploymentTelemetryReader()
         await reader.read(["m1"])
         first = len(calls)
         await reader.read(["m1"])
@@ -169,17 +169,19 @@ async def test_snapshot_is_cached_within_ttl():
 async def test_read_returns_only_requested_ids():
     values = {"litellm_deployment_in_progress_requests": {"m1": 1.0, "m2": 2.0}}
     with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        result = await DeploymentMetricsReader().read(["m2"])
+        result = await PrometheusDeploymentTelemetryReader().read(["m2"])
     assert set(result) == {"m2"}
 
 
 @pytest.mark.asyncio
 async def test_read_without_prometheus_returns_empty():
     with patch.object(dm, "PROMETHEUS_URL", None):
-        assert await DeploymentMetricsReader().read(["m1"]) == {}
+        assert await PrometheusDeploymentTelemetryReader().read(["m1"]) == {}
+
+
 @pytest.mark.asyncio
 async def test_read_with_no_ids_returns_empty():
-    assert await DeploymentMetricsReader().read([]) == {}
+    assert await PrometheusDeploymentTelemetryReader().read([]) == {}
 
 
 @pytest.mark.asyncio
@@ -192,7 +194,7 @@ async def test_concurrent_reads_share_one_fetch():
         await asyncio.sleep(0.01)
         return []
 
-    reader = DeploymentMetricsReader()
+    reader = PrometheusDeploymentTelemetryReader()
     with patch.object(dm, "query_prometheus_instant", side_effect=_counting):
         await asyncio.gather(reader.read(["m1"]), reader.read(["m1"]))
     # 16 queries is one full fetch; a second concurrent fetch would double it.

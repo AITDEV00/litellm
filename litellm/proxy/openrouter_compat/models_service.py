@@ -1,9 +1,5 @@
 """OpenRouter-compatible model discovery service (design §41)."""
 
-from litellm.integrations.prometheus_helpers.deployment_metrics import (
-    DeploymentMetricsReader,
-    PerDeploymentMetrics,
-)
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.openrouter_compat.aggregation.aggregator import ModelAggregator
@@ -19,6 +15,11 @@ from litellm.proxy.openrouter_compat.enrichment.litellm_metadata import (
     LiteLLMMetadataEnricher,
 )
 from litellm.proxy.openrouter_compat.enrichment.pricing import PricingResolver
+from litellm.proxy.openrouter_compat.enrichment.telemetry import (
+    DeploymentTelemetryReader,
+    PerDeploymentMetrics,
+    PrometheusDeploymentTelemetryReader,
+)
 from litellm.proxy.openrouter_compat.gateway_status import (
     GatewayStateResolver,
     GatewayStatus,
@@ -46,6 +47,7 @@ class OpenRouterModelsService:
         http_client: DiscoveryHTTPClient | None = None,
         cache: InMemoryDiscoveryCache | None = None,
         is_moderated_default: bool = False,
+        deployment_telemetry: DeploymentTelemetryReader | None = None,
     ) -> None:
         self._resolver = DeploymentResolver(llm_router)
         self._http_client = http_client or DiscoveryHTTPClient()
@@ -63,7 +65,7 @@ class OpenRouterModelsService:
         )
         self._endpoints_mapper = OpenRouterEndpointsMapper(pricing_resolver=self._pricing)
         self._gateway_state = GatewayStateResolver()
-        self._deployment_metrics = DeploymentMetricsReader()
+        self._deployment_telemetry = deployment_telemetry or PrometheusDeploymentTelemetryReader()
 
     async def list_models(
         self,
@@ -143,7 +145,7 @@ class OpenRouterModelsService:
 
     async def _resolve_metrics(self, model: AggregatedModel) -> dict[str, PerDeploymentMetrics]:
         deployment_ids = [deployment.runtime.deployment_id for deployment in model.deployments]
-        return await self._deployment_metrics.read(deployment_ids)
+        return await self._deployment_telemetry.read(deployment_ids)
 
     def _is_known_undiscovered(self, failed: set[str], *, public_id: str) -> bool:
         # ``failed`` holds logical model names, so a bare id appears bare there.
