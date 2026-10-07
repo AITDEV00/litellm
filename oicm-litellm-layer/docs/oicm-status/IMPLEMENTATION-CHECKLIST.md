@@ -201,6 +201,8 @@ Never persist `stale`. Compute `stale = now - checked_at > STATUS_STALE_AFTER` i
 Apply the existing model visibility/authorization rules before exposing a deployment in `/endpoints`.
 - unknown logical model → 404; known model with no deployments → `{…, "data": []}`; unauthorized → same concealment as `/models`.
 - Test: unauthorized caller gets the same concealment as `/models`; empty deployment list returns valid `[]` not 500.
+- A model id with no author segment (e.g. `hamsa-tts`) is canonically namespaced as `litellm/hamsa-tts`. Both URL forms are served: `/api/v1/models/{author}/{slug}/endpoints` and `/api/v1/models/{slug}/endpoints`, returning the same body keyed by the canonical id. The lookup is exact on the canonical id, so a wrong author (`/api/v1/models/wrong/hamsa-tts/endpoints`) is a 404, not a match on the bare slug.
+- Test: bare form and namespaced form both resolve to the canonical id; wrong author 404s.
 
 ### Step 18 [D] — M1 end-to-end validation on dev
 Deploy controller + LiteLLM to **dev** (never prod first) via the established flow (`make litellm-src-build/push`, `kubectl rollout restart deploy/litellm-proxy-dev`).

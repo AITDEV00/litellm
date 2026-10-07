@@ -54,6 +54,7 @@ Future OpenRouter-compatible routes should live under the same namespace:
 ```text
 /api/v1/models
 /api/v1/models/{author}/{slug}/endpoints
+/api/v1/models/{slug}/endpoints
 ```
 
 This avoids breaking normal OpenAI-compatible clients and gives OpenRouter-specific behavior a clean boundary.
@@ -1236,7 +1237,14 @@ Implement immediately after the list route:
 
 ```http
 GET /api/v1/models/{author}/{slug}/endpoints
+GET /api/v1/models/{slug}/endpoints
 ```
+
+The second form serves a model whose id has no author segment, e.g. `hamsa-tts`.
+The mapper namespaces such ids under `litellm`, so `hamsa-tts` is canonically
+`litellm/hamsa-tts` and the first form serves that. The bare form is accepted too
+so a client that reads the id straight from `/v1/models` does not have to know
+about the namespace. Both forms return the same body, keyed by the canonical id.
 
 This route should use `AggregatedModel.deployments` and expose deployment/provider-specific limits/pricing/capabilities according to the current OpenRouter endpoint schema.
 

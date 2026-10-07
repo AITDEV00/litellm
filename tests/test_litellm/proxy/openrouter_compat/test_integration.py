@@ -7,7 +7,11 @@ OpenRouter SDK into the expected public shape.
 
 from __future__ import annotations
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.openrouter_compat.aggregation.aggregator import ModelAggregator
 from litellm.proxy.openrouter_compat.discovery.registry import DiscoveryAdapterRegistry
 from litellm.proxy.openrouter_compat.discovery.resolver import (
@@ -16,6 +20,7 @@ from litellm.proxy.openrouter_compat.discovery.resolver import (
 )
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
 from litellm.proxy.openrouter_compat.models_service import OpenRouterModelsService
+from litellm.proxy.openrouter_compat.routes import router
 from litellm.proxy.openrouter_compat.service import DiscoveryService
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
 from litellm.proxy.openrouter_compat.transport.errors import DiscoveryHTTPError
@@ -269,6 +274,103 @@ async def test_get_model_endpoints_matches_namespaced_slug():
 
 async def test_get_model_endpoints_matches_namespaced_bare_slug():
     """Bare ids (e.g. hamsa-tts) are namespaced by the mapper as litellm/<slug>."""
+    service = _bare_slug_service()
+    user = UserAPIKeyAuth(user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    result = await service.get_model_endpoints(
+        author="litellm",
+        slug="hamsa-tts",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+    assert result is not None
+    assert result["data"]["id"] == "litellm/hamsa-tts"
+    assert len(result["data"]["endpoints"]) == 1
+
+
+async def test_wrong_author_does_not_match_a_bare_model():
+    """A bare model must not answer for an author it does not belong to.
+
+    The mapper namespaces bare ids under ``litellm``, so ``hamsa-tts`` is
+    reachable as ``litellm/hamsa-tts`` only. Matching on the bare slug alone
+    would let ``/api/v1/models/wrong/hamsa-tts/endpoints`` resolve.
+    """
+    service = _bare_slug_service()
+    user = UserAPIKeyAuth(user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    result = await service.get_model_endpoints(
+        author="wrong",
+        slug="hamsa-tts",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+    assert result is None
+
+
+async def test_wrong_author_does_not_match_an_undiscovered_bare_model():
+    """Same rule for a model the list knows about but could not discover.
+
+    The undiscovered branch keys on ``failed`` logical model names, which for a
+    bare id is the bare name itself. Canonicalizing both sides is what stops
+    ``/api/v1/models/wrong/hamsa-tts/endpoints`` from returning an empty but
+    200 response.
+    """
+    client = FakeClient({"http://sglang:8000": {"/v1/models": DiscoveryHTTPError(500, "boom")}})
+    descriptor = DeploymentDescriptor(
+        deployment_id="de-3",
+        logical_model_name="hamsa-tts",
+        provider="sglang",
+        model="hamsa-tts",
+        api_base="http://sglang:8000",
+        model_info={"discovery_runtime": "sglang"},
+    )
+    service = OpenRouterModelsService(
+        llm_router=None,
+        details_base_url="http://proxy:4000",
+        http_client=client,  # type: ignore[arg-type]  # fake-typed
+    )
+    service._resolver = _FakeResolver([descriptor])  # type: ignore[assignment]  # test-only override
+    user = UserAPIKeyAuth(user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    namespaced = await service.get_model_endpoints(
+        author="litellm",
+        slug="hamsa-tts",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    wrong_author = await service.get_model_endpoints(
+        author="wrong",
+        slug="hamsa-tts",
+        user_api_key_dict=user,
+        general_settings={},
+        prisma_client=None,
+        proxy_logging_obj=None,
+        user_api_key_cache=None,
+        team_id=None,
+    )
+    await service.aclose()
+
+    assert namespaced is not None
+    assert namespaced["data"]["endpoints"] == []
+    assert wrong_author is None
+
+
+def _bare_slug_service() -> OpenRouterModelsService:
+    """A service whose only deployment is the bare id ``hamsa-tts``."""
     client = FakeClient(
         {
             "http://sglang:8000": {
@@ -291,19 +393,57 @@ async def test_get_model_endpoints_matches_namespaced_bare_slug():
         http_client=client,  # type: ignore[arg-type]  # fake-typed
     )
     service._resolver = _FakeResolver([descriptor])  # type: ignore[assignment]  # test-only override
-    user = UserAPIKeyAuth(user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN)
+    return service
 
-    result = await service.get_model_endpoints(
-        author="litellm",
-        slug="hamsa-tts",
-        user_api_key_dict=user,
-        general_settings={},
-        prisma_client=None,
-        proxy_logging_obj=None,
-        user_api_key_cache=None,
-        team_id=None,
+
+class _RecordingService:
+    """Stand-in service that records the author/slug the route resolved."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def get_model_endpoints(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append((str(kwargs["author"]), str(kwargs["slug"])))
+        return {"data": {"id": f"{kwargs['author']}/{kwargs['slug']}", "endpoints": []}}
+
+
+def test_bare_slug_route_resolves_without_an_author_segment():
+    """The bare URL form must reach the handler, not 404 at routing.
+
+    Regression: a client reading the id straight from ``/v1/models`` gets
+    ``hamsa-tts`` and asks for ``/api/v1/models/hamsa-tts/endpoints``. A bare
+    id has no author segment, so the two-segment route can never match it;
+    the dedicated bare route maps it onto the ``litellm`` namespace.
+    """
+    service = _RecordingService()
+    app = FastAPI()
+    app.include_router(router)
+    app.state.openrouter_service = service
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN
     )
-    await service.aclose()
-    assert result is not None
-    assert result["data"]["id"] == "litellm/hamsa-tts"
-    assert len(result["data"]["endpoints"]) == 1
+    client = TestClient(app)
+
+    bare = client.get("/api/v1/models/hamsa-tts/endpoints")
+    namespaced = client.get("/api/v1/models/litellm/hamsa-tts/endpoints")
+
+    assert bare.status_code == 200
+    assert namespaced.status_code == 200
+    assert service.calls == [("litellm", "hamsa-tts"), ("litellm", "hamsa-tts")]
+
+
+def test_author_qualified_route_still_wins_over_bare_route():
+    """A two-segment id must keep resolving through the author route."""
+    service = _RecordingService()
+    app = FastAPI()
+    app.include_router(router)
+    app.state.openrouter_service = service
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_id="demo-user", user_key="sk-demo", user_role=LitellmUserRoles.PROXY_ADMIN
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/v1/models/deepseek-ai/DeepSeek-V4-Flash-0731/endpoints")
+
+    assert response.status_code == 200
+    assert service.calls == [("deepseek-ai", "DeepSeek-V4-Flash-0731")]

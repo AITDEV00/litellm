@@ -397,6 +397,7 @@ class LiteLLMRoutes(enum.Enum):
         # OpenRouter-compatible model listing (data-plane, same as /v1/models)
         "/api/v1/models",
         "/api/v1/models/{author}/{slug}/endpoints",
+        "/api/v1/models/{slug}/endpoints",
         # token counter
         "/utils/token_counter",
         "/utils/transform_request",

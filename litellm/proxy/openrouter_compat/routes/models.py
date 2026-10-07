@@ -6,7 +6,7 @@ serialize response. No probing or mapping logic lives here.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Final, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -18,22 +18,28 @@ from litellm.proxy.openrouter_compat.models_service import OpenRouterModelsServi
 
 router = APIRouter(tags=["openrouter-compatible"])
 
+# Must match the mapper's ``canonical_namespace``: a bare model id is
+# canonically namespaced under this value.
+_CANONICAL_NAMESPACE: Final = "litellm"
+
 
 def _get_service(request: Request) -> OpenRouterModelsService:
     """Return the lazily-initialised OpenRouter service bound to the app."""
+    app_state = getattr(request.app, "state", None)  # pyright: ignore[reportAny]  # FastAPI Request.app is Any
+    service = getattr(app_state, "openrouter_service", None)  # pyright: ignore[reportAny]  # dynamic app state
+    if service is not None:
+        return cast(OpenRouterModelsService, service)
+
     from litellm.proxy.proxy_server import llm_router  # noqa: PLC0415  # proxy_server imports these routes, so defer
 
     if llm_router is None:
         raise HTTPException(status_code=500, detail="Router not initialized")
 
-    app_state = getattr(request.app, "state", None)  # pyright: ignore[reportAny]  # FastAPI Request.app is Any
-    service = getattr(app_state, "openrouter_service", None)  # pyright: ignore[reportAny]  # dynamic app state
-    if service is None:
-        base_url = str(request.base_url).rstrip("/")
-        service = OpenRouterModelsService(llm_router, details_base_url=base_url)
-        if app_state is not None:
-            setattr(app_state, "openrouter_service", service)  # pyright: ignore[reportAny]  # dynamic app state
-    return cast(OpenRouterModelsService, service)
+    base_url = str(request.base_url).rstrip("/")
+    built = OpenRouterModelsService(llm_router, details_base_url=base_url)
+    if app_state is not None:
+        setattr(app_state, "openrouter_service", built)  # pyright: ignore[reportAny]  # dynamic app state
+    return built
 
 
 @router.get("/api/v1/models")
@@ -71,6 +77,51 @@ async def model_endpoints(
     limit: int = Query(50, ge=1, le=500),
 ):
     """OpenRouter-compatible per-model endpoint details (design §31)."""
+    return await _endpoints_response(
+        request,
+        author=author,
+        slug=slug,
+        user_api_key_dict=user_api_key_dict,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get("/api/v1/models/{slug}/endpoints")
+async def model_endpoints_bare_slug(
+    slug: str,
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Endpoint details for a bare model id, i.e. one without an author.
+
+    The mapper namespaces bare ids under ``litellm``, so ``hamsa-tts`` is
+    canonically ``litellm/hamsa-tts`` and the two-segment route above serves
+    that. This route serves the bare form too, so a client that reads the id
+    straight from ``/v1/models`` does not have to know about the namespace.
+    """
+    return await _endpoints_response(
+        request,
+        author=_CANONICAL_NAMESPACE,
+        slug=slug,
+        user_api_key_dict=user_api_key_dict,
+        offset=offset,
+        limit=limit,
+    )
+
+
+async def _endpoints_response(
+    request: Request,
+    *,
+    author: str,
+    slug: str,
+    user_api_key_dict: UserAPIKeyAuth,
+    offset: int,
+    limit: int,
+) -> dict[str, object]:
+    """Resolve one model's endpoints, or 404 if the gateway does not serve it."""
     import litellm.proxy.proxy_server as proxy_server_mod  # noqa: PLC0415  # proxy_server imports this router, so lazy-import
 
     service = _get_service(request)

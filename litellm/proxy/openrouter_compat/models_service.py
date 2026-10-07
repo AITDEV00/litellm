@@ -114,13 +114,14 @@ class OpenRouterModelsService:
             team_id=team_id,
         )
         model = self._find_model(aggregated, author=author, slug=slug)
+        public_id = self._mapper.canonical_id(f"{author}/{slug}")
         if model is None:
             # A model the list route knows about but could not discover has no
             # deployments. Answer with an empty endpoint list rather than 404,
             # so the ``links.details`` the list advertises is never dead.
-            if self._is_known_undiscovered(failed, author=author, slug=slug):
+            if self._is_known_undiscovered(failed, public_id=public_id):
                 return self._endpoints_mapper.map_empty(
-                    public_id=f"{author}/{slug}",
+                    public_id=public_id,
                     logical_model_name=slug,
                 )
             return None
@@ -129,13 +130,16 @@ class OpenRouterModelsService:
         statuses = await self._resolve_statuses(enriched, prisma_client)
         return self._endpoints_mapper.map_endpoints(
             enriched,
-            public_id=f"{author}/{slug}",
+            public_id=public_id,
             statuses=statuses,
         )
 
-    @staticmethod
-    def _is_known_undiscovered(failed: set[str], *, author: str, slug: str) -> bool:
-        return f"{author}/{slug}" in failed or slug in failed
+    def _is_known_undiscovered(self, failed: set[str], *, public_id: str) -> bool:
+        # ``failed`` holds logical model names, so a bare id appears bare there.
+        # Canonicalize both sides or ``/api/v1/models/wrong/hamsa-tts/endpoints``
+        # would match on the bare slug and answer for an author it does not
+        # belong to.
+        return public_id in {self._mapper.canonical_id(name) for name in failed}
 
     async def _resolve_statuses(
         self,
@@ -152,19 +156,22 @@ class OpenRouterModelsService:
             for deployment_id, deployment_inputs in inputs.items()
         }
 
-    @staticmethod
     def _find_model(
+        self,
         aggregated: list[AggregatedModel],
         *,
         author: str,
         slug: str,
     ) -> AggregatedModel | None:
-        # Match the canonical slug ("author/slug") for ids that contain a
-        # slash, or the bare slug for ids that are namespaced by the mapper
-        # (e.g. litellm/hamsa-tts -> logical name "hamsa-tts").
-        full_slug = f"{author}/{slug}"
+        # Match the canonical id for both URL forms. A model id containing a
+        # slash (deepseek-ai/DeepSeek-V4) arrives split into author + slug, so
+        # its canonical id is "author/slug". A bare id (hamsa-tts) is
+        # namespaced by the mapper into "litellm/hamsa-tts", and its URL may
+        # carry either that namespaced form or the bare id itself. Reusing the
+        # mapper's rule keeps one definition of the namespace.
+        requested = self._mapper.canonical_id(f"{author}/{slug}")
         return next(
-            (m for m in aggregated if m.logical_model_name in (full_slug, slug)),
+            (m for m in aggregated if self._mapper.canonical_id(m.logical_model_name) == requested),
             None,
         )
 

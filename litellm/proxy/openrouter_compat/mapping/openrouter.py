@@ -44,7 +44,7 @@ class OpenRouterModelMapper:
         enriched = self._metadata.enrich(model)
         identity = enriched.identity
         public_id = identity.logical_model_name
-        slug = self._canonical_slug(public_id)
+        slug = self.canonical_id(public_id)
         pricing = self._pricing_resolver.resolve(enriched) or Pricing(prompt="0", completion="0")
         limits = enriched.limits
         caps = enriched.capabilities
@@ -86,7 +86,7 @@ class OpenRouterModelMapper:
         uses honest zeros/None for unknown semantics and an informative
         description instead of silently dropping the model.
         """
-        slug = self._canonical_slug(logical_model_name)
+        slug = self.canonical_id(logical_model_name)
         return Model(
             id=logical_model_name,
             canonical_slug=slug,
@@ -117,7 +117,14 @@ class OpenRouterModelMapper:
             ),
         )
 
-    def _canonical_slug(self, public_id: str) -> str:
+    def canonical_id(self, public_id: str) -> str:
+        """The id a model is addressed by: a bare id gets the namespace.
+
+        ``hamsa-tts`` becomes ``litellm/hamsa-tts``; an already-qualified
+        ``deepseek-ai/DeepSeek-V4`` is left alone. This is the one place the
+        namespace rule lives. The endpoint lookup compares against it too, so
+        both the canonical and the bare URL form resolve to the same model.
+        """
         if "/" in public_id:
             return public_id
         return f"{self._canonical_namespace}/{public_id}"
