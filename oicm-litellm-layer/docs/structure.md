@@ -147,7 +147,8 @@ oicm-litellm-layer/
 │
 ├── examples/usage/         ← runnable usage tests for gateway endpoints
 │   ├── hamsa-stt/          ← HAMSA STT WebSocket test page
-│   ├── image-generation/   ← Qwen-Image guide (README.md) + gen_image.sh + test_image_endpoints.sh; out/ is gitignored
+│   ├── image-generation/   ← Qwen-Image guide (README.md, included into docs/usage-guides/QWEN_IMAGE_GUIDE.md),
+│   │                          gen_image.sh, test_image_endpoints.sh (36 cases), inputs/; out/ is gitignored
 │   └── openrouter/         ← /api/v1/models demo
 │
 ├── tests/                  ← tests (controller, hooks)

@@ -70,12 +70,24 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Gateway guide (Hamsa TTS/LLM/voice/STT) | `docs/usage-guides/GATEWAY_GUIDE.md` |
+| Reasoning control guide | `docs/usage-guides/REASONING_CONTROL_GUIDE.md` |
 | HAMSA STT & TTS guide | `docs/usage-guides/HAMSA_STT_TTS_GUIDE.md` |
 | Hamsa TTS New `/v1` guide | `docs/usage-guides/HAMSA-TTS-NEW-V1-GUIDE.md` |
 | Inception TTS/STT guide | `docs/usage-guides/INCEPTION_TTS_STT_GUIDE.md` |
 | OmniVoice TTS guide | `docs/usage-guides/OMNIVOICE_TTS_GUIDE.md` |
+| VibeVoice ASR guide | `docs/usage-guides/VIBEVOICE_ASR_GUIDE.md` |
 | Qwen image generation & editing guide | `examples/usage/image-generation/README.md` (included into `docs/usage-guides/QWEN_IMAGE_GUIDE.md`) |
 | Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
+
+### Runnable usage harnesses
+
+| Harness | Location |
+|---------|----------|
+| Qwen image generation + editing (36 cases, writes `request.sh` / `response.json` / `result.txt` / `output-N.png` per case) | `examples/usage/image-generation/test_image_endpoints.sh` |
+| Single-image generation with an editable prompt | `examples/usage/image-generation/gen_image.sh` |
+| Input images used by the image harness | `examples/usage/image-generation/inputs/` |
+| HAMSA STT WebSocket test page | `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html` |
+| OpenRouter `/api/v1/models` demo | `examples/usage/openrouter/demo_openrouter_models.py` |
 
 ## Dashboard / frontend
 

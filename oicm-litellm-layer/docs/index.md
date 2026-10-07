@@ -16,6 +16,7 @@ so you know exactly which file to open and edit for a given task.
 |---------------------|-------------|
 | Change the admin password / master key | [Credentials & Secrets](credentials.md) |
 | Understand the directory layout | [Structure](structure.md) |
+| Call a model or provider through the gateway | [Usage guides](docs-map.md#usage-guides) |
 | Edit the discovery controller logic | [Discovery Controller](components/controller.md) |
 | Edit proxy / LiteLLM config | [Config](components/config.md) |
 | Deploy / apply / rollout to the cluster | [Deployment & Cluster](deployment.md) |
@@ -31,5 +32,6 @@ oicm-litellm-layer/
 ├── config/             ← LiteLLM proxy configs
 ├── hooks/              ← LiteLLM callbacks / hooks (components #3, #4)
 ├── deploy/             ← Kubernetes manifests (apply these)
+├── examples/usage/     ← runnable usage tests for gateway endpoints
 └── ...                 ← full map on the Structure page
 ```

@@ -91,12 +91,16 @@ applies. See `docs/components/patches.md`.
 ├── deploy/                k8s manifests (discovery-controller, litellm-proxy, redis, ingress, postgres)
 │   └── oicm/              OICM service-account provisioning Jobs + Secret templates
 ├── decor/                 UI assets (logos, favicon)
-├── examples/              usage examples
+├── examples/usage/        runnable usage tests for gateway endpoints
+│   ├── hamsa-stt/         HAMSA STT WebSocket test page
+│   ├── image-generation/  Qwen-Image usage guide + gen_image.sh + test_image_endpoints.sh + inputs/
+│   └── openrouter/        /api/v1/models demo
 ├── scripts/               helper scripts (htb_test, onboarding bundles, etc.)
 ├── benchmarks/            benchmark scripts (bench_2replicas, bench_after, bench_final, bench_minimax_vision)
 ├── tests/                 controller + hooks tests
 └── docs/
     ├── admin-api/             LiteLLM proxy admin REST API reference
+    ├── usage-guides/          how to call models through the gateway (see docs/docs-map.md)
     ├── custom-routes-plans/   custom-route logic map + VSA plan
     ├── htb-rate-limiting/     HTB priority-based rate limiting design and behaviour
     ├── incidents/             dated incident reports
