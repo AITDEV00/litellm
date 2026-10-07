@@ -54,6 +54,16 @@ _UPTIME_WINDOWS: Final[tuple[str, ...]] = ("5m", "30m", "1d")
 _EMPTY: Final[Mapping[str, float]] = MappingProxyType({})
 
 
+class PrometheusQuery(Protocol):
+    """Runs one PromQL instant query and returns its raw result entries.
+
+    Injecting this rather than importing ``query_prometheus_instant`` directly
+    lets a test supply a stub without patching a module global.
+    """
+
+    async def __call__(self, promql: str) -> Sequence[Mapping[str, object]]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class Percentiles:
     """A four-point percentile distribution."""
@@ -154,14 +164,6 @@ def _flatten_by_model_id(series: Mapping[str, Mapping[str, float]]) -> Mapping[s
     )
 
 
-async def _query(promql: str) -> Mapping[str, float]:
-    try:
-        return _series_by_model_id(await query_prometheus_instant(promql))
-    except Exception as e:  # noqa: BLE001  # one failed metric must not blank the whole view
-        verbose_logger.debug("per-deployment metrics query failed (%s): %s", promql, e)
-        return _EMPTY
-
-
 def _percentiles_from(values: Mapping[str, float], transform: Callable[[float], float]) -> Percentiles | None:
     """Build a ``Percentiles`` when all four quantiles resolved for one model_id.
 
@@ -229,14 +231,27 @@ def _snapshot_from(flat: Mapping[str, Mapping[str, float]]) -> Mapping[str, PerD
 class PrometheusDeploymentTelemetryReader:
     """Reads and caches per-deployment telemetry from Prometheus."""
 
-    def __init__(self, cache_ttl_seconds: float = _CACHE_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        *,
+        cache_ttl_seconds: float = _CACHE_TTL_SECONDS,
+        query: PrometheusQuery = query_prometheus_instant,
+    ) -> None:
         self._cache_ttl_seconds = cache_ttl_seconds
+        self._query_fn: Final = query
         # ``None`` means "never fetched"; an empty mapping is a valid snapshot
         # (no deployments had data), so it must still count as a cache hit.
         self._cache: Mapping[str, PerDeploymentMetrics] | None = None
         self._cache_at: float = 0.0
         self._lock = asyncio.Lock()
         self._query_specs: Final = _query_specs()
+
+    async def _run_query(self, promql: str) -> Mapping[str, float]:
+        try:
+            return _series_by_model_id(await self._query_fn(promql))
+        except Exception as e:  # noqa: BLE001  # one failed metric must not blank the whole view
+            verbose_logger.debug("per-deployment metrics query failed (%s): %s", promql, e)
+            return _EMPTY
 
     async def read(self, model_ids: Sequence[str]) -> Mapping[str, PerDeploymentMetrics]:
         """Return telemetry for the requested deployments.
@@ -263,7 +278,7 @@ class PrometheusDeploymentTelemetryReader:
             return fetched
 
     async def _fetch(self) -> Mapping[str, PerDeploymentMetrics]:
-        results: Final = await asyncio.gather(*(_query(spec.promql) for spec in self._query_specs))
+        results: Final = await asyncio.gather(*(self._run_query(spec.promql) for spec in self._query_specs))
         series: Final[Mapping[str, Mapping[str, float]]] = MappingProxyType(
             {spec.key: result for spec, result in zip(self._query_specs, results, strict=True)}
         )

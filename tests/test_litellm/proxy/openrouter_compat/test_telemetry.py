@@ -9,6 +9,7 @@ requested-subset filter.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping, Sequence
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +21,8 @@ from litellm.proxy.openrouter_compat.enrichment.telemetry import (
     _percentiles_from,
     _series_by_model_id,
 )
+
+_UNCONFIGURED = object()
 
 
 @pytest.fixture(autouse=True)
@@ -34,8 +37,24 @@ def _prometheus_configured():
         yield
 
 
-def _instant(value: str, model_id: str) -> dict:
+def _instant(value: str, model_id: str) -> Mapping[str, object]:
     return {"metric": {"model_id": model_id}, "value": [0, value]}
+
+
+def _reader(values: Mapping[str, Mapping[str, float]]) -> PrometheusDeploymentTelemetryReader:
+    """A reader whose Prometheus client is a stub keyed by the metric in the query.
+
+    The stub returns RAW result entries (as the real client does), so the
+    reader's own flattening is exercised rather than bypassed.
+    """
+
+    async def _fake(query: str) -> Sequence[Mapping[str, object]]:
+        for key, result in values.items():
+            if key in query:
+                return [_instant(str(v), mid) for mid, v in result.items()]
+        return []
+
+    return PrometheusDeploymentTelemetryReader(query=_fake)
 
 
 def test_series_by_model_id_drops_nan_and_empty_ids():
@@ -55,22 +74,6 @@ def test_percentiles_from_requires_all_four():
     assert full == Percentiles(p50=10.0, p75=20.0, p90=30.0, p99=40.0)
 
 
-def _fake_query_factory(values: dict[str, dict[str, float]]):
-    """Return an async query stub keyed by the metric name embedded in the query.
-
-    The stub returns RAW Prometheus result entries (as the real client does), so
-    the reader's own flattening is exercised rather than bypassed.
-    """
-
-    async def _fake(query: str) -> list[dict]:
-        for key, result in values.items():
-            if key in query:
-                return [_instant(str(v), mid) for mid, v in result.items()]
-        return []
-
-    return _fake
-
-
 @pytest.mark.asyncio
 async def test_fetch_builds_metrics_with_correct_units():
     """TTFT is seconds->ms; latency-per-token is inverted to tokens/second."""
@@ -83,13 +86,12 @@ async def test_fetch_builds_metrics_with_correct_units():
         "litellm_deployment_total_requests_total[30m]": {"m1": 1234.0},
     }
 
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
+    snapshot = await _reader(values)._fetch()
 
     m = snapshot["m1"]
     assert m.ttft_latency_ms == Percentiles(p50=500.0, p75=500.0, p90=500.0, p99=500.0)
     assert m.throughput_tokens_per_sec == Percentiles(p50=50.0, p75=50.0, p90=50.0, p99=50.0)
-    # Prometheus returns floats; the DTO declares int | None, so it must be cast.
+    # Prometheus returns floats; the DTO declares int | None, so it must be truncated.
     assert m.live_concurrency == 3
     assert isinstance(m.live_concurrency, int)
     assert m.requests_last_30m == 1234.0
@@ -102,8 +104,7 @@ async def test_fetch_uptime_is_success_over_total_times_100():
         "success_responses_total[5m]": {"m1": 9.0},
         "failure_responses_total[5m]": {"m1": 1.0},
     }
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
+    snapshot = await _reader(values)._fetch()
     assert snapshot["m1"].uptime_last_5m == pytest.approx(90.0)
 
 
@@ -115,12 +116,8 @@ async def test_uptime_is_100_when_no_failures():
     failure series yields an empty vector, so the healthiest deployments lost
     their uptime entirely. The failure term must default to 0.
     """
-    values = {
-        "success_responses_total[30m]": {"m1": 5.0},
-        # no failure series at all
-    }
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
+    values = {"success_responses_total[30m]": {"m1": 5.0}}  # no failure series at all
+    snapshot = await _reader(values)._fetch()
     assert snapshot["m1"].uptime_last_30m == 100.0
 
 
@@ -128,8 +125,7 @@ async def test_uptime_is_100_when_no_failures():
 async def test_uptime_is_none_when_no_traffic():
     """A deployment with no success series in the window has no uptime, not 0%."""
     values = {"litellm_deployment_in_progress_requests": {"m1": 0.0}}
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
+    snapshot = await _reader(values)._fetch()
     assert snapshot["m1"].uptime_last_30m is None
 
 
@@ -137,8 +133,7 @@ async def test_uptime_is_none_when_no_traffic():
 async def test_fetch_missing_metrics_are_none_not_zero():
     """A deployment present only in the concurrency query has null elsewhere."""
     values = {"litellm_deployment_in_progress_requests": {"m1": 2.0}}
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        snapshot = await PrometheusDeploymentTelemetryReader()._fetch()
+    snapshot = await _reader(values)._fetch()
     m = snapshot["m1"]
     assert m.live_concurrency == 2
     assert m.ttft_latency_ms is None
@@ -152,15 +147,14 @@ async def test_snapshot_is_cached_within_ttl():
     """A second read inside the TTL must not re-query Prometheus."""
     calls: list[str] = []
 
-    async def _counting(query: str) -> list[dict]:
+    async def _counting(query: str) -> Sequence[Mapping[str, object]]:
         calls.append(query)
         return []
 
-    with patch.object(dm, "query_prometheus_instant", side_effect=_counting):
-        reader = PrometheusDeploymentTelemetryReader()
-        await reader.read(["m1"])
-        first = len(calls)
-        await reader.read(["m1"])
+    reader = PrometheusDeploymentTelemetryReader(query=_counting)
+    await reader.read(["m1"])
+    first = len(calls)
+    await reader.read(["m1"])
     assert first == 16
     assert len(calls) == first, "the second read must hit the cache, not Prometheus"
 
@@ -168,8 +162,7 @@ async def test_snapshot_is_cached_within_ttl():
 @pytest.mark.asyncio
 async def test_read_returns_only_requested_ids():
     values = {"litellm_deployment_in_progress_requests": {"m1": 1.0, "m2": 2.0}}
-    with patch.object(dm, "query_prometheus_instant", side_effect=_fake_query_factory(values)):
-        result = await PrometheusDeploymentTelemetryReader().read(["m2"])
+    result = await _reader(values).read(["m2"])
     assert set(result) == {"m2"}
 
 
@@ -189,13 +182,12 @@ async def test_concurrent_reads_share_one_fetch():
     """Two simultaneous reads must not double the query load."""
     calls: list[str] = []
 
-    async def _counting(query: str) -> list[dict]:
+    async def _counting(query: str) -> Sequence[Mapping[str, object]]:
         calls.append(query)
         await asyncio.sleep(0.01)
         return []
 
-    reader = PrometheusDeploymentTelemetryReader()
-    with patch.object(dm, "query_prometheus_instant", side_effect=_counting):
-        await asyncio.gather(reader.read(["m1"]), reader.read(["m1"]))
+    reader = PrometheusDeploymentTelemetryReader(query=_counting)
+    await asyncio.gather(reader.read(["m1"]), reader.read(["m1"]))
     # 16 queries is one full fetch; a second concurrent fetch would double it.
     assert len(calls) == 16
