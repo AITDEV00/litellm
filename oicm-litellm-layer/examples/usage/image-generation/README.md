@@ -270,6 +270,31 @@ transparent pixels; without it the output is fully opaque.
 **Mixed input resolutions.** Inputs of different sizes are accepted; the output
 size follows `size` or the model default, not the inputs.
 
+**Portrait retouch: grey background and black suit.** A single request can make
+several coordinated changes. This example takes `inputs/portrait-452x678.png`
+and puts it on a flat grey backdrop while darkening the suit:
+
+```bash
+curl -sS --fail-with-body "https://litellm.ecouncil.ae/v1/images/edits" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -F "model=Qwen/Qwen-Image-2.1" \
+  --form-string 'prompt=Change only the background to a flat, uniform professional grey. Use exactly hex color #565656 (RGB 86, 86, 86) for the entire background. Make his suit fully black. Keep the subject unchanged otherwise, including his face and pose.' \
+  --form-string 'output_format=png' \
+  --form-string 'response_format=b64_json' \
+  -F "image[]=@inputs/portrait-452x678.png;type=image/png"
+```
+
+Two things make this prompt work. Naming the hex value and its RGB triplet gets
+the background within about 18 levels of the target across 74 percent of the
+border, whereas a bare "grey" lands further off. And "change only" plus "keep
+the subject unchanged" keeps the face and pose intact while the suit and
+background change.
+
+Note the input is 452x678 and the output comes back 1024x1024. Do not try to
+match the input size: `size=452x678` returns HTTP 500, because 452 is not a
+multiple of 32. Use a multiple of 32 such as 512x768 if you need a portrait
+shape.
+
 **WebP output** via `output_format=webp`.
 
 ### Known failures

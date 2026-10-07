@@ -33,8 +33,9 @@ P1="$INPUTS/picture-1-1024.png"
 P2="$INPUTS/picture-2-1024.png"
 P2_SMALL="$INPUTS/picture-2-640x480.png"
 MASK="$INPUTS/mask-1024.png"
+PORTRAIT="$INPUTS/portrait-452x678.png"
 
-for f in "$P1" "$P2" "$P2_SMALL" "$MASK"; do
+for f in "$P1" "$P2" "$P2_SMALL" "$MASK" "$PORTRAIT"; do
   [[ -f "$f" ]] || { echo "missing input image: $f" >&2; exit 1; }
 done
 
@@ -193,6 +194,7 @@ declare -a ORDER=(
   edit-teacache
   edit-url
   edit-mixed-resolutions
+  edit-portrait-grey-bg-black-suit
   # batching
   gen-concurrent-4
   gen-concurrent-mixed-size
@@ -474,6 +476,17 @@ case_edit-mixed-resolutions() {
     --form-string 'prompt=Combine the subjects into one coherent scene.' \
     --form-string 'response_format=b64_json' \
     -F "image[]=@$P1;type=image/png" -F "image[]=@$P2_SMALL;type=image/png"
+}
+
+case_edit-portrait-grey-bg-black-suit() {
+  run_case edit-portrait-grey-bg-black-suit \
+    "portrait: background to #565656 grey and suit to fully black, subject otherwise unchanged" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change only the background to a flat, uniform professional grey. Use exactly hex color #565656 (RGB 86, 86, 86) for the entire background. Make his suit fully black. Keep the subject unchanged otherwise, including his face and pose.' \
+    --form-string 'output_format=png' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$PORTRAIT;type=image/png"
 }
 
 # ------- batching -------
