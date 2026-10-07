@@ -10,7 +10,7 @@ Milestone split (do not reorder): **M1** trustworthy model status → **M2** cur
 
 Storage design for Steps 10-11 (what goes in `model_info.oicm`, how the upsert is gated, and how a `Stopped` deployment stays visible while becoming unroutable): see `DESIGN-STATUS-PERSISTENCE.md`.
 
-Current progress, the roadmap position, and the current problems: see `PROGRESS-AND-PAUSED-WORK.md`.
+Current progress, the roadmap position, and the current problems: see `PROGRESS-AND-PAUSED-WORK.md`. That file carries the authoritative **open work register** (every item still open, verified against the tree, with priorities); this checklist is the step-by-step plan and can lag it.
 
 Some steps below were written before the implementation and now describe an earlier shape than what landed. Those carry a `Status:` line. Do not implement a superseded step as written.
 
@@ -211,7 +211,8 @@ Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mappin
 
 ## Milestone 2 — Current engine load
 
-**Not started.** There is no `RuntimeTelemetryProvider` (nor `SGLangTelemetryProvider` / `VllmTelemetryProvider`) in the tree, so Steps 19-23 are all still open. This milestone covers the *instantaneous* engine view (running/queued requests, KV utilization) scraped from each runtime's own `/metrics`. It is distinct from M3, which is the windowed historical statistics and has shipped (Step 25).
+**Not started.** There is no `RuntimeTelemetryProvider` (nor `SGLangTelemetryProvider` / `VllmTelemetryProvider`) in the tree, so Steps 19-23 are all still open. This milestone covers the *instantaneous* engine view (running/queued requests, KV utilization) scraped from each runtime's own `/metrics`. It is distinct from M3, which is the windowed historical statistics and has shipped (Step 25). The reserved `-1` endpoint status (Step 19's rationale in `FEASIBILITY-ANSWERS.md`) stays unassigned until this lands.
+
 ### Step 19 [L] — `RuntimeTelemetryProvider` abstraction
 Create provider interface with `SGLangTelemetryProvider` / `VllmTelemetryProvider`. Deployment runtime is known from `model_server.name/family` (present in the OICM deployment record).
 - Test: provider selected by runtime, not by branching in the route.

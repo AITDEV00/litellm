@@ -81,7 +81,50 @@ rolling statistics (Step 25) shipped with it, so the `/endpoints` payload now
 carries live latency, throughput, and uptime per deployment. The remaining work
 is M2 (Steps 19-23), the instantaneous engine view from each runtime's own
 `/metrics`, which is genuinely not started.
-unblocked: the `model_info.oicm` block it reads now exists.
+
+## Open work register (verified against the tree, 2026-10-07)
+
+Every item still open, with its status and what it blocks. Grouped by where the
+change lands. "Verified absent" means a code search for the symbol or behavior
+came back empty, not that a doc said so.
+
+### LiteLLM: genuinely unimplemented
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| 1 | M2 engine-load telemetry (Steps 19-23) | Not started | No `RuntimeTelemetryProvider` / `SGLangTelemetryProvider` / `VllmTelemetryProvider` / `RuntimeTelemetrySnapshot` / `kv_cache_utilization` anywhere in the tree. This is the *instantaneous* view (running requests, queued requests, KV-cache utilization) scraped from each runtime's own `/metrics`, distinct from the windowed statistics Step 25 serves. Needs per-runtime scrapers, a normalizer, a single-flight cache, and wiring into `gateway_status`. |
+| 2 | Reserved `-1` endpoint status | Blocked on #1 | Deliberately unassigned in `gateway_status.py`. Meant to signal "idle then took a burst", which needs the engine-load telemetry of #1. Not independent work. |
+| 3 | `perf_last_30m_by_workload` | Not started | Referenced only in a docstring. We have the data to fill the `text_generation` bucket, but classifying a metric series by workload (`text_generation`/`stt`/`tts`) needs a mapping that does not exist. Left absent rather than fabricated. |
+
+### LiteLLM: correctness gaps on the `/endpoints` route
+
+All four are documented as findings in
+`docs/openrouter/MAPPING-litellm-to-endpoints.md` §8 and are live-confirmed.
+
+| # | Item | Impact | Fix shape |
+|---|---|---|---|
+| 4 | Runtime detection reports every deployment as `openai-compatible` (§8a) | The vLLM/SGLang adapters never run: `provider_name`/`tag` are wrong, `/openapi.json` is never probed, `/model_info` is never probed, `api_capabilities` stays empty. The only workaround is a per-deployment `model_info.discovery_runtime` override. | `_detect_runtime_kind` matches only the literal `"sglang"`/`"vllm"`, but `provider` is `litellm_params.custom_llm_provider`, which for a DB-registered model is `hosted_vllm`. Teach the matcher `hosted_vllm`/`hosted_sglang`. Small, but changes what every endpoint advertises, so it deserves its own change. |
+| 5 | Capability enrichment result is discarded (§8b) | Dead work on every request: `get_model_endpoints` calls both enrichers, but `map_endpoints` never reads `capabilities`. | Either consume it (feed `supported_parameters` / modality fields) or stop calling it on this route. |
+| 6 | `max_prompt_tokens` / `max_completion_tokens` always `null` (§8c) | Structurally empty, not per-deployment values. Verified: only `openai_compatible.py:78` constructs `ModelLimits`, and it sets `context_length` alone. | Populate the limit fields from the probe or the registry, or accept the nulls. |
+| 7 | `data.architecture` hardcoded empty (§8d) | The real architecture (`model_type`, `architectures`, `tokenizer`, `instruct_type`) exists in `model.architecture` for SGLang deployments, and modalities in `model.capabilities`, but this route emits neither. The list route does map modalities. | Read `model.architecture` in `_response_architecture()`. |
+
+### LiteLLM: semantic decision to confirm
+
+| # | Item | Notes |
+|---|---|---|
+| 10 | `live_concurrency` sums across replicas | The query is `sum by (model_id) (litellm_deployment_in_progress_requests)`. One `model_id` is one deployment, but a deployment can have several pods, so the value is the fleet-wide in-flight count for that deployment. The alternative is per-replica max ("peak load on the busiest pod"). `MAPPING-usage-metrics.md` §8f discusses this max-vs-sum tension for the historical surfaces, but the field itself does not state which it is. Pin it down and document it, since a reader will assume one or the other. Not a bug, a contract clarification. |
+
+### Controller
+
+| # | Item | Notes |
+|---|---|---|
+| 8 | `LocalDeploymentSource.discover()` is serial | Verified: it awaits `discover_for_deployment` inside a `for` loop, each doing a configmap read plus two HTTP probes. 24 deployments take about 2.6s. Parallelizing with `asyncio.gather` is a pure latency win. This is Step 6 of the design order. |
+
+### Deployment
+
+| # | Item | Notes |
+|---|---|---|
+| 9 | Prod runs the pre-fix image | Prod pods started 2026-09-30 on tag `jya0-v1.102.0`; the registry tag was overwritten on 2026-10-07 with the new build, so prod pods are still the old layers. The gauge-leak fix, the telemetry fields, and everything documented as "live on dev" are dev-only. Prod still shows the phantom concurrency and has none of the telemetry fields. Explicitly deferred; recorded so it is not mistaken for done. |
 
 ### Smaller items
 
@@ -91,8 +134,9 @@ unblocked: the `model_info.oicm` block it reads now exists.
   than missed: Step 6 dropped `workload_run_id` and `workload_status` as having no
   consumer, and `deployment_id == workload_id` is the uuid the reconciler already
   keys on.
-- `LocalDeploymentSource.discover()` still awaits each deployment serially
-  (24 deployments in about 2.6s).
+- The old sentinel heartbeat model rows are gone (reconciler deletes them; nothing
+  recreates them). Liveness is an `oicm-source-<cluster>` row in the native health
+  table. See "Staleness: a per-source heartbeat".
 - The old sentinel heartbeat model rows are gone (reconciler deletes them; nothing
   recreates them). Liveness is an `oicm-source-<cluster>` row in the native health
   table. See "Staleness: a per-source heartbeat".
@@ -574,16 +618,18 @@ Confirmed as intended behavior, not a problem:
 ## Next step
 
 The controller half of M1 is complete, and the LiteLLM half (Steps 13-18) plus
-M3's rolling statistics (Step 25) shipped on top of it. What remains, in order:
+M3's rolling statistics (Step 25) shipped on top of it. The full list of what
+remains is the "Open work register" above. Ranked by value, the recommended
+order is:
 
-1. M2 (Steps 19-23): current engine load from each runtime's `/metrics`. This is
-the instantaneous view (running/queued requests, KV utilization), distinct from
-the windowed statistics Step 25 already serves. No `RuntimeTelemetryProvider`
-exists yet.
-2. Step 6 of the design order: parallelize `LocalDeploymentSource.discover()`,
-which still awaits each deployment serially.
-3. `perf_last_30m_by_workload`: needs a metric-to-workload classifier before it
-can be filled.
+1. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
+   capability fields wrong for every deployment, so it is the highest-value fix.
+2. Item 8: parallelize `LocalDeploymentSource.discover()`. Small and purely a
+   latency win.
+3. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
+   limit fields, `data.architecture`).
+4. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
+5. Item 10: pin down the `live_concurrency` max-vs-sum semantics and document it.
 
 Known honest gaps in the `/endpoints` payload, none of them telemetry:
 `max_prompt_tokens` / `max_completion_tokens` are always null (only the
@@ -592,6 +638,8 @@ alone), `data.architecture` is hardcoded empty, runtime detection reports every
 deployment as `openai-compatible` so the vLLM/SGLang adapters never run, and the
 capability enrichment result is discarded on this route. See
 `docs/openrouter/MAPPING-litellm-to-endpoints.md` §8.
+
+## Still open for the OICM team
 
 Now that the join is on the uuid, the served model id is no longer needed to
 match a deployment. It is still worth asking whether OICM can expose it, because

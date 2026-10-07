@@ -371,3 +371,22 @@ up the mapper. Their own audit findings:
 The producer side of the telemetry (the in-flight gauge fix and the per-worker
 sweeper) is in `litellm/integrations/prometheus_helpers/deployment_in_flight.py`
 and mapped with the health-table work, not this consumer map.
+
+## 11. What is still open
+
+Verified against the tree on 2026-10-07, not taken from a doc. The full register
+with priorities is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
+
+| Item | Status | Notes |
+|---|---|---|
+| M2 engine-load telemetry | not started | No `RuntimeTelemetryProvider` / `RuntimeTelemetrySnapshot` / `kv_cache_utilization` in the tree. The instantaneous engine view, distinct from the windowed stats this map describes. |
+| reserved `-1` endpoint status | unassigned on purpose | Blocked on M2; it is meant to signal an idle-then-burst endpoint. |
+| `perf_last_30m_by_workload` | absent | Needs a metric-to-workload classifier. |
+| runtime detection | wrong for every deployment | `_detect_runtime_kind` misses `hosted_vllm`, so `provider_name`/`tag` are `openai-compatible` and the vLLM/SGLang adapters never run. |
+| discarded capability enrichment | dead work per request | `map_endpoints` never reads `capabilities`. |
+| `max_prompt_tokens` / `max_completion_tokens` | always `null` | Only `openai_compatible.py:78` builds `ModelLimits`, with `context_length` alone. |
+| `data.architecture` | hardcoded empty | `_response_architecture()` returns all-null. |
+| `live_concurrency` semantics | unstated | `sum by (model_id)`, i.e. fleet-wide, not per-replica max. See `MAPPING-litellm-to-endpoints.md` §8g. |
+
+Closed: M1 (Steps 13-18) and M3 Step 25, including all four telemetry fields and
+their percentiles.

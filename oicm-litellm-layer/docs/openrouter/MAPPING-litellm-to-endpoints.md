@@ -135,6 +135,9 @@ in-flight count) and `requests_last_30m`. OpenRouter has no top-level field for
 either; it only exposes request volume nested per workload inside
 `perf_last_30m_by_workload`, which we do not implement.
 
+`live_concurrency` is the **fleet-wide** in-flight count for the deployment
+(`sum by (model_id)`), not the peak on the busiest pod. See §8g.
+
 ### Nullable fields serialize as `null`, not omitted
 
 The SDK's `@model_serializer` keeps a nullable field when it is explicitly set,
@@ -239,7 +242,39 @@ has no top-level field for either, so a strict OpenRouter client ignores them.
 They are the only two telemetry fields not in the official contract, and they are
 documented as such at §4b.
 
-## 9. Verified live (dev, 2026-10-07)
+### 8g. `live_concurrency` sums across replicas (semantics to confirm)
+
+The query is `sum by (model_id) (litellm_deployment_in_progress_requests)`. One
+`model_id` is one deployment, but a deployment can have several pods, so the
+value is the **fleet-wide in-flight count for that deployment**. The alternative
+is per-replica max, the "peak load on the busiest pod" reading.
+
+`MAPPING-usage-metrics.md` §8f discusses this max-vs-sum tension for the
+historical surfaces, and the same choice is embedded here without being stated.
+It is not a bug, it is an unstated contract: a reader will assume one or the
+other, so the field should either say which it is or expose both. Until then,
+read it as the sum.
+
+## 9. What is still open
+
+Recorded so these are not mistaken for finished. The full register, with
+priorities, is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
+
+| Item | Where | Blocks |
+|---|---|---|
+| M2 engine-load telemetry (running/queued requests, KV utilization) | not started, no `RuntimeTelemetryProvider` in the tree | the instantaneous engine view; the reserved `-1` status depends on it |
+| reserved `-1` endpoint status | `gateway_status.py`, deliberately unassigned | blocked on M2 |
+| `perf_last_30m_by_workload` | not implemented (§8e) | needs a metric-to-workload classifier |
+| runtime detection (§8a) | `registry.py::_detect_runtime_kind` | makes `provider_name`/`tag`/capabilities wrong for every deployment |
+| discarded enrichment (§8b) | `models_service.py` | dead work per request |
+| `max_*_tokens` always null (§8c) | `openai_compatible.py:78` | two always-null fields |
+| `data.architecture` empty (§8d) | `_response_architecture()` | one always-empty envelope field |
+| `live_concurrency` semantics (§8g) | telemetry query | an unstated contract |
+
+Not open: M1 (Steps 13-18) and M3 Step 25, including all four telemetry fields
+and their percentiles.
+
+## 10. Verified live (dev, 2026-10-07)
 
 `GET /api/v1/models/zai-org/GLM-5.3/endpoints`, after six streaming requests
 warmed the window:
