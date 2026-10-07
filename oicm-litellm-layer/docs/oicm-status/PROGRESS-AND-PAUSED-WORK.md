@@ -222,13 +222,12 @@ for orphaned:
 - `cnpg-default-monitoring` and `kube-root-ca.crt`: created by the CNPG operator
   and Kubernetes respectively.
 
-Two structural gaps in the dev manifest, neither affecting the current roll
-because the shared ConfigMaps exist and are identical to what prod applies:
+Both structural gaps found here are now fixed.
 
-- `deploy/overlays/dev` declares no ConfigMaps at all, so dev
-  depends on the shared `litellm-hooks` and `litellm-logo` that only
-  `deploy/base/gateway` declares. A dev-only cluster would come up
-  without them.
+- Dev declared no ConfigMaps at all, so it depended on the shared
+  `litellm-hooks` and `litellm-logo` that only prod declared. **Fixed** by the
+  Kustomize restructure below: `deploy/base/shared` holds the ConfigMap and Redis
+  Secret both environments use, and each overlay pulls it in explicitly.
 - `deploy/prod/discovery-controller.yaml` declares the `oicm-sources` volume, but
   the ConfigMap object itself lives in `deploy/oicm/sources.yaml`, which no Make
   target applied. `make litellm-src-deploy` and `make deploy` would therefore
@@ -237,6 +236,34 @@ because the shared ConfigMaps exist and are identical to what prod applies:
   `litellm-src-deploy`, `deploy`, and `deploy-dev` now apply
   `deploy/oicm/sources.yaml` first, so a roll is self-contained instead of
   depending on a ConfigMap someone applied by hand.
+
+### Dev and prod now build from one Kustomize base (2026-10-08)
+
+The gateway was two hand-written manifests per environment, and they had drifted:
+prod was nine documents in one file, dev was three documents across two files
+with no Secrets and no PDB, and their configs disagreed on five
+`general_settings` keys. Dev's own header says it runs "the exact same image,
+env, config, secrets and volumes as the real replicas", so the intent was parity
+and the structure was not delivering it.
+
+The layout is now `deploy/base` (shared resources plus the gateway objects with
+production names and values) with `deploy/overlays/prod` applying it unchanged
+and `deploy/overlays/dev` applying it with `nameSuffix: -dev` plus two patches
+that hold the complete dev/prod delta. The shared `litellm-hooks` ConfigMap and
+`litellm-redis-password` Secret are pulled into both overlays unsuffixed, so dev
+keeps mounting the same objects prod does and a dev-only edit cannot change what
+prod serves.
+
+Two guards back this up. Rendering `deploy/overlays/prod` reproduces the previous
+prod manifest exactly, all nine documents with zero differences, so the
+restructure changed nothing about prod. And `tests/deploy/test_dev_prod_parity.py`
+renders both overlays and fails if they diverge in a way the dev patches do not
+declare: env keys, env value sources, image, probes, mounts, resources, and config
+keys. It was mutation-tested against four drift scenarios and catches each.
+
+The master key Secret moved out of the old prod manifest path, which ten
+consumers read as a file, so all of them were repointed at
+`deploy/base/gateway/secrets/litellm-master-key.yaml`.
 
 ### Smaller items
 
