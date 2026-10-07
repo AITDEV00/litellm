@@ -152,6 +152,19 @@ Prepared:
   ones (the `configured` dry-run line is metadata, not data), the PDB spec is
   identical, and the gateway rolls `maxSurge: 1` / `maxUnavailable: 0` with a 30s
   grace period, so pods drain one at a time behind the PDB's `minAvailable: 1`.
+- Prerequisites for the controller roll exist: the `oicm-status-api`,
+  `ad-oicm-status-api`, and `litellm-master-key` Secrets are all present, and
+  `CONTROLLER_READ_ONLY` defaults to false.
+
+The controller roll does more than ship concurrent discovery. The live prod
+controller image predates the status work entirely (its `/app/controller` has no
+`status_poller.py` or `sources_config.py`), it mounts no `oicm-sources` ConfigMap,
+and it carries none of the `OICM_SOURCE_*` / `CLUSTER_NAME` / `STATUS_SYNC_INTERVAL`
+env vars. So today prod's controller reconciles discovery and nothing else: its
+logs contain no `OICM sources` line, and prod's models carry no `model_info.oicm`
+block. Applying `deploy/prod/discovery-controller.yaml` also turns status polling
+on for prod for the first time, which is a larger change than the one-line image
+bump suggests and deserves its own attention in the roll.
 
 To roll, not yet run:
 
@@ -172,6 +185,58 @@ Found while preparing: the live prod controller runs image `latest` while
 `deploy/prod/discovery-controller.yaml` pins an immutable tag. Applying the
 manifest corrects that drift, and it means prod currently runs controller code
 nobody pinned.
+
+### ConfigMap ownership and drift (audited 2026-10-08)
+
+Every ConfigMap the workloads mount was compared against the manifest that
+declares it. No ConfigMap is shadowed: each pod reads the ConfigMap it was
+configured to read. Dev's gateway pod serves `litellm-config-dev` and prod's
+serves `litellm-config`; the two differ, which is the intent.
+
+Declared and applied, contents identical: `litellm-config`, `litellm-hooks`
+(shared by both gateways, which is intended: the hooks are identical),
+`spend-logs-janitor-scripts`, `spend-logs-janitor-scripts-prod`,
+`oicm-service-account-config-alain`, `oicm-service-account-config-abudhabi`.
+
+Drift, all benign, recorded so a future reader does not have to rediscover it:
+
+- `litellm-config-dev` differs from its manifest by a trailing newline only.
+- `oicm-sources` is live without the explicit `cluster:` keys its manifest
+  declares. `parse_sources` defaults `cluster` to the source name
+  (`raw.get("cluster") or name`), and the sources are named `alain` and
+  `abudhabi`, so the resolved values are identical. The manifest's explicit form
+  is the defensive one, since renaming a source would silently move a cluster
+  otherwise. Applying the manifest restores it.
+
+Not declared in any manifest, each by design, recorded so they are not mistaken
+for orphaned:
+
+- `litellm-logo`: binary assets created by hand with `kubectl create configmap`,
+  documented in a comment in `deploy/prod/litellm-proxy.yaml`. Both gateways
+  mount it.
+- `oicm-service-account-provisioner`: created by the `oicm-sa-config` Makefile
+  target, not by a manifest.
+- `probe-sql`: no reference anywhere in the repo, holds a single `q.sql` key,
+  and nothing mounts it. A leftover. Safe to delete, left alone pending a
+  decision.
+- `cnpg-default-monitoring` and `kube-root-ca.crt`: created by the CNPG operator
+  and Kubernetes respectively.
+
+Two structural gaps in the dev manifest, neither affecting the current roll
+because the shared ConfigMaps exist and are identical to what prod applies:
+
+- `deploy/dev/litellm-proxy-dev.yaml` declares no ConfigMaps at all, so dev
+  depends on the shared `litellm-hooks` and `litellm-logo` that only
+  `deploy/prod/litellm-proxy.yaml` declares. A dev-only cluster would come up
+  without them.
+- `deploy/prod/discovery-controller.yaml` declares the `oicm-sources` volume, but
+  the ConfigMap object itself lives in `deploy/oicm/sources.yaml`, which no Make
+  target applied. `make litellm-src-deploy` and `make deploy` would therefore
+  roll the controller without ever applying its sources config, leaving status
+  polling reading an absent file and silently returning no sources. **Fixed**:
+  `litellm-src-deploy`, `deploy`, and `deploy-dev` now apply
+  `deploy/oicm/sources.yaml` first, so a roll is self-contained instead of
+  depending on a ConfigMap someone applied by hand.
 
 ### Smaller items
 

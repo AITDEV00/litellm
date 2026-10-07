@@ -112,12 +112,16 @@ controller-release-dev: build push-discovery
 ## command for the whole dev loop. Prod is never touched.
 controller-deploy-dev: controller-release-dev deploy-dev
 
-## Apply the dev controller manifest only
+## Apply the dev controller manifest only. Also applies the oicm-sources
+## ConfigMap it mounts, so the target is self-contained rather than depending on
+## a ConfigMap someone applied by hand.
 deploy-dev:
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
 
 ## Deploy all manifests to the cluster
 deploy:
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
@@ -191,6 +195,7 @@ litellm-src-deploy:
 	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/prod/litellm-proxy.yaml"
 	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/prod/litellm-proxy.yaml
 	@echo "Deploying to cluster"
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
