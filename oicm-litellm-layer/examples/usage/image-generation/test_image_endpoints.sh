@@ -30,8 +30,9 @@ INPUTS="$HERE/inputs"
 P1="$INPUTS/picture-1-1024.png"
 P2="$INPUTS/picture-2-1024.png"
 P2_SMALL="$INPUTS/picture-2-640x480.png"
+MASK="$INPUTS/mask-1024.png"
 
-for f in "$P1" "$P2" "$P2_SMALL"; do
+for f in "$P1" "$P2" "$P2_SMALL" "$MASK"; do
   [[ -f "$f" ]] || { echo "missing input image: $f" >&2; exit 1; }
 done
 
@@ -129,12 +130,15 @@ PY
 }
 
 # --- one case ---------------------------------------------------------------
+# run_case <name> <note> <curl args...>. The note names the parameter under
+# test and lands in result.txt.
 run_case() {
-  local name="$1"; shift
+  local name="$1" note="$2"; shift 2
   local case_dir="$OUT_DIR/$name"
   mkdir -p "$case_dir"
+  printf '%s\n' "$note" >"$case_dir/note.txt"
   LAST_REQUEST=("$@")
-  echo "== $name"
+  echo "== $name  [$note]"
   local out
   out=$(curl -sS --fail-with-body "${LAST_REQUEST[@]}" \
         -o "$case_dir/response.raw.json" \
@@ -147,106 +151,410 @@ run_case() {
 }
 
 # --- cases ------------------------------------------------------------------
-# Cases are selected by name; with no args every case runs.
+# Each case exercises one request parameter so its effect is isolated.
 declare -a ORDER=(
-  generations-basic
-  edits-single-transparent
-  edits-two-images-transparent
-  edits-two-images-size-512
-  edits-two-images-scene-512
-  edits-two-images-n2
-  edits-mixed-resolutions
+  # generations, JSON body
+  gen-baseline
+  gen-n-2
+  gen-size-512
+  gen-size-768
+  gen-size-1024x768
+  gen-steps-20
+  gen-guidance-7-negative-prompt
+  gen-seed-fixed
+  gen-seed-list
+  gen-output-format-webp
+  gen-background-transparent
+  gen-extra-body-steps
+  gen-enhance-prompt
+  gen-teacache
+  gen-max-seq-len-256
+  gen-flow-shift-3
+  gen-generator-device-cpu
+  gen-task-type-ti2i
+  # edits, multipart form
+  edit-baseline
+  edit-two-images
+  edit-mask
+  edit-size-512
+  edit-size-768
+  edit-n-2
+  edit-seed
+  edit-steps-20
+  edit-guidance-7-negative-prompt
+  edit-background-transparent
+  edit-output-format-webp
+  edit-enhance-prompt
+  edit-teacache
+  edit-url
+  edit-mixed-resolutions
+  # batching
+  gen-concurrent-4
+  gen-concurrent-mixed-size
 )
 
-case_generations-basic() {
-  run_case generations-basic \
+# Every function below is named case_<case-name> so the dispatcher can call it.
+# ------- generations -------
+case_gen-baseline() {
+  run_case gen-baseline "prompt only; defaults: 1024x1024, 40 steps, png" \
     -X POST "$PROXY_BASE_URL/v1/images/generations" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -H 'Content-Type: application/json' \
-    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"generator_device\":\"cpu\",\"output_format\":\"png\",\"response_format\":\"b64_json\"}"
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"response_format\":\"b64_json\"}"
 }
 
-case_edits-single-transparent() {
-  run_case edits-single-transparent \
+case_gen-n-2() {
+  run_case gen-n-2 "n=2 -> two independent outputs" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"n\":2,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-size-512() {
+  run_case gen-size-512 "size=512x512" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-size-768() {
+  run_case gen-size-768 "size=768x768 (verified working, above the picker's 512/1024 options)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"size\":\"768x768\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-size-1024x768() {
+  run_case gen-size-1024x768 "size=1024x768 non-square aspect ratio" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"size\":\"1024x768\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-steps-20() {
+  run_case gen-steps-20 "num_inference_steps=20 (default 40)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"num_inference_steps\":20,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-guidance-7-negative-prompt() {
+  run_case gen-guidance-7-negative-prompt "guidance_scale=7 + negative_prompt (CFG needs both)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"guidance_scale\":7,\"negative_prompt\":\"blurry, low quality, watermark\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-seed-fixed() {
+  run_case gen-seed-fixed "seed=1234 fixed" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"seed\":1234,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-seed-list() {
+  run_case gen-seed-list "seed=[1,2] with n=2 (list length must equal n)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"n\":2,\"seed\":[1,2],\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-output-format-webp() {
+  run_case gen-output-format-webp "output_format=webp (jpeg 500s: RGBA cannot encode as JPEG)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"output_format\":\"webp\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-background-transparent() {
+  run_case gen-background-transparent "background=transparent is a NO-OP on generations (no alpha produced; use edits)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"background\":\"transparent\",\"output_format\":\"png\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-extra-body-steps() {
+  run_case gen-extra-body-steps "extra_body passthrough for params LiteLLM filters (here num_inference_steps)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"size\":\"512x512\",\"seed\":42,\"response_format\":\"b64_json\",\"extra_body\":{\"num_inference_steps\":20,\"flow_shift\":3}}"
+}
+
+case_gen-enhance-prompt() {
+  run_case gen-enhance-prompt "enhance_prompt=true" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"a capybara\",\"enhance_prompt\":true,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-teacache() {
+  run_case gen-teacache "enable_teacache=true -> accepted but output is byte-identical (no effect here)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"enable_teacache\":true,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-max-seq-len-256() {
+  run_case gen-max-seq-len-256 "max_sequence_length=256 -> accepted but output is byte-identical (no effect here)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"max_sequence_length\":256,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-flow-shift-3() {
+  run_case gen-flow-shift-3 "flow_shift=3 -> accepted but output is byte-identical (no effect here)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"flow_shift\":3,\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-generator-device-cpu() {
+  run_case gen-generator-device-cpu "generator_device=cpu (backend-relative, not LiteLLM's own)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"generator_device\":\"cpu\",\"output_format\":\"png\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+case_gen-task-type-ti2i() {
+  run_case gen-task-type-ti2i "task_type=TI2I (the pipeline's only supported type; T2I and text_to_image are rejected)" \
+    -X POST "$PROXY_BASE_URL/v1/images/generations" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL\",\"prompt\":\"A capybara reading a book by candlelight\",\"task_type\":\"TI2I\",\"size\":\"512x512\",\"response_format\":\"b64_json\"}"
+}
+
+# ------- edits -------
+case_edit-baseline() {
+  run_case edit-baseline "single image + prompt" \
     -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Change the red teapot to blue, keeping its shape, table, window, and lighting unchanged.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue, keeping everything else unchanged.' \
     --form-string 'response_format=b64_json' \
     -F "image[]=@$P1;type=image/png"
 }
 
-case_edits-two-images-transparent() {
-  run_case edits-two-images-transparent \
+case_edit-two-images() {
+  run_case edit-two-images "two images in one request" \
     -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one composition on a transparent background. Preserve an alpha channel outside the subjects.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
-    --form-string 'response_format=b64_json' \
-    --form-string 'background=transparent' \
-    -F "image[]=@$P1;type=image/png" \
-    -F "image[]=@$P2;type=image/png"
-}
-
-case_edits-two-images-size-512() {
-  run_case edits-two-images-size-512 \
-    -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one composition on a transparent background. Preserve an alpha channel outside the subjects.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
-    --form-string 'response_format=b64_json' \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one coherent scene.' \
     --form-string 'size=512x512' \
-    --form-string 'background=transparent' \
-    -F "image[]=@$P1;type=image/png" \
-    -F "image[]=@$P2;type=image/png"
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png" -F "image[]=@$P2;type=image/png"
 }
 
-case_edits-two-images-scene-512() {
-  run_case edits-two-images-scene-512 \
+case_edit-mask() {
+  run_case edit-mask "mask= is STRIPPED by LiteLLM for hosted_vllm (see PARAMS_VLLM_OMNI_DOES_NOT_ACCEPT)" \
     -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one coherent scene, preserving their appearance.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
-    --form-string 'response_format=b64_json' \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Replace the masked region with a blooming flower.' \
     --form-string 'size=512x512' \
-    -F "image[]=@$P1;type=image/png" \
-    -F "image[]=@$P2;type=image/png"
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png" -F "mask=@$MASK;type=image/png"
 }
 
-case_edits-two-images-n2() {
-  run_case edits-two-images-n2 \
+case_edit-size-512() {
+  run_case edit-size-512 "size=512x512" \
     -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one coherent scene, preserving their appearance.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
-    --form-string 'response_format=b64_json' \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
     --form-string 'size=512x512' \
-    --form-string 'n=2' \
-    -F "image[]=@$P1;type=image/png" \
-    -F "image[]=@$P2;type=image/png"
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
 }
 
-case_edits-mixed-resolutions() {
-  run_case edits-mixed-resolutions \
+case_edit-size-768() {
+  run_case edit-size-768 "size=768x768" \
     -X POST "$PROXY_BASE_URL/v1/images/edits" \
-    -H "Authorization: Bearer $LITELLM_API_KEY" \
-    -F "model=$MODEL" \
-    --form-string 'prompt=Combine the subjects from Picture 1 and Picture 2 into one coherent scene, preserving their appearance.' \
-    --form-string 'generator_device=cpu' \
-    --form-string 'output_format=png' \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=768x768' \
     --form-string 'response_format=b64_json' \
-    -F "image[]=@$P1;type=image/png" \
-    -F "image[]=@$P2_SMALL;type=image/png"
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-n-2() {
+  run_case edit-n-2 "n=2 -> two outputs" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'n=2' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-seed() {
+  run_case edit-seed "seed=1234" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'seed=1234' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-steps-20() {
+  run_case edit-steps-20 "num_inference_steps=20" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'num_inference_steps=20' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-guidance-7-negative-prompt() {
+  run_case edit-guidance-7-negative-prompt "guidance_scale=7 + negative_prompt" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'guidance_scale=7' \
+    --form-string 'negative_prompt=blurry, low quality' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-background-transparent() {
+  run_case edit-background-transparent "background=transparent -> real alpha" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue on a transparent background.' \
+    --form-string 'size=512x512' --form-string 'background=transparent' \
+    --form-string 'output_format=png' --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-output-format-webp() {
+  run_case edit-output-format-webp "output_format=webp (jpeg 500s on RGBA output)" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'output_format=webp' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-enhance-prompt() {
+  run_case edit-enhance-prompt "enhance_prompt=true" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=teapot blue' \
+    --form-string 'size=512x512' --form-string 'enhance_prompt=true' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-teacache() {
+  run_case edit-teacache "enable_teacache=true -> accepted but output is byte-identical (no effect here)" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' --form-string 'enable_teacache=true' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png"
+}
+
+case_edit-url() {
+  run_case edit-url "url= instead of image[] -> HTTP 500, LiteLLM edits endpoint requires the image File param" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Change the red teapot to blue.' \
+    --form-string 'size=512x512' \
+    --form-string "url=file://$P1" \
+    --form-string 'response_format=b64_json'
+}
+
+case_edit-mixed-resolutions() {
+  run_case edit-mixed-resolutions "inputs at 1024x1024 and 640x480" \
+    -X POST "$PROXY_BASE_URL/v1/images/edits" \
+    -H "Authorization: Bearer $LITELLM_API_KEY" -F "model=$MODEL" \
+    --form-string 'prompt=Combine the subjects into one coherent scene.' \
+    --form-string 'response_format=b64_json' \
+    -F "image[]=@$P1;type=image/png" -F "image[]=@$P2_SMALL;type=image/png"
+}
+
+# ------- batching -------
+# The scheduler merges only requests that share a batch signature, which
+# includes every SamplingParams field (size, steps, guidance, seed, ...) except
+# num_outputs_per_prompt. Edits can never merge: any request with image_path set
+# is rejected with "image_conditioning".
+run_concurrent_batch() {
+  local name="$1" note="$2" sizes="$3"
+  local case_dir="$OUT_DIR/$name"
+  mkdir -p "$case_dir"
+  printf '%s\n' "$note" >"$case_dir/note.txt"
+  echo "== $name  [$note]"
+  PROXY_BASE_URL="$PROXY_BASE_URL" LITELLM_API_KEY="$LITELLM_API_KEY" MODEL="$MODEL" \
+    CASE_DIR="$case_dir" SIZES="$sizes" python3 - <<'PY'
+import base64, concurrent.futures as cf, json, os, ssl, time, urllib.request
+
+base, key, model = os.environ["PROXY_BASE_URL"], os.environ["LITELLM_API_KEY"], os.environ["MODEL"]
+case_dir = os.environ["CASE_DIR"]
+sizes = os.environ["SIZES"].split(",")
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+
+
+def gen(i):
+    size = sizes[i - 1]
+    body = json.dumps({
+        "model": model,
+        "prompt": f"A photo of the number {i} painted on a wall",
+        "size": size,
+        "num_inference_steps": 40,
+        "seed": 42,
+        "response_format": "b64_json",
+    }).encode()
+    req = urllib.request.Request(
+        f"{base}/v1/images/generations", data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=600, context=ctx) as r:
+            payload = json.loads(r.read())
+        data = payload.get("data") or []
+        img = data[0].get("b64_json") if data else None
+        if img:
+            open(os.path.join(case_dir, f"output-{i}.png"), "wb").write(base64.b64decode(img))
+        return i, time.monotonic() - t0, bool(img), size, None
+    except Exception as exc:
+        return i, time.monotonic() - t0, False, size, str(exc)[:200]
+
+
+t0 = time.monotonic()
+with cf.ThreadPoolExecutor(max_workers=len(sizes)) as ex:
+    results = list(ex.map(gen, range(1, len(sizes) + 1)))
+wall = time.monotonic() - t0
+
+lines = [f"wall_s={wall:.1f}", f"serial_estimate_s={sum(r[1] for r in results):.1f}",
+         f"sizes={','.join(sizes)}"]
+for i, el, ok, size, err in results:
+    lines.append(f"req{i} size={size}: {el:.1f}s ok={ok}" + (f" err={err}" if err else ""))
+open(os.path.join(case_dir, "result.txt"), "w").write("\n".join(lines) + "\n")
+
+open(os.path.join(case_dir, "request.sh"), "w").write(
+    "curl -sS --fail-with-body \\\n"
+    "  -X POST $PROXY_BASE_URL/v1/images/generations \\\n"
+    "  -H 'Authorization: Bearer <REDACTED>' \\\n"
+    "  -H 'Content-Type: application/json' \\\n"
+    "  -d '{\"model\":\"<MODEL>\",\"prompt\":\"<per-request>\",\"size\":\"<see sizes>\","
+    "\"num_inference_steps\":40,\"seed\":42,\"response_format\":\"b64_json\"}'\n"
+    f"# fired {len(sizes)}x concurrently, sizes={','.join(sizes)}\n"
+)
+print(f"    wall={wall:.1f}s  serial_est={sum(r[1] for r in results):.1f}s  "
+      f"ok={sum(1 for r in results if r[2])}/{len(sizes)}")
+PY
+}
+
+case_gen-concurrent-4() {
+  run_concurrent_batch gen-concurrent-4 \
+    "4 concurrent generations, same params and same 1024x1024 size; expect a 4/4 merge" \
+    "1024x1024,1024x1024,1024x1024,1024x1024"
+}
+
+case_gen-concurrent-mixed-size() {
+  run_concurrent_batch gen-concurrent-mixed-size \
+    "4 concurrent generations with differing sizes; batch signature mismatch, expect no merge" \
+    "512x512,768x768,1024x1024,512x512"
 }
 
 SELECTED=("$@")
