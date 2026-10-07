@@ -1250,6 +1250,46 @@ This route should use `AggregatedModel.deployments` and expose deployment/provid
 
 Do not return a permanently dead `links.details` URL.
 
+## The match key is the LiteLLM routing name, not the upstream served id
+
+`{author}/{slug}` is matched against the registered `model_name`, the string a
+caller puts in the request body. Re-joining author and slug reproduces it
+exactly, so the URL round-trips into a working request. A model registered
+without an author segment is canonically namespaced under `litellm`.
+
+This is deliberately not the upstream served id, which the runtime reports at
+`/v1/models` and which can differ. Live example:
+
+```
+litellm model_name (routing, request body)  Qwen/Qwen-Image-2.1
+upstream /v1/models id (served)             Qwen-Image-2.1
+```
+
+Matching on the routing name is the only workable choice, because LiteLLM
+rejects the served name outright:
+
+```
+POST /v1/images/generations {"model": "Qwen-Image-2.1"}
+  -> 400 Invalid model name passed in model=Qwen-Image-2.1
+```
+
+Keying the URL on the served id would therefore make the URL reject the very
+string the request body needs. The served id is still surfaced, as the
+endpoint's `model_name` field.
+
+Do not assume a runtime validates `model`. Verified on the dev cluster: sending
+a deliberately bogus name straight to the upstream still returns HTTP 200 for
+both image generation (vLLM omni) and chat completions (SGLang). The upstream
+serves whatever it has loaded and ignores the field, which is the only reason
+the routing-name/served-id mismatch is invisible today. If a runtime ever
+starts validating `model`, the image model above breaks at that layer, and
+nothing in this code reconciles the two names.
+
+`model_name` is not unique: several deployments can share it when the same
+model is served from more than one cluster. Routing on it is correct, LiteLLM
+load-balances across those deployments, and one URL then returns one endpoint
+object per deployment.
+
 Never expose ClusterIP addresses, local filesystem paths, credentials, or private service names unless deliberately part of your public API.
 
 ---

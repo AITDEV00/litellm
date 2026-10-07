@@ -169,6 +169,14 @@ class OpenRouterModelsService:
         # namespaced by the mapper into "litellm/hamsa-tts", and its URL may
         # carry either that namespaced form or the bare id itself. Reusing the
         # mapper's rule keeps one definition of the namespace.
+        #
+        # The match key is the LiteLLM routing name (``logical_model_name``),
+        # the string a caller puts in the request body, not the upstream served
+        # id that the runtime reports at /v1/models. Those can differ (live:
+        # model_name "Qwen/Qwen-Image-2.1" vs served id "Qwen-Image-2.1"), and
+        # LiteLLM rejects the served name, so routing on it would make the URL
+        # unusable. The served id is still exposed as the endpoint's
+        # ``model_name`` field. See design §31.
         requested = self._mapper.canonical_id(f"{author}/{slug}")
         return next(
             (m for m in aggregated if self._mapper.canonical_id(m.logical_model_name) == requested),
