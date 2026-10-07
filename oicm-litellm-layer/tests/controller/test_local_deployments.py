@@ -1,5 +1,7 @@
 """Tests for LocalDeploymentSource multi-model fan-out."""
 
+import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -126,6 +128,68 @@ async def test_no_model_id_falls_back_to_uuid():
 
     assert list(models.keys()) == ["uuid-fallback"]
     assert models["uuid-fallback"].model_id == "uuid-fallback"
+
+
+class TestDiscoverFanOut:
+    """``discover()`` fans out across deployments instead of awaiting each in turn."""
+
+    def _source(self, deployments):
+        source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+        apps_api = MagicMock()
+        apps_api.list_namespaced_deployment.return_value = MagicMock(items=deployments)
+        source.apps_api = apps_api
+        return source
+
+    @pytest.mark.asyncio
+    async def test_every_deployment_is_discovered_and_keyed_by_uuid(self):
+        source = self._source([_make_deployment("uuid-1"), _make_deployment("uuid-2")])
+        source._get_configmap_field = AsyncMock(return_value=None)
+        source._probe_openapi_paths = AsyncMock(return_value=frozenset())
+        source._discover_model_ids = AsyncMock(return_value=(["m"], None))
+
+        models = await source.discover()
+
+        assert set(models.keys()) == {"uuid-1", "uuid-2"}
+
+    @pytest.mark.asyncio
+    async def test_discovery_is_concurrent_not_serial(self):
+        """Three deployments whose probes each take 50ms must finish in ~50ms, not 150ms.
+
+        This is the regression guard for the serial fan-out: a per-deployment
+        ``await`` in a loop takes the sum of the probe latencies, so a
+        deliberately slow probe makes the difference measurable without a clock
+        stub.
+        """
+        source = self._source([_make_deployment(f"uuid-{i}") for i in range(3)])
+        source._get_configmap_field = AsyncMock(return_value=None)
+        source._probe_openapi_paths = AsyncMock(return_value=frozenset())
+
+        async def slow_discover(uuid):
+            await asyncio.sleep(0.05)
+            return ([uuid], None)
+
+        source._discover_model_ids = AsyncMock(side_effect=slow_discover)
+
+        started = time.monotonic()
+        models = await source.discover()
+        elapsed = time.monotonic() - started
+
+        assert set(models.keys()) == {"uuid-0", "uuid-1", "uuid-2"}
+        assert elapsed < 0.12, f"fan-out looks serial: {elapsed:.3f}s for 3 x 50ms"
+
+    @pytest.mark.asyncio
+    async def test_deployments_without_a_workload_id_are_skipped(self):
+        no_label = MagicMock()
+        no_label.metadata.labels = {}
+        source = self._source([_make_deployment("uuid-1"), no_label])
+        source._get_configmap_field = AsyncMock(return_value=None)
+        source._probe_openapi_paths = AsyncMock(return_value=frozenset())
+        source._discover_model_ids = AsyncMock(return_value=(["m"], None))
+
+        models = await source.discover()
+
+        assert set(models.keys()) == {"uuid-1"}
+
 
 class TestProbeV1Models:
     """The shared /v1/models probe, used by both discovery sources."""

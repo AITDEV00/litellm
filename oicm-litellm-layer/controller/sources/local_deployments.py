@@ -8,6 +8,7 @@ from kubernetes import client, config
 
 from ..config import (
     CLUSTER_DOMAIN,
+    DISCOVER_CONCURRENCY,
     MODEL_DEPLOYMENT_TYPE,
     MODEL_PORT,
     NAMESPACE,
@@ -68,13 +69,23 @@ class LocalDeploymentSource(ModelSource):
             ),
         )
 
-        models: Dict[str, OicmModel] = {}
-        for dep in deployments.items:
-            uuid = dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
-            if not uuid:
-                continue
-            models.update(await self.discover_for_deployment(dep))
-        return models
+        candidates = [
+            dep for dep in deployments.items if dep.metadata.labels.get(WORKLOAD_ID_LABEL, "")
+        ]
+        if not candidates:
+            return {}
+
+        # Each deployment costs a ConfigMap read plus two HTTP probes, so the
+        # serial fan-out was ~110ms x N. Bounded so a large cluster cannot open
+        # an unbounded number of probe sockets at once.
+        semaphore = asyncio.Semaphore(DISCOVER_CONCURRENCY)
+
+        async def discover_one(dep) -> Dict[str, OicmModel]:
+            async with semaphore:
+                return await self.discover_for_deployment(dep)
+
+        results = await asyncio.gather(*(discover_one(dep) for dep in candidates))
+        return {uuid: model for result in results for uuid, model in result.items()}
 
     async def discover_for_deployment(self, dep) -> Dict[str, OicmModel]:
         """Build the OicmModel record for one deployment, keyed by its uuid.

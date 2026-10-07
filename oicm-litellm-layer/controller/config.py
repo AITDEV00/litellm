@@ -65,6 +65,9 @@ SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "300"))
 WATCH_TIMEOUT = int(os.getenv("WATCH_TIMEOUT", "300"))
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8090"))
 HTTP_CONCURRENCY = int(os.getenv("HTTP_CONCURRENCY", "50"))
+# Per-deployment discovery fan-out. Each deployment costs a ConfigMap read plus
+# two pod-local probes, so this bounds the probe sockets opened at once.
+DISCOVER_CONCURRENCY = int(os.getenv("DISCOVER_CONCURRENCY", "20"))
 
 # Shared HTTP timeouts. One client per component is reused across calls, so
 # these are the per-request ceilings rather than per-connection.
