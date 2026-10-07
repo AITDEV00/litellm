@@ -22,8 +22,6 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from litellm._logging import verbose_logger
-
 RESPONSE_CHUNK_SIZE_BYTES: Final = 64 * 1024
 
 _GZIP_HEADERS: Final = MappingProxyType({"Content-Encoding": "gzip"})
@@ -66,16 +64,9 @@ def _evict_stale_in_flight() -> None:
     provably over, so an idle deployment's gauge self-heals at the next
     scrape instead of freezing at its last phantom value forever.
     """
-    try:
-        import litellm
-        from litellm.integrations.prometheus import PrometheusLogger
+    from litellm.integrations.prometheus_helpers.deployment_in_flight import evict_all_prometheus_loggers
 
-        for prometheus_logger in litellm.logging_callback_manager.get_custom_loggers_for_type(
-            callback_type=PrometheusLogger
-        ):
-            prometheus_logger.evict_stale_deployment_in_flight()
-    except Exception:  # noqa: BLE001  # a scrape must never fail because housekeeping did
-        verbose_logger.debug("metrics scrape: in-flight eviction skipped (prometheus logger unavailable)")
+    evict_all_prometheus_loggers()
 
 
 class CoalescedScrapeRenderer:

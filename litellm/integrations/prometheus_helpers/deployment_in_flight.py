@@ -54,6 +54,60 @@ _API_BASE_ENDPOINT_SUFFIXES: tuple[str, ...] = (
 # "in flight" on a deployment with zero traffic for days).
 _IN_FLIGHT_TTL_SECONDS: float = 1800.0
 
+# Each granian worker owns its own registry, so a scrape served by worker A can
+# only evict worker A's stale entries; the other workers' stale entries keep
+# being summed by MultiProcessCollector until a scrape happens to land on each.
+# This background sweep runs inside every worker that has admitted a request, so
+# every worker self-heals on its own clock instead of depending on scrape
+# routing. Interval is well under the TTL, so worst-case staleness stays ~TTL.
+_IN_FLIGHT_SWEEP_INTERVAL_SECONDS: float = 60.0
+
+
+class _SweeperState:
+    __slots__ = ("started",)
+
+    def __init__(self) -> None:
+        self.started = False
+
+
+_sweeper_state = _SweeperState()
+_sweeper_lock = threading.Lock()
+
+
+def evict_all_prometheus_loggers() -> None:
+    """Run TTL eviction on every live Prometheus logger in this process."""
+    try:
+        import litellm
+        from litellm.integrations.prometheus import PrometheusLogger
+
+        for prometheus_logger in litellm.logging_callback_manager.get_custom_loggers_for_type(
+            callback_type=PrometheusLogger
+        ):
+            prometheus_logger.evict_stale_deployment_in_flight()
+    except Exception:  # noqa: BLE001  # housekeeping must never surface to a caller
+        verbose_logger.debug("Prometheus: in-flight eviction skipped (prometheus logger unavailable)")
+
+
+def _sweeper_loop() -> None:
+    """Periodically evict TTL-expired in-flight entries for this worker."""
+    while True:
+        time.sleep(_IN_FLIGHT_SWEEP_INTERVAL_SECONDS)
+        evict_all_prometheus_loggers()
+
+
+def ensure_in_flight_sweeper_started() -> None:
+    """Start the per-worker TTL sweeper once per process.
+
+    Triggered from the admit path so it only ever starts inside a worker that
+    actually has in-flight state to sweep (never the pre-fork master, whose
+    threads do not survive ``fork``).
+    """
+    with _sweeper_lock:
+        if _sweeper_state.started:
+            return
+        _sweeper_state.started = True
+    threading.Thread(target=_sweeper_loop, name="litellm-in-flight-sweeper", daemon=True).start()
+
 
 def normalize_api_base_for_gauge(api_base: str) -> str:
     if not api_base:
@@ -89,41 +143,22 @@ class DeploymentInFlightLedger:
     - Stale entries (a dec that never fired) are evicted after a TTL strictly
       above the deployment's configured request timeouts, which bounds the
       phantom-concurrency window instead of freezing it forever. Eviction runs
-      on every mutation and from the scrape path, so an idle deployment
-      self-heals at the next scrape without needing a background task.
+      on every mutation, from the scrape path, and from a per-worker background
+      sweeper, so an idle deployment self-heals without a dec ever firing.
 
     The registry is per-process, matching the livesum aggregation model: each
     granian worker owns its in-flight set and ``PROMETHEUS_MULTIPROC_DIR``
     sums the per-worker values into the per-pod total.
     """
 
-    __slots__ = ("_canonical_labels", "_emitted_series", "_entries", "_lock")
+    __slots__ = ("_canonical_labels", "_entries", "_lock")
 
     def __init__(self) -> None:
         # model_id -> litellm_call_id -> admission monotonic timestamp
         self._entries: dict[str, dict[str, float]] = {}
         # model_id -> canonical label tuple currently emitted
         self._canonical_labels: dict[str, tuple[str, str, str, str]] = {}
-        # model_id -> set of label tuples previously emitted for it
-        self._emitted_series: dict[str, set[tuple[str, str, str, str]]] = {}
         self._lock = threading.Lock()
-
-    def _reconcile_series(
-        self,
-        model_id: str,
-        previous_labels: tuple[str, str, str, str],
-        value: int,
-        emit: Callable[[tuple[str, str, str, str], int], None],
-    ) -> None:
-        emitted_series = self._emitted_series.setdefault(model_id, set())
-        emitted_series.add(previous_labels)
-        for stale_labels in tuple(emitted_series):
-            if stale_labels == previous_labels:
-                continue
-            emit(stale_labels, 0)
-            emitted_series.discard(stale_labels)
-        emit(previous_labels, value)
-        self._canonical_labels[model_id] = previous_labels
 
     def admit(
         self,
@@ -151,10 +186,11 @@ class DeploymentInFlightLedger:
                     normalize_api_base_for_gauge(api_base),
                     api_provider,
                 )
+                self._canonical_labels[model_id] = previous_labels
             entries = self._entries.setdefault(model_id, {})
             entries.setdefault(call_id, started_at)
             self._evict_expired_locked(model_id, entries)
-            self._reconcile_series(model_id, previous_labels, len(entries), emit)
+            emit(previous_labels, len(entries))
 
     def release(
         self,
@@ -169,8 +205,8 @@ class DeploymentInFlightLedger:
         dec can neither drive it negative nor cancel an unrelated request.
         """
         with self._lock:
-            previous_labels = self._canonical_labels.get(model_id)
-            if previous_labels is None:
+            labels = self._canonical_labels.get(model_id)
+            if labels is None:
                 return
             entries = self._entries.get(model_id)
             if entries is None:
@@ -179,13 +215,14 @@ class DeploymentInFlightLedger:
             entries.pop(call_id, None)
             if not entries:
                 self._entries.pop(model_id, None)
-            self._reconcile_series(model_id, previous_labels, len(entries), emit)
+            emit(labels, len(entries))
 
-    def evict_expired(self, now: float, emit: Callable[[tuple[str, str, str, str], int], None]) -> None:
+    def evict_expired(self, emit: Callable[[tuple[str, str, str, str], int], None]) -> None:
         """Drop entries older than the TTL across all deployments and re-emit.
 
-        Called from the scrape path so a deployment whose last request lost its
-        dec still returns to 0 once the request is provably over.
+        Called from the scrape path and the per-worker sweeper, so a deployment
+        whose last request lost its dec still returns to 0 once the request is
+        provably over.
         """
         with self._lock:
             for model_id in tuple(self._entries):
@@ -193,9 +230,9 @@ class DeploymentInFlightLedger:
                 if entries is None:
                     continue
                 if self._evict_expired_locked(model_id, entries):
-                    previous_labels = self._canonical_labels.get(model_id)
-                    if previous_labels is not None:
-                        self._reconcile_series(model_id, previous_labels, len(entries), emit)
+                    labels = self._canonical_labels.get(model_id)
+                    if labels is not None:
+                        emit(labels, len(entries))
 
     def _evict_expired_locked(self, model_id: str, entries: dict[str, float]) -> bool:
         """Evict expired entries in place; True when anything was dropped."""
@@ -220,6 +257,9 @@ class DeploymentInFlightMetricsMixin:
     _deployment_in_flight_ledger: DeploymentInFlightLedger
 
     def _emit_deployment_in_flight(self, labels_tuple: tuple[str, str, str, str], value: int) -> None:
+        # Called with the ledger lock held: the count-and-emit sequence must be
+        # atomic so the emitted value can never interleave with a concurrent
+        # admit/release and land stale.
         name, mid, base, provider = labels_tuple
         # Lazy import to avoid a circular dependency: prometheus_label_factory
         # lives in the (upstream) prometheus module that imports this mixin.
@@ -253,6 +293,11 @@ class DeploymentInFlightMetricsMixin:
         if not model_id:
             return
 
+        # Start the per-worker sweeper here (first admit in this process) rather
+        # than at import/boot: threads started before granian forks do not
+        # survive into the workers, so this guarantees the sweeper lives in each
+        # worker that actually holds in-flight state.
+        ensure_in_flight_sweeper_started()
         self._deployment_in_flight_ledger.admit(
             model_id=model_id,
             call_id=call_id,
@@ -281,15 +326,16 @@ class DeploymentInFlightMetricsMixin:
         )
 
     def evict_stale_deployment_in_flight(self) -> None:
-        """Drop registry entries whose dec never fired (called at scrape time).
+        """Drop registry entries whose dec never fired.
 
-        A request older than the TTL cannot still be in flight (the router
-        enforces timeout/stream_timeout below it), so the entry is by
+        Invoked from the scrape path and from the per-worker background
+        sweeper. A request older than the TTL cannot still be in flight (the
+        router enforces timeout/stream_timeout below it), so the entry is by
         definition leaked. This is the backstop for terminal events that never
         run at all: failure paths that raise before the metrics block, and
         client aborts that end the task without a terminal hook.
         """
-        self._deployment_in_flight_ledger.evict_expired(now=time.monotonic(), emit=self._emit_deployment_in_flight)
+        self._deployment_in_flight_ledger.evict_expired(emit=self._emit_deployment_in_flight)
 
     def _inc_deployment_in_progress(self, model: str, kwargs: dict[str, Any]) -> None:
         try:

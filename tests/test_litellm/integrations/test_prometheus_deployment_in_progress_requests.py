@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from prometheus_client import CollectorRegistry, Gauge, Histogram, generate_latest
 
+import litellm
 from litellm.integrations.prometheus import PrometheusLogger
 from litellm.integrations.prometheus_helpers.deployment_in_flight import (
     DeploymentInFlightLedger,
@@ -1086,3 +1087,99 @@ async def test_success_dec_falls_back_to_standard_logging_model_id(logger, isola
         output_tokens=10.0,
     )
     assert _gauge_value(isolated_registry) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-worker sweeper: each granian worker self-heals its own stale entries
+# without depending on a scrape being routed to it.
+# ---------------------------------------------------------------------------
+
+
+class _StopSweeper(Exception):
+    """Sentinel used to break out of the otherwise-infinite sweeper loop in tests."""
+
+
+def test_sweeper_state_starts_once_per_process():
+    """ensure_in_flight_sweeper_started must be idempotent: one thread per process."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    original_state = slice_mod._sweeper_state.started
+    try:
+        slice_mod._sweeper_state.started = False
+        with patch.object(slice_mod.threading, "Thread") as mock_thread:
+            slice_mod.ensure_in_flight_sweeper_started()
+            slice_mod.ensure_in_flight_sweeper_started()
+            slice_mod.ensure_in_flight_sweeper_started()
+        assert mock_thread.call_count == 1, "the sweeper must start exactly once per process"
+        assert mock_thread.call_args.kwargs.get("daemon") is True, "sweeper must be a daemon thread"
+    finally:
+        slice_mod._sweeper_state.started = original_state
+
+
+def test_admit_starts_the_sweeper(logger, isolated_registry):
+    """The first admit in a process must start the per-worker sweeper."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    original_state = slice_mod._sweeper_state.started
+    try:
+        slice_mod._sweeper_state.started = False
+        with patch.object(slice_mod.threading, "Thread") as mock_thread:
+            logger._admit_deployment_in_flight(
+                model_id="abc-123",
+                litellm_model_name="Qwen3.6-35B",
+                api_base="http://vllm:8000",
+                api_provider="hosted_vllm",
+                call_id="call-sweeper",
+            )
+        assert mock_thread.call_count == 1
+    finally:
+        slice_mod._sweeper_state.started = original_state
+
+
+def test_sweeper_loop_evicts_each_tick():
+    """The sweeper loop must evict on each tick and keep ticking."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    evictions: list[int] = []
+
+    def fake_evict():
+        evictions.append(1)
+        if len(evictions) >= 2:
+            raise _StopSweeper
+
+    with patch.object(slice_mod, "evict_all_prometheus_loggers", side_effect=fake_evict), patch.object(
+        slice_mod.time, "sleep", return_value=None
+    ):
+        with pytest.raises(_StopSweeper):
+            slice_mod._sweeper_loop()
+
+    assert len(evictions) == 2, "the loop must evict on every tick"
+
+
+def test_evict_all_prometheus_loggers_swallows_errors():
+    """A failing eviction must never propagate (it runs on a background thread)."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    class BoomLogger:
+        def evict_stale_deployment_in_flight(self):
+            raise RuntimeError("boom")
+
+    with patch.object(litellm.logging_callback_manager, "get_custom_loggers_for_type", return_value=[BoomLogger()]):
+        slice_mod.evict_all_prometheus_loggers()
+
+
+def test_evict_all_prometheus_loggers_evicts_each_logger():
+    """Every live Prometheus logger must be swept, not just the first."""
+    from litellm.integrations.prometheus_helpers import deployment_in_flight as slice_mod
+
+    class RecordingLogger:
+        def __init__(self):
+            self.calls = 0
+
+        def evict_stale_deployment_in_flight(self):
+            self.calls += 1
+
+    a, b = RecordingLogger(), RecordingLogger()
+    with patch.object(litellm.logging_callback_manager, "get_custom_loggers_for_type", return_value=[a, b]):
+        slice_mod.evict_all_prometheus_loggers()
+    assert a.calls == 1 and b.calls == 1
