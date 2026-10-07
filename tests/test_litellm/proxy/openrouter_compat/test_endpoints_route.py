@@ -133,6 +133,68 @@ def test_unobservable_statistics_are_null_not_fabricated():
     assert endpoint["uptime_last_5m"] is None
     assert endpoint["uptime_last_30m"] is None
     assert endpoint["uptime_last_1d"] is None
+    assert endpoint["live_concurrency"] is None
+    assert endpoint["requests_last_30m"] is None
+
+
+def test_telemetry_is_populated_when_metrics_are_injected():
+    """Injected per-deployment metrics fill the latency/throughput/uptime fields."""
+    from litellm.integrations.prometheus_helpers.deployment_metrics import (
+        PerDeploymentMetrics,
+        Percentiles,
+    )
+
+    model = _aggregated([_deployment("dep-1")])
+    metrics = {
+        "dep-1": PerDeploymentMetrics(
+            live_concurrency=3,
+            ttft_latency_ms=Percentiles(p50=120.0, p75=200.0, p90=350.0, p99=900.0),
+            throughput_tokens_per_sec=Percentiles(p50=45.0, p75=38.0, p90=30.0, p99=12.0),
+            requests_last_30m=1234.0,
+            uptime_last_5m=100.0,
+            uptime_last_30m=99.5,
+            uptime_last_1d=98.0,
+        )
+    }
+    endpoint = _mapper().map_endpoints(
+        model, public_id="Qwen/Qwen3.6-35B-A3B-FP8", statuses=_statuses(model), metrics=metrics
+    )["data"]["endpoints"][0]
+
+    assert endpoint["latency_last_30m"] == {"p50": 120.0, "p75": 200.0, "p90": 350.0, "p99": 900.0}
+    assert endpoint["throughput_last_30m"] == {"p50": 45.0, "p75": 38.0, "p90": 30.0, "p99": 12.0}
+    assert endpoint["uptime_last_5m"] == 100.0
+    assert endpoint["uptime_last_30m"] == 99.5
+    assert endpoint["uptime_last_1d"] == 98.0
+    assert endpoint["live_concurrency"] == 3
+    assert endpoint["requests_last_30m"] == 1234.0
+
+
+def test_telemetry_missing_for_one_deployment_stays_null():
+    """A deployment with no metrics keeps nulls even when its sibling has data."""
+    from litellm.integrations.prometheus_helpers.deployment_metrics import (
+        PerDeploymentMetrics,
+        Percentiles,
+    )
+
+    model = _aggregated([_deployment("dep-1"), _deployment("dep-2")])
+    metrics = {
+        "dep-1": PerDeploymentMetrics(
+            live_concurrency=1,
+            ttft_latency_ms=Percentiles(p50=1.0, p75=2.0, p90=3.0, p99=4.0),
+            uptime_last_30m=99.0,
+        )
+    }
+    endpoints = _mapper().map_endpoints(
+        model, public_id="Qwen/Qwen3.6-35B-A3B-FP8", statuses=_statuses(model), metrics=metrics
+    )["data"]["endpoints"]
+
+    # Both endpoints share the same logical model_id, so assert by position
+    # (deployment order): dep-1 has metrics, dep-2 has none.
+    assert endpoints[0]["live_concurrency"] == 1
+    assert endpoints[0]["uptime_last_30m"] == 99.0
+    assert endpoints[1]["live_concurrency"] is None
+    assert endpoints[1]["uptime_last_30m"] is None
+    assert endpoints[1]["latency_last_30m"] is None
 
 
 def test_endpoint_carries_limits_pricing_and_provider():

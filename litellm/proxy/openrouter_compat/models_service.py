@@ -1,5 +1,9 @@
 """OpenRouter-compatible model discovery service (design §41)."""
 
+from litellm.integrations.prometheus_helpers.deployment_metrics import (
+    DeploymentMetricsReader,
+    PerDeploymentMetrics,
+)
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.openrouter_compat.aggregation.aggregator import ModelAggregator
@@ -59,6 +63,7 @@ class OpenRouterModelsService:
         )
         self._endpoints_mapper = OpenRouterEndpointsMapper(pricing_resolver=self._pricing)
         self._gateway_state = GatewayStateResolver()
+        self._deployment_metrics = DeploymentMetricsReader()
 
     async def list_models(
         self,
@@ -128,11 +133,17 @@ class OpenRouterModelsService:
         page = model.model_copy(update={"deployments": model.deployments[offset : offset + limit]})
         enriched = self._metadata_enricher.enrich(self._capability_enricher.enrich(page))
         statuses = await self._resolve_statuses(enriched, prisma_client)
+        metrics = await self._resolve_metrics(enriched)
         return self._endpoints_mapper.map_endpoints(
             enriched,
             public_id=public_id,
             statuses=statuses,
+            metrics=metrics,
         )
+
+    async def _resolve_metrics(self, model: AggregatedModel) -> dict[str, PerDeploymentMetrics]:
+        deployment_ids = [deployment.runtime.deployment_id for deployment in model.deployments]
+        return await self._deployment_metrics.read(deployment_ids)
 
     def _is_known_undiscovered(self, failed: set[str], *, public_id: str) -> bool:
         # ``failed`` holds logical model names, so a bare id appears bare there.

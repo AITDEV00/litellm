@@ -18,6 +18,7 @@ from typing import Final, cast
 
 from pydantic import Field
 
+from litellm.integrations.prometheus_helpers.deployment_metrics import Percentiles, PerDeploymentMetrics
 from litellm.proxy.openrouter_compat.domain.deployment import DiscoveredDeploymentModel
 from litellm.proxy.openrouter_compat.domain.logical_model import AggregatedModel
 from litellm.proxy.openrouter_compat.enrichment.pricing import Pricing, PricingResolver
@@ -26,6 +27,7 @@ from litellm.proxy.openrouter_compat.openrouter_schema.base import UnrecognizedS
 from litellm.proxy.openrouter_compat.openrouter_schema.endpoints import (
     Architecture,
     ListEndpointsResponse,
+    PercentileStats,
     PublicEndpoint,
     ToolChoiceSupport,
 )
@@ -39,14 +41,25 @@ _UNPRICED: Final = Pricing(prompt="0", completion="0")
 
 
 class GatewayEndpoint(PublicEndpoint):
-    """An official ``PublicEndpoint`` plus this gateway's serving verdict.
+    """An official ``PublicEndpoint`` plus this gateway's serving verdict and live load.
 
     Extra to the OpenRouter contract on purpose: OpenRouter has no field for
-    "can this gateway reach the deployment", which is what a consumer of this
-    proxy needs. ``None`` means the deployment is not OICM-managed.
+    "can this gateway reach the deployment" (``gateway_status``), nor for the
+    live in-flight count (``live_concurrency``) or the 30-minute request volume
+    (``requests_last_30m``), which OpenRouter only exposes nested per workload
+    inside ``perf_last_30m_by_workload``. ``None`` means the value is not
+    observable here (unmanaged deployment, no Prometheus, or no traffic).
     """
 
     gateway_status: GatewayStatus | None = Field(default=None)
+    live_concurrency: int | None = Field(default=None)
+    requests_last_30m: float | None = Field(default=None)
+
+
+def _percentile_stats(percentiles: Percentiles | None) -> PercentileStats | None:
+    if percentiles is None:
+        return None
+    return PercentileStats(p50=percentiles.p50, p75=percentiles.p75, p90=percentiles.p90, p99=percentiles.p99)
 
 
 class OpenRouterEndpointsMapper:
@@ -65,9 +78,16 @@ class OpenRouterEndpointsMapper:
         *,
         public_id: str,
         statuses: Mapping[str, GatewayStatus],
+        metrics: Mapping[str, PerDeploymentMetrics] | None = None,
     ) -> dict[str, object]:
+        metrics = metrics or {}
         gateway_endpoints = [
-            self._to_endpoint(model, deployment, statuses.get(deployment.runtime.deployment_id))
+            self._to_endpoint(
+                model,
+                deployment,
+                statuses.get(deployment.runtime.deployment_id),
+                metrics.get(deployment.runtime.deployment_id),
+            )
             for deployment in model.deployments
         ]
         response = ListEndpointsResponse(
@@ -108,13 +128,14 @@ class OpenRouterEndpointsMapper:
         model: AggregatedModel,
         deployment: DiscoveredDeploymentModel,
         status: GatewayStatus | None,
+        metrics: PerDeploymentMetrics | None,
     ) -> GatewayEndpoint:
         pricing = self._pricing_resolver.resolve_for_deployments([deployment]) or _UNPRICED
         runtime_kind = deployment.runtime.kind
         model_name = deployment.identity.upstream_model_id or model.logical_model_name
         return GatewayEndpoint(
             context_length=deployment.limits.context_length or 0,
-            latency_last_30m=None,
+            latency_last_30m=_percentile_stats(metrics.ttft_latency_ms if metrics else None),
             max_completion_tokens=deployment.limits.max_completion_tokens,
             max_prompt_tokens=deployment.limits.max_input_tokens,
             model_id=model.logical_model_name,
@@ -128,15 +149,17 @@ class OpenRouterEndpointsMapper:
             supports_implicit_caching=False,
             supports_tool_choice=ToolChoiceSupport(auto=False, function=False, none=False, required=False),
             tag=runtime_kind,
-            throughput_last_30m=None,
-            uptime_last_1d=None,
-            uptime_last_30m=None,
-            uptime_last_5m=None,
+            throughput_last_30m=_percentile_stats(metrics.throughput_tokens_per_sec if metrics else None),
+            uptime_last_1d=metrics.uptime_last_1d if metrics else None,
+            uptime_last_30m=metrics.uptime_last_30m if metrics else None,
+            uptime_last_5m=metrics.uptime_last_5m if metrics else None,
             status=status.endpoint_status() if status else None,
             supports_image_reference=False,
             supports_multiple_audio_references=False,
             supports_voice_cloning=False,
             gateway_status=status,
+            live_concurrency=metrics.live_concurrency if metrics else None,
+            requests_last_30m=metrics.requests_last_30m if metrics else None,
         )
 
     @staticmethod
