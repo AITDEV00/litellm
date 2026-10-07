@@ -7,6 +7,11 @@ what litellm data is currently unused.
 Line refs are against commit `95059edfe1`. Live values verified on dev
 2026-10-07.
 
+The `needs telemetry` rows (latency/throughput/uptime) are covered by
+`MAPPING-usage-metrics.md`, which inventories all natively captured usage
+data, verifies realtime-vs-historical accuracy on prod, and picks the
+source per field.
+
 ## 1. The two names (read this first)
 
 | Name | What it is | Where it comes from | Where it appears |

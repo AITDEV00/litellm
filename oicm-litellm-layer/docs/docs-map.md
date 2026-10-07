@@ -31,6 +31,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Implementation checklist | `docs/oicm-status/IMPLEMENTATION-CHECKLIST.md` |
 | `/endpoints` consumer logic map | `docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md` |
 | litellm-to-`/endpoints` field mapping | `docs/openrouter/MAPPING-litellm-to-endpoints.md` |
+| usage/telemetry sources + accuracy audit | `docs/openrouter/MAPPING-usage-metrics.md` |
 | OpenRouter-compatible design | `docs/openrouter/litellm_openrouter_models_design.md` |
 | Write-access blocker (resolved) | `docs/oicm-write-access-blocked.md` |
 
