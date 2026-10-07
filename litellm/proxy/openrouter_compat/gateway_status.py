@@ -57,9 +57,10 @@ _ENDPOINT_STATUS_DEPLOYING: Final[EndpointStatus] = -3
 _ENDPOINT_STATUS_FAILED: Final[EndpointStatus] = -5
 _ENDPOINT_STATUS_STOPPED: Final[EndpointStatus] = -10
 
-# Lifecycle wins over availability: a stopped or failed deployment is that, even
-# if a stale-sourced availability said otherwise. No lifecycle maps to 0, so a
-# lookup miss is unambiguous. ``-1`` is deliberately absent (see above).
+# Availability is consulted first, so a Ready-but-not-serving deployment becomes
+# -2 before this table is reached. What is left here is the raw statuses
+# availability cannot express: terminal and transitional states. None maps to 0,
+# and ``-1`` is deliberately absent (see above).
 _ENDPOINT_STATUS_BY_OICM_STATUS: Final[Mapping[str, EndpointStatus]] = {
     "Failed": _ENDPOINT_STATUS_FAILED,
     "Stopped": _ENDPOINT_STATUS_STOPPED,
