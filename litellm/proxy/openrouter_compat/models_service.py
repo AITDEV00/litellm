@@ -15,9 +15,17 @@ from litellm.proxy.openrouter_compat.enrichment.litellm_metadata import (
     LiteLLMMetadataEnricher,
 )
 from litellm.proxy.openrouter_compat.enrichment.pricing import PricingResolver
+from litellm.proxy.openrouter_compat.gateway_status import (
+    GatewayStateResolver,
+    GatewayStatus,
+)
+from litellm.proxy.openrouter_compat.mapping.endpoints import (
+    OpenRouterEndpointsMapper,
+)
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
 from litellm.proxy.openrouter_compat.openrouter_schema.models import Model
 from litellm.proxy.openrouter_compat.service import DiscoveryService
+from litellm.proxy.openrouter_compat.status_reader import GatewayStatusReader
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryHTTPClient
 from litellm.proxy.utils import PrismaClient, ProxyLogging
 from litellm.router import Router
@@ -49,6 +57,8 @@ class OpenRouterModelsService:
             is_moderated_default=is_moderated_default,
             pricing_resolver=self._pricing,
         )
+        self._endpoints_mapper = OpenRouterEndpointsMapper(pricing_resolver=self._pricing)
+        self._gateway_state = GatewayStateResolver()
 
     async def list_models(
         self,
@@ -95,7 +105,7 @@ class OpenRouterModelsService:
         offset: int = 0,
         limit: int = 50,
     ) -> dict[str, object] | None:
-        aggregated, _failed = await self._resolve_and_discover(
+        aggregated, failed = await self._resolve_and_discover(
             user_api_key_dict=user_api_key_dict,
             general_settings=general_settings,
             prisma_client=prisma_client,
@@ -103,31 +113,60 @@ class OpenRouterModelsService:
             user_api_key_cache=user_api_key_cache,
             team_id=team_id,
         )
+        model = self._find_model(aggregated, author=author, slug=slug)
+        if model is None:
+            # A model the list route knows about but could not discover has no
+            # deployments. Answer with an empty endpoint list rather than 404,
+            # so the ``links.details`` the list advertises is never dead.
+            if self._is_known_undiscovered(failed, author=author, slug=slug):
+                return self._endpoints_mapper.map_empty(
+                    public_id=f"{author}/{slug}",
+                    logical_model_name=slug,
+                )
+            return None
+        page = model.model_copy(update={"deployments": model.deployments[offset : offset + limit]})
+        enriched = self._metadata_enricher.enrich(self._capability_enricher.enrich(page))
+        statuses = await self._resolve_statuses(enriched, prisma_client)
+        return self._endpoints_mapper.map_endpoints(
+            enriched,
+            public_id=f"{author}/{slug}",
+            statuses=statuses,
+        )
+
+    @staticmethod
+    def _is_known_undiscovered(failed: set[str], *, author: str, slug: str) -> bool:
+        return f"{author}/{slug}" in failed or slug in failed
+
+    async def _resolve_statuses(
+        self,
+        model: AggregatedModel,
+        prisma_client: PrismaClient | None,
+    ) -> dict[str, GatewayStatus]:
+        deployment_ids = [deployment.runtime.deployment_id for deployment in model.deployments]
+        inputs = await GatewayStatusReader(prisma_client).read(
+            model_name=model.logical_model_name,
+            deployment_ids=deployment_ids,
+        )
+        return {
+            deployment_id: self._gateway_state.resolve(deployment_inputs)
+            for deployment_id, deployment_inputs in inputs.items()
+        }
+
+    @staticmethod
+    def _find_model(
+        aggregated: list[AggregatedModel],
+        *,
+        author: str,
+        slug: str,
+    ) -> AggregatedModel | None:
+        # Match the canonical slug ("author/slug") for ids that contain a
+        # slash, or the bare slug for ids that are namespaced by the mapper
+        # (e.g. litellm/hamsa-tts -> logical name "hamsa-tts").
         full_slug = f"{author}/{slug}"
-        for model in aggregated:
-            name = model.identity.logical_model_name
-            # Match the canonical slug ("author/slug") for ids that contain a
-            # slash, or the bare slug for ids that are namespaced by the mapper
-            # (e.g. litellm/hamsa-tts -> logical name "hamsa-tts").
-            if name in (full_slug, slug):
-                deployments = model.deployments
-                page = deployments[offset : offset + limit]
-                return {
-                    "id": f"{author}/{slug}",
-                    "total_count": len(deployments),
-                    "data": [
-                        {
-                            "provider": d.runtime.kind,
-                            "context_length": d.limits.context_length,
-                            "max_input_tokens": d.limits.max_input_tokens,
-                            "max_completion_tokens": d.limits.max_completion_tokens,
-                            "capabilities": d.capabilities.model_dump(exclude_none=True),
-                            "api_capabilities": d.api_capabilities.model_dump(exclude_none=True),
-                        }
-                        for d in page
-                    ],
-                }
-        return None
+        return next(
+            (m for m in aggregated if m.logical_model_name in (full_slug, slug)),
+            None,
+        )
 
     async def _resolve_and_discover(
         self,

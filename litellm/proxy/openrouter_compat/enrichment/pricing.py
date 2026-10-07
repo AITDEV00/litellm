@@ -33,7 +33,13 @@ class PricingResolver:
         self._unknown_policy = unknown_policy
 
     def resolve(self, logical_model: AggregatedModel) -> Pricing | None:
-        resolved = self._resolve_deployment(logical_model.deployments)
+        return self.resolve_for_deployments(logical_model.deployments)
+
+    def resolve_for_deployments(
+        self, deployments: list[DiscoveredDeploymentModel]
+    ) -> Pricing | None:
+        """Resolve pricing for one deployment's own facts, then the fallback."""
+        resolved = self._resolve_deployment(deployments)
         if resolved is not None:
             return resolved
         return self._resolve_unknown()

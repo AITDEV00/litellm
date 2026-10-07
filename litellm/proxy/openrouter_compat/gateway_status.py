@@ -1,0 +1,136 @@
+"""Gateway-observed availability for one deployment.
+
+The OICM controller is the authority on whether a deployment can serve. It
+records that verdict twice: the lifecycle and serving facts in
+``model_info.oicm`` (per model), and a native health row (per deployment, keyed
+by the deployment id). This module turns those facts into one
+``gateway_status`` object, and owns the single place where OICM's lifecycle
+vocabulary becomes a gateway availability verdict.
+
+Freshness is judged per source, not per model: model health is written hourly
+or on change, so its ``observed_at`` is routinely older than the source that
+produced it. Only the source heartbeat says whether anyone is still watching.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Final, Literal, TypeAlias
+
+from pydantic import BaseModel, ConfigDict
+
+Availability: TypeAlias = Literal["online", "degraded", "offline", "unknown"]
+Lifecycle: TypeAlias = Literal["stable", "deploying", "stopped", "failed", "unknown"]
+
+# Matches the controller's own STATUS_STALE_AFTER default. The controller
+# heartbeats at a third of this, so a single missed cycle does not read stale.
+STATUS_STALE_AFTER_SECONDS: Final = 90
+
+_HEALTHY: Final = "healthy"
+
+_SERVING_STATUSES: Final[frozenset[str]] = frozenset({"Ready", "Available"})
+_DEPLOYING_STATUSES: Final[frozenset[str]] = frozenset({"Deploying", "Pending"})
+_STOPPED_STATUSES: Final[frozenset[str]] = frozenset({"Stopped", "Undeploying"})
+
+_AVAILABILITY_BY_SERVING: Final[Mapping[bool | None, Availability]] = {
+    True: "online",
+    False: "degraded",
+    None: "unknown",
+}
+
+
+class ReplicaCounts(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    desired: int | None = None
+    available: int | None = None
+
+
+class GatewayStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    availability: Availability
+    lifecycle: Lifecycle
+    stale: bool
+    source: str | None = None
+    source_status: str | None = None
+    healthy: bool | None = None
+    replicas: ReplicaCounts
+    observed_at: str | None = None
+    checked_at: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayStatusInputs:
+    """The raw facts one deployment's status is derived from."""
+
+    oicm_status: str | None
+    serving_available: bool | None
+    replicas_desired: int | None
+    replicas_available: int | None
+    observed_at: str | None
+    cluster: str | None
+    health_status: str | None
+    source_checked_at: datetime | None
+
+
+class GatewayStateResolver:
+    """Map OICM lifecycle facts onto a gateway availability verdict."""
+
+    def __init__(
+        self,
+        *,
+        stale_after_seconds: int = STATUS_STALE_AFTER_SECONDS,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._stale_after_seconds = stale_after_seconds
+        self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def resolve(self, inputs: GatewayStatusInputs) -> GatewayStatus:
+        checked_at = inputs.source_checked_at
+        stale = self._is_stale(checked_at)
+        lifecycle = self._lifecycle(inputs.oicm_status)
+        availability = "unknown" if stale else self._availability(inputs.oicm_status, inputs.serving_available)
+        return GatewayStatus(
+            availability=availability,
+            lifecycle=lifecycle,
+            stale=stale,
+            source=inputs.cluster,
+            source_status=inputs.health_status,
+            healthy=None if inputs.health_status is None else inputs.health_status == _HEALTHY,
+            replicas=ReplicaCounts(desired=inputs.replicas_desired, available=inputs.replicas_available),
+            observed_at=inputs.observed_at,
+            checked_at=checked_at.isoformat() if checked_at else None,
+        )
+
+    def _is_stale(self, checked_at: datetime | None) -> bool:
+        if checked_at is None:
+            return True
+        age = (self._now() - self._as_utc(checked_at)).total_seconds()
+        return age > self._stale_after_seconds
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+    @staticmethod
+    def _lifecycle(status: str | None) -> Lifecycle:
+        if status in _SERVING_STATUSES:
+            return "stable"
+        if status in _DEPLOYING_STATUSES:
+            return "deploying"
+        if status in _STOPPED_STATUSES:
+            return "stopped"
+        if status == "Failed":
+            return "failed"
+        return "unknown"
+
+    @staticmethod
+    def _availability(status: str | None, serving_available: bool | None) -> Availability:
+        if status in _STOPPED_STATUSES or status == "Failed" or status in _DEPLOYING_STATUSES:
+            return "offline"
+        if status in _SERVING_STATUSES:
+            return _AVAILABILITY_BY_SERVING[serving_available]
+        return "unknown"

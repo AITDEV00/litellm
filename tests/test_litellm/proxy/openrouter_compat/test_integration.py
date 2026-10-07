@@ -263,8 +263,8 @@ async def test_get_model_endpoints_matches_namespaced_slug():
     )
     await service.aclose()
     assert result is not None
-    assert result["id"] == "deepseek-ai/DeepSeek-V4-Flash-0111"
-    assert result["total_count"] == 1
+    assert result["data"]["id"] == "deepseek-ai/DeepSeek-V4-Flash-0111"
+    assert len(result["data"]["endpoints"]) == 1
 
 
 async def test_get_model_endpoints_matches_namespaced_bare_slug():
@@ -305,4 +305,5 @@ async def test_get_model_endpoints_matches_namespaced_bare_slug():
     )
     await service.aclose()
     assert result is not None
-    assert result["id"] == "litellm/hamsa-tts"
+    assert result["data"]["id"] == "litellm/hamsa-tts"
+    assert len(result["data"]["endpoints"]) == 1
