@@ -14,15 +14,15 @@ proxy loads on startup via `--config /app/config.yaml`.
 
 ## Where the production config lives in the cluster
 
-The production config is **inlined into** `deploy/prod/litellm-proxy.yaml` as the
+The production config is **inlined into** `deploy/base/gateway` as the
 `litellm-config` ConfigMap `data.config.yaml`. When you edit production proxy
-settings, you edit that inline block in `deploy/prod/litellm-proxy.yaml`, not
+settings, you edit that inline block in `deploy/base/gateway`, not
 `config/litellm_config.yaml` (that file is the reference template).
 
 !!! important
     `config/litellm_config.yaml` is the source-of-truth **reference template**.
     The actually-deployed copy is the inline `config.yaml` inside
-    `deploy/prod/litellm-proxy.yaml`. If you change one, keep the other in sync or
+    `deploy/base/gateway`. If you change one, keep the other in sync or
     note the drift deliberately.
 
 ## Sections to edit

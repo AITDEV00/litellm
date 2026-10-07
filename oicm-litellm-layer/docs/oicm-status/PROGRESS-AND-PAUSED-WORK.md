@@ -134,7 +134,7 @@ one explicit step.
 
 Prepared:
 
-- Gateway: `deploy/prod/litellm-proxy.yaml` already references
+- Gateway: `deploy/base/gateway` already references
   `litellm-src:jya0-v1.102.0`, the tag dev runs and the tag whose bytes carry the
   gauge fix, the telemetry fields, and the `max by (model_id)` concurrency
   change. Harbor's manifest digest for that tag (`sha256:74aa3fd0...`) equals the
@@ -169,7 +169,7 @@ bump suggests and deserves its own attention in the roll.
 To roll, not yet run:
 
 - `make litellm-src-deploy` applies `deploy/prod/discovery-controller.yaml`,
-  `deploy/prod/litellm-proxy.yaml`, and `deploy/prod/litellm-servicemonitor.yaml`,
+  `deploy/base/gateway`, and `deploy/prod/litellm-servicemonitor.yaml`,
   then restarts the gateway and waits on its rollout. This is the target that
   restarts the gateway.
 - The controller rolls inside that same apply, because its pod template's image
@@ -212,7 +212,7 @@ Not declared in any manifest, each by design, recorded so they are not mistaken
 for orphaned:
 
 - `litellm-logo`: binary assets created by hand with `kubectl create configmap`,
-  documented in a comment in `deploy/prod/litellm-proxy.yaml`. Both gateways
+  documented in a comment in `deploy/base/gateway`. Both gateways
   mount it.
 - `oicm-service-account-provisioner`: created by the `oicm-sa-config` Makefile
   target, not by a manifest.
@@ -225,9 +225,9 @@ for orphaned:
 Two structural gaps in the dev manifest, neither affecting the current roll
 because the shared ConfigMaps exist and are identical to what prod applies:
 
-- `deploy/dev/litellm-proxy-dev.yaml` declares no ConfigMaps at all, so dev
+- `deploy/overlays/dev` declares no ConfigMaps at all, so dev
   depends on the shared `litellm-hooks` and `litellm-logo` that only
-  `deploy/prod/litellm-proxy.yaml` declares. A dev-only cluster would come up
+  `deploy/base/gateway` declares. A dev-only cluster would come up
   without them.
 - `deploy/prod/discovery-controller.yaml` declares the `oicm-sources` volume, but
   the ConfigMap object itself lives in `deploy/oicm/sources.yaml`, which no Make

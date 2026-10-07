@@ -28,8 +28,8 @@ after a rotation, because env vars are snapshotted at pod creation.
 
 | Location | Purpose |
 |----------|---------|
-| `deploy/prod/litellm-proxy.yaml` | Inline `Secret` `litellm-master-key` with `stringData.master-key` — **the single source of truth** |
-| `deploy/prod/litellm-proxy.yaml` | Proxy container `LITELLM_MASTER_KEY` env (`secretKeyRef`) |
+| `deploy/base/gateway` | Inline `Secret` `litellm-master-key` with `stringData.master-key` — **the single source of truth** |
+| `deploy/base/gateway` | Proxy container `LITELLM_MASTER_KEY` env (`secretKeyRef`) |
 | `deploy/prod/discovery-controller.yaml` | Controller container `LITELLM_ADMIN_KEY` env (`secretKeyRef`) |
 | `controller/config.py` | Local fallback: reads the manifest when `LITELLM_ADMIN_KEY` is unset (env still wins in-cluster) |
 | `controller/README.md` | Documents the env var table |
@@ -38,7 +38,7 @@ after a rotation, because env vars are snapshotted at pod creation.
 
 ### Everything derives from the one Secret
 
-Rotating the value in `deploy/prod/litellm-proxy.yaml` and restarting both
+Rotating the value in `deploy/base/gateway` and restarting both
 Deployments covers all consumers:
 
 - **Proxy** reads `LITELLM_MASTER_KEY` via `secretKeyRef` → `litellm-master-key`.
@@ -49,7 +49,7 @@ Deployments covers all consumers:
   derive the key from the manifest via `scripts/get_master_key.py` or the
   `os.environ/` mechanism.
 
-So you change exactly **one** file (`deploy/prod/litellm-proxy.yaml`) and everything
+So you change exactly **one** file (`deploy/base/gateway`) and everything
 else follows.
 
 ## Admin UI login
@@ -65,13 +65,13 @@ Logic lives in `litellm/proxy/auth/login_utils.py` → `get_ui_credentials()`.
 
 - If `UI_PASSWORD` is unset, the UI password = the master key value.
 - To decouple the UI password from the API master key, set `UI_PASSWORD`
-  explicitly in `deploy/prod/litellm-proxy.yaml`.
+  explicitly in `deploy/base/gateway`.
 
 ## The Admin UI password vs. the API master key
 
 | Concern | Env var | Where |
 |---------|---------|-------|
-| UI login password | `UI_PASSWORD` (falls back to master key) | `deploy/prod/litellm-proxy.yaml` container env |
+| UI login password | `UI_PASSWORD` (falls back to master key) | `deploy/base/gateway` container env |
 | API `Authorization: Bearer` key | `LITELLM_MASTER_KEY` / `LITELLM_ADMIN_KEY` | Secret `litellm-master-key` |
 
 If you want them the same value, set `UI_PASSWORD` to the same value as the
@@ -79,9 +79,9 @@ secret. If you want them independent, set `UI_PASSWORD` to something else.
 
 ## Rotation runbook (do this, not just change one file)
 
-1. Edit the value in **`deploy/prod/litellm-proxy.yaml`** (the inline `Secret`) —
+1. Edit the value in **`deploy/base/gateway`** (the inline `Secret`) —
    this is the single place to change.
-2. `kubectl apply -f deploy/prod/litellm-proxy.yaml` — this also updates the Secret.
+2. `kubectl apply -k deploy/overlays/prod` — this also updates the Secret.
 3. **Restart BOTH Deployments** so pods re-resolve the secret:
    ```bash
    kubectl -n mlops rollout restart deployment/litellm-proxy
@@ -96,10 +96,10 @@ secret. If you want them independent, set `UI_PASSWORD` to something else.
    successful `/model/*` calls).
 6. Rebuild the docs (`make docs` / `mkdocs build`) so the injected `{{ master_key }}`
    value reflects the new secret. Local `make` targets and benchmarks pick up the
-   new value automatically from `deploy/prod/litellm-proxy.yaml`.
+   new value automatically from `deploy/base/gateway`.
 
 No other file needs a manual edit: docs, local configs, the controller fallback,
-and benchmarks all derive from `deploy/prod/litellm-proxy.yaml`.
+and benchmarks all derive from `deploy/base/gateway`.
 
 ## ⚠️ THE SALT KEY — DO NOT TOUCH IT (READ BEFORE ROTATING ANYTHING) ⚠️
 
@@ -197,8 +197,8 @@ state.
 
 | Secret | File | Consumed by |
 |--------|------|-------------|
-| `litellm-db-credentials` (DATABASE_URL) | `deploy/prod/litellm-proxy.yaml` | Proxy → Postgres |
-| `litellm-redis-password` | `deploy/prod/litellm-proxy.yaml` | Proxy → Redis |
+| `litellm-db-credentials` (DATABASE_URL) | `deploy/base/gateway` | Proxy → Postgres |
+| `litellm-redis-password` | `deploy/base/gateway` | Proxy → Redis |
 
 ## Local / non-cluster configs that also hold a master key
 
@@ -208,5 +208,5 @@ state.
 | `config/local_test_voice.yaml` | `os.environ/LITELLM_MASTER_KEY` | reads from env; `make` sets it from the manifest |
 | `config/local_datasource.yaml` | `os.environ/LITELLM_MASTER_KEY` | reads from env |
 
-All of these derive from `deploy/prod/litellm-proxy.yaml` via `scripts/get_master_key.py`,
+All of these derive from `deploy/base/gateway` via `scripts/get_master_key.py`,
 so rotating the cluster secret automatically updates local runs too.

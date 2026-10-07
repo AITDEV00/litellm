@@ -9,7 +9,7 @@ REST API. Runs as the `oicm-discovery-controller` Deployment in `mlops`.
 | File | Purpose |
 |------|---------|
 | `controller/__main__.py` | Entry point, signal handling, event loop |
-| `controller/config.py` | Env vars, constants, `LITELLM_ADMIN_KEY` (env wins; local fallback reads `deploy/prod/litellm-proxy.yaml`) |
+| `controller/config.py` | Env vars, constants, `LITELLM_ADMIN_KEY` (env wins; local fallback reads `deploy/base/gateway`) |
 | `controller/controller.py` | Orchestration, reconcile loop, event dispatch |
 | `controller/reconciler.py` | Model reconciliation |
 | `controller/models.py` | `OicmModel` dataclass, `sanitize_model_id`, `detect_mode` |

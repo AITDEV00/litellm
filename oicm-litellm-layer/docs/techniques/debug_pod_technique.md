@@ -60,8 +60,8 @@ gun — a local psycopg connection doesn't reproduce it.
 
 ### 2. Create the debug Deployment
 
-Copy the production `deploy/prod/litellm-proxy.yaml` Deployment + Service into a new
-file (`deploy/dev/litellm-proxy-dev.yaml`) and change exactly these things:
+Copy the production `deploy/base/gateway` Deployment + Service into a new
+file (`deploy/overlays/dev`) and change exactly these things:
 
 | Field | Production | Dev |
 |---|---|---|
@@ -77,13 +77,13 @@ Keep EVERYTHING else identical: image tag, env (secrets `litellm-master-key`,
 nodeSelector `adeo-gpu-03`, tolerations, resources, probes. Identical environment
 guarantees the dev pod reproduces the production code path.
 
-The full working manifest is at `deploy/dev/litellm-proxy-dev.yaml`.
+The full working manifest is at `deploy/overlays/dev`.
 
 ### 3. Deploy + verify it's isolated
 
 ```bash
 export KUBECONFIG=/home/jyao/.kube/oicm-alain.conf
-kubectl -n mlops apply -f deploy/dev/litellm-proxy-dev.yaml
+kubectl -n mlops apply -k deploy/overlays/dev
 kubectl -n mlops rollout status deploy/litellm-proxy-dev
 
 # It must NOT appear in the production Service's endpoints:
@@ -155,7 +155,7 @@ or delete it when you're done.
 
 | Action | Command |
 |---|---|
-| Apply debug pod | `kubectl -n mlops apply -f deploy/dev/litellm-proxy-dev.yaml` |
+| Apply debug pod | `kubectl -n mlops apply -k deploy/overlays/dev` |
 | Exec a probe | `kubectl -n mlops exec deploy/litellm-proxy-dev -- python3 /app/probe.py` |
 | Port-forward it | `kubectl -n mlops port-forward deploy/litellm-proxy-dev 14001:4000` |
 | Read its logs | `kubectl -n mlops logs -l app=litellm-proxy-dev --tail=200` |

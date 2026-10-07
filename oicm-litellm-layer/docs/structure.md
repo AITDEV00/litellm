@@ -122,7 +122,7 @@ oicm-litellm-layer/
 │   └── ui/litellm-dashboard/src/components/UsagePage/components/ModelPerformance/
 │
 ├── scripts/                ← helper scripts
-│   ├── get_master_key.py       ← prints the master key from deploy/prod/litellm-proxy.yaml (single source)
+│   ├── get_master_key.py       ← prints the master key from deploy/base/gateway (single source)
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── port-forward-datasources.sh ← datasource local-validation port-forwards
 │   ├── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
@@ -168,7 +168,7 @@ oicm-litellm-layer/
 
 | You want to... | Open |
 |----------------|------|
-| Change the proxy master key / UI password | `deploy/prod/litellm-proxy.yaml` (single source) + restart both Deployments. See `docs/credentials.md` |
+| Change the proxy master key / UI password | `deploy/base/gateway` (single source) + restart both Deployments. See `docs/credentials.md` |
 | Edit discovery controller logic | `controller/controller.py`, `controller/reconciler.py`, `controller/sources/*` |
 | Edit controller env defaults | `controller/config.py` |
 | Edit LiteLLM proxy settings | `config/litellm_config.yaml` |

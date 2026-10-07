@@ -115,7 +115,7 @@ restart resets to ~6GiB baseline  -->  cycle repeats (~1 day period)
 | Table scale driving cost | `LiteLLM_SpendLogs` 57GB / 14.7M rows; `LiteLLM_DailyUserSpend` 34,442 rows; cardinality: 345 api_keys x 273 models x 11 providers x 9 endpoints | `live-data/07` |
 | Worst single statement size | Replay of full-range GROUPING SETS = 26,816 rows in ONE statement | `live-data/08` |
 | Entry-point traffic | nginx 24h: `/model/performance` 28, `/user/daily/activity/aggregated` 16, `/gateway/daily/activity` 16 + UI spend-logs views | `live-data/09` |
-| Deployment shape (4 workers, 12Gi) | `deploy/prod/litellm-proxy.yaml` — `--num_workers 4`, limits 12Gi | `live-data/10` |
+| Deployment shape (4 workers, 12Gi) | `deploy/base/gateway` — `--num_workers 4`, limits 12Gi | `live-data/10` |
 
 ## 3. The exact code sections at fault
 
@@ -126,7 +126,7 @@ restart resets to ~6GiB baseline  -->  cycle repeats (~1 day period)
 | 3 | `global_view_all_end_users` — unbounded DISTINCT over the raw 57GB table | `litellm/proxy/spend_tracking/spend_management_endpoints.py:3534-3562` | `SELECT DISTINCT end_user FROM "LiteLLM_SpendLogs"` with no date bound. avg 7.2s, max 60s per call. |
 | 4 | `_view_spend_logs` session enrichment — GROUP BY over raw SpendLogs **on every logs page load** | `spend_management_endpoints.py:4083-4106` (`_count_logs_per_session` call at :4062) | Ships per-session aggregates for every UI logs page; 1,235 calls already. |
 | 5 | `_get_heavy_query_prisma_client` — lazily created EXTRA engine, never terminated | `litellm/proxy/model_metrics_endpoints/model_performance_endpoints.py:42-87`, used at :687/:872 for windows >= 14d | A dedicated `PrismaClient(timeout=600)` = a second engine subprocess per worker that also ratchets and is never recycled. |
-| 6 | Deployment shape: 4 workers x 1 cgroup | `oicm-litellm-layer/deploy/prod/litellm-proxy.yaml` | 4 engines + 4 python heaps in one 12Gi cgroup; official floor is 4Gi **per worker** (16Gi for 4). The analytics engine's ratchet has no headroom. |
+| 6 | Deployment shape: 4 workers x 1 cgroup | `oicm-litellm-layer/deploy/base/gateway` | 4 engines + 4 python heaps in one 12Gi cgroup; official floor is 4Gi **per worker** (16Gi for 4). The analytics engine's ratchet has no headroom. |
 
 ## 4. Why it is NOT the earlier hypotheses
 

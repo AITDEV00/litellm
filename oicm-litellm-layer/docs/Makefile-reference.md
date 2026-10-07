@@ -18,7 +18,7 @@ commands from `oicm-litellm-layer/`.
 | `GIT_SHA` / `BUILD_DATE` | Short git SHA and UTC build date, auto-derived |
 | `TAG` | `$(CONTROLLER_VERSION)-$(BUILD_DATE)-$(GIT_SHA)`, e.g. `0.1.0-20261006-bb95744` |
 | `LITELLM_LEGACY_TAG` | `latest`, used only for the vendored `litellm` image |
-| `MASTER_KEY` | Derived from `deploy/prod/litellm-proxy.yaml` via `scripts/get_master_key.py` (single source of truth) |
+| `MASTER_KEY` | Derived from `deploy/base/gateway` via `scripts/get_master_key.py` (single source of truth) |
 
 ## Harbor login
 
@@ -57,13 +57,13 @@ image under the moving `$(LITELLM_LEGACY_TAG)` (`latest`).
 make litellm-src-build        # build litellm-src:<branch>
 make litellm-src-push         # push to Harbor (needs `make login` first)
 make litellm-src-build-push   # build then push
-make litellm-src-deploy       # sed image tag in deploy/prod/litellm-proxy.yaml, then kubectl apply
+make litellm-src-deploy       # sed image tag in deploy/base/gateway, then kubectl apply
 make litellm-src-release      # build-push + deploy, one shot
 ```
 
 ### Cluster apply
 ```bash
-make deploy       # kubectl apply deploy/prod/discovery-controller.yaml + deploy/prod/litellm-proxy.yaml + deploy/prod/litellm-servicemonitor.yaml
+make deploy       # kubectl apply deploy/prod/discovery-controller.yaml + deploy/base/gateway + deploy/prod/litellm-servicemonitor.yaml
 make clean        # podman rmi local image
 ```
 

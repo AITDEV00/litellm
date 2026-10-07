@@ -5,11 +5,34 @@ rollout changes safely.
 
 ## Manifests (`deploy/`)
 
-Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rollback/`.
+The gateway is built with Kustomize from one base, so dev and prod are the same
+structure with different values. Everything else is grouped by environment.
+
+```
+deploy/
+  base/
+    shared/    litellm-hooks ConfigMap + litellm-redis-password Secret, used by
+               BOTH environments unsuffixed, so a dev-only edit cannot change
+               what prod serves
+    gateway/   the gateway objects with production names and values: the three
+               Secrets, litellm-config, Deployment, Service, PDB
+  overlays/
+    prod/      applies base/ unchanged; renders exactly what prod runs
+    dev/       applies base/gateway with nameSuffix: -dev plus two patches
+               (gateway/deployment.yaml, gateway/config.yaml) that hold the
+               complete dev/prod delta. base/shared comes in unsuffixed.
+  prod/, dev/, rollback/   non-gateway resources (controller, redis, ingress,
+               postgres, janitor, servicemonitor, rollback sets)
+```
+
+The dev overlay's two patch files are the single place the dev/prod difference
+lives. `tests/deploy/test_dev_prod_parity.py` renders both overlays and fails if
+they diverge in any way those patches do not declare.
 
 | Manifest | Resources | Applies to |
 |----------|-----------|-----------|
-| `deploy/prod/litellm-proxy.yaml` | Deployment `litellm-proxy`, Secret `litellm-master-key`, Secret `litellm-db-credentials`, ConfigMap `litellm-config`, ConfigMap `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `adeo-litellm` |
+| `deploy/overlays/prod/` | Deployment `litellm-proxy`, Secrets `litellm-master-key` / `litellm-salt-key` / `litellm-db-credentials`, ConfigMaps `litellm-config` / `litellm-hooks`, Secret `litellm-redis-password`, Service, PDB | `adeo-litellm` |
+| `deploy/overlays/dev/` | The same objects with `-dev` names, except the shared `litellm-hooks` and `litellm-redis-password` | `adeo-litellm` |
 | `deploy/prod/discovery-controller.yaml` | Deployment `oicm-discovery-controller` + RBAC + ServiceAccount | `adeo-litellm` (+ ClusterRole bindings reaching `adeo`) |
 | `deploy/prod/litellm-redis.yaml` | Redis StatefulSet | `redis` |
 | `deploy/prod/litellm-ingress.yaml` | Ingress | `adeo-litellm` |
@@ -19,8 +42,6 @@ Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rol
 | `deploy/prod/litellm-postgres-recovery.yaml` | Postgres recovery resources | `adeo-litellm` |
 | `deploy/prod/old-postgres-pvcs.yaml` | Old Postgres PVCs (recovery leftovers) | `adeo-litellm` |
 | `deploy/prod/spend-logs-janitor/` | Spend-logs janitor CronJob + PVC + scripts | `adeo-litellm` |
-| `deploy/dev/litellm-proxy-dev.yaml` | Dev variant of the proxy (extended logs, `--reload`) | `adeo-litellm` |
-| `deploy/dev/litellm-config-dev.yaml` | Dev ConfigMap (separate from prod so config changes are testable on dev) | `adeo-litellm` |
 | `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `adeo-litellm` |
 | `deploy/dev/litellm-postgres-dev-cluster.yaml` | Dev Postgres cluster | `adeo-litellm` |
 | `deploy/dev/litellm-servicemonitor-dev.yaml` | Dev ServiceMonitor | `adeo-litellm` |
@@ -34,7 +55,7 @@ Manifests are grouped by environment: `deploy/prod/`, `deploy/dev/`, `deploy/rol
 
 ```bash
 # from oicm-litellm-layer/
-kubectl apply -f deploy/prod/litellm-proxy.yaml
+kubectl apply -k deploy/overlays/prod      # gateway
 kubectl apply -f deploy/prod/discovery-controller.yaml
 ```
 
@@ -42,6 +63,13 @@ or via the Makefile:
 
 ```bash
 make deploy
+```
+
+To see what an overlay would produce without applying it:
+
+```bash
+kubectl kustomize deploy/overlays/prod
+kubectl kustomize deploy/overlays/dev
 ```
 
 ## Rollout restart

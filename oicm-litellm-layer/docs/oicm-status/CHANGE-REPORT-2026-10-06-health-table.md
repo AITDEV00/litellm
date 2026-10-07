@@ -314,7 +314,10 @@ replaced with a description of the two routes, server-stamped `checked_at`,
 
 ## 5. Config and manifests
 
-### 5.1 `deploy/dev/litellm-config-dev.yaml` (dev ConfigMap)
+### 5.1 `deploy/overlays/dev/gateway/config.yaml` (dev ConfigMap)
+
+This key now lives in the dev overlay's config patch; see
+`docs/deployment.md` for the base/overlay layout.
 
 Added under `general_settings`:
 
@@ -330,7 +333,7 @@ older than the period are deleted by the native spend-log cleanup job, on that
 job's schedule. There is no count-based pruning in LiteLLM; this is the only knob.
 
 Applied with:
-`kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/dev/litellm-config-dev.yaml`
+`kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -k deploy/overlays/dev`
 then a rollout restart of `litellm-proxy-dev`.
 
 ### 5.2 `deploy/dev/discovery-controller-dev.yaml`
@@ -345,11 +348,11 @@ Dev controller image pinned to `0.1.0-20261006-31409b8` by
 - Gateway image: `make litellm-src-build-push` (podman build + push, tag derived
   from branch -> `jya0-v1.102.0`).
 - Gateway to dev: `make litellm-src-deploy-dev` (added 2026-10-07). It pins the
-  current tag in `deploy/dev/litellm-proxy-dev.yaml`, applies the dev ConfigMap
+  current tag in `deploy/overlays/dev`, applies the dev ConfigMap
   and dev proxy manifest, and rolls `litellm-proxy-dev` out. Prod's manifest and
   Deployment are never touched. `make litellm-src-release-dev` is the one-shot
   build + push + deploy.
-- `litellm-src-deploy` targets PROD (it edits `deploy/prod/litellm-proxy.yaml`
+- `litellm-src-deploy` targets PROD (it edits `deploy/base/gateway`
   and restarts the prod proxy) and must not be run for dev work.
 - CAVEAT: dev and prod reference the SAME image tag (`litellm-src:jya0-v1.102.0`),
   so a build overwrites the bytes behind that tag for both. `litellm-src-deploy-dev`
@@ -396,7 +399,7 @@ oicm-litellm-layer/controller/README.md                           (route contrac
 oicm-litellm-layer/tests/controller/test_litellm_client.py        +59
 oicm-litellm-layer/tests/controller/test_status_persister.py      +/- (heartbeat rewrite + health tests)
 oicm-litellm-layer/deploy/dev/discovery-controller-dev.yaml       (image pin)
-oicm-litellm-layer/deploy/dev/litellm-config-dev.yaml             +4 (retention)
+oicm-litellm-layer/deploy/overlays/dev/gateway/config.yaml             +4 (retention)
 oicm-litellm-layer/docs/oicm-status/DESIGN-STATUS-PERSISTENCE.md  (health-table design)
 oicm-litellm-layer/docs/oicm-status/IMPLEMENTATION-CHECKLIST.md   (Step 12)
 oicm-litellm-layer/docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md   (status)
