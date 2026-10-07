@@ -124,67 +124,59 @@ All four are documented as findings in
 
 | # | Item | Notes |
 |---|---|---|
-| 9 | Prod rollout prepared, awaiting go signal | Prod pods started 2026-09-30, so prod still runs the pre-fix bytes: the phantom concurrency and the absent telemetry fields are prod-only now. The rollout is built, pushed, and pinned, and deliberately not applied. Prod keeps showing the phantom values until it is rolled. See "Prod rollout: prepared, not applied" below. |
+| 9 | Prod rollout done (2026-10-08) | Prod ran the pre-fix bytes from 2026-09-30 until this roll, so the phantom concurrency and the absent telemetry fields were prod-only. Both Deployments are now on the dev-verified digests and prod serves the telemetry fields. See "Prod rollout: done" below. |
 
-### Prod rollout: prepared, not applied
+### Prod rollout: done (2026-10-08)
 
-Everything prod needs is built, pushed, and pinned. Nothing has been applied, so
-the live prod Deployments still run the old bytes on purpose and the rollout is
-one explicit step.
+Both prod Deployments were rolled to the exact bytes dev verified. Prod had been
+running its 2026-09-30 containers, so until now the gauge-leak fix, the telemetry
+fields, the `max by (model_id)` concurrency change, and the concurrent controller
+discovery were dev-only.
 
-Prepared:
+Rolled:
 
-- Gateway: `deploy/base/gateway` already references
-  `litellm-src:jya0-v1.102.0`, the tag dev runs and the tag whose bytes carry the
-  gauge fix, the telemetry fields, and the `max by (model_id)` concurrency
-  change. Harbor's manifest digest for that tag (`sha256:74aa3fd0...`) equals the
-  digest the dev pod pulled, and the container uses `imagePullPolicy: Always`, so
-  a prod restart re-pulls exactly the dev-verified bytes instead of reusing the
-  stale 2026-09-30 cache (prod still holds `sha256:a5170605...`).
-- Controller: `deploy/prod/discovery-controller.yaml` is pinned to
-  `oicm-discovery-controller:0.1.0-20261007-920fedf`, an immutable tag whose
-  Harbor manifest digest (`sha256:ca821f44...`) equals the digest the dev
-  controller pod pulled, so it carries the same concurrent `discover()` that was
-  verified on dev.
-- Verified read-only before the roll: `kubectl apply --dry-run=server` succeeds
-  for all three manifests, the gateway Deployment itself is `unchanged` (so only
-  the restart moves it), every Secret's values are byte-identical to the live
-  ones (the `configured` dry-run line is metadata, not data), the PDB spec is
-  identical, and the gateway rolls `maxSurge: 1` / `maxUnavailable: 0` with a 30s
-  grace period, so pods drain one at a time behind the PDB's `minAvailable: 1`.
-- Prerequisites for the controller roll exist: the `oicm-status-api`,
-  `ad-oicm-status-api`, and `litellm-master-key` Secrets are all present, and
-  `CONTROLLER_READ_ONLY` defaults to false.
+- Gateway. Applied `deploy/overlays/prod` (the Deployment itself came back
+  `unchanged`, so only the restart moved it) and restarted `litellm-proxy`. Both
+  replicas now run `litellm-src@sha256:74aa3fd0...`, the digest Harbor serves for
+  the tag and the digest the dev pod pulled, replacing the stale
+  `sha256:a5170605...` cache. `maxUnavailable: 0` behind the PDB drained one pod
+  at a time.
+- Controller. Applied `deploy/oicm/sources.yaml` and
+  `deploy/prod/discovery-controller.yaml`. The controller is now on
+  `oicm-discovery-controller@sha256:ca821f44...`, the dev-verified digest.
 
-The controller roll does more than ship concurrent discovery. The live prod
-controller image predates the status work entirely (its `/app/controller` has no
-`status_poller.py` or `sources_config.py`), it mounts no `oicm-sources` ConfigMap,
-and it carries none of the `OICM_SOURCE_*` / `CLUSTER_NAME` / `STATUS_SYNC_INTERVAL`
-env vars. So today prod's controller reconciles discovery and nothing else: its
-logs contain no `OICM sources` line, and prod's models carry no `model_info.oicm`
-block. Applying `deploy/prod/discovery-controller.yaml` also turns status polling
-on for prod for the first time, which is a larger change than the one-line image
-bump suggests and deserves its own attention in the roll.
+A plain `kubectl rollout restart` would NOT have moved the controller: a restart
+reuses the live pod template, which still had `image: latest`, no volumes, and
+none of the status env vars, so the new ReplicaSet would have been identical.
+The manifest had to be applied for the image, the `oicm-sources` volume, and the
+`OICM_SOURCE_*` / `CLUSTER_NAME` / `STATUS_SYNC_INTERVAL` env to take effect.
 
-To roll, not yet run:
+Verified on prod after the roll:
 
-- `make litellm-src-deploy` applies `deploy/prod/discovery-controller.yaml`,
-  `deploy/base/gateway`, and `deploy/prod/litellm-servicemonitor.yaml`,
-  then restarts the gateway and waits on its rollout. This is the target that
-  restarts the gateway.
-- The controller rolls inside that same apply, because its pod template's image
-  tag changes, which the Deployment controller turns into a new ReplicaSet.
-- `make deploy` alone applies the manifests but does NOT restart the gateway, so
-  the gateway would keep serving its old container. Do not use it for this.
-- Do NOT run `make controller-release` as part of this roll: it would stamp a new
-  `0.1.0-<today>-<HEAD sha>` tag that was never built or pushed, and the
-  controller would then fail to pull it. The dev-verified tag is already pinned
-  in the manifest, which is the point.
+- Gateway health 200 on liveliness and readiness, both replicas in the Service.
+- The image carries `max by (model_id) (litellm_deployment_in_progress_requests)`
+  at `telemetry.py:139`.
+- `/endpoints` for `zai-org/GLM-5.3` now returns real telemetry:
+  `live_concurrency: 1`, `requests_last_30m: 207.8`, latency percentiles
+  (p50 247.8ms, p99 737.7ms), throughput percentiles, and uptime 100/100/99.82.
+- The phantom concurrency is gone: `hamsa-stt` has no in-progress series, where
+  the old image reported 694/646.
+- Controller logs show `OICM sources: alain(...), abudhabi(...)` for the first
+  time, 26 status lines written, zero errors.
+- Prod models now carry `model_info.oicm` for 26 of 28, up from zero. The two
+  without it are `hamsa-stt` and `hamsa-tts`, which are not OICM-managed
+  deployments; dev shows the identical 26 of 28 with the same two names, so this
+  is expected rather than a prod-specific gap.
 
-Found while preparing: the live prod controller runs image `latest` while
+Rollback reference: the pre-roll Deployment specs were saved to
+`/tmp/prod-rollback/{litellm-proxy,oicm-discovery-controller}.deploy.yaml`.
+Rolling back means re-pinning the old image tag, not re-applying those files,
+because they carry the live pod template rather than the desired one.
+
+Found while preparing: the live prod controller ran image `latest` while
 `deploy/prod/discovery-controller.yaml` pins an immutable tag. Applying the
-manifest corrects that drift, and it means prod currently runs controller code
-nobody pinned.
+manifest corrected that drift, so prod no longer runs controller code nobody
+pinned.
 
 ### ConfigMap ownership and drift (audited 2026-10-08)
 
@@ -758,20 +750,17 @@ Confirmed as intended behavior, not a problem:
 
 The controller half of M1 is complete, and the LiteLLM half (Steps 13-18) plus
 M3's rolling statistics (Step 25) shipped on top of it. The full list of what
-remains is the "Open work register" above. Items 8 and 10 were resolved on
-2026-10-07 (concurrent controller discovery; `live_concurrency` pinned to
-per-replica max). Item 9's rollout is prepared and awaits an explicit go signal.
-Ranked by value, the recommended order for what is left is:
+remains is the "Open work register" above. Items 8, 9, and 10 were resolved on
+2026-10-07 and 2026-10-08 (concurrent controller discovery; `live_concurrency`
+pinned to per-replica max; both prod Deployments rolled to the dev-verified
+bytes). Ranked by value, the recommended order for what is left is:
 
-1. Item 9: roll prod. It is prepared, so this is the shortest path to making the
-   gauge fix, the telemetry fields, and the concurrency change live for real
-   traffic.
-2. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
+1. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
    capability fields wrong for every deployment, so it is the highest-value
    remaining code fix.
-3. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
+2. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
    limit fields, `data.architecture`).
-4. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
+3. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
 
 Known honest gaps in the `/endpoints` payload, none of them telemetry:
 `max_prompt_tokens` / `max_completion_tokens` are always null (only the

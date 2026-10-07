@@ -32,10 +32,10 @@ in-flight gauge is unusable. That finding was correct against the prod image at
 the time, and the leak was then fixed at the source (`deployment_in_flight.py`:
 a keyed registry with TTL eviction, plus a per-worker sweeper). On dev the gauge
 now reads `0` at idle and flips to `1` mid-request. The endpoints field is
-`live_concurrency`, sourced from that gauge. Prod still runs the pre-fix bytes
-(its pods started 2026-09-30), so it keeps showing the phantom values until it
-is rolled. The rollout is prepared and awaiting an explicit go signal; see
-`oicm-status/PROGRESS-AND-PAUSED-WORK.md`, "Prod rollout: prepared, not applied".
+`live_concurrency`, sourced from that gauge. Prod ran the pre-fix bytes until
+2026-10-08, so it kept showing the phantom values until it was rolled; it is now
+on the same digest as dev. See `oicm-status/PROGRESS-AND-PAUSED-WORK.md`, "Prod
+rollout: done".
 
 **Throughput: followed as recommended.** §8g says to use per-request generation
 speed, not the counter rate. `throughput_last_30m` is the inverse of the
@@ -198,9 +198,8 @@ keyed registry with TTL eviction plus a per-worker sweeper
 (`litellm/integrations/prometheus_helpers/deployment_in_flight.py`). Verified on
 dev: idle reads `0`, a single in-flight request reads `1`, three parallel read
 `3`, and a killed client returns to `0`. `live_concurrency` is therefore fed
-from the gauge. The historical note above still describes the prod image, which
-still runs the old bytes; its rollout is prepared and awaiting an explicit go
-signal.
+from the gauge. The historical note above described the prod image, which ran the
+old bytes until 2026-10-08; prod is now on the same digest as dev.
 
 **8f. The two concurrency read surfaces disagree by construction** (max
 across pods in `per_model` vs sum across pods in `/model/performance`,
