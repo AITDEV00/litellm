@@ -297,3 +297,22 @@ max_prompt_tokens   : null (present, not omitted)
 windowed fields were observed reading `null` / `0.0` while the window held no
 qualifying samples, then populating once it did. Those are the honest no-data
 answers, not defects.
+
+### The max-vs-sum change, verified on real multi-pod data
+
+The semantics change from `sum by` to `max by` is measurable against prod, which
+runs two pods for the same `model_id`. Read-only Prometheus queries, same instant:
+
+```
+raw gauge series for model_id f9a591e0 (GLM-5.3)
+  pod litellm-proxy-5c46cf7f4c-79vdh -> 362
+  pod litellm-proxy-5c46cf7f4c-vgnxz -> 354
+sum by (model_id) -> 716    # old: double-counts a 2-pod deployment
+max by (model_id) -> 362    # new: load on the busiest replica
+```
+
+On dev, with one replica, the field still tracks real in-flight work. A streaming
+request that outlives a 30s scrape made the Prometheus gauge read `1`, and
+`GET /api/v1/models/zai-org/GLM-5.3/endpoints` with a cold reader cache returned
+`live_concurrency: 1` while the request was still in flight, then `0` once it
+finished.
