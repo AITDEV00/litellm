@@ -31,7 +31,6 @@ from pydantic import BaseModel, ConfigDict
 from litellm.proxy.openrouter_compat.openrouter_schema.endpoints import EndpointStatus
 
 Availability: TypeAlias = Literal["online", "degraded", "offline", "unknown"]
-Lifecycle: TypeAlias = Literal["stable", "deploying", "stopped", "failed", "unknown"]
 
 # Matches the controller's own STATUS_STALE_AFTER default. The controller
 # heartbeats at a third of this, so a single missed cycle does not read stale.
@@ -58,13 +57,15 @@ _ENDPOINT_STATUS_DEPLOYING: Final[EndpointStatus] = -3
 _ENDPOINT_STATUS_FAILED: Final[EndpointStatus] = -5
 _ENDPOINT_STATUS_STOPPED: Final[EndpointStatus] = -10
 
-# Lifecycle wins over availability: a failed deployment is failed even if its
-# last known availability was not offline. No lifecycle maps to 0, so a lookup
-# miss is unambiguous.
-_ENDPOINT_STATUS_BY_LIFECYCLE: Final[Mapping[Lifecycle, EndpointStatus]] = {
-    "failed": _ENDPOINT_STATUS_FAILED,
-    "stopped": _ENDPOINT_STATUS_STOPPED,
-    "deploying": _ENDPOINT_STATUS_DEPLOYING,
+# Lifecycle wins over availability: a stopped or failed deployment is that, even
+# if a stale-sourced availability said otherwise. No lifecycle maps to 0, so a
+# lookup miss is unambiguous. ``-1`` is deliberately absent (see above).
+_ENDPOINT_STATUS_BY_OICM_STATUS: Final[Mapping[str, EndpointStatus]] = {
+    "Failed": _ENDPOINT_STATUS_FAILED,
+    "Stopped": _ENDPOINT_STATUS_STOPPED,
+    "Undeploying": _ENDPOINT_STATUS_STOPPED,
+    "Deploying": _ENDPOINT_STATUS_DEPLOYING,
+    "Pending": _ENDPOINT_STATUS_DEPLOYING,
 }
 _ENDPOINT_STATUS_BY_AVAILABILITY: Final[Mapping[Availability, EndpointStatus]] = {
     "degraded": _ENDPOINT_STATUS_ATTENTION,
@@ -82,11 +83,15 @@ class ReplicaCounts(BaseModel):
 class GatewayStatus(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    # ``oicm_status`` is the controller's own string, passed through verbatim so
+    # a consumer sees exactly what OICM reported. ``availability`` is the one
+    # derived verdict, because two things cannot be expressed in OICM's
+    # vocabulary: a source that stopped reporting (``stale``), and a deployment
+    # OICM still calls Ready whose pods serve nothing.
+    oicm_status: str | None = None
     availability: Availability
-    lifecycle: Lifecycle
     stale: bool
     source: str | None = None
-    source_status: str | None = None
     healthy: bool | None = None
     replicas: ReplicaCounts
     observed_at: str | None = None
@@ -100,10 +105,13 @@ class GatewayStatus(BaseModel):
         """
         if self.stale:
             return None
-        by_lifecycle = _ENDPOINT_STATUS_BY_LIFECYCLE.get(self.lifecycle)
-        if by_lifecycle is not None:
-            return by_lifecycle
-        return _ENDPOINT_STATUS_BY_AVAILABILITY.get(self.availability)
+        by_availability = _ENDPOINT_STATUS_BY_AVAILABILITY.get(self.availability)
+        if by_availability is not None:
+            return by_availability
+        oicm_status = self.oicm_status
+        if oicm_status is None:
+            return None
+        return _ENDPOINT_STATUS_BY_OICM_STATUS.get(oicm_status, _ENDPOINT_STATUS_ATTENTION)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,14 +143,12 @@ class GatewayStateResolver:
     def resolve(self, inputs: GatewayStatusInputs) -> GatewayStatus:
         checked_at = inputs.source_checked_at
         stale = self._is_stale(checked_at)
-        lifecycle = self._lifecycle(inputs.oicm_status)
         availability = "unknown" if stale else self._availability(inputs.oicm_status, inputs.serving_available)
         return GatewayStatus(
+            oicm_status=inputs.oicm_status,
             availability=availability,
-            lifecycle=lifecycle,
             stale=stale,
             source=inputs.cluster,
-            source_status=inputs.health_status,
             healthy=None if inputs.health_status is None else inputs.health_status == _HEALTHY,
             replicas=ReplicaCounts(desired=inputs.replicas_desired, available=inputs.replicas_available),
             observed_at=inputs.observed_at,
@@ -158,18 +164,6 @@ class GatewayStateResolver:
     @staticmethod
     def _as_utc(value: datetime) -> datetime:
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-
-    @staticmethod
-    def _lifecycle(status: str | None) -> Lifecycle:
-        if status in _SERVING_STATUSES:
-            return "stable"
-        if status in _DEPLOYING_STATUSES:
-            return "deploying"
-        if status in _STOPPED_STATUSES:
-            return "stopped"
-        if status == "Failed":
-            return "failed"
-        return "unknown"
 
     @staticmethod
     def _availability(status: str | None, serving_available: bool | None) -> Availability:

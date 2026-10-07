@@ -97,13 +97,17 @@ OpenRouter's `EndpointStatus` enum is `0, -1, -2, -3, -5, -10` and is documented
 
 | `gateway_status` fact | `status` | Rationale |
 |---|---|---|
-| `Ready`/`Available` + `serving_available=true` | `0` | Serving normally. The only value OpenRouter ever publishes. |
-| `Ready`/`Available` + `serving_available=false` | `-2` | A registered, routable endpoint that is not serving. On a multi-replica OICM deployment this means at least one replica is deploying or down, which warrants attention. |
-| `Deploying` / `Pending` | `-3` | In transition, not yet serving. |
-| `Failed` | `-5` | Terminal failure. |
-| `Stopped` / `Undeploying` | `-10` | Terminal stopped. |
+| `availability=online` (raw `Ready`/`Available` with `serving_available=true`) | `0` | Serving normally. The only value OpenRouter ever publishes. |
+| `availability=degraded` (raw `Ready`/`Available` with `serving_available=false`) | `-2` | A registered, routable endpoint that is not serving. On a multi-replica OICM deployment this means at least one replica is deploying or down, which warrants attention. |
+| raw `Deploying` / `Pending` | `-3` | In transition, not yet serving. |
+| raw `Failed` | `-5` | Terminal failure. |
+| raw `Stopped` / `Undeploying` | `-10` | Terminal stopped. |
 | stale observation | omitted | A stale source must not keep asserting a confident status. |
 | no OICM block (unmanaged) | omitted | No gateway opinion, so no invented number. |
+| any other non-null raw status | `-2` | Unknown to us but real to OICM; flag it for attention rather than reporting it healthy. |
+
+The left column reads on the DTO's own fields: `availability` is consulted
+first, then the verbatim `oicm_status`. There is no intermediate grouping.
 
 `-1` is deliberately left unassigned. It is reserved for a load-based signal (an endpoint that is idle and then takes a burst of traffic), which needs SGLang server-side telemetry that is not collected yet. See Steps 19-25 of `IMPLEMENTATION-CHECKLIST.md`.
 

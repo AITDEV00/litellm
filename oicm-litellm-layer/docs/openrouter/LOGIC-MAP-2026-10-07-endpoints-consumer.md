@@ -97,13 +97,13 @@ GET /api/v1/models/{author}/{slug}/endpoints
   |     +-- _resolve_statuses(enriched, prisma_client)  models_service.py:144
   |     |     GatewayStatusReader(prisma).read(...)      status_reader.py:37
   |     |       (see section 3)
-  |     |     GatewayStateResolver.resolve(...) per deployment  gateway_status.py:135
+  |     |     GatewayStateResolver.resolve(...) per deployment  gateway_status.py:143
   |     |     -> Mapping[deployment_id, GatewayStatus]
   |     |
   |     +-- OpenRouterEndpointsMapper.map_endpoints(...) mapping/endpoints.py:62
   |           _to_endpoint per deployment             mapping/endpoints.py:106
   |             pricing: PricingResolver.resolve_for_deployments   enrichment/pricing.py:38
-  |             status: GatewayStatus.endpoint_status()  gateway_status.py:95
+  |             status: GatewayStatus.endpoint_status()  gateway_status.py:100
   |           ListEndpointsResponse.model_validate + per-endpoint dump
   |
   +-- HTTP 200 {"data": {...}}   or   HTTP 404 {"detail": "Model not found"}
@@ -156,34 +156,43 @@ GatewayStateResolver.resolve(inputs)                      gateway_status.py:135
   checked_at = inputs.source_checked_at                   # heartbeat, not model row
   stale      = _is_stale(checked_at)                      gateway_status.py:152
                  None -> True; age > 90s -> True
-  lifecycle  = _lifecycle(inputs.oicm_status)             gateway_status.py:163
-                 Ready|Available        -> stable
-                 Deploying|Pending      -> deploying
-                 Stopped|Undeploying    -> stopped
-                 Failed                 -> failed
-                 else                   -> unknown
   availability = "unknown" if stale
-                 else _availability(oicm_status, serving_available)  gateway_status.py:175
+                 else _availability(oicm_status, serving_available)  gateway_status.py:169
                    stopped|failed|deploying -> offline
                    Ready|Available -> _AVAILABILITY_BY_SERVING[serving]
                    else -> unknown
-  -> GatewayStatus(...)                                   gateway_status.py:82
+  -> GatewayStatus(oicm_status=inputs.oicm_status, ...)   gateway_status.py:82
+       # the controller string, verbatim; no grouping
 ```
 
-`GatewayStatus.endpoint_status()` (`gateway_status.py:95`) then maps that verdict
-onto OpenRouter's numeric enum, via two declarative tables
-(`gateway_status.py:64`, `:69`):
+### The DTO carries OICM's vocabulary, not a derived one
+
+`gateway_status` is `{oicm_status, availability, stale, source, healthy, replicas,
+observed_at, checked_at}`.
+
+- `oicm_status` is OICM's own string, passed through unchanged. A consumer that
+  knows OICM can read it directly; we add no vocabulary of our own on top.
+- `availability` is the only derived field, because two facts cannot be
+  expressed in OICM's vocabulary: a source that stopped reporting, and a
+  deployment OICM still calls `Ready` whose pods serve nothing.
+- `healthy` is the native health verdict. It is an independent signal from
+  `oicm_status`, per the design (`OICM-STATUS-FEASIBILITY.md`): OICM can report
+  `Ready` while the health row says `unhealthy`.
+
+`GatewayStatus.endpoint_status()` (`gateway_status.py:95`) maps that onto
+OpenRouter's numeric enum. Availability wins when it has an opinion, so a
+`Ready` deployment that is not serving becomes `-2`. Otherwise the raw status is
+consulted (`gateway_status.py:64`):
 
 ```
 stale -> None (omit)
-else _ENDPOINT_STATUS_BY_LIFECYCLE.get(lifecycle)     # failed/stopped/deploying
-     or _ENDPOINT_STATUS_BY_AVAILABILITY.get(availability)  # degraded/online
-     or None
+else _ENDPOINT_STATUS_BY_AVAILABILITY.get(availability)     # degraded -> -2, online -> 0
+     or _ENDPOINT_STATUS_BY_OICM_STATUS.get(oicm_status, -2)  # Failed/-5, Stopped/-10, Deploying/-3
+     or None if oicm_status is None
 ```
 
-Lifecycle deliberately wins over availability, and no lifecycle maps to `0`, so
-a table miss is unambiguous. `-1` is unassigned on purpose (reserved for a
-load-based signal; see `docs/oicm-status/FEASIBILITY-ANSWERS.md`).
+`-1` is unassigned on purpose (reserved for a load-based signal; see
+`docs/oicm-status/FEASIBILITY-ANSWERS.md`).
 
 ## 5. Response shape
 
@@ -215,7 +224,7 @@ Fields we compute vs. leave honestly empty:
 | `context_length`, `max_prompt_tokens`, `max_completion_tokens` | deployment limits |
 | `pricing.prompt` / `.completion` | litellm registry |
 | `status` | section 4 |
-| `gateway_status` | sections 3-4 |
+| `gateway_status` | sections 3-4; `oicm_status` is the raw controller string |
 
 Left null/empty on purpose: `latency_last_30m`, `throughput_last_30m`,
 `uptime_last_5m/30m/1d`, `quantization`, `supported_parameters`,
@@ -275,6 +284,8 @@ Scraped, not assumed:
 |---|---|---|---|
 | `PLR0911` 7 returns in one function | L1 | `gateway_status.py:82` | Replaced the 6-branch if-chain with two declarative tables (`_ENDPOINT_STATUS_BY_LIFECYCLE`, `_ENDPOINT_STATUS_BY_AVAILABILITY`) and two lookups. Also makes the lifecycle-over-availability precedence explicit. |
 | `B010` `setattr` with a constant name | L1 | `routes/models.py:41` | `setattr(app_state, "openrouter_service", built)` -> `app_state.openrouter_service = built`. |
+| `source_status` held the native health string, not the OICM status | L3 | `gateway_status.py:145` | The design (`OICM-STATUS-FEASIBILITY.md:153`) specifies `source_status: status  # Ready / Stopped / ...`. The implementation set it from `health_status`, so the raw OICM status was absent from the DTO and `source_status` merely duplicated `healthy`. Replaced with `oicm_status`, populated from `inputs.oicm_status` verbatim. |
+| `lifecycle` carried no information the raw status did not | L3 | `gateway_status.py:163` | The 5-bucket grouping was lossy with respect to the raw status it was derived from, and every consumer wanted the raw value. Removed; `endpoint_status()` now keys off `availability` then `oicm_status`. |
 
 ### Verified clean (no change)
 

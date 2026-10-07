@@ -163,25 +163,24 @@ def test_internal_paths_and_secrets_never_appear():
 
 
 @pytest.mark.parametrize(
-    ("oicm_status", "serving_available", "expected_availability", "expected_lifecycle"),
+    ("oicm_status", "serving_available", "expected_availability"),
     [
-        ("Ready", True, "online", "stable"),
-        ("Ready", False, "degraded", "stable"),
-        ("Available", True, "online", "stable"),
-        ("Stopped", False, "offline", "stopped"),
-        ("Deploying", False, "offline", "deploying"),
-        ("Pending", False, "offline", "deploying"),
-        ("Failed", False, "offline", "failed"),
-        (None, None, "unknown", "unknown"),
+        ("Ready", True, "online"),
+        ("Ready", False, "degraded"),
+        ("Available", True, "online"),
+        ("Stopped", False, "offline"),
+        ("Deploying", False, "offline"),
+        ("Pending", False, "offline"),
+        ("Failed", False, "offline"),
+        (None, None, "unknown"),
     ],
 )
-def test_lifecycle_transition_matrix(
+def test_availability_matrix(
     oicm_status: str | None,
     serving_available: bool | None,
     expected_availability: str,
-    expected_lifecycle: str,
 ):
-    """Each OICM lifecycle maps to exactly one gateway verdict.
+    """Each OICM status maps to exactly one availability verdict.
 
     ``Ready`` with ``serving_available=False`` is the load-bearing case: OICM
     still calls the deployment ready while its pods serve nothing.
@@ -201,7 +200,7 @@ def test_lifecycle_transition_matrix(
     )
 
     assert status.availability == expected_availability
-    assert status.lifecycle == expected_lifecycle
+    assert status.oicm_status == oicm_status
 
 
 def test_stale_source_forces_unknown_even_when_last_known_status_was_ready():
@@ -222,7 +221,7 @@ def test_stale_source_forces_unknown_even_when_last_known_status_was_ready():
 
     assert status.stale is True
     assert status.availability == "unknown"
-    assert status.lifecycle == "stable"
+    assert status.oicm_status == "Ready"
 
 
 def test_missing_heartbeat_is_stale():
@@ -291,6 +290,58 @@ def test_gateway_status_is_attached_per_endpoint():
     assert endpoint["gateway_status"]["source"] == "alain"
     assert endpoint["gateway_status"]["healthy"] is True
     assert endpoint["gateway_status"]["replicas"] == {"desired": 1, "available": 1}
+
+
+def test_gateway_status_carries_the_controller_status_verbatim():
+    """``oicm_status`` is OICM's own string, not a grouped derivative.
+
+    Regression: the field that was meant to expose the raw status
+    (``source_status``, per docs/oicm-status/OICM-STATUS-FEASIBILITY.md) was
+    populated with the native ``healthy``/``unhealthy`` string instead, so a
+    consumer could not tell ``Available`` from ``Ready``.
+    """
+    model = _aggregated([_deployment("dep-1")])
+    for oicm_status in ("Available", "Ready", "Deploying", "Failed", "Stopped"):
+        statuses = _statuses(model, oicm_status=oicm_status, serving_available=False)
+        gateway = _payload(model, statuses)["data"]["endpoints"][0]["gateway_status"]
+
+        assert gateway["oicm_status"] == oicm_status
+
+
+def test_healthy_and_availability_are_independent_signals():
+    """``healthy`` is the native health verdict, not a restatement of OICM's.
+
+    The design is explicit that these must not be conflated: OICM can call a
+    deployment ``Ready`` while its own health row says ``unhealthy``.
+    """
+    model = _aggregated([_deployment("dep-1")])
+    statuses = _statuses(model, oicm_status="Ready", serving_available=False, health_status="unhealthy")
+    gateway = _payload(model, statuses)["data"]["endpoints"][0]["gateway_status"]
+
+    assert gateway["oicm_status"] == "Ready"
+    assert gateway["availability"] == "degraded"
+    assert gateway["healthy"] is False
+
+
+def test_gateway_status_does_not_expose_derived_vocabulary():
+    """The DTO carries OICM's vocabulary plus one verdict, nothing more.
+
+    ``lifecycle`` grouped the status into buckets that carried no information
+    the raw status did not, and ``source_status`` duplicated ``healthy``.
+    """
+    model = _aggregated([_deployment("dep-1")])
+    gateway = _payload(model, _statuses(model))["data"]["endpoints"][0]["gateway_status"]
+
+    assert set(gateway) == {
+        "oicm_status",
+        "availability",
+        "stale",
+        "source",
+        "healthy",
+        "replicas",
+        "observed_at",
+        "checked_at",
+    }
 
 
 def test_endpoint_without_status_has_null_gateway_status():
