@@ -32,8 +32,10 @@ in-flight gauge is unusable. That finding was correct against the prod image at
 the time, and the leak was then fixed at the source (`deployment_in_flight.py`:
 a keyed registry with TTL eviction, plus a per-worker sweeper). On dev the gauge
 now reads `0` at idle and flips to `1` mid-request. The endpoints field is
-`live_concurrency`, sourced from that gauge. Prod still runs the pre-fix image,
-so prod will keep showing the phantom values until prod is deployed.
+`live_concurrency`, sourced from that gauge. Prod still runs the pre-fix bytes
+(its pods started 2026-09-30), so it keeps showing the phantom values until it
+is rolled. The rollout is prepared and awaiting an explicit go signal; see
+`oicm-status/PROGRESS-AND-PAUSED-WORK.md`, "Prod rollout: prepared, not applied".
 
 **Throughput: followed as recommended.** §8g says to use per-request generation
 speed, not the counter rate. `throughput_last_30m` is the inverse of the
@@ -197,7 +199,8 @@ keyed registry with TTL eviction plus a per-worker sweeper
 dev: idle reads `0`, a single in-flight request reads `1`, three parallel read
 `3`, and a killed client returns to `0`. `live_concurrency` is therefore fed
 from the gauge. The historical note above still describes the prod image, which
-has not been redeployed.
+still runs the old bytes; its rollout is prepared and awaiting an explicit go
+signal.
 
 **8f. The two concurrency read surfaces disagree by construction** (max
 across pods in `per_model` vs sum across pods in `/model/performance`,
@@ -205,6 +208,12 @@ across pods in `per_model` vs sum across pods in `/model/performance`,
 feeds the endpoints route must state its semantics; for a per-endpoint
 (deployment) field, per-pod max is the honest one; the "sum" merge only
 makes sense at model-group level.
+
+**Implemented 2026-10-07.** The endpoints route follows this reading:
+`live_concurrency` is `max by (model_id)`, the peak load on the busiest replica,
+not the fleet-wide sum. The sum-across-replicas behavior in `/model/performance`
+is a separate surface and is unchanged. Live proof on prod's two-pod GLM-5.3
+deployment: the same `model_id` reads `716` summed and `362` with max.
 
 **8g. Throughput semantics must match OpenRouter's.** `throughput_last_30m`
 should be per-request generation speed (completion_tokens / request

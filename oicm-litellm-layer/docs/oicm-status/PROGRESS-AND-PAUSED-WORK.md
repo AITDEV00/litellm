@@ -82,7 +82,7 @@ carries live latency, throughput, and uptime per deployment. The remaining work
 is M2 (Steps 19-23), the instantaneous engine view from each runtime's own
 `/metrics`, which is genuinely not started.
 
-## Open work register (verified against the tree, 2026-10-07)
+## Open work register (verified against the tree, 2026-10-08)
 
 Every item still open, with its status and what it blocks. Grouped by where the
 change lands. "Verified absent" means a code search for the symbol or behavior
@@ -124,7 +124,54 @@ All four are documented as findings in
 
 | # | Item | Notes |
 |---|---|---|
-| 9 | Prod runs the pre-fix image | Prod pods started 2026-09-30 on tag `jya0-v1.102.0`; the registry tag was overwritten on 2026-10-07 with the new build, so prod pods are still the old layers. The gauge-leak fix, the telemetry fields, and everything documented as "live on dev" are dev-only. Prod still shows the phantom concurrency and has none of the telemetry fields. Explicitly deferred; recorded so it is not mistaken for done. |
+| 9 | Prod rollout prepared, awaiting go signal | Prod pods started 2026-09-30, so prod still runs the pre-fix bytes: the phantom concurrency and the absent telemetry fields are prod-only now. The rollout is built, pushed, and pinned, and deliberately not applied. Prod keeps showing the phantom values until it is rolled. See "Prod rollout: prepared, not applied" below. |
+
+### Prod rollout: prepared, not applied
+
+Everything prod needs is built, pushed, and pinned. Nothing has been applied, so
+the live prod Deployments still run the old bytes on purpose and the rollout is
+one explicit step.
+
+Prepared:
+
+- Gateway: `deploy/prod/litellm-proxy.yaml` already references
+  `litellm-src:jya0-v1.102.0`, the tag dev runs and the tag whose bytes carry the
+  gauge fix, the telemetry fields, and the `max by (model_id)` concurrency
+  change. Harbor's manifest digest for that tag (`sha256:74aa3fd0...`) equals the
+  digest the dev pod pulled, and the container uses `imagePullPolicy: Always`, so
+  a prod restart re-pulls exactly the dev-verified bytes instead of reusing the
+  stale 2026-09-30 cache (prod still holds `sha256:a5170605...`).
+- Controller: `deploy/prod/discovery-controller.yaml` is pinned to
+  `oicm-discovery-controller:0.1.0-20261007-920fedf`, an immutable tag whose
+  Harbor manifest digest (`sha256:ca821f44...`) equals the digest the dev
+  controller pod pulled, so it carries the same concurrent `discover()` that was
+  verified on dev.
+- Verified read-only before the roll: `kubectl apply --dry-run=server` succeeds
+  for all three manifests, the gateway Deployment itself is `unchanged` (so only
+  the restart moves it), every Secret's values are byte-identical to the live
+  ones (the `configured` dry-run line is metadata, not data), the PDB spec is
+  identical, and the gateway rolls `maxSurge: 1` / `maxUnavailable: 0` with a 30s
+  grace period, so pods drain one at a time behind the PDB's `minAvailable: 1`.
+
+To roll, not yet run:
+
+- `make litellm-src-deploy` applies `deploy/prod/discovery-controller.yaml`,
+  `deploy/prod/litellm-proxy.yaml`, and `deploy/prod/litellm-servicemonitor.yaml`,
+  then restarts the gateway and waits on its rollout. This is the target that
+  restarts the gateway.
+- The controller rolls inside that same apply, because its pod template's image
+  tag changes, which the Deployment controller turns into a new ReplicaSet.
+- `make deploy` alone applies the manifests but does NOT restart the gateway, so
+  the gateway would keep serving its old container. Do not use it for this.
+- Do NOT run `make controller-release` as part of this roll: it would stamp a new
+  `0.1.0-<today>-<HEAD sha>` tag that was never built or pushed, and the
+  controller would then fail to pull it. The dev-verified tag is already pinned
+  in the manifest, which is the point.
+
+Found while preparing: the live prod controller runs image `latest` while
+`deploy/prod/discovery-controller.yaml` pins an immutable tag. Applying the
+manifest corrects that drift, and it means prod currently runs controller code
+nobody pinned.
 
 ### Smaller items
 
@@ -621,14 +668,18 @@ The controller half of M1 is complete, and the LiteLLM half (Steps 13-18) plus
 M3's rolling statistics (Step 25) shipped on top of it. The full list of what
 remains is the "Open work register" above. Items 8 and 10 were resolved on
 2026-10-07 (concurrent controller discovery; `live_concurrency` pinned to
-per-replica max). Ranked by value, the recommended order for what is left is:
+per-replica max). Item 9's rollout is prepared and awaits an explicit go signal.
+Ranked by value, the recommended order for what is left is:
 
-1. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
-   capability fields wrong for every deployment, so it is the highest-value fix.
-2. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
+1. Item 9: roll prod. It is prepared, so this is the shortest path to making the
+   gauge fix, the telemetry fields, and the concurrency change live for real
+   traffic.
+2. Item 4: runtime detection. It silently makes `provider_name`, `tag`, and the
+   capability fields wrong for every deployment, so it is the highest-value
+   remaining code fix.
+3. Items 5-7: the "fill the honest gaps" pass (discarded enrichment, the two
    limit fields, `data.architecture`).
-3. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
-4. Item 9: redeploy prod so the gauge-leak fix and the telemetry fields reach it.
+4. Item 1: M2 (Steps 19-23), the large one. Item 2 depends on it.
 
 Known honest gaps in the `/endpoints` payload, none of them telemetry:
 `max_prompt_tokens` / `max_completion_tokens` are always null (only the
