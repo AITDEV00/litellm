@@ -26,9 +26,22 @@ def _reload_config_with_env(monkeypatch, env_value=None):
     return importlib.reload(module)
 
 
+def _manifest_master_key() -> str:
+    """The master key the prod manifest declares, read the same way the config does."""
+    import yaml
+
+    manifest = Path(__file__).parents[2] / "deploy" / "prod" / "litellm-proxy.yaml"
+    for document in yaml.safe_load_all(manifest.read_text(encoding="utf-8")):
+        if isinstance(document, dict) and (document.get("metadata") or {}).get("name") == "litellm-master-key":
+            value = (document.get("stringData") or {}).get("master-key")
+            assert isinstance(value, str) and value.strip()
+            return value.strip()
+    raise AssertionError("the prod manifest no longer declares a litellm-master-key Secret")
+
+
 def test_admin_key_defaults_to_manifest_value(monkeypatch):
     config = _reload_config_with_env(monkeypatch)
-    assert config.LITELLM_ADMIN_KEY == "sk-1234"
+    assert config.LITELLM_ADMIN_KEY == _manifest_master_key()
 
 
 def test_admin_key_env_overrides_manifest(monkeypatch):
@@ -40,7 +53,7 @@ def test_master_key_from_manifest_reads_prod_manifest():
     import controller.config as config
 
     value = config._master_key_from_manifest()
-    assert value == "sk-1234"
+    assert value == _manifest_master_key()
 
 class TestClusterName:
     """CLUSTER_NAME is required, not defaulted.
