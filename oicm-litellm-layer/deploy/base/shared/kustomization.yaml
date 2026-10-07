@@ -1,0 +1,15 @@
+# Resources both environments share, so a dev-only edit cannot change what prod
+# serves.
+#
+# These are applied by both overlays WITHOUT a name suffix, because the names are
+# part of the contract between them: the dev Deployment mounts the same
+# `litellm-hooks` ConfigMap the prod Deployment mounts, and both authenticate to
+# the same Redis with the same `litellm-redis-password`. Suffixing them would
+# silently give dev its own copy of each, which is exactly the divergence this
+# layout exists to prevent.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - litellm-hooks.yaml
+  - litellm-redis-password.yaml

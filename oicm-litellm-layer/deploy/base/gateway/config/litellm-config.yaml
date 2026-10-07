@@ -1,31 +1,8 @@
 ---
-# Dev-only ConfigMap: litellm-config-dev
-#
-# PURPOSE
-#   A dev-specific copy of the shared `litellm-config` ConfigMap used to test
-#   config changes (e.g. `require_auth_for_metrics_endpoint`) on the dev proxy
-#   WITHOUT touching the live production config. The dev Deployment
-#   `litellm-proxy-dev` mounts this ConfigMap instead of the shared one.
-#
-# KEEP IN SYNC
-#   Any change to the shared `litellm-config` in deploy/prod/litellm-proxy.yaml
-#   that should apply to dev too must be mirrored here.
-#
-# DIFF VS PROD
-#   - require_auth_for_metrics_endpoint: true  (prod sets false)
-#
-# APPLY
-#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/dev/litellm-config-dev.yaml
-#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout restart deployment/litellm-proxy-dev
-#
-# CLEANUP
-#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete configmap litellm-config-dev
-#   (and restore deploy/dev/litellm-proxy-dev.yaml volume to `litellm-config`)
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: litellm-config-dev
+  name: litellm-config
   namespace: adeo-litellm
 data:
   config.yaml: |
@@ -49,8 +26,11 @@ data:
         # session_affinity can pin a conversation to one replica (prefix KV reuse).
         # The loader needs an instance, not a class: proxy_handler_instance is a
         # module-level singleton whose cache binds per-request. Enabled via
-        # SESSION_IDENTITY_ENABLED=true on the dev pod.
+        # SESSION_IDENTITY_ENABLED=true on the Deployment env.
         - litellm.router_utils.session_identity.resolver.proxy_handler_instance
+      # Require auth on the /metrics scrape endpoint. Prometheus keeps scraping
+      # because the ServiceMonitor (litellm-servicemonitor.yaml) presents the
+      # master key as a bearer token.
       require_auth_for_metrics_endpoint: true
       priority_reservation:
         prior1: 0.50
@@ -76,8 +56,10 @@ data:
     router_settings:
       routing_strategy: usage-based-routing-v2
       # Sticky sessions: a conversation keeps landing on the replica that served
-      # its earlier turns so vLLM/SGLang prefix KV cache is reused instead of
-      # re-prefilled on a second replica. Idle TTL, refreshed on every request.
+      # its earlier turns so vLLM prefix KV cache is reused instead of
+      # re-prefilled on a second replica. Only pins callers that send a stable
+      # session id (x-litellm-session-id header or metadata.session_id);
+      # everyone else routes normally. Idle TTL, refreshed on every request.
       optional_pre_call_checks:
         - enforce_model_rate_limits
         - session_affinity
@@ -111,22 +93,16 @@ data:
       # Fallbacks intentionally omitted for now; to be configured separately.
     general_settings:
       use_redis_transaction_buffer: true
-      # Mirror of prod (2026-09-08 decoupling). Retention knobs are inert
-      # without a DB but kept identical so dev matches prod exactly.
-      # TEMPORARILY bumped to "1m" for a SpendLogCleanup registration probe on
-      # dev (2026-09-22). Job is supposed to fire every ~60s. Switch back to
-      # "1h" (and match prod) once we've observed it fire.
+      # Native PG partitioning: upstream creates daily partitions and drops
+      # them at retention. 999d means upstream never drops; the janitor
+      # CronJob owns actual retention (pressure-based, 60d floor).
       use_spend_logs_partitioning: true
       maximum_spend_logs_retention_period: "999d"
-      maximum_spend_logs_retention_interval: "1m"
-      maximum_spend_logs_cleanup_batch_size: 1000
-      maximum_spend_logs_cleanup_max_batches: 20000
-      maximum_spend_logs_cleanup_run_budget: "20m"
-      # Bounds the OICM health rows the controller writes into the native
-      # health table (per-model reports plus per-source liveness). A month of
-      # history keeps incident review possible; unset means rows never delete.
-      maximum_health_check_retention_period: "30d"
-      # The whole point of DB-less dev: with no DATABASE_URL and this flag,
-      # auth falls back to a restricted synthetic identity and the proxy
-      # starts/serves without Postgres. Validates the prod decoupling.
+      maximum_spend_logs_retention_interval: "1h"
+      # Decouple gateway availability from Postgres (2026-09-08 incident:
+      # flush-retry CPU churn starved the event loop until liveness timed
+      # out and pods restarted). With this on: auth falls back to cached
+      # identity instead of 503 on cache misses, and the pod starts even
+      # when the DB is down. Spend-log queueing stays bounded (64MB,
+      # drop-oldest) so RAM cannot grow unboundedly while the DB is down.
       allow_requests_on_db_unavailable: true

@@ -2,7 +2,8 @@
 
 The key must come from LITELLM_ADMIN_KEY when set (in-cluster the Deployment
 injects it via secretKeyRef), and otherwise fall back to the single source of
-truth in deploy/prod/litellm-proxy.yaml so local runs match production.
+truth in deploy/base/gateway/secrets/litellm-master-key.yaml so local runs match
+production.
 """
 
 import importlib
@@ -30,7 +31,14 @@ def _manifest_master_key() -> str:
     """The master key the prod manifest declares, read the same way the config does."""
     import yaml
 
-    manifest = Path(__file__).parents[2] / "deploy" / "prod" / "litellm-proxy.yaml"
+    manifest = (
+        Path(__file__).parents[2]
+        / "deploy"
+        / "base"
+        / "gateway"
+        / "secrets"
+        / "litellm-master-key.yaml"
+    )
     for document in yaml.safe_load_all(manifest.read_text(encoding="utf-8")):
         if isinstance(document, dict) and (document.get("metadata") or {}).get("name") == "litellm-master-key":
             value = (document.get("stringData") or {}).get("master-key")

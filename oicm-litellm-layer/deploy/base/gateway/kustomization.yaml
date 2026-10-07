@@ -1,0 +1,22 @@
+# The gateway objects that are per-environment, so each environment gets its own
+# set of names.
+#
+# This is the base both overlays build on. `deploy/overlays/prod` applies it
+# unchanged. `deploy/overlays/dev` applies it with `nameSuffix: -dev`, which
+# renames these objects AND rewrites the references between them, so the dev
+# Deployment points at `litellm-config-dev` and the `*-dev` Secrets with no
+# hand-maintained cross-reference.
+#
+# The shared ConfigMap and Redis Secret are NOT here; they live in
+# `deploy/base/shared` and stay unsuffixed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - secrets/litellm-master-key.yaml
+  - secrets/litellm-salt-key.yaml
+  - secrets/litellm-db-credentials.yaml
+  - config/litellm-config.yaml
+  - proxy/deployment.yaml
+  - proxy/service.yaml
+  - proxy/pdb.yaml

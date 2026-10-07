@@ -1,0 +1,73 @@
+# Every way the dev Deployment differs from prod, in one place.
+#
+# The base is prod's Deployment verbatim. Anything not listed here is identical
+# on both environments, which is the point: a reader can see the complete dev/prod
+# delta by reading this file. The parity test in
+# tests/deploy/test_dev_prod_parity.py fails if the two drift in a way this file
+# does not explain.
+#
+# NOTE: this patch targets the BASE name (`litellm-proxy`), not the suffixed
+# `litellm-proxy-dev`. Kustomize applies patches before `nameSuffix`, so the
+# unsuffixed name is the one it matches on. The namespace must match the base's
+# too, or the resource ID is `[noNs]` and the patch finds no target.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+spec:
+  # One replica: dev is a debug surface, not a traffic path. Override to 0 when
+  # not debugging to release the node.
+  replicas: 1
+  # Recreate, not RollingUpdate. There is nothing to keep serving during a dev
+  # restart, and Recreate guarantees the old pod is gone before the new one
+  # starts, so a stale worker cannot answer a probe.
+  strategy:
+    $patch: replace
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: litellm
+          # Same image tag as prod (the Makefile pins both), but dev pulls it
+          # single-worker so a debugger has one stable PID to attach to.
+          command:
+            - "litellm"
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            - "--run_granian"
+            - "--num_workers"
+            - "1"
+            - "--use_v2_migration_resolver"
+          env:
+            # Dev has its own master key and salt key Secrets (suffixed -dev by
+            # the overlay) so a dev-only rotation cannot touch prod auth.
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key-dev
+                  key: master-key
+            - name: UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key-dev
+                  key: master-key
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-salt-key-dev
+                  key: salt-key
+            # Dev points at the dev-only single-instance CNPG cluster
+            # (adeo-litellm-postgres-dev) so gateway runs exercise the real
+            # logging pipeline without touching prod data.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials-dev
+                  key: DATABASE_URL
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config-dev

@@ -1,0 +1,13 @@
+# Production overlay: the gateway base plus the shared resources, both unchanged.
+#
+# Rendering this must reproduce the objects the cluster already runs. Inspect it
+# with `kubectl kustomize deploy/overlays/prod` and apply it with
+# `kubectl apply -k deploy/overlays/prod`; the Makefile wraps both.
+#
+# There is no name suffix here. Prod is the base's names, verbatim.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base/shared
+  - ../../base/gateway

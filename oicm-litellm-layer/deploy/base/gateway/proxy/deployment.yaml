@@ -1,0 +1,199 @@
+---
+# LiteLLM Proxy Deployment
+#
+# Both replicas are pinned to adeo-gpu-03 (the Submariner gateway node) because Cilium's BPF
+# kube-proxy replacement drops return traffic from Submariner globalnet IPs (242.0.0.0/24) for
+# pods on non-gateway nodes. The gateway node is the only node where the outbound and return
+# paths use the same datapath (Cilium BPF + nftables SNAT + vx-submariner). See the Al Ain
+# Submariner guide §12.1 for the full root cause analysis.
+#
+# Commands used to apply this configuration:
+#
+#   kubectl patch deploy litellm-proxy -n adeo-litellm --type=json -p='[
+#     {"op":"add","path":"/spec/template/spec/nodeSelector","value":{"kubernetes.io/hostname":"adeo-gpu-03"}},
+#     {"op":"add","path":"/spec/template/spec/tolerations","value":[
+#       {"key":"tenant","value":"adeo","effect":"NoSchedule"},
+#       {"key":"tenant","value":"adeo","effect":"NoExecute"},
+#       {"key":"target","value":"k8s","effect":"NoSchedule"},
+#       {"key":"target","value":"k8s","effect":"NoExecute"},
+#       {"key":"nvidia.com/gpu","effect":"NoSchedule"}
+#     ]}
+#   ]'
+#
+# The gpu-03 node has three taints (tenant=adeo, target=k8s, nvidia.com/gpu) so tolerations
+# for all three are required. topologySpreadConstraints with ScheduleAnyway lets both replicas
+# co-locate on gpu-03 (the only gateway node) while still attempting to spread across zones.
+#
+# IMPORTANT: Do not add a second gateway node for HA without also addressing the Cilium BPF
+# limitation. Non-gateway pods will time out reaching globalnet IPs regardless of tunnel health.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+  labels:
+    app: litellm-proxy
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy
+  template:
+    metadata:
+      labels:
+        app: litellm-proxy
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: litellm-proxy
+      containers:
+        - name: litellm
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.102.0
+          # Non-latest tag defaults to IfNotPresent; force Always so a rollout
+          # restart pulls the freshly built image instead of a stale cache.
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            - name: UI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-master-key
+                  key: master-key
+            # Decouple the at-rest encryption key from the master key. The model
+            # credentials in the shared DB are encrypted with the ORIGINAL key
+            # (sk-1234). The master key is now sk-05132025 (auth only), so we pin
+            # LITELLM_SALT_KEY to the old key to keep DB decryption working.
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-salt-key
+                  key: salt-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials
+                  key: DATABASE_URL
+            - name: REDIS_HOST
+              value: "litellm-redis.redis.svc.cluster.local"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-redis-password
+                  key: password
+            - name: REDIS_CONNECTION_POOL_TIMEOUT
+              value: "10"
+            # Per-request stream trace (opt-in). Records chunk timing, gaps,
+            # and terminal state per stream to JSONL so we can answer
+            # "client disconnect vs. server stall" without packet capture.
+            # NOTE: /tmp is emptyDir on prod (no PVC) so traces die with the pod;
+            # for durable captures route NODE_LOG or stdout via fluent-bit.
+            - name: LITELLM_STREAM_TRACE_PATH
+              value: "/tmp/stream_traces.jsonl"
+            # Only record gap samples above this threshold; below it, chunk
+            # flow is normal. 500ms buckets match the dev tuning.
+            - name: LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS
+              value: "500"
+            - name: UI_LOGO_PATH
+              value: /app/assets/adeo-ai-gateway.jpg
+            - name: LITELLM_FAVICON_URL
+              value: /app/assets/favicon.png
+            # Opt-in gate for the SessionIdentityResolver callback (registered in
+            # litellm-config). TTL must outlive deployment_affinity_ttl_seconds
+            # (86400) so lineage outlives the affinity pin; both default to 86400.
+            - name: SESSION_IDENTITY_ENABLED
+              value: "true"
+            - name: SESSION_IDENTITY_TTL_SECONDS
+              value: "86400"
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
+          command:
+            - "litellm"
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            - "--run_granian"
+            - "--num_workers"
+            - "4"
+            - "--use_v2_migration_resolver"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: hooks
+              mountPath: /app/litellm_hooks
+              readOnly: true
+            - name: logo
+              mountPath: /app/assets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              # 16Gi (was 12Gi): 4 granian workers hold ~2.5GB each + master +
+              # non-Python overhead = ~11-12GB steady state, right at the old
+              # 12Gi limit. Any transient spike (GC pause, retry burst to dead
+              # backends) OOMKilled the pod (11 restarts in 2 days). 16Gi gives
+              # ~4Gi headroom while the dead-backend churn is addressed.
+              memory: 16Gi
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+        - name: hooks
+          configMap:
+            name: litellm-hooks
+        - name: logo
+          configMap:
+            name: litellm-logo

@@ -12,13 +12,21 @@ LITELLM_ADMIN_URL = os.getenv("LITELLM_ADMIN_URL", "http://localhost:4000")
 def _master_key_from_manifest() -> str | None:
     """Read the master key from the single source of truth when running locally.
 
-    The authoritative value lives in the inline `litellm-master-key` Secret in
-    `deploy/prod/litellm-proxy.yaml`. In-cluster the Deployment always overrides it
+    The authoritative value lives in the `litellm-master-key` Secret in
+    `deploy/base/gateway/secrets/litellm-master-key.yaml`, the base both
+    environment overlays build on. In-cluster the Deployment always overrides it
     via `LITELLM_ADMIN_KEY` + `secretKeyRef`, so this fallback only matters for
     local runs (controller/ relative to this file). Returns None if the manifest
     cannot be read, in which case callers fall back to a hardcoded dev default.
     """
-    manifest = Path(__file__).resolve().parent.parent / "deploy" / "prod" / "litellm-proxy.yaml"
+    manifest = (
+        Path(__file__).resolve().parent.parent
+        / "deploy"
+        / "base"
+        / "gateway"
+        / "secrets"
+        / "litellm-master-key.yaml"
+    )
     try:
         for document in yaml.safe_load_all(manifest.read_text(encoding="utf-8")):
             if not isinstance(document, dict):

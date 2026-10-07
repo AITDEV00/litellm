@@ -1,0 +1,20 @@
+# Dev overlay: the shared resources unchanged, plus the gateway renamed to `-dev`
+# and patched where it differs.
+#
+# The split matters. `nameSuffix` applies to every resource in the kustomization
+# that declares it, so the gateway lives in its own nested kustomization
+# (`./gateway`) and the shared resources are pulled in here WITHOUT a suffix.
+# That keeps the dev Deployment mounting the same `litellm-hooks` ConfigMap prod
+# mounts, and both authenticating to Redis with the same `litellm-redis-password`,
+# so a dev-only edit cannot silently change what prod serves.
+#
+# Inspect with `kubectl kustomize deploy/overlays/dev` and apply with
+# `kubectl apply -k deploy/overlays/dev`; the Makefile wraps both.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Unsuffixed on purpose: shared with prod, see above.
+  - ../../base/shared
+  # Suffixed and patched: per-environment, see ./gateway/kustomization.yaml.
+  - gateway

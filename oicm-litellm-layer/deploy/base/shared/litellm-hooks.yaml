@@ -1,0 +1,111 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-hooks
+  namespace: adeo-litellm
+data:
+  vllm_param_injector.py: |
+    import os
+    from typing import Any, Dict, Optional
+    from litellm.integrations.custom_logger import CustomLogger
+    from litellm.utils import get_secret
+
+
+    class VllmParamInjector(CustomLogger):
+        """Pre-call hook that injects vLLM-specific parameters from the
+        upstream model deployment's ConfigMap into the request."""
+
+        @staticmethod
+        def _target_matches(model_info: dict, target_model: str) -> bool:
+            litellm_params = model_info.get("litellm_params", {})
+            return litellm_params.get("model", "") == target_model
+
+        async def async_pre_call_hook(
+            self,
+            user_api_key_dict: Dict,
+            cache: Any,
+            data: Dict,
+            call_type: str,
+        ) -> Optional[Dict]:
+            from litellm.proxy.proxy_server import llm_router
+
+            if llm_router is None or not hasattr(llm_router, "get_model_list"):
+                return data
+
+            target_model = data.get("model")
+            if not target_model:
+                return data
+
+            for model_info in llm_router.get_model_list():
+                if self._target_matches(model_info, target_model):
+                    model_info_extra = model_info.get("model_info", {})
+                    extra_body = {}
+                    for key, value in model_info_extra.items():
+                        if key.startswith("vllm_") and value is not None:
+                            param_name = key[len("vllm_"):]
+                            extra_body[param_name] = value
+                    if extra_body:
+                        existing = data.get("extra_body") or {}
+                        existing.update(extra_body)
+                        data["extra_body"] = existing
+                    break
+
+            return data
+
+
+    vllm_param_injector = VllmParamInjector()
+  priority_bridge.py: |
+    import logging
+    from typing import Optional, Union
+
+    import litellm
+    from litellm.integrations.custom_logger import CustomLogger
+    from litellm.caching import DualCache
+    from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
+    from litellm.types.utils import CallTypesLiteral
+
+    logger = logging.getLogger("oicm-priority-bridge")
+
+    _CHAT_CALL_TYPES: frozenset[str] = frozenset({"completion", "acompletion"})
+
+
+    class PriorityBridge(CustomLogger):
+
+        async def async_pre_call_hook(
+            self,
+            user_api_key_dict: UserAPIKeyAuth,
+            cache: DualCache,
+            data: dict,
+            call_type: CallTypesLiteral,
+        ) -> Optional[Union[Exception, str, dict]]:
+            body_fields_map = litellm.priority_body_fields
+            if not body_fields_map:
+                return None
+
+            if call_type not in _CHAT_CALL_TYPES:
+                return None
+
+            htb_prio = htb_priority.get()
+            if htb_prio is None:
+                return None
+
+            body_fields = body_fields_map.get(htb_prio)
+            if not body_fields:
+                return None
+
+            extra_body = data.get("extra_body") or {}
+            extra_body.update(body_fields)
+            data["extra_body"] = extra_body
+
+            logger.debug(
+                "Injected priority body fields for htb_priority=%s: %s",
+                htb_prio,
+                list(body_fields.keys()),
+            )
+
+            return data
+
+
+    priority_bridge = PriorityBridge()

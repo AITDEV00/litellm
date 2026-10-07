@@ -41,8 +41,9 @@ LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 ALAIN_KUBECONFIG ?= $(HOME)/.kube/alain-oicm.conf
 
 # Master key for local runs, derived from the single source of truth: the
-# `litellm-master-key` Secret in deploy/prod/litellm-proxy.yaml. A rotation in the
-# manifest propagates here automatically.
+# `litellm-master-key` Secret in deploy/base/gateway/secrets, the base both
+# environment overlays build on. A rotation in the base propagates here, and to
+# both environments, automatically.
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
@@ -112,18 +113,21 @@ controller-release-dev: build push-discovery
 ## command for the whole dev loop. Prod is never touched.
 controller-deploy-dev: controller-release-dev deploy-dev
 
-## Apply the dev controller manifest only. Also applies the oicm-sources
-## ConfigMap it mounts, so the target is self-contained rather than depending on
-## a ConfigMap someone applied by hand.
+## Apply the dev controller manifest and the dev gateway overlay. Also applies the
+## oicm-sources ConfigMap the controller mounts, so the target is self-contained
+## rather than depending on a ConfigMap someone applied by hand.
 deploy-dev:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
 
-## Deploy all manifests to the cluster
+## Deploy all prod manifests to the cluster. Applies the prod overlay; note this
+## does NOT restart the gateway, so it keeps serving its running container.
+## Use `litellm-src-deploy` when the image should move too.
 deploy:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 
 ## Build the ConfigMap that carries the service-account provisioner script.
@@ -189,15 +193,16 @@ litellm-src-build-push: litellm-src-build litellm-src-push
 ## e.g. make litellm-src-release  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0)
 litellm-src-release: litellm-src-build-push litellm-src-deploy
 
-## Update deploy/prod/litellm-proxy.yaml to use the current LITELLM_SRC_TAG image,
-## then kubectl apply all deploy manifests.
+## Update the prod overlay's image to the current LITELLM_SRC_TAG, then apply all
+## deploy manifests. The image lives in deploy/base/gateway/proxy/deployment.yaml,
+## which both overlays build on, so pinning it moves prod and dev together.
 litellm-src-deploy:
-	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/prod/litellm-proxy.yaml"
-	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/prod/litellm-proxy.yaml
+	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/base/gateway/proxy/deployment.yaml"
+	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/base/gateway/proxy/deployment.yaml
 	@echo "Deploying to cluster"
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-proxy.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
 	@echo "Restarting litellm-proxy to pull the freshly tagged image"
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy
@@ -214,18 +219,17 @@ litellm-src-deploy:
 ## channel until prod is moved to its own tag.
 litellm-src-release-dev: litellm-src-build-push litellm-src-deploy-dev
 
-## Pin the current LITELLM_SRC_TAG in the DEV proxy manifest and roll it out.
-## Prod's manifest and Deployment are never touched.
+## Pin the current LITELLM_SRC_TAG in the DEV overlay and roll it out.
+## Prod's overlay and Deployment are never touched.
 litellm-src-deploy-dev:
-	@echo "Pinning image tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/dev/litellm-proxy-dev.yaml"
-	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/dev/litellm-proxy-dev.yaml
+	@echo "Pinning image tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/base/gateway/proxy/deployment.yaml"
+	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/base/gateway/proxy/deployment.yaml
 	@echo "Deploying dev gateway"
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/litellm-config-dev.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/litellm-proxy-dev.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
 	@echo "Restarting litellm-proxy-dev to pull the freshly tagged image"
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy-dev
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy-dev --timeout=300s
-	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod manifest untouched."
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod overlay untouched."
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
 ## requirements-docs.txt). Used by the rotation runbook in docs/credentials.md

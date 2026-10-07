@@ -1,0 +1,22 @@
+# The per-environment gateway, renamed and patched for dev.
+#
+# `nameSuffix` here applies to the gateway resources only, because this is a
+# nested kustomization. The shared ConfigMap and Redis Secret are pulled in one
+# level up, without a suffix, so both environments reference the same objects.
+#
+# Both patches target the BASE names (`litellm-proxy`, `litellm-config`), because
+# Kustomize applies patches before the suffix. They must also carry the base's
+# namespace, or their resource ID is `[noNs]` and they match nothing.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../base/gateway
+
+nameSuffix: -dev
+
+patches:
+  # Deployment: replica shape, worker count, and the dev-only Secrets and DB.
+  - path: deployment.yaml
+  # ConfigMap: the config values that genuinely differ on dev.
+  - path: config.yaml

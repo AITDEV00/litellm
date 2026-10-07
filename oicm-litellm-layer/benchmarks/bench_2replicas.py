@@ -17,7 +17,14 @@ def master_key() -> str:
     env = os.getenv("LITELLM_MASTER_KEY")
     if env:
         return env
-    manifest = Path(__file__).resolve().parent.parent / "deploy" / "litellm-proxy.yaml"
+    manifest = (
+        Path(__file__).resolve().parent.parent
+        / "deploy"
+        / "base"
+        / "gateway"
+        / "secrets"
+        / "litellm-master-key.yaml"
+    )
     block = next(b for b in re.split(r"^---\s*$", manifest.read_text(), flags=re.MULTILINE) if "name: litellm-master-key" in b)
     scope = block[block.rfind("stringData:"):]
     return re.search(r"^\s*master-key:\s*(\S.*?)\s*$", scope, re.MULTILINE).group(1)

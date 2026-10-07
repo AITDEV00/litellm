@@ -1,9 +1,10 @@
 """Print the LiteLLM master key from the single source of truth.
 
 The authoritative value lives in the inline `litellm-master-key` Secret in
-`deploy/prod/litellm-proxy.yaml`. This script lets local tooling (the Makefile, env
-templates, benchmarks) derive the key from that one manifest instead of
-hardcoding a second copy, so a rotation in the manifest propagates everywhere.
+`deploy/base/gateway/secrets/litellm-master-key.yaml`. That file is the base both
+environment overlays build on, so a rotation there reaches prod and dev. This
+script lets local tooling (the Makefile, env templates, benchmarks) derive the key
+from that one manifest instead of hardcoding a second copy.
 
 Stdlib-only (no third-party deps) so it runs under any `python3`, including in
 `.env` files sourced by `make` targets and in benchmark scripts.
@@ -20,7 +21,14 @@ import re
 import sys
 from pathlib import Path
 
-MANIFEST = Path(__file__).resolve().parent.parent / "deploy" / "prod" / "litellm-proxy.yaml"
+MANIFEST = (
+    Path(__file__).resolve().parent.parent
+    / "deploy"
+    / "base"
+    / "gateway"
+    / "secrets"
+    / "litellm-master-key.yaml"
+)
 SECRET_NAME = "litellm-master-key"
 SECRET_KEY = "master-key"
 
