@@ -89,7 +89,9 @@ async def test_fetch_builds_metrics_with_correct_units():
     m = snapshot["m1"]
     assert m.ttft_latency_ms == Percentiles(p50=500.0, p75=500.0, p90=500.0, p99=500.0)
     assert m.throughput_tokens_per_sec == Percentiles(p50=50.0, p75=50.0, p90=50.0, p99=50.0)
+    # Prometheus returns floats; the DTO declares int | None, so it must be cast.
     assert m.live_concurrency == 3
+    assert isinstance(m.live_concurrency, int)
     assert m.requests_last_30m == 1234.0
 
 
