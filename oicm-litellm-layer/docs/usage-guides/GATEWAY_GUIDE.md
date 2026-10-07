@@ -419,7 +419,7 @@ The `api_key` field is the Hamsa STT encrypted key (Fernet token). The `authoriz
 An interactive WebSocket test page is available at `test-ws.html` in this directory. To use it:
 
 ```bash
-cd oicm-litellm-layer/examples/custom/tryhamsastt
+cd oicm-litellm-layer/examples/usage/hamsa-stt
 python3 -m http.server 8765
 ```
 

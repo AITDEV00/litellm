@@ -145,9 +145,10 @@ oicm-litellm-layer/
 │   ├── build_master_mock.py  litellm_model_info.json  openrouter-models.json
 │   └── upstream/             ← raw runtime probes (sglang/vllm)
 │
-├── examples/               ← example files
-│   ├── custom/tryhamsastt/  ← HAMSA STT WebSocket test page
-│   └── openrouter/          ← /api/v1/models demo
+├── examples/usage/         ← runnable usage tests for gateway endpoints
+│   ├── hamsa-stt/          ← HAMSA STT WebSocket test page
+│   ├── image-generation/   ← gen_image.sh (images/generations); out/ is gitignored
+│   └── openrouter/         ← /api/v1/models demo
 │
 ├── tests/                  ← tests (controller, hooks)
 │   ├── controller/

@@ -5,7 +5,7 @@ HTTP client in place of upstream runtimes, so no live proxy or network is
 needed. The output is exactly the JSON the /api/v1/models route would emit.
 
 Run (from repo root):
-    .venv/bin/python oicm-litellm-layer/examples/openrouter/demo_openrouter_models.py
+    .venv/bin/python oicm-litellm-layer/examples/usage/openrouter/demo_openrouter_models.py
 """
 
 # Demo script: the whole point is to print the JSON, so allow T201.

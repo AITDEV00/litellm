@@ -8,7 +8,7 @@ This guide covers the Hamsa Speech-to-Text (STT) and Text-to-Speech (TTS) endpoi
 
 The gateway is properly SSL-verified, so the curl examples below use standard HTTPS verification (no `-k`/`--insecure` flag).
 
-> **Interactive test page**: a browser-based WebSocket client for realtime Hamsa STT is available at `examples/custom/tryhamsastt/hamsa-stt-realtime-test-ws.html`. See [Realtime STT via WebSocket](#4-realtime-stt-websocket).
+> **Interactive test page**: a browser-based WebSocket client for realtime Hamsa STT is available at `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html`. See [Realtime STT via WebSocket](#4-realtime-stt-websocket).
 
 ---
 
@@ -273,10 +273,10 @@ const ws = new WebSocket(
 
 ### Interactive Test Page
 
-A ready-to-use browser client is provided at `examples/custom/tryhamsastt/hamsa-stt-realtime-test-ws.html`. It is pre-configured with the correct gateway URL. To use it:
+A ready-to-use browser client is provided at `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html`. It is pre-configured with the correct gateway URL. To use it:
 
 ```bash
-cd oicm-litellm-layer/examples/custom/tryhamsastt
+cd oicm-litellm-layer/examples/usage/hamsa-stt
 python3 -m http.server 8765
 ```
 
