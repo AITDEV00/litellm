@@ -10,6 +10,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | `docs/structure.md` | Full directory map |
 | `docs/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
 | `docs/deployment.md` | Apply / rollout / cluster access |
+| `docs/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
 | `docs/components/*.md` | Per-component navigation |
 
 ## Discovery Controller
