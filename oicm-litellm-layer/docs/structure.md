@@ -83,11 +83,14 @@ oicm-litellm-layer/
 │   │   ├── litellm-servicemonitor.yaml     ← Prometheus ServiceMonitor
 │   │   ├── litellm-network-policy-to-adeo.yaml
 │   │   ├── litellm-postgres-cluster.yaml
-│   │   ├── litellm-postgres-recovery.yaml
-│   │   ├── old-postgres-pvcs.yaml
 │   │   └── spend-logs-janitor/             ← CronJob + PVC + scripts/sql
 │   ├── dev/                           ← dev variants (controller, exclusions,
 │   │   │                                  postgres, servicemonitor, janitor)
+│   ├── recovery/                      ← DISASTER RECOVERY RECORDS, never applied
+│   │   ├── restore-prod-postgres-from-snapshots.yaml ← rebuilds prod Postgres
+│   │   │                                  from litellm-recovery-* snapshots
+│   │   └── bind-old-postgres-pvs.yaml      ← binds the older PVs holding
+│   │                                      pre-migration data
 │   └── rollback/                      ← rollback manifests pinned to versions
 │       ├── litellm-proxy-rollback-jya0-v1.97.0.yaml ← pinned to image jya0-v1.97.0
 │       ├── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2

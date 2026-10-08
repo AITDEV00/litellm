@@ -2,39 +2,54 @@
 # Dev-only Deployment: oicm-discovery-controller-dev
 #
 # PURPOSE
-#   A throwaway replica of the production `oicm-discovery-controller` used to
-#   debug / reproduce discovery and reconciliation WITHOUT touching the live
-#   production gateway. It runs the exact same image, k8s RBAC, node pinning and
-#   env as the real controller, so it reproduces the production discovery path
-#   (reading Deployments, ConfigMaps, EndpointSlices, probing openapi.json and
-#   /v1/models) bit-for-bit.
+#   A second instance of the discovery controller pointed at the DEV gateway, so
+#   a discovery or reconciliation change can be exercised against real OICM
+#   sources without going through production. It runs the same image, k8s RBAC,
+#   node pinning and env as the real controller, so it reproduces the production
+#   discovery path (reading Deployments, ConfigMaps, EndpointSlices, probing
+#   openapi.json and /v1/models) bit-for-bit.
 #
-# CRITICAL SAFETY GUARANTEE
-#   This dev controller is READ-ONLY. It NEVER mutates the production LiteLLM
-#   gateway. Enforcement is in CODE, not just config:
-#     - `CONTROLLER_READ_ONLY=true` makes LiteLLMClient.batch() /
-#       register_model() / deregister_model() logged no-ops. Discovery and plan
-#       computation still run, but every write is logged as "[READ-ONLY] would
-#       ..." and the HTTP write calls (/model/new, /model/delete,
-#       /model/{id}/update) are never issued.
-#   So even though it uses a dev key and can READ the gateway, it can never
-#   change the gateway's model config. It points at the DEV gateway
-#   (litellm-proxy-dev) using the dev key (litellm-master-key-dev), so it is
-#   fully decoupled from the production key/gateway.
+# WHAT IT WRITES
+#   This controller is READ-WRITE (`CONTROLLER_READ_ONLY: "false"` below), so it
+#   registers, updates and deletes models. It does that against the DEV gateway
+#   only: LITELLM_ADMIN_URL points at `litellm-proxy-dev` and it authenticates
+#   with the dev master key (`litellm-master-key-dev`). Production is a different
+#   gateway, reached with a different key, and nothing here references it.
 #
-# WHY READ-ONLY IS ENFORCED IN CODE (not just YAML)
-#   Relying on YAML to "just point it elsewhere" or "just not use the write
-#   endpoints" is fragile. The read_only flag is wired through the LiteLLMClient
-#   constructor from the CONTROLLER_READ_ONLY env var, so the same binary run
-#   with this flag set CANNOT write, regardless of its k8s env or admin creds.
+#   Setting `CONTROLLER_READ_ONLY: "true"` makes LiteLLMClient.batch() /
+#   register_model() / deregister_model() logged no-ops: discovery and plan
+#   computation still run, but every write is logged as "[READ-ONLY] would ..."
+#   and the HTTP write calls (/model/new, /model/delete, /model/{id}/update) are
+#   never issued. The flag is wired through the LiteLLMClient constructor, so
+#   the binary cannot write while it is set, regardless of its env or creds.
+#
+# SHARED WITH PRODUCTION (deliberate, read the note before editing)
+#   - ServiceAccount: this Deployment uses prod's `oicm-discovery-controller`
+#     ServiceAccount and therefore prod's Role/RoleBinding in namespace `adeo`.
+#     It declares no RBAC of its own. Both instances need exactly the same
+#     read-only access (deployments, services, configmaps, endpointslices), so a
+#     second set would be a copy; the controller never writes to the k8s API.
+#   - `oicm-sources` ConfigMap: both instances mount the SAME sources ConfigMap,
+#     while exclusions are split (`oicm-exclusions` prod / `oicm-exclusions-dev`
+#     dev). The two controllers do read the same OICM instances, so this is
+#     correct today, but it means editing `deploy/oicm/sources.yaml` changes
+#     what PROD discovers. A dev-only source experiment must not go there.
+#
+# CLUSTER_NAME is `alain`, the same value prod uses, because it names the
+# physical cluster both instances run in rather than the environment. See the
+# note on that env var below.
+#
+# WHAT THIS IS NOT: a dev controller writing to the dev gateway is still a
+# controller that writes. Its only guard against reaching production is
+# LITELLM_ADMIN_URL, and nothing checks that at runtime.
 #
 # HOW TO USE
-#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/discovery-controller-dev.yaml
+#   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -f deploy/dev/discovery-controller-dev.yaml
 #   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm rollout status deploy/oicm-discovery-controller-dev
-#   # Watch the logs: every would-be write is logged as [READ-ONLY]:
 #   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm logs deploy/oicm-discovery-controller-dev -f
-#   # The logs show exactly what the production controller WOULD register/delete/patch
-#   # WITHOUT doing it. Compare with prod logs to validate a new discovery change.
+#   # With CONTROLLER_READ_ONLY=true the logs show exactly what the controller
+#   # WOULD register/delete/patch, without doing it. Compare with prod logs to
+#   # validate a new discovery change before it reaches production.
 #
 # CLEANUP
 #   kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm delete deploy/oicm-discovery-controller-dev
@@ -59,6 +74,9 @@ spec:
       labels:
         app: oicm-discovery-controller-dev
     spec:
+      # Prod's ServiceAccount and Role: both instances need identical read-only
+      # access to namespace `adeo`, and the controller never writes to the k8s
+      # API. See the "SHARED WITH PRODUCTION" note at the top of this file.
       serviceAccountName: oicm-discovery-controller
       nodeSelector:
         kubernetes.io/hostname: adeo-gpu-03
@@ -88,9 +106,12 @@ spec:
           env:
             - name: WATCH_NAMESPACE
               value: "adeo"
-            # The cluster this controller runs in. Stored on every row as
-            # `oicm_cluster`, which is what answers "Abu Dhabi or Al Ain" for a
-            # model once a cross-cluster import shares a name with a local one.
+            # The cluster this controller runs in. It is the default `cluster`
+            # for a LOCAL deployment, which is then persisted as `oicm_cluster`;
+            # a Submariner import takes the source cluster from the source's own
+            # `cluster` field in oicm-sources instead. It names the physical
+            # cluster, not the environment, so dev and prod share the value: both
+            # run in Al Ain, and their local deployments really are there.
             - name: CLUSTER_NAME
               value: "alain"
             - name: LITELLM_ADMIN_URL
@@ -108,11 +129,11 @@ spec:
               value: "300"
             - name: ENABLE_SUBMARINER_IMPORTS
               value: "true"
-            # READ-WRITE ENABLED (2026-09-08): the controller now WRITES to the
-            # dev gateway so the dev DB mirrors prod's model discovery. It
-            # still only ever talks to litellm-proxy-dev (LITELLM_ADMIN_URL)
-            # with the dev master key — production is untouched by construction.
-            # Flip this back to "true" to return to log-only mode.
+            # READ-WRITE: this controller registers and updates models on the dev
+            # gateway, so the dev DB mirrors prod's model discovery. It only ever
+            # talks to litellm-proxy-dev (LITELLM_ADMIN_URL) with the dev master
+            # key, so production is untouched. Set this to "true" to return to
+            # log-only mode and make every write a logged no-op.
             - name: CONTROLLER_READ_ONLY
               value: "false"
             # OICM status sources. Which instances exist (endpoints, realm,
@@ -192,6 +213,8 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
+        # Shared with prod on purpose; exclusions below are not. See the
+        # "SHARED WITH PRODUCTION" note at the top of this file.
         - name: oicm-sources
           configMap:
             name: oicm-sources

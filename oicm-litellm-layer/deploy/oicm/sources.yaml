@@ -4,6 +4,14 @@
 # value that identifies an instance lives here, so adding a cluster is a data
 # change rather than a code change.
 #
+# SHARED BY BOTH CONTROLLERS: the prod controller and the dev controller
+# (deploy/dev/discovery-controller-dev.yaml) mount this same ConfigMap, so an
+# edit here changes what PRODUCTION discovers. Exclusions are split per
+# environment (oicm-exclusions vs oicm-exclusions-dev); sources are not, because
+# both controllers read the same OICM instances. A dev-only source experiment
+# needs a dev-only copy of this ConfigMap and a dev-only volume reference, not an
+# edit here.
+#
 # Credentials are NOT here. A ConfigMap cannot hold or interpolate a Secret
 # value, so each source's credentials are wired into the Deployment from a
 # Secret, using variable names derived from the source name:

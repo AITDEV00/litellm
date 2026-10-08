@@ -1,3 +1,30 @@
+---
+# DO NOT APPLY THIS FILE. It is a disaster-recovery record, not a deployment.
+#
+# This is the Cluster spec that built the live prod database from the previous
+# mlops PostgreSQL data, kept so the restore is reproducible. It declares
+# `metadata.name: adeo-litellm-postgres`, the SAME name as the live cluster, so
+# applying it does not create a new object: it overwrites the running one and
+# rebuilds the database from the snapshots below.
+#
+# The storage sizes here (100Gi / 50Gi) are smaller than the live cluster's
+# (200Gi / 50Gi), which is the only reason a plain `kubectl apply` fails today
+# ("can't shrink"). Any path that tolerates a shrink (`apply --force`,
+# `kubectl replace`, `kubectl edit` pasted from here) would destroy prod data.
+#
+# Nothing applies this file. The only legitimate use is a restore, which must be
+# a deliberate decision made against a cluster whose data is already lost.
+#
+# The snapshots it depends on:
+#   litellm-recovery-data-v1  (PGDATA, 100Gi)
+#   litellm-recovery-wal-v1   (WAL,    50Gi)
+# Both are ReadyToUse. Their source PVCs were `inspect-old-litellm-data` and
+# `inspect-old-litellm-wal`, which are not recorded in git; the snapshots are the
+# durable artifact, so that is what this file references.
+# bind-old-postgres-pvs.yaml in this directory binds a different, older pair of
+# PVs (`old-litellm-postgres-*`) that hold the pre-migration data. It is a
+# separate record of how that data can be reached, not a step in this restore.
+---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 
