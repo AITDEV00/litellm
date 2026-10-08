@@ -14,8 +14,8 @@
 # regenerated every time the deployment is recreated. The uuid is the only handle
 # for a deployment that is Stopped, whose served id cannot be discovered.
 #
-# Empty by default. Add an entry and re-apply this ConfigMap; the controller
-# reads it on the next full sync, so no redeploy is needed.
+# Add an entry and re-apply this ConfigMap, then restart the controller: the
+# file is read once at startup, so a restart is what picks up the change.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,4 +23,5 @@ metadata:
   namespace: adeo-litellm
 data:
   exclusions.yaml: |
-    model_ids: []
+    model_ids:
+      - orcarouter/Qwen3.8-27B-Uncensored-FP8
