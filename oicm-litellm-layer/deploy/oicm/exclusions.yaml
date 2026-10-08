@@ -29,4 +29,5 @@ metadata:
   namespace: adeo-litellm
 data:
   exclusions.yaml: |
-    model_ids: []
+    model_ids:
+      - orcarouter/Qwen3.8-27B-Uncensored-FP8
