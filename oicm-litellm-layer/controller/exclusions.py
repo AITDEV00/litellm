@@ -70,16 +70,26 @@ def _read_exclusions_file(path: str) -> Optional[object]:
     document lives under ``data["exclusions.yaml"]``, and read directly by a
     local run. A ConfigMap wrapper is unwrapped so one file is the single source
     of truth rather than two copies that can drift.
+
+    A file that cannot be read or is not valid YAML yields None, which the caller
+    reads as "nothing excluded". Parsing is a safety net, so a broken file must
+    degrade to fewer exclusions rather than crash the controller: the caller
+    loads this in its constructor, so a raise here would stop the controller from
+    starting at all.
     """
     try:
         text = Path(path).read_text(encoding="utf-8")
     except OSError as e:
         logger.warning("OICM exclusions file %s not readable: %s", path, e)
         return None
-    document = yaml.safe_load(text)
-    if isinstance(document, dict) and document.get("kind") == "ConfigMap":
-        return yaml.safe_load((document.get("data") or {}).get("exclusions.yaml", ""))
-    return document
+    try:
+        document = yaml.safe_load(text)
+        if isinstance(document, dict) and document.get("kind") == "ConfigMap":
+            return yaml.safe_load((document.get("data") or {}).get("exclusions.yaml", ""))
+        return document
+    except yaml.YAMLError as e:
+        logger.warning("OICM exclusions file %s is not valid YAML: %s", path, e)
+        return None
 
 
 def _env_ids(env: Mapping[str, str]) -> FrozenSet[str]:

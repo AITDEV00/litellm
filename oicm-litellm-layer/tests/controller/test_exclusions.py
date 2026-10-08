@@ -9,7 +9,12 @@ with the file, and an entry matches any identity an operator is likely to write.
 import textwrap
 from pathlib import Path
 
-from controller.exclusions import excluded, load_exclusions, parse_exclusions
+from controller.exclusions import (
+    _LOCAL_EXCLUSIONS_FILE,
+    excluded,
+    load_exclusions,
+    parse_exclusions,
+)
 from controller.models import OicmModel
 
 
@@ -85,10 +90,18 @@ class TestLoad:
         path = _write(tmp_path, wrapped)
         assert load_exclusions(path, env={}) == frozenset({"Excluded-Model"})
 
+    def test_malformed_yaml_yields_empty_not_raise(self, tmp_path):
+        """A YAML syntax error must not raise.
+
+        The loader runs in the controller's constructor, so a raise here stops
+        the controller from starting. Exclusion is a safety net, so a broken file
+        must degrade to "nothing excluded" instead.
+        """
+        path = _write(tmp_path, "model_ids: [unclosed\n")
+        assert load_exclusions(path, env={}) == frozenset()
+
     def test_repository_exclusions_files_are_valid(self):
         """Both committed ConfigMaps must parse and carry the current list."""
-        from controller.exclusions import _LOCAL_EXCLUSIONS_FILE
-
         prod = Path(__file__).resolve().parents[2] / "deploy" / "oicm" / "exclusions.yaml"
         dev = Path(__file__).resolve().parents[2] / "deploy" / "dev" / "oicm-exclusions-dev.yaml"
         expected = frozenset({"orcarouter/Qwen3.8-27B-Uncensored-FP8"})
@@ -97,7 +110,7 @@ class TestLoad:
         assert load_exclusions(str(dev), env={}) == expected
         # The repo-local fallback must point at the prod list, so a local run
         # matches what prod serves rather than picking up dev's exclusions.
-        assert _LOCAL_EXCLUSIONS_FILE == prod
+        assert prod == _LOCAL_EXCLUSIONS_FILE
 
 
 class TestExcluded:
