@@ -42,7 +42,7 @@ Launch flags relevant to priority scheduling:
 
 | Property | Value |
 |----------|-------|
-| Namespace | `mlops` |
+| Namespace | `adeo-litellm` |
 | Pods | `litellm-proxy-7fbc675cf9-hhkv6` (10.42.6.163), `litellm-proxy-7fbc675cf9-nlwg8` (10.42.6.166) |
 | External URL | `https://litellm.ecouncil.ae` |
 | Image | `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.96.2` |
@@ -81,7 +81,7 @@ From the ConfigMap, callbacks are registered in this order (execution order matt
 litellm_settings:
   callbacks:
     - vllm_param_injector
-    - dynamic_rate_limiter_v3
+    - dynamic_rate_limiter_v3_htb
     - priority_bridge
     - prometheus
 ```
@@ -97,7 +97,7 @@ API key metadata {"priority": "prior1"}
         │
         ▼
 ┌─────────────────────────────────┐
-│ dynamic_rate_limiter_v3         │
+│ dynamic_rate_limiter_v3_htb     │
 │ async_pre_call_hook             │
 │                                 │
 │ Reads metadata, sets            │
@@ -150,9 +150,9 @@ API key metadata {"priority": "prior1"}
 └─────────────────────────────────┘
 ```
 
-### 2.1 Stage 1: Metadata Reading (`dynamic_rate_limiter_v3`)
+### 2.1 Stage 1: Metadata Reading (`dynamic_rate_limiter_v3_htb`)
 
-File: `litellm/proxy/hooks/dynamic_rate_limiter_v3.py`
+File: `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py`
 
 Line 37 defines the ContextVar:
 ```python
@@ -249,7 +249,7 @@ The running prior3 request is evicted (its KV cache released), and the prior1 re
 
 ### 3.1 Why a Hybrid Approach Was Needed
 
-An initial proxy-only saturation test failed to demonstrate preemption. Root cause: the proxy's HTB rate limiter (`dynamic_rate_limiter_v3`) throttles `prior3` requests before they reach SGLang, preventing enough concurrent requests from building up to saturate SGLang's 64+8=72 capacity. Without saturation, there is no queue to jump; requests are admitted immediately regardless of priority.
+An initial proxy-only saturation test failed to demonstrate preemption. Root cause: the proxy's HTB rate limiter (`dynamic_rate_limiter_v3_htb`) throttles `prior3` requests before they reach SGLang, preventing enough concurrent requests from building up to saturate SGLang's 64+8=72 capacity. Without saturation, there is no queue to jump; requests are admitted immediately regardless of priority.
 
 The solution was a **hybrid test**: saturate SGLang directly (bypassing the proxy rate limiter) while sending the test requests through the proxy (to validate the priority_bridge injection pipeline).
 
@@ -411,7 +411,7 @@ litellm_settings:
       priority: 200
   callbacks:
     - vllm_param_injector
-    - dynamic_rate_limiter_v3
+    - dynamic_rate_limiter_v3_htb
     - priority_bridge
     - prometheus
 ```
@@ -447,7 +447,7 @@ This confirmed SGLang preemption works correctly when priority is explicitly set
 
 2. **SGLang preempts for high-priority requests**: The Prefill events at `#running-req: 63` while the server was saturated at 64 confirm SGLang evicted running low-priority requests to admit the high-priority request
 
-3. **The full pipeline works end-to-end**: API key metadata → `dynamic_rate_limiter_v3` ContextVar → `priority_bridge` body injection → SGLang preemption → immediate admission
+3. **The full pipeline works end-to-end**: API key metadata → `dynamic_rate_limiter_v3_htb` ContextVar → `priority_bridge` body injection → SGLang preemption → immediate admission
 
 4. **Priority ordering is correct**: `prior1` (priority=0) is highest priority under `--schedule-low-priority-values-first`, confirmed by both the source code analysis and the timing results
 

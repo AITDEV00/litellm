@@ -218,7 +218,7 @@ curl -sk -X POST https://litellm.ecouncil.ae/key/update \
   -d '{"key": "sk-ZVHnvrLkfSAE6GbuWCJssw", "models": ["all-team-models"]}'
 ```
 
-**Note:** All curl commands require the `-k` flag (self-signed cert on the proxy).
+**Note:** The gateway serves a valid DigiCert wildcard cert for `*.ecouncil.ae`, so `-k` is not required; the examples keep it for copy-paste safety.
 
 ## Phase 2: Multi-Pod In-Memory Cache Re-Poisoning Fix (skip_in_memory)
 
@@ -288,8 +288,8 @@ Test against the 2-pod k8s deployment with continuous traffic (requests every 5-
 
 ```bash
 # Port-forwards
-kubectl -n mlops port-forward pod/litellm-proxy-8678dfc99-cvtlf 4001:4000 &
-kubectl -n mlops port-forward pod/litellm-proxy-8678dfc99-dz46b 4002:4000 &
+kubectl -n adeo-litellm port-forward pod/litellm-proxy-8678dfc99-cvtlf 4001:4000 &
+kubectl -n adeo-litellm port-forward pod/litellm-proxy-8678dfc99-dz46b 4002:4000 &
 
 # Continuous request loop (both pods)
 while true; do
@@ -404,7 +404,7 @@ The Phase 4 write-back TTL guard is intact in `litellm/caching/dual_cache.py` (`
 
 - podman (or docker) installed locally
 - Access to the Harbor registry at `registry.adeoaiengine.ecouncil.ae`
-- kubectl configured with a kubeconfig that can reach the mlops namespace
+- kubectl configured with a kubeconfig that can reach the adeo-litellm namespace
 - The LiteLLM source repo at `/home/jyao/ADEO/service/litellm` on branch `jya0-v1.96.2`
 - The OICM litellm layer at `/home/jyao/ADEO/service/litellm/oicm-litellm-layer`
 
@@ -486,23 +486,23 @@ The deployment manifest (`deploy/base/gateway`) already references the correct i
 
 ```bash
 # Verify the manifest image tag matches what you pushed
-kubectl get deploy litellm-proxy -n mlops \
+kubectl get deploy litellm-proxy -n adeo-litellm \
   -o jsonpath='{.spec.template.spec.containers[0].image}'
 # Expected: .../litellm-src:jya0-v1.96.2
 
 # Trigger a rolling restart (maxUnavailable: 0, so one pod at a time)
-kubectl rollout restart deploy/litellm-proxy -n mlops
+kubectl rollout restart deploy/litellm-proxy -n adeo-litellm
 
 # Wait for the rollout to complete
-kubectl rollout status deploy/litellm-proxy -n mlops --timeout=300s
+kubectl rollout status deploy/litellm-proxy -n adeo-litellm --timeout=300s
 
 # Verify both new pods are running
-kubectl get pods -n mlops -l app=litellm-proxy
+kubectl get pods -n adeo-litellm -l app=litellm-proxy
 
 # Verify the fix is in the deployed pods
-NEW_POD=$(kubectl get pods -n mlops -l app=litellm-proxy \
+NEW_POD=$(kubectl get pods -n adeo-litellm -l app=litellm-proxy \
   -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n mlops $NEW_POD -- grep -c "skip_in_memory" \
+kubectl exec -n adeo-litellm $NEW_POD -- grep -c "skip_in_memory" \
   /app/.venv/lib/python3.13/site-packages/litellm/proxy/common_utils/user_api_key_cache.py
 # Expected: 10
 ```
@@ -519,14 +519,14 @@ Port-forward to individual pods for multi-pod testing:
 
 ```bash
 # Get the new pod names
-POD1=$(kubectl get pods -n mlops -l app=litellm-proxy \
+POD1=$(kubectl get pods -n adeo-litellm -l app=litellm-proxy \
   -o jsonpath='{.items[0].metadata.name}')
-POD2=$(kubectl get pods -n mlops -l app=litellm-proxy \
+POD2=$(kubectl get pods -n adeo-litellm -l app=litellm-proxy \
   -o jsonpath='{.items[1].metadata.name}')
 
 # Port-forward to each pod on separate local ports
-kubectl -n mlops port-forward pod/$POD1 4001:4000 &
-kubectl -n mlops port-forward pod/$POD2 4002:4000 &
+kubectl -n adeo-litellm port-forward pod/$POD1 4001:4000 &
+kubectl -n adeo-litellm port-forward pod/$POD2 4002:4000 &
 
 # Run the multi-pod test loop (see Phase 2 Multi-Pod Test Plan above)
 ```

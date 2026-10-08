@@ -396,8 +396,8 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
 - **Smoke-test the image, not just the tree.** `python -c "import litellm"` and
   the drop-detection tests prove the Python tree, but they do not prove the
   **container** has the right deps. After building, verify the merged image
-  actually boots the debug gateway and serves a model request with `sk-1234`
-  before considering the merge done. The `openrouter` crash only surfaced at
+  actually boots the debug gateway and serves a model request with the master
+  key before considering the merge done. The `openrouter` crash only surfaced at
   gateway startup, not in any import test.
 
 ---

@@ -2,7 +2,7 @@
 
 Date: 2026-07-07
 
-Environment: litellm v1.89.3 on k8s (OICM cluster), `mlops` namespace, 1 replica, image `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.89.3`
+Environment: litellm v1.89.3 on k8s (OICM cluster), `adeo-litellm` namespace (named `mlops` at the time), 1 replica, image `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.89.3`
 
 Model tested: `Qwen/Qwen3-Next-80B-A3B-Instruct` (backed by vLLM ClusterIP service `s-0826cff6-db3f-499c-b889-ea4f5fc0dd04.adeo.svc.cluster.local:8080`)
 
@@ -15,7 +15,7 @@ All benchmarks run from inside the litellm-proxy pod to isolate gateway processi
 ### 1. Get resource requests and limits
 
 ```bash
-kubectl get deploy litellm-proxy -n mlops -o jsonpath='{.spec.template.spec.containers[0].resources}' | python3 -m json.tool
+kubectl get deploy litellm-proxy -n adeo-litellm -o jsonpath='{.spec.template.spec.containers[0].resources}' | python3 -m json.tool
 ```
 
 Result:
@@ -35,7 +35,7 @@ Result:
 ### 2. Get current resource usage (idle)
 
 ```bash
-kubectl top pod -n mlops
+kubectl top pod -n adeo-litellm
 ```
 
 Result (litellm line):
@@ -46,17 +46,17 @@ litellm-proxy-7dd679f74f-cszb7    48m    1377Mi
 ### 3. Check replica count and HPA
 
 ```bash
-kubectl get deploy litellm-proxy -n mlops -o jsonpath='{.spec.replicas}'
+kubectl get deploy litellm-proxy -n adeo-litellm -o jsonpath='{.spec.replicas}'
 # 1
 
-kubectl get hpa -n mlops 2>&1 | grep -i litellm
+kubectl get hpa -n adeo-litellm 2>&1 | grep -i litellm
 # no HPA found
 ```
 
 ### 4. Check process model
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- ps aux | grep -E 'uvicorn|gunicorn|litellm' | grep -v grep
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- ps aux | grep -E 'uvicorn|gunicorn|litellm' | grep -v grep
 ```
 
 Result:
@@ -68,7 +68,7 @@ Result:
 ### 5. Check worker configuration env vars
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import os
 print('UVICORN_WORKERS:', os.environ.get('UVICORN_WORKERS', 'not set'))
 print('LITELLM_WORKERS:', os.environ.get('LITELLM_WORKERS', 'not set'))
@@ -81,14 +81,14 @@ Result: All unset. Default is 1 worker (`DEFAULT_NUM_WORKERS_LITELLM_PROXY=1` in
 ### 6. Check thread count of main process
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- sh -c 'ls /proc/1/task/ | wc -l'
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- sh -c 'ls /proc/1/task/ | wc -l'
 # 12 threads
 ```
 
 ### 7. Find the working model and its api_base
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json
 req = urllib.request.Request('http://localhost:4000/model/info', headers={'Authorization': 'Bearer {{ master_key }}'})
 resp = urllib.request.urlopen(req)
@@ -108,7 +108,7 @@ http://s-0826cff6-db3f-499c-b889-ea4f5fc0dd04.adeo.svc.cluster.local:8080/v1
 ### 8. Non-streaming latency benchmark (20 sequential requests)
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json, time, statistics
 
 MODEL = 'Qwen/Qwen3-Next-80B-A3B-Instruct'
@@ -192,7 +192,7 @@ Overhead: 53.8ms (58.6% added by litellm)
 ### 9. Streaming latency benchmark (10 requests, TTFT)
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json, time, statistics
 
 MODEL = 'Qwen/Qwen3-Next-80B-A3B-Instruct'
@@ -280,7 +280,7 @@ Total overhead: 57.8ms (67.5%)
 ### 10. Concurrent load benchmark (c=5 and c=10)
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json, time, statistics, concurrent.futures, threading
 
 MODEL = 'Qwen/Qwen3-Next-80B-A3B-Instruct'
@@ -363,7 +363,7 @@ LiteLLM (c=10, n=30): p50=271.5ms p95=470.2ms max=471.9ms errors=0
 ### 11. Memory usage under load (in-pod sampling)
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json, time, threading, subprocess, os, statistics
 
 MODEL = 'Qwen/Qwen3-Next-80B-A3B-Instruct'
@@ -431,7 +431,7 @@ Peak RSS: 1389.5 MB
 
 ```bash
 # Run sustained load in background, then sample kubectl top
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request, json, time, threading
 MODEL = 'Qwen/Qwen3-Next-80B-A3B-Instruct'
 URL = 'http://localhost:4000/v1/chat/completions'
@@ -452,9 +452,9 @@ print('Load generation complete')
 " &
 sleep 5
 echo "=== CPU/Mem during active load (20 concurrent threads) ==="
-kubectl top pod -n mlops 2>&1 | grep litellm
+kubectl top pod -n adeo-litellm 2>&1 | grep litellm
 sleep 5
-kubectl top pod -n mlops 2>&1 | grep litellm
+kubectl top pod -n adeo-litellm 2>&1 | grep litellm
 wait
 ```
 

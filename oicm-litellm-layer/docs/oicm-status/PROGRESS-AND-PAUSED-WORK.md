@@ -1,6 +1,6 @@
-# Status persistence: progress log and paused work
+# Status persistence: progress log
 
-Date: 2026-10-06
+Date: 2026-10-06 (last refreshed 2026-10-08)
 Companion to `DESIGN-STATUS-PERSISTENCE.md` (the agreed design) and
 `IMPLEMENTATION-CHECKLIST.md` (the step order).
 
@@ -9,8 +9,9 @@ route contract, data model, verification, and open threads), see
 `CHANGE-REPORT-2026-10-06-health-table.md`. It is the self-contained handoff
 document for that work.
 
-This file exists so nothing is lost while the work is paused. It records what
-landed, what is verified, what is blocked, and the exact next step.
+This file records what landed, what is verified, and what is still open. The
+design steps and M1/M3 milestones have landed; the only genuinely unstarted work
+is M2 engine-load telemetry (see the open work register below).
 
 ## Where the work is
 

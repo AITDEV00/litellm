@@ -95,7 +95,7 @@ abort is not wired through. Both sides think the other is fine.
 | Layer | Action | Status |
 |---|---|---|
 | Router | `retry_policy` already tunes budget per exception | ✅ live in prod (`26d69ff986`) |
-| Upstream | bump `stream_timeout` from `30` to `60` | pending config change |
+| Upstream | raise `stream_timeout` from `30` to a longer silence budget | ✅ live in prod (`stream_timeout: 300`, `timeout: 600` in the `litellm-config` ConfigMap) |
 | Instrumentation | per-request stream tracer writes JSONL | ✅ live on dev (`d80ed16727`) |
 | Upstream (abort) | when gap >= `stream_timeout` *and* we're about to walk away, send sglang `/abort_request` with the request id | **next** |
 | Orphan sweep | periodic job that calls `abort_all` against sglang when TokenizerManager warnings cross a threshold | **next** |

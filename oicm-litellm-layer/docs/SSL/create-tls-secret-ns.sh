@@ -13,9 +13,9 @@
 # Usage:
 #   ./create-tls-secret-ns.sh <path-to-cert.pfx> <pfx-password> <namespace> <secret-name>
 #
-# Example (DigiCert *.ecouncil.ae -> litellm.ecouncil.ae in mlops):
+# Example (DigiCert *.ecouncil.ae -> litellm.ecouncil.ae in adeo-litellm):
 #   ./create-tls-secret-ns.sh 'ecouncil.ae-30062026-inter 1.pfx' \
-#     'Adeo@234' mlops litellm-ecouncil-ae-tls
+#     'Adeo@234' adeo-litellm litellm-ecouncil-ae-tls
 #
 # Prerequisites: kubectl (configured for the target cluster), openssl.
 # ──────────────────────────────────────────────────────────────────────

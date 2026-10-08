@@ -17,7 +17,6 @@ oicm-litellm-layer/
 ├── requirements-docs.txt   ← docs-site build deps (mkdocs + material)
 ├── Dockerfile.dev          ← local dev container
 ├── docker-compose.dev.yml  ← local dev stack
-├── .python-version
 ├── .env.datasource         ← local datasource env (see example)
 ├── .env.datasource.example
 │
@@ -28,6 +27,11 @@ oicm-litellm-layer/
 │   ├── reconciler.py       ← model reconciliation
 │   ├── models.py           ← OicmModel dataclass
 │   ├── litellm_client.py   ← LiteLLM REST API client (uses LITELLM_ADMIN_KEY)
+│   ├── exclusions.py       ← declarative excluded-model ids (never register)
+│   ├── sources_config.py   ← OICM status-source definitions schema
+│   ├── status_poller.py    ← polls OICM status sources on a cadence
+│   ├── status_persister.py ← writes status snapshots / heartbeats
+│   ├── status_sources.py   ← builds OicmStatusSource instances from config
 │   ├── Dockerfile
 │   ├── README.md           ← controller dev docs (env var table here)
 │   ├── sources/            ← model sources (ABC + impls)
@@ -39,14 +43,15 @@ oicm-litellm-layer/
 │   ├── pricing/            ← model pricing resolution
 │   │   ├── aggregator.py  matchers.py  models.py  normalizer.py
 │   │   ├── resolver.py  source.py  utils.py
-│   └── status/             ← OICM status → LiteLLM status mapping
-│       ├── base.py  builder.py  models.py  oicm.py
+│   └── status/             ← OICM status -> LiteLLM status mapping
+│       ├── base.py  availability.py  builder.py  oicm.py  snapshot.py  wire.py
 │
-├── config/                 ← component #5: LiteLLM PROXY CONFIG
-│   ├── litellm_config.yaml   ← production config (deployed as ConfigMap)
+├── config/                 ← component #5: LiteLLM PROXY CONFIG (local only)
 │   ├── local_dev.yaml        ← local dev proxy config (master_key: os.environ/LITELLM_MASTER_KEY)
 │   ├── local_datasource.yaml ← local datasource validation config
 │   └── local_test_voice.yaml ← local voice test config
+│                                (the DEPLOYED config is the `litellm-config`
+│                                 ConfigMap in deploy/base/gateway/config/)
 │
 ├── hooks/                  ← components #3 & #4: LiteLLM callbacks/hooks
 │   ├── vllm_param_injector.py  ← relocates vLLM params to extra_body
@@ -56,10 +61,22 @@ oicm-litellm-layer/
 │
 ├── decor/                  ← images/assets (logo, favicon)
 │
-├── deploy/                 ← KUBERNETES MANIFESTS (grouped by environment)
-│   ├── prod/                          ← production manifests (apply these)
-│   │   ├── litellm-proxy.yaml              ← proxy Deployment + Secrets +
-│   │   │                                      ConfigMaps + Service + PDB
+├── deploy/                 ← KUBERNETES MANIFESTS
+│   ├── base/                          ← shared kustomize bases
+│   │   ├── gateway/                        ← gateway objects (prod names/values)
+│   │   │   ├── kustomization.yaml
+│   │   │   ├── proxy/                      ← Deployment, Service, PDB
+│   │   │   ├── config/litellm-config.yaml  ← proxy ConfigMap (the deployed config)
+│   │   │   └── secrets/                    ← litellm-master-key, litellm-salt-key,
+│   │   │                                      litellm-db-credentials
+│   │   └── shared/                        ← litellm-hooks ConfigMap + litellm-redis-password
+│   │                                          Secret (unsuffixed; consumed by both envs)
+│   ├── overlays/                      ← kustomize overlays that render what runs
+│   │   ├── prod/                           ← base/gateway + base/shared, unchanged
+│   │   └── dev/                            ← base/gateway with nameSuffix: -dev
+│   │       └── gateway/                     ← the ONLY declared dev/prod delta
+│   ├── oicm/                          ← OICM source/exclusion ConfigMaps, service-account Jobs
+│   ├── prod/                          ← non-kustomized prod resources (apply these)
 │   │   ├── discovery-controller.yaml       ← controller Deployment + RBAC + SA
 │   │   ├── litellm-redis.yaml              ← Redis StatefulSet
 │   │   ├── litellm-ingress.yaml            ← ingress
@@ -69,9 +86,8 @@ oicm-litellm-layer/
 │   │   ├── litellm-postgres-recovery.yaml
 │   │   ├── old-postgres-pvcs.yaml
 │   │   └── spend-logs-janitor/             ← CronJob + PVC + scripts/sql
-│   ├── dev/                           ← dev variants (proxy, controller,
-│   │   │                                  config, postgres, servicemonitor,
-│   │   │                                  + spend-logs-janitor/)
+│   ├── dev/                           ← dev variants (controller, exclusions,
+│   │   │                                  postgres, servicemonitor, janitor)
 │   └── rollback/                      ← rollback manifests pinned to versions
 │       ├── litellm-proxy-rollback-jya0-v1.97.0.yaml ← pinned to image jya0-v1.97.0
 │       ├── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2
@@ -126,6 +142,7 @@ oicm-litellm-layer/
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── port-forward-datasources.sh ← datasource local-validation port-forwards
 │   ├── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
+│   ├── make_service_account_secrets.sh ← generate OICM SA secrets (make oicm-sa-secrets)
 │   ├── htb_test.py  htb_test_v2.py ← HTB limiter live tests
 │   ├── backfill_hosted_vllm_spend.py  ← spend backfill after model onboarding
 │   ├── rebuild_daily_spend_rollups.py ← daily-spend rollup rebuild
@@ -134,9 +151,7 @@ oicm-litellm-layer/
 │   ├── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
 │   ├── probe_reasoning.py ← cache-bypassing reasoning-control probe
 │   ├── probe_oicm_status_api.py ← OICM status API probe
-│   ├── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
-│   ├── vllm-0.20.0-no-work/ ← same bundle, no-work variant
-│   └── model-server-onboarding-no-work/ ← generic onboarding bundle
+│   └── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
 │
 ├── benchmarks/             ← benchmark scripts
 │   ├── bench_after.py  bench_final.py  bench_2replicas.py  bench_minimax_vision.py
@@ -151,17 +166,17 @@ oicm-litellm-layer/
 │   │                          gen_image.sh, test_image_endpoints.sh (36 cases), inputs/; out/ is gitignored
 │   └── openrouter/         ← /api/v1/models demo
 │
-├── tests/                  ← tests (controller, hooks)
+├── tests/                  ← tests (controller, deploy, hooks)
 │   ├── controller/
-│   │   ├── test_reconciler.py
+│   │   ├── test_reconciler.py, test_controller_watch.py, test_exclusions.py, ...
 │   │   └── pricing/        ← pricing tests
+│   ├── deploy/             ← kustomize render / dev-prod parity tests
 │   └── hooks/
 │       └── test_priority_bridge.py
 │
 └── downloaded_sources/     ← git-ignored; pinned upstream source trees kept
-                               locally for reference (litellm_v1.102.0,
-                               vllm_router_pr217, sglang_reference,
-                               llmd_issue1980_pr14)
+                               locally for reference (openrouter-docs,
+                               openrouter-python-sdk)
 ```
 
 ## What maps to what task
@@ -171,7 +186,7 @@ oicm-litellm-layer/
 | Change the proxy master key / UI password | `deploy/base/gateway` (single source) + restart both Deployments. See `docs/credentials.md` |
 | Edit discovery controller logic | `controller/controller.py`, `controller/reconciler.py`, `controller/sources/*` |
 | Edit controller env defaults | `controller/config.py` |
-| Edit LiteLLM proxy settings | `config/litellm_config.yaml` |
+| Edit LiteLLM proxy settings | `deploy/base/gateway/config/litellm-config.yaml` (the deployed `litellm-config` ConfigMap) |
 | Add/edit a callback hook | `hooks/*.py` |
 | Review a custom-route plan | `docs/custom-routes-plans/*` (implementation code lives in the litellm source tree per the VSA plan) |
 | Deploy / apply / rollout | `deploy/*.yaml` (see `docs/deployment.md`) |

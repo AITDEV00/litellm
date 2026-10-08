@@ -1,5 +1,17 @@
 # OICM → LiteLLM Integration Layer — Full Implementation Plan
 
+> **Status note (2026-10-08)**: this is the original design plan, kept for
+> context. Not everything here shipped as written. In particular **Component #2
+> (Custom Auth Handler) was never implemented**: there is no `auth/oicm_auth.py`,
+> no `auth/` directory, and no `general_settings.custom_auth` in the deployed
+> config. Auth is LiteLLM's native virtual-key auth. Component #4 (KEDA callback)
+> exists in `hooks/keda_metrics.py` but is not registered in the deployed
+> callbacks list. Component #6 (embedding patch) is retired (see
+> `docs/components/patches.md`). The `mlops` namespace referenced below is now
+> `adeo-litellm`, and the config now lives at
+> `deploy/base/gateway/config/litellm-config.yaml`. For the current state, see
+> `docs/components/` and `docs/structure.md`.
+
 ## Executive Summary
 
 This document provides a complete, build-ready implementation plan for the external integration layer between the OICM model platform and LiteLLM proxy. **No fork is required** (except one optional 5-line embedding patch). Every component uses LiteLLM's public extension points: REST APIs, `custom_auth`, `CustomLogger` callbacks, and `config.yaml`.

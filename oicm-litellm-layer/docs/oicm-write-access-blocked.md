@@ -4,6 +4,14 @@ Date: 2026-09-23
 Cluster: ADEO AI Engine (ecouncil.ae), namespace `oicm-keycloak` + `mlops`
 Status: OICM API **read works**, **write blocked** by two independent platform defects. No cluster state was changed (test objects removed).
 
+> **Resolved (2026-09-28)**: the platform team provisioned `app-admin` / the
+> `application_admin` role. A `POST /api/v1/model_servers` with a malformed body
+> now returns HTTP 400 (schema validation), not 403, so auth and create
+> permission are granted. Working credentials live in
+> `scripts/vllm-0.20.0/.env` (not committed). The auth gotcha below (use the
+> `auth-oicm.` issuer) still applies. This document is retained as the root-cause
+> record of the original blocker.
+
 ## Summary
 
 Onboarding scripts can authenticate and **read** model servers over the OICM REST API, but cannot **create** them. `oicm-admin` returns `{"error_code": 403, "message": "UNAUTHORIZED ACCOUNT ACTIVITY"}` on `POST /api/v1/model_servers`. The intended write account `app-admin` does not exist. Neither defect is fixable by the onboarding scripts.

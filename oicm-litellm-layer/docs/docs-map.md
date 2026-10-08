@@ -29,6 +29,12 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Deployment-status feasibility | `docs/oicm-status/OICM-STATUS-FEASIBILITY.md` |
 | Question-by-question answers | `docs/oicm-status/FEASIBILITY-ANSWERS.md` |
 | Implementation checklist | `docs/oicm-status/IMPLEMENTATION-CHECKLIST.md` |
+| Status persistence design | `docs/oicm-status/DESIGN-STATUS-PERSISTENCE.md` |
+| Progress & open work register | `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md` |
+| Health-table change report | `docs/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md` |
+| Health-table logic map | `docs/oicm-status/LOGIC-MAP-2026-10-07-health-table.md` |
+| Controller code-smell pass | `docs/oicm-status/CODE-SMELL-PASS-2026-10-06.md` |
+| Live OICM status REST API catalog | `docs/oicm-status/OICM-API-CATALOG.md` |
 | `/endpoints` consumer logic map | `docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md` |
 | litellm-to-`/endpoints` field mapping | `docs/openrouter/MAPPING-litellm-to-endpoints.md` |
 | usage/telemetry sources + accuracy audit | `docs/openrouter/MAPPING-usage-metrics.md` |
@@ -67,7 +73,10 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |-----|----------|
 | Custom providers README | `docs/custom-providers/README.md` |
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
-| HAMSA / INCEPTION / OMNIVOICE research & audits | `docs/custom-providers/HAMSA_*.md`, `INCEPTION_*.md`, `OMNIVOICE_*.md` |
+| HAMSA research / TTS behavior | `docs/custom-providers/HAMSA_RESEARCH.md`, `HAMSA_TTS_BEHAVIOR.md` |
+| OmniVoice logic maps + audit + test methods | `docs/custom-providers/OMNIVOICE_LOGIC_MAPPING.md`, `OMNIVOICE_LOGIC_MAP_v2.md`, `OMNIVOICE_POST_BUILD_LOGIC_MAP.md`, `OMNIVOICE_EXTENSIBILITY_AUDIT.md`, `EXAMPLE_OMNIVOICE_TEST_METHODS.md` |
+| Inception audit / pod parity | `docs/custom-providers/inception-hamsa-audit.md`, `inception-gateway-pod-parity.md` |
+| Gateway field-drop investigation | `docs/custom-providers/gateway-field-drop-investigation.md` |
 
 ## Usage Guides
 

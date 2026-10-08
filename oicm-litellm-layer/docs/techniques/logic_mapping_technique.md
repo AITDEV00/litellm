@@ -269,7 +269,11 @@ When applying this technique, the following artifacts should be produced:
 
 ### Example 2: LiteLLM Tier 2 per-model metrics dashboard
 
-- **Logic map**: `oicm-litellm-layer/docs/dashboard-plan/TIER2-LOGIC-MAP.md`
+- **Logic map**: the Tier 2 model-performance work is documented under
+  `oicm-litellm-layer/docs/performance/` (see
+  `model-performance-optimization-LOGIC-MAP.md` and
+  `model-performance-30d-read-fix-LOGIC-MAP.md`); the original `TIER2-LOGIC-MAP.md`
+  and `TIER2-TESTING-METHODOLOGY.md` have since been folded into those files
   - Entry: `proxy_server.py:chat_completion()` → `router.acompletion()`
   - Flow: `async_pre_call_deployment_hook` (INC gauge) → provider call → `success_handler`/`failure_handler` (DEC gauge) → Prometheus scrape → `get_per_model_metrics()` → endpoint response
   - Live data: `live-data/01-13-*.json` scraped from production Prometheus

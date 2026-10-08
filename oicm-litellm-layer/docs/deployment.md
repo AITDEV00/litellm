@@ -42,6 +42,10 @@ they diverge in any way those patches do not declare.
 | `deploy/prod/litellm-postgres-recovery.yaml` | Postgres recovery resources | `adeo-litellm` |
 | `deploy/prod/old-postgres-pvcs.yaml` | Old Postgres PVCs (recovery leftovers) | `adeo-litellm` |
 | `deploy/prod/spend-logs-janitor/` | Spend-logs janitor CronJob + PVC + scripts | `adeo-litellm` |
+| `deploy/oicm/sources.yaml` | `oicm-sources` ConfigMap (OICM status sources the controller polls) | `adeo-litellm` |
+| `deploy/oicm/exclusions.yaml` | `oicm-exclusions` ConfigMap (prod excluded models, empty) | `adeo-litellm` |
+| `deploy/dev/oicm-exclusions-dev.yaml` | `oicm-exclusions-dev` ConfigMap (dev excluded models) | `adeo-litellm` |
+| `deploy/oicm/provision-*.yaml` + `service-account-secret.yaml` | OICM service-account provisioning Jobs / Secrets | `adeo-litellm` |
 | `deploy/dev/discovery-controller-dev.yaml` | Dev variant of the controller | `adeo-litellm` |
 | `deploy/dev/litellm-postgres-dev-cluster.yaml` | Dev Postgres cluster | `adeo-litellm` |
 | `deploy/dev/litellm-servicemonitor-dev.yaml` | Dev ServiceMonitor | `adeo-litellm` |

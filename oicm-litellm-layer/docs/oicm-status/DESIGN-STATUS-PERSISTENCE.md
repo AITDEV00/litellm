@@ -1,10 +1,11 @@
 # Model status persistence in LiteLLM `model_info`
 
 Date: 2026-10-06
-Status: design agreed and being implemented. Steps 1-9 of the implementation order
-(the controller-side facts, transport, poll, and the existence rule) are implemented and
-committed. Steps 10-12 (persisting the block, gating the write, and staleness) are the
-current work.
+Status: design agreed and **implemented**. All twelve steps of the implementation
+order have landed: the controller-side facts, transport, poll, existence rule,
+the persisted `model_info.oicm` block, `blocked` ownership, and staleness (via
+native health-table rows). See `PROGRESS-AND-PAUSED-WORK.md` for the step-by-step
+state and the remaining M2 engine-load telemetry work.
 Scope: how the controller stores OICM deployment status on the LiteLLM model row, how a
 stopped deployment stays visible while becoming unroutable, and how a consumer tells fresh
 status from a dead controller

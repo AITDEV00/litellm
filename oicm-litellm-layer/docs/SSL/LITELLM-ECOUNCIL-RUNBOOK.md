@@ -5,7 +5,7 @@
 > DKP/Traefik flavor (that one targets `ecas`/`gsip`/`mdm`).
 > **Cert:** DigiCert wildcard `*.ecouncil.ae`, distributed as a `.pfx`.
 >
-> Applied **2026-08-19** to the `litellm-proxy` ingress in the `mlops`
+> Applied **2026-08-19** to the `litellm-proxy` ingress in the `adeo-litellm`
 > namespace.
 
 ---
@@ -66,7 +66,7 @@ cd oicm-litellm-layer/docs/SSL
 ./create-tls-secret-ns.sh \
   'ecouncil.ae-30062026-inter 1.pfx' \
   'Adeo@234' \
-  mlops \
+  adeo-litellm \
   litellm-ecouncil-ae-tls
 ```
 
@@ -94,7 +94,7 @@ awk '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/' "$TMP/key.pem"  
 awk 'BEGIN{p=0} /-----BEGIN CERTIFICATE-----/{p=1} p{print} /-----END CERTIFICATE-----/{p=0}' "$TMP/chain.pem" > "$TMP/fullchain.pem"
 # create
 kubectl create secret tls litellm-ecouncil-ae-tls \
-  --cert="$TMP/fullchain.pem" --key="$TMP/privkey.pem" -n mlops \
+  --cert="$TMP/fullchain.pem" --key="$TMP/privkey.pem" -n adeo-litellm \
   --dry-run=client -o yaml | kubectl apply -f -
 rm -rf "$TMP"
 ```
@@ -106,12 +106,12 @@ rm -rf "$TMP"
 
 ## Step 2 — Point the ingress at the secret
 
-The `litellm-proxy` ingress in `mlops` originally had one rule (the old host)
+The `litellm-proxy` ingress in `adeo-litellm` originally had one rule (the old host)
 and one TLS entry referencing the missing secret. We **added** the new host and
 a second TLS entry; nothing existing was removed.
 
 ```bash
-kubectl patch ingress litellm-proxy -n mlops --type=json -p='[
+kubectl patch ingress litellm-proxy -n adeo-litellm --type=json -p='[
   {"op":"add","path":"/spec/rules/-","value":{"host":"litellm.ecouncil.ae","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"litellm-proxy","port":{"number":4000}}}}]}}},
   {"op":"add","path":"/spec/tls/-","value":{"hosts":["litellm.ecouncil.ae"],"secretName":"litellm-ecouncil-ae-tls"}}
 ]'
@@ -120,11 +120,11 @@ kubectl patch ingress litellm-proxy -n mlops --type=json -p='[
 Expected result:
 
 ```bash
-kubectl get ingress litellm-proxy -n mlops -o jsonpath='{range .spec.rules[*]}{.host}{"\n"}{end}'
+kubectl get ingress litellm-proxy -n adeo-litellm -o jsonpath='{range .spec.rules[*]}{.host}{"\n"}{end}'
 # litellm.ecouncil.ae
 # litellm.ecouncil.ae
 
-kubectl get ingress litellm-proxy -n mlops -o jsonpath='{range .spec.tls[*]}{.hosts[0]} -> {.secretName}{"\n"}{end}'
+kubectl get ingress litellm-proxy -n adeo-litellm -o jsonpath='{range .spec.tls[*]}{.hosts[0]} -> {.secretName}{"\n"}{end}'
 # litellm.ecouncil.ae -> litellm.ecouncil.ae-tls
 # litellm.ecouncil.ae              -> litellm-ecouncil-ae-tls
 ```
@@ -146,7 +146,7 @@ litellm.ecouncil.ae   A    <ingress load balancer IP>
 The ingress load balancer IP is:
 
 ```bash
-kubectl get ingress litellm-proxy -n mlops -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+kubectl get ingress litellm-proxy -n adeo-litellm -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
 ```
 
 It should match the IP that the existing host resolves to
@@ -181,7 +181,7 @@ curl -sI https://litellm.ecouncil.ae/ | head -5
 **C. Confirm the secret:**
 
 ```bash
-kubectl get secret litellm-ecouncil-ae-tls -n mlops
+kubectl get secret litellm-ecouncil-ae-tls -n adeo-litellm
 # TYPE should be kubernetes.io/tls, DATA 2
 ```
 
@@ -194,7 +194,7 @@ kubectl get secret litellm-ecouncil-ae-tls -n mlops
 - **Incomplete chain.** The secret must contain the leaf **and** the DigiCert
   intermediate (2 certs). Verify with:
   ```bash
-  kubectl get secret litellm-ecouncil-ae-tls -n mlops -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -c "BEGIN CERTIFICATE"
+  kubectl get secret litellm-ecouncil-ae-tls -n adeo-litellm -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -c "BEGIN CERTIFICATE"
   # should be 2
   ```
 - **PKCS#12 bag attributes not stripped**: re-run the script; the `awk` steps
@@ -241,8 +241,8 @@ though the cluster is egress-restricted.
 | `create-tls-secret-ns.sh`               | Generalized pfx->tls-secret script (namespace/secret params) |
 | `ecouncil.ae-30062026-inter 1.pfx`      | The DigiCert`*.ecouncil.ae` bundle (password-protected)    |
 | `CERT-GUIDELINE.md`                     | Original Traefik/DKP guide (ecas/gsip/mdm)                   |
-| Ingress`litellm-proxy` (mlops)          | Updated with`litellm.ecouncil.ae` + TLS entry              |
-| Secret`litellm-ecouncil-ae-tls` (mlops) | DigiCert leaf + intermediate                                 |
+| Ingress`litellm-proxy` (adeo-litellm)          | Updated with`litellm.ecouncil.ae` + TLS entry              |
+| Secret`litellm-ecouncil-ae-tls` (adeo-litellm) | DigiCert leaf + intermediate                                 |
 
 ---
 

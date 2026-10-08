@@ -18,7 +18,7 @@ stack.
 | `.pfx` password | The export password, e.g. `Adeo@234` |
 | `kubectl` | Configured for the target cluster (`kubectl get ns` works) |
 | `openssl` | For extraction and verification |
-| The script | `k8s/apply-wildcard-cert.sh` in this repo |
+| The script | `docs/SSL/create-tls-secret-ns.sh` in this repo (generalized `.pfx` -> `kubernetes.io/tls` secret helper) |
 
 ---
 
@@ -92,7 +92,7 @@ Run the generalized script with four arguments: `<pfx-file> <pfx-password>
 ```bash
 cd ~/ecas-frontend   # or wherever the repo is cloned
 
-./k8s/apply-wildcard-cert.sh \
+./create-tls-secret-ns.sh \
   ~/ecouncil.ae-30062026-inter.pfx \
   'Adeo@234' \
   <NAMESPACE> \
@@ -221,7 +221,7 @@ The current cert expires **Jan 14, 2027**. When you receive a new `.pfx`:
 1. Copy the new `.pfx` to the VM.
 2. Re-run the same script for each namespace/secret that needs updating:
    ```bash
-   ./k8s/apply-wildcard-cert.sh ~/new-cert.pfx 'new-password' <namespace> <secret-name>
+   ./create-tls-secret-ns.sh ~/new-cert.pfx 'new-password' <namespace> <secret-name>
    ```
 3. Verify with Step 5.
 

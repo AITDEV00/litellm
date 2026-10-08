@@ -2,7 +2,7 @@
 
 Phase 1 trace correcting `spend-logs-ram-and-model-performance-LOGIC-MAP.md`
 (one claim in §2 was wrong — see §3.2). Live-verified against prod
-(mlops, 2026-09-08) as `LIVE:`. All four deployed general_settings flags
+(adeo-litellm, 2026-09-08) as `LIVE:`. All four deployed general_settings flags
 traced to their exact source semantics.>
 > **Follow-up (2026-09-15)**: the steady-state OOM recurrence after this
 > fix has a separate, now-confirmed root cause — see
@@ -10,6 +10,16 @@ traced to their exact source semantics.>
 > That map supersedes this doc's §3.2 "per-request buffering" ranking: the
 > dominant ratchet is Prisma engine arena memory grown by dashboard
 > analytics reads, not Python-side buffering.
+>
+> **Update (2026-10-08)**: the deployed flag values have since changed. The
+> live `litellm-config` ConfigMap now sets
+> `maximum_spend_logs_retention_period: "999d"` and
+> `maximum_spend_logs_retention_interval: "1h"`, and
+> `maximum_spend_logs_cleanup_max_batches` is no longer set: upstream retention
+> never drops (`999d`), and the pressure-based `spend-logs-janitor-prod`
+> CronJob owns actual retention. The §1 "our value" numbers below (6h, 2000,
+> 60d) are the 2026-09-08 state; the code-path mechanics they trace are still
+> accurate.
 ---
 
 ## 1. The four flags — exact semantics

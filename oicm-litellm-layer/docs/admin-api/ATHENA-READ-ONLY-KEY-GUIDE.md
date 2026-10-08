@@ -9,7 +9,7 @@ Use it for dashboards, auditors, export jobs, monitoring scrapers, and any integ
 | Setting | Value |
 |---------|-------|
 | Proxy base URL | `https://litellm.ecouncil.ae` |
-| TLS | Self-signed. Every HTTP client must skip verification (`curl -k`, `requests.verify=False`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, etc.) |
+| TLS | Valid DigiCert wildcard `*.ecouncil.ae`. Verification succeeds (`curl` without `-k`), though the examples below keep `-k` for copy-paste safety |
 | Key alias | `athena-read-only` |
 | Key value | `sk-nUVF9ruGsSRqe7xOthTU1Q` (treat as a secret; rotate via a proxy admin key if leaked) |
 | Backing user email | `athena-read-only@adeo.local` |
@@ -38,7 +38,7 @@ resp = requests.get(
     f"{PROXY_BASE_URL}/key/list",
     params={"page": 1, "size": 5},
     headers={"Authorization": f"Bearer {ATHENA_KEY}"},
-    verify=False,  # self-signed cert
+    verify=True,  # gateway cert is a valid DigiCert wildcard
 )
 ```
 

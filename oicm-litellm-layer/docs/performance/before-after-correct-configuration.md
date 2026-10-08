@@ -2,7 +2,7 @@
 
 Date: 2026-07-07
 
-Environment: litellm v1.89.3 on k8s (OICM cluster), `mlops` namespace
+Environment: litellm v1.89.3 on k8s (OICM cluster), `adeo-litellm` namespace (named `mlops` at the time)
 
 Model tested: `Qwen/Qwen3-Next-80B-A3B-Instruct` (backed by vLLM ClusterIP)
 

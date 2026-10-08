@@ -10,6 +10,10 @@ Scope of this report: commits `31409b80db` (feature), `9ccd60de39` (Prisma fix),
 `08f54c344a` (docs + pinned dev manifest), all on branch `jya0-v1.102.0` of
 `github.com/AITDEV00/litellm.git`, all deployed to dev only. Prod was not touched.
 
+> Update (2026-10-08): prod has since been rolled to the same bytes dev verified,
+> so this change is live in both environments. See the "Prod rollout: done"
+> section of `PROGRESS-AND-PAUSED-WORK.md`.
+
 ## 1. Why this change exists
 
 The previous design recorded per-source liveness as a *model row*: a synthetic

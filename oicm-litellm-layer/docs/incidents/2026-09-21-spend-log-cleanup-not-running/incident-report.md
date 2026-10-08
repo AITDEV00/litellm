@@ -1,10 +1,13 @@
 # 2026-09-21 Postgres SpendLogCleanup never firing despite retention config
 
-Severity: deferred. Postgres disk at 73% (was 98%+ during the 2026-09-08
-incident), table holds ~22.5k rows beyond the 60-day cutoff, and no cleanup
-jobs have run in the last 24h. RAM is stable; the gateway itself is healthy.
+Severity: **reopened / active (2026-10-08)**. Originally deferred: Postgres disk
+at 73%, table held ~22.5k rows beyond the 60-day cutoff, and no upstream cleanup
+jobs had run in 24h. As of 2026-10-08 the pressure-based `spend-logs-janitor-prod`
+CronJob is failing every run on a partition-permission error, so retention is no
+longer being enforced: 1.59M rows are past the cutoff and the DB is at 81.7GB,
+over the janitor's 75GiB pressure threshold. See "UPDATE 2026-10-08" below.
 
-Status: RECORDED, deferred. Will come back to this. Track via this file.
+Status: RECORDED, then reopened 2026-10-08. Track via this file.
 
 ---
 
@@ -47,6 +50,63 @@ silently brewing.
 Defer. Disk is at 73%, has months of headroom, and the gateway memory fix
 is verified holding. The cost of fixing this wrong (false positive claiming
 healthy cleanup) outweighs the cost of leaving it deferred.
+
+## UPDATE 2026-10-08 — janitor is now failing on permissions, retention has regressed
+
+The cleanup problem changed shape: upstream `SpendLogCleanup` is still not the
+actor, but the pressure-based `spend-logs-janitor-prod` CronJob that took over
+retention is now **failing every run**.
+
+Live state (2026-10-08):
+
+| Metric | 2026-09-21 | 2026-10-08 |
+|---|---|---|
+| `spend-logs-janitor-prod` jobs | running | **5 consecutive Failed**, last 3 runs Complete were ~19-23h earlier |
+| `older_than_60d` rows | 22,539 | **1,589,805** |
+| Oldest row | 2026-07-23 | 2026-07-26 |
+| DB size | 71GB / 99GB (73%) | **81.7GB**, over the janitor's 75GiB pressure threshold |
+| `live_rows` | 16.8M | 19.07M |
+
+Failure (from a failed job's pod log):
+
+```
+[janitor] disk pressure detected (76G > 75G); archiving oldest partitions
+[janitor] working on LiteLLM_SpendLogs_p20260725
+[janitor] DUMP LiteLLM_SpendLogs_p20260725 -> /archive/LiteLLM_SpendLogs_p20260725.dump
+ERROR:  permission denied for table LiteLLM_SpendLogs_p20260725
+[janitor] ERROR: count failed
+```
+
+Root cause: the janitor CronJob connects as `DB_USER=oicm`
+(`deploy/prod/spend-logs-janitor/cronjob.yaml`), but the spend-log partitions are
+owned by `postgres`:
+
+```
+LiteLLM_SpendLogs_p20260725  owner=postgres
+LiteLLM_SpendLogs_p20260726  owner=postgres
+```
+
+`sql/bootstrap.sql` was written for a DB where the master table and its
+partitions were owned by `litellm` (its `ALTER TABLE ... OWNER TO litellm` loop
+is a no-op when the owner is already `postgres`), so the grants it issues to
+`oicm` (ledger R/W, `CREATEDB`, `litellm` membership) never include SELECT on
+the partitions themselves. `pg_dump` and `DETACH` therefore fail. The
+`LiteLLM_SpendLogsArchiveLedger` is also owned by `oicm`, so the proxy
+(`litellm`) gets `permission denied` reading it.
+
+Fix direction (not yet applied; needs the CNPG superuser role):
+
+- Either run the janitor as a role that owns or can read the partitions
+  (`postgres`), or grant it explicitly:
+  `GRANT SELECT ON ALL TABLES IN SCHEMA public TO oicm;` for the existing
+  partitions, plus `ALTER TABLE <partition> OWNER TO oicm` (or `TO litellm`) so
+  `DETACH`/`DROP` work, plus `ALTER DEFAULT PRIVILEGES FOR ROLE postgres ...`
+  so future partitions stay readable.
+- Re-run `sql/bootstrap.sql` after fixing ownership so the ledger ownership is
+  consistent with the connecting role.
+
+Until then, retention is not being enforced and the DB keeps growing past the
+janitor's pressure threshold.
 
 ## To resume
 

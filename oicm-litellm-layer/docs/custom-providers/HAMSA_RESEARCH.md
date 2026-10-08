@@ -129,7 +129,7 @@ Result:
 This was the critical test. Sending all chunks at once produces zero transcriptions because the VAD (Silero) expects streaming audio with natural speech/silence patterns. Adding a 100ms delay between chunks (simulating real microphone pacing) triggers the VAD correctly.
 
 ```bash
-KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl exec -n mlops \
+KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl exec -n adeo-litellm \
   litellm-proxy-57b4c9985d-6c8bx -- python3 -c "
 import asyncio, websockets, json, wave, numpy as np
 
@@ -241,7 +241,7 @@ KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl cp \
 # From local to LiteLLM pod
 KUBECONFIG=$HOME/.kube/oicm-alain.conf kubectl cp \
   /tmp/test-adeo-30s.wav \
-  mlops/litellm-proxy-57b4c9985d-6c8bx:/tmp/test-adeo-30s.wav
+  adeo-litellm/litellm-proxy-57b4c9985d-6c8bx:/tmp/test-adeo-30s.wav
 ```
 
 ## 5. Self-Hosted Hamsa Protocol (from source code)

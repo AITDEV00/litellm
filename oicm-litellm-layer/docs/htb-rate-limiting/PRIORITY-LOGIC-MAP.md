@@ -13,7 +13,7 @@
 | Term | Meaning |
 |---|---|
 | **HTB** | Hierarchical Token Bucket. Each priority gets a guaranteed rate and can borrow unused sibling capacity. |
-| **`htb_priority`** | The single `ContextVar[Optional[str]]` that carries a request's priority from the proxy layer to the router layer. Declared at `litellm/proxy/hooks/dynamic_rate_limiter_v3.py:37`. (The earlier `htb_approved: ContextVar[bool]` was removed; see changelog in `HTB-README.md`.) |
+| **`htb_priority`** | The single `ContextVar[Optional[str]]` that carries a request's priority from the proxy layer to the router layer. Declared at `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py:48`. (The earlier `htb_approved: ContextVar[bool]` was removed; see changelog in `HTB-README.md`.) |
 | **Demand counter** | Sliding-window count of *attempted* requests for a priority, incremented *before* the atomic Lua check. Makes a priority's demand visible to siblings immediately. Replaced the earlier EWMA approach. |
 | **Borrow ceiling** | `min(saturation_cap, model_limit) - sum(min(sibling_demand, sibling_guaranteed))`, floored at `priority_limit`. The maximum count a priority may reach when borrowing. |
 | **Saturation cap** | `model_limit * saturation_threshold` (default `1.0`, so cap = model_limit). Ceiling on borrow headroom. |
@@ -41,7 +41,7 @@ metadata (or team metadata) carries a `priority` field.
 Client request (API key with metadata.priority)
     |
     v
-[1] Proxy layer: async_pre_call_hook  (dynamic_rate_limiter_v3.py:382)
+[1] Proxy layer: async_pre_call_hook  (dynamic_rate_limiter_v3_htb.py:835)
     |  - extract priority from user_api_key_dict
     |  - htb_priority.set(priority)
     |
@@ -52,7 +52,7 @@ Client request (API key with metadata.priority)
 [3] Router: async_routing_strategy_pre_call_checks  (router.py:7204)
     |  - iterates litellm.callbacks, calls async_pre_call_check on each
     |
-    +---> [3a] DynamicRateLimitHandlerV3.async_pre_call_check  (dynamic_rate_limiter_v3.py:395)
+    +---> [3a] DynamicRateLimitHandlerV3Htb.async_pre_call_check  (dynamic_rate_limiter_v3_htb.py:848)
     |         |  - reads htb_priority.get()
     |         |  - _run_htb_check -> htb_check_and_increment
     |         |       |
@@ -65,7 +65,7 @@ Client request (API key with metadata.priority)
     |         |       - increment on ALLOW
     |         |
     |         +-- ALLOW  -> return deployment  (router proceeds)
-    |         +-- OVER_LIMIT -> _raise_rate_limit_error  (dynamic_rate_limiter_v3.py:347)
+    |         +-- OVER_LIMIT -> _raise_rate_limit_error  (dynamic_rate_limiter_v3_htb.py:800)
     |                          raises litellm.RateLimitError
     |
     +---> [3b] ModelRateLimitingCheck.async_pre_call_check  (model_rate_limit_check.py:163)
@@ -89,7 +89,7 @@ Client request (API key with metadata.priority)
 
 ### 1.1 Proxy layer: extract priority
 
-**`async_pre_call_hook`** — `litellm/proxy/hooks/dynamic_rate_limiter_v3.py:382`
+**`async_pre_call_hook`** — `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py:835`
 
 ```python
 async def async_pre_call_hook(
@@ -107,10 +107,10 @@ async def async_pre_call_hook(
 ```
 
 - **No HTB check here.** This hook is intentionally lightweight; it runs once per request, before the router has picked a deployment.
-- **ContextVar set:** `htb_priority.set(priority)` at line 389. `htb_priority` is declared at `dynamic_rate_limiter_v3.py:37`.
+- **ContextVar set:** `htb_priority.set(priority)` at line 845. `htb_priority` is declared at `dynamic_rate_limiter_v3_htb.py:48`.
 - **Dispatch site:** `litellm/proxy/utils.py` only calls `async_pre_call_hook` for hooks that override it.
 
-**Priority extraction** — `_get_priority_from_user_api_key_dict` at `dynamic_rate_limiter_v3.py:110`:
+**Priority extraction** — `_get_priority_from_user_api_key_dict` at `dynamic_rate_limiter_v3_htb.py:618`:
 
 ```python
 def _get_priority_from_user_api_key_dict(self, user_api_key_dict: UserAPIKeyAuth) -> Optional[str]:
@@ -123,7 +123,7 @@ def _get_priority_from_user_api_key_dict(self, user_api_key_dict: UserAPIKeyAuth
 ```
 
 - **team_metadata takes precedence** over key-level `metadata`. If neither has `priority`, returns `None`.
-- `None` priority is handled later in `_get_priority_allocation` (`dynamic_rate_limiter_v3.py:158`): it maps to the shared `{model}:default_pool` key with weight `PriorityReservationSettings.default_priority` (default `0.25`, `litellm/types/utils.py:3716`).
+- `None` priority is handled later in `_get_priority_allocation` (`dynamic_rate_limiter_v3_htb.py:654`): it maps to the shared `{model}:default_pool` key with weight `PriorityReservationSettings.default_priority` (default `0.25`, `litellm/types/utils.py:4408`).
 
 ### 1.2 Router layer: HTB enforcement per deployment
 
@@ -150,13 +150,13 @@ async def async_routing_strategy_pre_call_checks(self, deployment, parent_otel_s
                 raise e
 ```
 
-- **Iterates every callback** in `litellm.callbacks` that is a `CustomLogger`. Both `_PROXY_DynamicRateLimitHandlerV3.async_pre_call_check` and `ModelRateLimitingCheck.async_pre_call_check` fire on the same deployment.
+- **Iterates every callback** in `litellm.callbacks` that is a `CustomLogger`. Both `_PROXY_DynamicRateLimitHandlerV3Htb.async_pre_call_check` and `ModelRateLimitingCheck.async_pre_call_check` fire on the same deployment.
 - **On `RateLimitError`:** sets a cooldown on the deployment and re-raises so the router can fall back.
 - **Call sites:** this method is invoked from ~14 locations in `router.py` (e.g. lines 2709, 3626, 3732, 3846, 3921, 4113), always inside the per-deployment semaphore, gated by the routing strategy.
 
 ### 1.3 HTB pre-call check
 
-**`async_pre_call_check`** — `dynamic_rate_limiter_v3.py:395`
+**`async_pre_call_check`** — `dynamic_rate_limiter_v3_htb.py:848`
 
 ```python
 async def async_pre_call_check(self, deployment: dict, parent_otel_span: Optional[Span]) -> Optional[dict]:
@@ -198,12 +198,12 @@ async def async_pre_call_check(self, deployment: dict, parent_otel_span: Optiona
 ```
 
 - **Early returns** (fail-open): when `litellm.priority_reservation` is not configured, when `model_name` is missing, when `model_group_info` is missing, when both `rpm` and `tpm` are `None`, or when an exception is raised inside `_run_htb_check`.
-- **`_run_htb_check`** is at `dynamic_rate_limiter_v3.py:310`. **`_raise_rate_limit_error`** is at `dynamic_rate_limiter_v3.py:347`.
-- **`pre_call_check`** (sync, `dynamic_rate_limiter_v3.py:432`) is a no-op (`return deployment`) because the router calls both sync and async variants; HTB only runs on the async path.
+- **`_run_htb_check`** is at `dynamic_rate_limiter_v3_htb.py:310`. **`_raise_rate_limit_error`** is at `dynamic_rate_limiter_v3_htb.py:800`.
+- **`pre_call_check`** (sync, `dynamic_rate_limiter_v3_htb.py:885`) is a no-op (`return deployment`) because the router calls both sync and async variants; HTB only runs on the async path.
 
 ### 1.4 Building descriptors and siblings
 
-**`_run_htb_check`** — `dynamic_rate_limiter_v3.py:310`
+**`_run_htb_check`** — `dynamic_rate_limiter_v3_htb.py:310`
 
 ```python
 async def _run_htb_check(self, model, model_group_info, priority, parent_otel_span) -> RateLimitResponse:
@@ -227,11 +227,11 @@ async def _run_htb_check(self, model, model_group_info, priority, parent_otel_sp
     return htb_response
 ```
 
-- **`_create_priority_based_descriptors`** (`dynamic_rate_limiter_v3.py:188`) builds the per-priority descriptor. It calls `_normalize_priority_weights` (`:151`) to handle weights that sum to >1.0, then `_get_priority_allocation` (`:158`) to pick the pool key (`{model}:{priority}` for explicit priorities, `{model}:default_pool` for keys without explicit priority).
-- **`_create_model_tracking_descriptor`** (`dynamic_rate_limiter_v3.py:236`) builds the model-wide descriptor with `high_limit_multiplier=1` (so the model cap equals the configured RPM).
-- **`_get_sibling_priorities`** (`dynamic_rate_limiter_v3.py:283`) returns `List[tuple[str, int]]` — `(sibling_priority_key, guaranteed_rpm)` for every priority in `litellm.priority_reservation` except the current one.
+- **`_create_priority_based_descriptors`** (`dynamic_rate_limiter_v3_htb.py:677`) builds the per-priority descriptor. It calls `_normalize_priority_weights` (`:151`) to handle weights that sum to >1.0, then `_get_priority_allocation` (`:158`) to pick the pool key (`{model}:{priority}` for explicit priorities, `{model}:default_pool` for keys without explicit priority).
+- **`_create_model_tracking_descriptor`** (`dynamic_rate_limiter_v3_htb.py:723`) builds the model-wide descriptor with `high_limit_multiplier=1` (so the model cap equals the configured RPM).
+- **`_get_sibling_priorities`** (`dynamic_rate_limiter_v3_htb.py:740`) returns `List[tuple[str, int]]` — `(sibling_priority_key, guaranteed_rpm)` for every priority in `litellm.priority_reservation` except the current one.
 
-**`_get_sibling_priorities`** — `dynamic_rate_limiter_v3.py:283`:
+**`_get_sibling_priorities`** — `dynamic_rate_limiter_v3_htb.py:740`:
 
 ```python
 def _get_sibling_priorities(self, model, model_group_info, current_priority) -> List[tuple[str, int]]:
@@ -354,7 +354,7 @@ async def async_pre_call_check(self, deployment, parent_otel_span=None) -> Optio
         if tpm_limit is None and rpm_limit is None:
             return deployment
 
-        from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+        from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
         if htb_priority.get() is not None:
             return deployment
@@ -368,14 +368,14 @@ async def async_pre_call_check(self, deployment, parent_otel_span=None) -> Optio
 
 ### 1.9 Raising the rate limit error
 
-**`_raise_rate_limit_error`** — `dynamic_rate_limiter_v3.py:347`. Builds a `litellm.RateLimitError` with `llm_provider` and `model` resolved via `resolve_llm_provider_for_rate_limit`, an `httpx.Response(status_code=429, ...)`, and `retry-after` set to the window size. The router catches this, cools down the deployment, and tries the next fallback.
+**`_raise_rate_limit_error`** — `dynamic_rate_limiter_v3_htb.py:800`. Builds a `litellm.RateLimitError` with `llm_provider` and `model` resolved via `resolve_llm_provider_for_rate_limit`, an `httpx.Response(status_code=429, ...)`, and `retry-after` set to the window size. The router catches this, cools down the deployment, and tries the next fallback.
 
 ### 1.10 Post-call / teardown
 
 **No HTB counter decrement exists.** The priority/model/demand counters only expire at window reset (via TTL). This is intentional: HTB is a request-rate limiter, not a concurrency gauge.
 
-- `async_log_success_event` (`dynamic_rate_limiter_v3.py:468`) **increments** token counters for `model_saturation_check` and `priority_model` (TPM tracking). These token keys are separate from the HTB Lua script's request-counter keys; token tracking is post-call accounting, the Lua script is pre-call enforcement.
-- `async_post_call_success_hook` (`dynamic_rate_limiter_v3.py:441`) adds `x-litellm-priority` and `x-litellm-rate-limiter-version` response headers.
+- `async_log_success_event` (`dynamic_rate_limiter_v3_htb.py:913`) **increments** token counters for `model_saturation_check` and `priority_model` (TPM tracking). These token keys are separate from the HTB Lua script's request-counter keys; token tracking is post-call accounting, the Lua script is pre-call enforcement.
+- `async_post_call_success_hook` (`dynamic_rate_limiter_v3_htb.py:888`) adds `x-litellm-priority` and `x-litellm-rate-limiter-version` response headers.
 - `async_log_failure_event` (`parallel_request_limiter_v3.py:3158`) decrements `max_parallel_requests` and refunds TPM reservation but **does not touch HTB priority/model/demand counters**.
 - `async_release_max_parallel_requests_on_disconnect` (`parallel_request_limiter_v3.py:3244`) releases the `max_parallel_requests` slot on stream cancel; again, no HTB counter refund.
 
@@ -400,7 +400,7 @@ All keys for a model share the `{htb:<model>}` hash tag for Redis Cluster co-loc
 {htb:<model>}:<model>:default_pool:demand:requests
 ```
 
-The `<model>:<priority>` suffix is `priority_descriptor["value"]` (built in `_get_priority_allocation` at `dynamic_rate_limiter_v3.py:158`). For keys without an explicit priority, the suffix is `<model>:default_pool` and the weight is `PriorityReservationSettings.default_priority`.
+The `<model>:<priority>` suffix is `priority_descriptor["value"]` (built in `_get_priority_allocation` at `dynamic_rate_limiter_v3_htb.py:654`). For keys without an explicit priority, the suffix is `<model>:default_pool` and the weight is `PriorityReservationSettings.default_priority`.
 
 ---
 
@@ -409,13 +409,13 @@ The `<model>:<priority>` suffix is `priority_descriptor["value"]` (built in `_ge
 | Setting | Where defined | Default | Effect |
 |---|---|---|---|
 | `litellm.priority_reservation` | `litellm/__init__.py:464` | `None` | Dict mapping priority name to weight. When `None`, HTB is fully disabled (the hook returns early, the flat check runs). |
-| `PriorityReservationSettings.default_priority` | `litellm/types/utils.py:3716` | `0.25` | Weight for keys without explicit priority; they share the `default_pool`. |
+| `PriorityReservationSettings.default_priority` | `litellm/types/utils.py:4408` | `0.25` | Weight for keys without explicit priority; they share the `default_pool`. |
 | `PriorityReservationSettings.saturation_threshold` | `litellm/types/utils.py:3721` | `1.0` | `saturation_cap = model_limit * saturation_threshold`. Caps borrow headroom. |
 | `window_size` | `self.v3_limiter.window_size` | 60s | Sliding-window length and counter TTL. |
-| `PROXY_HOOKS["dynamic_rate_limiter_v3"]` | `litellm/proxy/hooks/__init__.py:46` | registered | Loads `_PROXY_DynamicRateLimitHandlerV3` as a proxy hook. |
+| `PROXY_HOOKS["dynamic_rate_limiter_v3_htb"]` | `litellm/proxy/hooks/__init__.py:29` | registered | Loads `_PROXY_DynamicRateLimitHandlerV3Htb` as a proxy hook. |
 | `optional_pre_call_checks: [enforce_model_rate_limits]` | router config | off | Registers `ModelRateLimitingCheck` so its skip logic runs alongside HTB. |
 
-Priority names are arbitrary (`prior1`, `gold`, etc.); the code iterates `litellm.priority_reservation` keys dynamically. Weights are normalized if they sum to >1.0 (`_normalize_priority_weights`, `dynamic_rate_limiter_v3.py:151`).
+Priority names are arbitrary (`prior1`, `gold`, etc.); the code iterates `litellm.priority_reservation` keys dynamically. Weights are normalized if they sum to >1.0 (`_normalize_priority_weights`, `dynamic_rate_limiter_v3_htb.py:634`).
 
 ---
 
@@ -459,7 +459,7 @@ Denied requests still count toward the demand counter (incremented before the Lu
 
 ### 4. Sync `pre_call_check` is a no-op
 
-`_PROXY_DynamicRateLimitHandlerV3.pre_call_check` (`dynamic_rate_limiter_v3.py:432`) returns `deployment` without doing anything. If any code path calls the sync variant instead of `async_pre_call_check`, HTB enforcement is silently skipped. The router's `async_routing_strategy_pre_call_checks` calls the async variant, so this is not currently exercised, but it is a latent footgun.
+`_PROXY_DynamicRateLimitHandlerV3Htb.pre_call_check` (`dynamic_rate_limiter_v3_htb.py:885`) returns `deployment` without doing anything. If any code path calls the sync variant instead of `async_pre_call_check`, HTB enforcement is silently skipped. The router's `async_routing_strategy_pre_call_checks` calls the async variant, so this is not currently exercised, but it is a latent footgun.
 
 ---
 
@@ -467,23 +467,23 @@ Denied requests still count toward the demand counter (incremented before the Lu
 
 | Function | File | Line |
 |---|---|---|
-| `htb_priority` ContextVar declaration | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 37 |
-| `_get_priority_settings` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 44 |
-| `_PROXY_DynamicRateLimitHandlerV3.__init__` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 72 |
-| `_get_priority_weight` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 89 |
-| `_get_priority_from_user_api_key_dict` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 110 |
-| `_normalize_priority_weights` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 151 |
-| `_get_priority_allocation` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 158 |
-| `_create_priority_based_descriptors` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 188 |
-| `_create_model_tracking_descriptor` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 236 |
-| `_get_sibling_priorities` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 283 |
-| `_run_htb_check` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 310 |
-| `_raise_rate_limit_error` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 347 |
-| `async_pre_call_hook` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 382 |
-| `async_pre_call_check` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 395 |
-| `pre_call_check` (sync no-op) | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 432 |
-| `async_post_call_success_hook` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 441 |
-| `async_log_success_event` | `litellm/proxy/hooks/dynamic_rate_limiter_v3.py` | 468 |
+| `htb_priority` ContextVar declaration | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 37 |
+| `_get_priority_settings` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 44 |
+| `_PROXY_DynamicRateLimitHandlerV3.__init__` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 72 |
+| `_get_priority_weight` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 89 |
+| `_get_priority_from_user_api_key_dict` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 110 |
+| `_normalize_priority_weights` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 151 |
+| `_get_priority_allocation` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 158 |
+| `_create_priority_based_descriptors` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 188 |
+| `_create_model_tracking_descriptor` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 236 |
+| `_get_sibling_priorities` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 283 |
+| `_run_htb_check` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 310 |
+| `_raise_rate_limit_error` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 347 |
+| `async_pre_call_hook` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 382 |
+| `async_pre_call_check` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 395 |
+| `pre_call_check` (sync no-op) | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 432 |
+| `async_post_call_success_hook` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 441 |
+| `async_log_success_event` | `litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py` | 468 |
 | `HTB_CHECK_AND_INCREMENT_SCRIPT` | `litellm/proxy/hooks/parallel_request_limiter_v3.py` | 183 |
 | `htb_check_and_increment` | `litellm/proxy/hooks/parallel_request_limiter_v3.py` | 1040 |
 | `_increment_demand_counter` | `litellm/proxy/hooks/parallel_request_limiter_v3.py` | 1158 |
@@ -505,9 +505,9 @@ Per the logic mapping technique's Phase 2, each step above was checked against t
 1. **Lua script** read in full (`parallel_request_limiter_v3.py:183-311`) — decision logic, borrow ceiling, key/argv layout confirmed verbatim.
 2. **Demand counter path** read in full (`parallel_request_limiter_v3.py:1060-1300`) — original `local_only=True` writes identified as the multi-instance bug; fixed to `local_only=False` with atomic `async_increment_cache`. Redis write-back confirmed via `DualCache.async_set_cache` / `async_increment_cache` (`dual_cache.py:351`, `dual_cache.py:380`).
 3. **In-memory fallback** read in full (`parallel_request_limiter_v3.py:1300-1410`) — mirrors Lua logic exactly.
-4. **Proxy hook and pre-call check** read in full (`dynamic_rate_limiter_v3.py:1-560`) — ContextVar name, early-return conditions, error-raising path confirmed.
+4. **Proxy hook and pre-call check** read in full (`dynamic_rate_limiter_v3_htb.py:1-560`) — ContextVar name, early-return conditions, error-raising path confirmed.
 5. **Flat-check bypass** read in full (`model_rate_limit_check.py:95-200`) — `htb_priority.get() is not None` skip confirmed for both sync and async.
 6. **Router invocation** read in full (`router.py:7204-7270`) — callback iteration, cooldown, re-raise confirmed; call sites enumerated via grep (28 matches).
-7. **Post-call teardown** confirmed absent of any HTB counter decrement via grep of `async_log_success_event` / `async_log_failure_event` in `dynamic_rate_limiter_v3.py` and `parallel_request_limiter_v3.py`.
+7. **Post-call teardown** confirmed absent of any HTB counter decrement via grep of `async_log_success_event` / `async_log_failure_event` in `dynamic_rate_limiter_v3_htb.py` and `parallel_request_limiter_v3.py`.
 
 This map supersedes the EWMA-era description in the user memory note `htb-rate-limiting.md`, which describes the pre-demand-counter implementation.

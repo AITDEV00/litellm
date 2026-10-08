@@ -34,7 +34,7 @@ Key implementation files:
 - `litellm/llms/omnivoice/common_utils.py` — `OmniVoiceModelInfo`, `OMNIVOICE_INTERNAL_PARAMS`
 - `litellm/llms/omnivoice/text_to_speech/transformation.py` — `OmniVoiceTextToSpeechConfig`
 - `litellm/llms/omnivoice/voice/transformation.py` — `OmniVoiceVoiceCloneConfig`
-- `litellm/proxy/proxy_server.py` — `audio_speech_clone` route for `/v1/audio/speech/clone`
+- `litellm/proxy/voice_routes.py` — `audio_speech_clone` route for `/v1/audio/speech/clone`
 - `oicm-litellm-layer/controller/models.py` — `detect_provider()` detects `k2-fsa`/`k2fsa` as omnivoice
 
 ## Documents
@@ -58,7 +58,7 @@ Key implementation files:
 | Text completion (FIM) | `InceptionTextCompletionConfig` + `_complete_text_completion_inception` | Not supported | Not supported |
 | TTS | `/v1/audio/speech` (OpenAI-shaped) | `/tts/stream` (custom: `text`/`speaker`/`language_id`) | `/v1/audio/speech` (OpenAI-shaped) |
 | STT | `/v1/audio/transcriptions` (multipart form) | `/transcribe` (JSON with base64 audio) | Not supported |
-| Voice cloning | Not supported | `/tts/voice_clone` + `/tts/load_voice_clinking` (two-step JSON) | `/v1/audio/speech/clone` (one-shot multipart) |
+| Voice cloning | Not supported | `/v1/audio/speech/clone` (one-shot multipart, `HamsaVoiceCloneConfig`) plus the native `/tts/voice_clone` / `/v1/voice-clone` backend | `/v1/audio/speech/clone` (one-shot multipart) |
 | Realtime | Not supported | WebSocket `/ws` with handshake key injection | Not supported |
 | Auth | No header injection (relies on OpenAI client key passing) | `x-api-key` header via `_inject_auth_headers` | No API key required |
 | In `openai_compatible_providers` | Yes | No | Yes |
@@ -66,4 +66,4 @@ Key implementation files:
 | In `constants.py` | Yes (4 occurrences) | No | Yes |
 | TTS dispatch in `speech()` | Explicit `elif` branch | Explicit `elif` branch | Explicit `elif` branch (config switches on `ref_audio`) |
 | STT dispatch in `transcription()` | Generic `provider_config is not None` catch-all | Generic `provider_config is not None` catch-all | N/A |
-| Custom proxy route | No | No | `/v1/audio/speech/clone` (multipart form-data) |
+| Custom proxy route | No | `/v1/audio/speech/clone` (multipart form-data, via `voice_routes.py`) | `/v1/audio/speech/clone` (multipart form-data, via `voice_routes.py`) |

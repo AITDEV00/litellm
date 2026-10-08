@@ -19,11 +19,11 @@
 
 ## 1. Context
 
-The deployed proxy (`mlops` namespace) reads three datasources:
+The deployed proxy (`adeo-litellm` namespace) reads three datasources:
 
 | Datasource | Deployed URL / secret                                   | Kind   | Namespace             |
 |------------|----------------------------------------------------------|--------|-----------------------|
-| Postgres   | `postgresql://litellm:...@mlops-postgres-rw.mlops:5432/litellm` | svc | `mlops` |
+| Postgres   | `postgresql://litellm:...@adeo-litellm-postgres-rw.adeo-litellm:5432/litellm` | svc | `adeo-litellm` |
 | Redis      | `litellm-redis.redis.svc.cluster.local:6379` (auth)      | svc    | `redis` |
 | Prometheus | `http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090` | svc | `kube-prometheus-stack` |
 
@@ -31,7 +31,7 @@ Local mapping used by the forward script:
 
 | Local port | Remote target                  | Purpose                                   |
 |------------|--------------------------------|-------------------------------------------|
-| `5432`     | `svc/mlops-postgres-rw:5432`   | Prisma DB (models, keys, spend, logs)     |
+| `5432`     | `svc/adeo-litellm-postgres-rw:5432` | Prisma DB (models, keys, spend, logs)  |
 | `16379`    | `svc/litellm-redis:6379`       | Redis cache + auth cache                  |
 | `9090`     | `svc/kube-prometheus-stack-prometheus:9090` | /model/performance, per-model metrics |
 
@@ -77,7 +77,7 @@ Expected output:
 
 ```
 Port-forwards active (Ctrl+C to stop):
-  Postgres:   127.0.0.1:5432   (mlops/mlops-postgres-rw)
+  Postgres:   127.0.0.1:5432   (adeo-litellm/adeo-litellm-postgres-rw)
   Redis:      127.0.0.1:16379  (redis/litellm-redis)
   Prometheus: 127.0.0.1:9090   (kube-prometheus-stack/prometheus)
 cluster-info: API reachable via tunnel
@@ -86,7 +86,7 @@ cluster-info: API reachable via tunnel
 If you prefer raw commands (no script):
 
 ```bash
-kubectl -n mlops port-forward svc/mlops-postgres-rw 5432:5432 &
+kubectl -n adeo-litellm port-forward svc/adeo-litellm-postgres-rw 5432:5432 &
 kubectl -n redis port-forward svc/litellm-redis 16379:6379 &
 kubectl -n kube-prometheus-stack port-forward svc/kube-prometheus-stack-prometheus 9090:9090 &
 ```
@@ -209,8 +209,8 @@ The full flow was smoke-tested against the live cluster:
 - Model generation will not work: the config has an empty `model_list` and no
   LLM service is port-forwarded. This validates the metric/admin/spend/UI
   surfaces, not live routing.
-- Values above are from the current `mlops` deployment; refresh them from the
-  live pod if they change (see `kubectl -n mlops get deploy litellm-proxy -o yaml`).
+- Values above are from the current `adeo-litellm` deployment; refresh them from the
+  live pod if they change (see `kubectl -n adeo-litellm get deploy litellm-proxy -o yaml`).
 - The `PROMETHEUS_URL` is read at import time in `prometheus_api.py`, so the env
   var must be set before the proxy starts.
 - `/model/performance` needs the `prometheus` callback in `litellm_settings.callbacks`

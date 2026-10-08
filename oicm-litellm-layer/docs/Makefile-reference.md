@@ -27,6 +27,14 @@ make login
 ```
 Logs into `$(REGISTRY)` with `--tls-verify=false` (insecure internal registry).
 
+## Pull base images
+
+```bash
+make pull            # podman pull python:3.12-slim + the vendored litellm image
+make pull-discovery  # podman pull python:3.12-slim
+make pull-litellm    # podman pull the vendored litellm image
+```
+
 ## Build / push / deploy images
 
 ### Discovery controller (versioned flow)
@@ -45,6 +53,15 @@ make controller-release  # build + push + rewrite the tag in the dev and prod
 make deploy-dev          # apply the dev controller manifest only
 ```
 
+Dev-only iteration flow (prod is never touched):
+
+```bash
+make controller-build-dev    # alias of `make build`
+make controller-push-dev     # alias of `make push-discovery`
+make controller-release-dev  # build + push + pin the DEV manifest only
+make controller-deploy-dev   # release-dev + deploy-dev (whole dev loop)
+```
+
 Bump `CONTROLLER_VERSION` for a release; the date and SHA change on their own,
 so two builds of the same version are still distinguishable. Build and push
 both target the same tag, so a redeploy always picks up the newly built image.
@@ -57,13 +74,25 @@ image under the moving `$(LITELLM_LEGACY_TAG)` (`latest`).
 make litellm-src-build        # build litellm-src:<branch>
 make litellm-src-push         # push to Harbor (needs `make login` first)
 make litellm-src-build-push   # build then push
-make litellm-src-deploy       # sed image tag in deploy/base/gateway, then kubectl apply
+make litellm-src-deploy       # sed image tag in deploy/base/gateway/proxy/deployment.yaml, then kubectl apply + restart prod
 make litellm-src-release      # build-push + deploy, one shot
+make litellm-src-deploy-dev   # pin the tag in the dev overlay and roll dev only
+make litellm-src-release-dev  # build-push + deploy-dev
+```
+
+### OICM service-account provisioning
+
+```bash
+make oicm-sa-secrets            # generate the two SA Secrets (rotates the password)
+                                #   CLUSTER=alain (default) or CLUSTER=abudhabi
+make oicm-sa-provision          # run the Al Ain provisioning Job and verify
+make oicm-sa-provision-abudhabi # run the Abu Dhabi provisioning Job and verify
+make oicm-sa-config             # (re)create the oicm-service-account-provisioner ConfigMap
 ```
 
 ### Cluster apply
 ```bash
-make deploy       # kubectl apply deploy/prod/discovery-controller.yaml + deploy/base/gateway + deploy/prod/litellm-servicemonitor.yaml
+make deploy       # kubectl apply deploy/oicm/sources.yaml + exclusions.yaml + deploy/prod/discovery-controller.yaml + deploy/overlays/prod + deploy/prod/litellm-servicemonitor.yaml
 make clean        # podman rmi local image
 ```
 
@@ -89,9 +118,8 @@ make litellm-logo  # create litellm-logo ConfigMap from decor/ images
 ```
 
 ## Notes
-- The kubeconfig default is not uniform: most targets use `~/.kube/oicm-alain.conf`,
-  while `litellm-src-deploy` / `deploy` fall back to `~/.kube/alain-oicm.conf`.
-  Override with `KUBECONFIG=...`.
+- The kubeconfig default is `~/.kube/alain-oicm.conf` via the `ALAIN_KUBECONFIG`
+  variable (an exported `KUBECONFIG` still wins at run time).
 - `litellm-local-*` requires the LiteLLM venv at `$(LITELLM_SRC_DIR)/.venv`
   (run `uv sync --extra proxy && uv pip install -e .` in the repo root if missing).
 - The `docs` target only **builds** the site locally; there is no push-to-Harbor

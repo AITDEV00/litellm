@@ -84,13 +84,13 @@ secret. If you want them independent, set `UI_PASSWORD` to something else.
 2. `kubectl apply -k deploy/overlays/prod` — this also updates the Secret.
 3. **Restart BOTH Deployments** so pods re-resolve the secret:
    ```bash
-   kubectl -n mlops rollout restart deployment/litellm-proxy
-   kubectl -n mlops rollout restart deployment/oicm-discovery-controller
+   kubectl -n adeo-litellm rollout restart deployment/litellm-proxy
+   kubectl -n adeo-litellm rollout restart deployment/oicm-discovery-controller
    ```
 4. Wait for both rollouts and verify health:
    ```bash
-   kubectl -n mlops rollout status deployment/litellm-proxy
-   kubectl -n mlops rollout status deployment/oicm-discovery-controller
+   kubectl -n adeo-litellm rollout status deployment/litellm-proxy
+   kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller
    ```
 5. Verify the controller can still talk to the proxy (check controller logs for
    successful `/model/*` calls).
@@ -185,9 +185,9 @@ KUBECONFIG=$HOME/.kube/oicm-alain.conf \
 KUBECONFIG=$HOME/.kube/oicm-alain.conf \
   kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
 KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl rollout restart deployment/litellm-proxy -n mlops
+  kubectl rollout restart deployment/litellm-proxy -n adeo-litellm
 KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl rollout restart deployment/oicm-discovery-controller -n mlops
+  kubectl rollout restart deployment/oicm-discovery-controller -n adeo-litellm
 ```
 
 The rollback is idempotent and safe to apply at any time against the forward

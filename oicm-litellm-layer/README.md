@@ -29,9 +29,8 @@ using only LiteLLM's public extension points — **no fork required** (except on
 │                           │   (unmodified, config-driven)     │  │
 │                           │                                  │  │
 │                           │   Extension points used:         │  │
-│                           │   • custom_auth (component #2)    │  │
-│                           │   • callbacks (component #3)      │  │
-│                           │   • config.yaml (component #4)    │  │
+│                           │   • callbacks (components #3, #4) │  │
+│                           │   • config.yaml (component #5)    │  │
 │                           │   • /model/new, /model/delete     │  │
 │                           └──────────────────────────────────┘  │
 │                                                                 │
@@ -52,26 +51,29 @@ using only LiteLLM's public extension points — **no fork required** (except on
 | # | Component | Type | File | Purpose |
 |---|-----------|------|------|---------|
 | 1 | Discovery Controller | K8s sidecar | `controller/` | Watch `j-{uuid}` deployments, register/deregister models via LiteLLM API |
-| 2 | Custom Auth Handler | Plugin | `auth/oicm_auth.py` | Validate API keys against OICM `api_keys` table |
-| 3 | VLLM Param Injector | Plugin | `hooks/vllm_param_injector.py` | Relocate vLLM-specific params into `extra_body` via `async_pre_call_hook` |
-| 4 | KEDA Metrics Callback | Plugin | `hooks/keda_metrics.py` | Emit `ml_model_concurrent_requests` Prometheus gauge for KEDA |
-| 5 | Config Template | Config | `config/litellm_config.yaml` | LiteLLM proxy configuration |
-| 6 | Embedding Patch | Fork (5 lines) | — | Add `extra_body` merge to `hosted_vllm/embedding/transformation.py` |
+| 3 | VLLM Param Injector | Plugin | `hooks/vllm_param_injector.py` | Relocate vLLM-specific params into `extra_body` via `async_pre_call_hook` (wired in the `litellm-hooks` ConfigMap) |
+| 4 | KEDA Metrics Callback | Plugin | `hooks/keda_metrics.py` | Emit `ml_model_concurrent_requests` Prometheus gauge for KEDA (present in the repo, not currently registered) |
+| 5 | Config Template | Config | `deploy/base/gateway/config/litellm-config.yaml` | LiteLLM proxy configuration (the deployed `litellm-config` ConfigMap) |
+
+Component #2 (a `custom_auth` handler validating keys against OICM's `api_keys` table) and component #6 (the embedding `extra_body` patch) are both **not in use**. Auth is LiteLLM's native virtual-key auth, and the embedding patch is superseded by upstream (see `docs/components/patches.md`).
 
 ## Quick Start
 
 ```bash
-# 1. Build and push the sidecar image (versioned tag, see docs/Makefile-reference.md)
+# 1. Build and push the discovery controller image (versioned tag, see docs/Makefile-reference.md)
 make controller-release
 
-# 2. Deploy LiteLLM with the config
-helm install litellm deploy/charts/litellm-helm/ \
-  -f config/litellm-values.yaml
+# 2. Apply the prod manifests (gateway overlay + controller + sources/exclusions)
+make deploy
 
-# 3. Deploy the discovery controller
-kubectl apply -f deploy/prod/discovery-controller.yaml
+# 3. Or roll the gateway image and restart it in one step
+make litellm-src-release
 
 ```
+
+There is no Helm chart: everything is applied with `kubectl apply` / kustomize
+from `deploy/` (see `docs/deployment.md`). For a dev iteration use
+`make litellm-src-release-dev` and `make controller-deploy-dev`.
 
 Note: the old embedding `extra_body` patch is no longer needed. Upstream
 litellm now passes vLLM embedding `extra_body` params (e.g.

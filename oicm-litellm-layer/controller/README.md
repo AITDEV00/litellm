@@ -40,6 +40,10 @@ controller/
   litellm_client.py        LiteLLMClient. Batch register/deregister/patch via REST API.
   reconciler.py            SyncReconciler. Pure compute_plan + execute. Dedup logic.
   exclusions.py            Excluded model ids. Declarative slice, like sources_config.
+  sources_config.py        Schema + loader for the OICM status-source ConfigMap.
+  status_sources.py        Builds OicmStatusSource instances from the source config.
+  status_poller.py         Polls each source on STATUS_SYNC_INTERVAL.
+  status_persister.py      Writes status snapshots + per-source heartbeats.
   controller.py            DiscoveryController. Orchestration: start/stop, full_sync,
                            watch loop, event handlers, health endpoint.
   fallbacks/
@@ -51,6 +55,21 @@ controller/
     base.py                ModelSource ABC. Single method: discover() -> Dict[str, OicmModel].
     local_deployments.py   LocalDeploymentSource. Watches K8s Deployments + ConfigMaps.
     submariner_imports.py  SubmarinerImportSource. Reads lighthouse EndpointSlices.
+  pricing/
+    aggregator.py          Weighted aggregation of pricing candidates.
+    matchers.py            exact / structured / fuzzy / substring matchers.
+    models.py              PricingEntry, MatcherCandidate, PricingResult (frozen).
+    normalizer.py          Model name normalization.
+    resolver.py            PricingResolver. Orchestrates matchers.
+    source.py              PricingSource. Loads JSON, builds PricingIndex.
+    utils.py               pricing_to_params converter.
+  status/
+    availability.py        Shared readiness/availability logic over status_detail[].
+    base.py                OicmStatusSource ABC.
+    builder.py             Builds the OicmModel status payload.
+    oicm.py                OICM HTTP status client (works for both OICM versions).
+    snapshot.py            Status snapshot model.
+    wire.py                Serializes status onto the gateway model_info.
 ```
 
 ### Dependency graph (strictly one-directional, no cycles)
@@ -59,6 +78,8 @@ controller/
 __main__ -> controller -> sources (base, local_deployments, submariner_imports)
                         -> reconciler -> litellm_client -> models
                         -> fallbacks (service -> client)
+                        -> pricing (resolver -> source, matchers, normalizer, aggregator)
+                        -> status (poller -> sources -> oicm -> availability -> builder -> wire)
                         -> models, config
 sources -> models, config
 ```
@@ -114,19 +135,34 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | Variable | Default | Description |
 |---|---|---|
 | `LITELLM_ADMIN_URL` | `http://localhost:4000` | LiteLLM proxy admin API URL |
-| `LITELLM_ADMIN_KEY` | (from `deploy/prod/litellm-proxy.yaml` `litellm-master-key` secret) | LiteLLM master key |
+| `LITELLM_ADMIN_KEY` | env, else the `litellm-master-key` Secret in `deploy/base/gateway/secrets/litellm-master-key.yaml`, else `sk-1234` | LiteLLM master key |
 | `WATCH_NAMESPACE` | `adeo` | Namespace to watch for model deployments and EndpointSlices |
+| `CLUSTER_NAME` | (required, no default) | Names of the cluster this controller runs in (e.g. `alain`); stored on every model row as `oicm_cluster`. Startup fails if unset |
 | `CLUSTER_DOMAIN` | `svc.cluster.local` | Kubernetes cluster domain for local service DNS |
 | `MODEL_PORT` | `8080` | Port that model servers listen on |
 | `SYNC_INTERVAL` | `300` | Seconds between full sync cycles |
 | `WATCH_TIMEOUT` | `300` | Kubernetes watch timeout in seconds |
 | `HEALTH_PORT` | `8090` | HTTP health check server port |
 | `HTTP_CONCURRENCY` | `50` | Max concurrent HTTP requests to LiteLLM API |
+| `DISCOVER_CONCURRENCY` | `20` | Per-deployment discovery fan-out (ConfigMap read + pod-local probes) |
+| `HTTP_TIMEOUT_SECONDS` | `30` | Per-request ceiling for shared HTTP clients |
+| `PROBE_TIMEOUT_SECONDS` | `5` | Pod-local probe timeout (in-cluster Service DNS) |
+| `REMOTE_TIMEOUT_SECONDS` | `10` | Cross-cluster (Submariner) probe + gateway write timeout |
+| `CONTROLLER_READ_ONLY` | `false` | Discover and compute the plan but never write to the gateway (writes become logged no-ops) |
 | `ENABLE_SUBMARINER_IMPORTS` | `true` | Enable Submariner cross-cluster import source |
 | `STATUS_SYNC_INTERVAL` | `10` | Seconds between OICM status polls, per source |
+| `STATUS_STALE_AFTER` | `90` | Age (s) after which a source's last poll is reported unknown instead of trusted |
+| `PRICING_ENABLED` | `true` | Enable automatic pricing resolution for discovered models |
+| `PRICING_JSON_PATH` | `/app/model_prices_and_context_window.json` | Pricing table loaded at startup |
+| `PRICING_REFRESH_INTERVAL_SECONDS` | `3600` | Pricing table reload interval |
+| `PRICING_MATCH_THRESHOLD` | `0.80` | Minimum score for a fuzzy pricing match |
 | `OICM_SOURCES_FILE` | `/etc/oicm/sources.yaml` | Path to the OICM source definitions |
 | `OICM_EXCLUSIONS_FILE` | `/etc/oicm-exclusions/exclusions.yaml` | Path to the excluded-model definitions |
 | `OICM_EXCLUDED_MODEL_IDS` | (unset) | Comma-separated model ids to exclude, merged with the file |
+
+`HEARTBEAT_INTERVAL` is derived as `max(1, STATUS_STALE_AFTER // 3)` and is not
+set directly. `PRICING_ENABLED`/`PRICING_*` govern the pricing resolver; the
+Deployment does not currently set them, so the defaults above apply.
 
 ## OICM status sources
 

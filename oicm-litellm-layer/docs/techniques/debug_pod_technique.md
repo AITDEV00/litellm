@@ -48,7 +48,7 @@ DATABASE_URL="<dsn>" timeout 180 .venv/bin/python3 -c "...call _rollup_minutes_t
 
 # 1c. Full HTTP round-trip through the deployed gateway
 curl -s -w "HTTP %{http_code} in %{time_total}s\n" \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   "http://127.0.0.1:14000/model/performance?window=24h&start_time=...&end_time=..."
 # -> "HTTP 200 in 20.531089s"  (SLOW, even though SQL + Python ≈ 4s)
 ```
@@ -83,11 +83,11 @@ The full working manifest is at `deploy/overlays/dev`.
 
 ```bash
 export KUBECONFIG=/home/jyao/.kube/oicm-alain.conf
-kubectl -n mlops apply -k deploy/overlays/dev
-kubectl -n mlops rollout status deploy/litellm-proxy-dev
+kubectl -n adeo-litellm apply -k deploy/overlays/dev
+kubectl -n adeo-litellm rollout status deploy/litellm-proxy-dev
 
 # It must NOT appear in the production Service's endpoints:
-kubectl -n mlops get endpoints litellm-proxy -o jsonpath='{.subsets[*].addresses[*].ip}'
+kubectl -n adeo-litellm get endpoints litellm-proxy -o jsonpath='{.subsets[*].addresses[*].ip}'
 # -> only the 2 prod replicas' IPs; NOT the dev pod's IP
 ```
 
@@ -96,10 +96,10 @@ kubectl -n mlops get endpoints litellm-proxy -o jsonpath='{.subsets[*].addresses
 Because there's a single worker, you can attach a profiler to it:
 
 ```bash
-POD=$(kubectl -n mlops get pod -l app=litellm-proxy-dev -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl -n adeo-litellm get pod -l app=litellm-proxy-dev -o jsonpath='{.items[0].metadata.name}')
 
 # cProfile the exact DB call the endpoint makes (in-process, no HTTP)
-kubectl -n mlops exec "$POD" -- python3 -c "
+kubectl -n adeo-litellm exec "$POD" -- python3 -c "
 import cProfile, pstats, io, os, asyncio
 import litellm.proxy.model_metrics_endpoints.model_performance_endpoints as mpe
 from datetime import datetime, timezone
@@ -129,9 +129,9 @@ slow path.
 ### 5. Hit the debug pod over HTTP in isolation
 
 ```bash
-kubectl -n mlops port-forward deploy/litellm-proxy-dev 14001:4000 &
+kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000 &
 curl -s -w "HTTP %{http_code} in %{time_total}s\n" \
-  -H "Authorization: Bearer sk-1234" \
+  -H "Authorization: Bearer {{ master_key }}" \
   "http://127.0.0.1:14001/model/performance?window=24h&start_time=...&end_time=..."
 ```
 
@@ -142,8 +142,8 @@ one request with no interleaved router noise.
 ### 6. Clean up
 
 ```bash
-kubectl -n mlops delete deploy/litellm-proxy-dev svc/litellm-proxy-dev
-kubectl -n mlops scale deploy/litellm-proxy-dev --replicas=0   # or just delete
+kubectl -n adeo-litellm delete deploy/litellm-proxy-dev svc/litellm-proxy-dev
+kubectl -n adeo-litellm scale deploy/litellm-proxy-dev --replicas=0   # or just delete
 ```
 
 The debug Deployment holds GPU-node CPU/memory while running, so scale it to 0
@@ -155,12 +155,12 @@ or delete it when you're done.
 
 | Action | Command |
 |---|---|
-| Apply debug pod | `kubectl -n mlops apply -k deploy/overlays/dev` |
-| Exec a probe | `kubectl -n mlops exec deploy/litellm-proxy-dev -- python3 /app/probe.py` |
-| Port-forward it | `kubectl -n mlops port-forward deploy/litellm-proxy-dev 14001:4000` |
-| Read its logs | `kubectl -n mlops logs -l app=litellm-proxy-dev --tail=200` |
-| Confirm isolation | `kubectl -n mlops get endpoints litellm-proxy` (dev pod absent) |
-| Tear down | `kubectl -n mlops delete deploy/litellm-proxy-dev svc/litellm-proxy-dev` |
+| Apply debug pod | `kubectl -n adeo-litellm apply -k deploy/overlays/dev` |
+| Exec a probe | `kubectl -n adeo-litellm exec deploy/litellm-proxy-dev -- python3 /app/probe.py` |
+| Port-forward it | `kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000` |
+| Read its logs | `kubectl -n adeo-litellm logs -l app=litellm-proxy-dev --tail=200` |
+| Confirm isolation | `kubectl -n adeo-litellm get endpoints litellm-proxy` (dev pod absent) |
+| Tear down | `kubectl -n adeo-litellm delete deploy/litellm-proxy-dev svc/litellm-proxy-dev` |
 
 ---
 

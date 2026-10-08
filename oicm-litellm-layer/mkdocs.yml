@@ -150,6 +150,9 @@ nav:
       - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md
       - LiteLLM Endpoint Architecture: custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
       - OmniVoice Logic Mapping: custom-providers/OMNIVOICE_LOGIC_MAPPING.md
+      - OmniVoice Logic Map v2: custom-providers/OMNIVOICE_LOGIC_MAP_v2.md
+      - OmniVoice Extensibility Audit: custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md
+      - OmniVoice Test Methods: custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS.md
       - OmniVoice Post-Build Logic Map: custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
       - README: custom-providers/README.md
       - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
@@ -182,9 +185,18 @@ nav:
   - OpenRouter:
       - Models Design: openrouter/litellm_openrouter_models_design.md
       - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md
+      - Endpoints Consumer Logic Map: openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
+      - litellm-to-endpoints Mapping: openrouter/MAPPING-litellm-to-endpoints.md
+      - Usage Metrics Mapping: openrouter/MAPPING-usage-metrics.md
   - OICM Status:
       - Feasibility Study: oicm-status/OICM-STATUS-FEASIBILITY.md
       - Feasibility Answers: oicm-status/FEASIBILITY-ANSWERS.md
       - Implementation Checklist: oicm-status/IMPLEMENTATION-CHECKLIST.md
+      - Design Status Persistence: oicm-status/DESIGN-STATUS-PERSISTENCE.md
+      - Progress & Paused Work: oicm-status/PROGRESS-AND-PAUSED-WORK.md
+      - Change Report (Health Table 2026-10-06): oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
+      - Logic Map (Health Table 2026-10-07): oicm-status/LOGIC-MAP-2026-10-07-health-table.md
+      - Code Smell Pass (2026-10-06): oicm-status/CODE-SMELL-PASS-2026-10-06.md
+      - OICM API Catalog: oicm-status/OICM-API-CATALOG.md
       - OICM Write Access Blocked (403): oicm-write-access-blocked.md
   - Docs Map: docs-map.md

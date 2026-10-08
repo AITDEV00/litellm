@@ -472,7 +472,7 @@ the file, and re-run `make pre-commit`.
 
 Static analysis and unit tests verify structure and logic, but not visual
 rendering. Always verify in the browser after deploying. Port-forward the proxy
-(`kubectl -n mlops port-forward svc/litellm-proxy 4000:4000`), navigate to the
+(`kubectl -n adeo-litellm port-forward svc/litellm-proxy 4000:4000`), navigate to the
 affected page, and check all state variants (e.g. all 9 usage views, all user
 roles, empty vs populated data).
 

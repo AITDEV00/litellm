@@ -4,7 +4,7 @@
 >
 > **Related docs**: [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) (original `hamsa-tts`, voice management details), [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway overview)
 
-**Gateway URL**: `https://litellm.ecouncil.ae` (self-signed TLS → always use `curl -k`)
+**Gateway URL**: `https://litellm.ecouncil.ae` (valid DigiCert wildcard `*.ecouncil.ae` cert; `curl -k` is not required)
 
 **API Key**: replace `<your-api-key>` everywhere below with your LiteLLM gateway API key. All requests use the `Authorization: Bearer <your-api-key>` header.
 

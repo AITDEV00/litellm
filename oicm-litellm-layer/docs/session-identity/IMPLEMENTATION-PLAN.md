@@ -1,5 +1,15 @@
 # Session Identity Resolver - Implementation Plan
 
+> **Status (2026-10-08): implemented and deployed to prod + dev.** The resolver
+> lives at `litellm/router_utils/session_identity/` (`canonicalizer`, `lineage`,
+> `resolver`, `store`, `views`, `config`). It is enabled by the callback
+> `litellm.router_utils.session_identity.resolver.proxy_handler_instance` in
+> `deploy/base/gateway/config/litellm-config.yaml` plus
+> `SESSION_IDENTITY_ENABLED=true` on the Deployment. Tests live at
+> `tests/test_litellm/router_utils/test_session_identity_*.py`. The Rollout and
+> Tests sections below are the original plan; the callback is wired by module
+> singleton (`proxy_handler_instance`), not by class name.
+
 Goal: when a client sends no stable session id, infer one from the conversation
 so that `DeploymentAffinityCheck` can pin the conversation to the replica that
 already holds its vLLM prefix KV cache. LiteLLM stays the only router; the
@@ -12,8 +22,9 @@ Upstream references (fetched, pinned in SOURCE_MANIFEST.json):
 - SGLang #34513: agent-aware RFC only (no public implementation); public
   tree.rs / cache_aware.rs are mechanics references for the discriminator
 
-Local copies: `oicm-litellm-layer/downloaded_sources/` (regenerate with
-`download_sources.sh` from the bundle zip).
+Local copies: `oicm-litellm-layer/downloaded_sources/` (currently
+`openrouter-docs`, `openrouter-python-sdk`; the session-identity upstream
+references were fetched during design and are not retained in the tree).
 
 ## Architecture
 
@@ -168,12 +179,17 @@ Env knobs read in config.py, defaults in parens:
 - `SESSION_IDENTITY_MAX_CHAIN_HASHES` (64)
 - `SESSION_IDENTITY_TTL_SECONDS` (86400, align with affinity TTL)
 - `SESSION_IDENTITY_COMMON_PREFIX_THRESHOLD` (3)
-Enable in prod/dev yaml via existing callback mechanism:
-`litellm_settings.callbacks: [litellm_hooks..., litellm.router_utils.session_identity.resolver.SessionIdentityResolver]`
-(or a wrapper module in litellm_hooks/ to keep the import short and to allow
-per-env construction args).
+Enable in prod/dev yaml via the existing callback mechanism:
+`litellm_settings.callbacks: [..., litellm.router_utils.session_identity.resolver.proxy_handler_instance]`
+(the deployed config uses the module-level `proxy_handler_instance` singleton,
+because the loader needs an instance, not a class).
 
 ## Tests (mirror the source-module convention)
+
+The implemented test files are
+`tests/test_litellm/router_utils/test_session_identity_cross_pod.py`,
+`test_session_identity_fuzz.py`, `test_session_identity_lineage.py`, and
+`test_session_identity_resolver.py`. The original planned set was:
 - `tests/test_litellm/router_utils/test_session_identity_hash_chain.py`
   - boundary/UTF-8 cases ported from llm-d producer_test.go
   - chain stability: appending a turn does not move earlier chunk hashes

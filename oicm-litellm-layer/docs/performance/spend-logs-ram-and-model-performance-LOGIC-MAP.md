@@ -2,7 +2,7 @@
 
 Phase 1 (Trace) applied to the log write path, its RAM footprint, and the
 Model Performance tab's role in it. Phase 2 (Test) values verified against
-live prod (mlops, 2026-09-08) inline as `LIVE:` markers. Companion to
+live prod (adeo-litellm, 2026-09-08) inline as `LIVE:` markers. Companion to
 `model-performance-30d-read-fix-LOGIC-MAP.md` (read path) — this doc covers
 the write path and memory.
 

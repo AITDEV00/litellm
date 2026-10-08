@@ -1,5 +1,12 @@
 # OmniVoice Missing Routes: VSA Plan
 
+> **Status (2026-10-08)**: implemented. The routes are live in
+> `litellm/proxy/voice_routes.py` (`GET /v1/voices`, `/v1/voices/profiles` CRUD,
+> `POST /v1/audio/script`, plus `/v1/audio/models`, `/v1/audio/health`,
+> `/v1/audio/metrics`). They were placed in the `voice_routes.py` slice rather
+> than inline in `proxy_server.py`, so wherever this plan says
+> `proxy_server.py` for a Layer 1 route, the code is in `voice_routes.py`.
+>
 > **Scope**: Implementation plan for `/v1/audio/script`, `/v1/voices` (GET), `/v1/voices/profiles` (CRUD) following the logic mapping technique Phase 3 (Build).
 >
 > **Reference**: [CLONE-LOGIC-MAP.md](CLONE-LOGIC-MAP.md) — the 7-layer trace of `/v1/audio/speech/clone`

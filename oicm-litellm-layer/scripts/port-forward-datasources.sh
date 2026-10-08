@@ -2,14 +2,14 @@
 #
 # port-forward-datasources.sh
 #
-# Port-forward the datasources the deployed `litellm-proxy` in the `mlops`
-# namespace uses, so a LOCAL litellm instance can validate changes against the
-# same real metrics backend. It intentionally does NOT forward any LLM model
-# service -- only the stateful/observability backends:
+# Port-forward the datasources the deployed `litellm-proxy` in the
+# `adeo-litellm` namespace uses, so a LOCAL litellm instance can validate
+# changes against the same real metrics backend. It intentionally does NOT
+# forward any LLM model service -- only the stateful/observability backends:
 #
 #   datasource          namespace                 local port  ->  remote
 #   ----------------    ------------------------  ----------      -----
-#   Postgres (Prisma)   mlops/mlops-postgres-rw   5432       ->    5432
+#   Postgres (Prisma)   adeo-litellm/adeo-litellm-postgres-rw   5432 -> 5432
 #   Redis  (cache)      redis/litellm-redis       16379      ->    6379
 #   Prometheus (metrics)kube-prometheus-stack     9090       ->    9090
 #
@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-NAMESPACE_MLOPS="mlops"
+NAMESPACE_LITELLM="adeo-litellm"
 NAMESPACE_REDIS="redis"
 NAMESPACE_PROM="kube-prometheus-stack"
 
@@ -84,7 +84,7 @@ start_pf() {
 }
 
 # --- Postgres (LiteLLM Prisma DB) ---
-start_pf "$NAMESPACE_MLOPS" "mlops-postgres-rw" "$POSTGRES_PF"
+start_pf "$NAMESPACE_LITELLM" "adeo-litellm-postgres-rw" "$POSTGRES_PF"
 
 # --- Redis (cache / auth cache / transaction buffer) ---
 start_pf "$NAMESPACE_REDIS" "litellm-redis" "$REDIS_PF"
@@ -94,7 +94,7 @@ start_pf "$NAMESPACE_PROM" "kube-prometheus-stack-prometheus" "$PROM_PF"
 
 sleep 1
 echo "Port-forwards active (Ctrl+C to stop):"
-echo "  Postgres:   127.0.0.1:5432   (mlops/mlops-postgres-rw)"
+echo "  Postgres:   127.0.0.1:5432   (adeo-litellm/adeo-litellm-postgres-rw)"
 echo "  Redis:      127.0.0.1:16379  (redis/litellm-redis)"
 echo "  Prometheus: 127.0.0.1:9090   (kube-prometheus-stack/prometheus)"
 

@@ -206,7 +206,7 @@ The fix was validated to return **identical** data to the old path:
 | p50/p95/p99 TTFT | `histogram_percentile(edges, whole_window_counts)` | `json_agg` fold → same | identical |
 | peak concurrency | running `SUM(starts-ends)` peak | window `SUM(change)` `MAX` | identical |
 
-Empirical check (debug pod, live `mlops` DB):
+Empirical check (debug pod, live `adeo-litellm` DB):
 ```
 1h:  old_models=8  new_models=8  DIFFS=0
 24h: old_models=10 new_models=10 DIFFS=0

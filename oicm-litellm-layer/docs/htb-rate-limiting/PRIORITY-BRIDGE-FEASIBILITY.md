@@ -39,16 +39,16 @@ Already built and deployed. Controls **how many RPM** each priority class gets.
 Client sends request with API key (metadata.priority = "prior1")
     |
     v
-async_pre_call_hook  (dynamic_rate_limiter_v3.py:382)
+async_pre_call_hook  (dynamic_rate_limiter_v3_htb.py:835)
     |  extracts "prior1" from user_api_key_dict
-    |  sets htb_priority ContextVar = "prior1"  (line 392)
+    |  sets htb_priority ContextVar = "prior1"  (line 845)
     |  returns None (does NOT modify data dict)
     |
     v
 Router picks deployment
     |
     v
-async_pre_call_check  (dynamic_rate_limiter_v3.py:395)
+async_pre_call_check  (dynamic_rate_limiter_v3_htb.py:848)
     |  reads htb_priority.get() = "prior1"
     |  runs HTB Lua script against Redis  (parallel_request_limiter_v3.py:183)
     |  ALLOW → returns deployment dict
@@ -62,11 +62,11 @@ Request sent to upstream vLLM/SGLang
 Key characteristics:
 - Priority is a **string** ("prior1", "prior2", "prior3")
 - Configured via `priority_reservation` in litellm_settings
-  (`litellm-proxy.yaml:40-43`): prior1=0.50, prior2=0.30, prior3=0.20
+  (`deploy/base/gateway/config/litellm-config.yaml`, `priority_reservation`): prior1=0.50, prior2=0.30, prior3=0.20
 - Carried by `htb_priority: ContextVar[Optional[str]]`
-  (`dynamic_rate_limiter_v3.py:37`)
-- Set in `async_pre_call_hook` (line 392), read in `async_pre_call_check`
-  (line 399)
+  (`dynamic_rate_limiter_v3_htb.py:48`)
+- Set in `async_pre_call_hook` (line 845), read in `async_pre_call_check`
+  (line 852)
 - Controls RPM allocation, NOT GPU scheduling
 - The hook returns `None` from `async_pre_call_hook` — it does NOT modify the
   request `data` dict at all (line 393)
@@ -710,7 +710,7 @@ class PriorityBridge(CustomLogger):
         call_type: CallTypesLiteral,
     ) -> Optional[Union[Exception, str, dict]]:
         import litellm
-        from litellm.proxy.hooks.dynamic_rate_limiter_v3 import htb_priority
+        from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
 
         body_fields_map = litellm.priority_body_fields
         if not body_fields_map:
@@ -746,7 +746,7 @@ The hook exists in two contexts, both now implemented:
    Full Python module, unit-tested, reads config from
    `litellm.priority_body_fields` global.
 
-2. **In-cluster ConfigMap version** (`litellm-proxy.yaml`): Inline Python in
+2. **In-cluster ConfigMap version** (`deploy/base/gateway/config/litellm-config.yaml`, `litellm-hooks` ConfigMap): Inline Python in
    a ConfigMap `priority_bridge.py` entry, deployed to Kubernetes at
    `/app/litellm_hooks/priority_bridge.py`. Reads
    `litellm.priority_body_fields` at runtime, same as the workspace version.
@@ -783,22 +783,22 @@ The bridge hook MUST run after the HTB hook sets `htb_priority`. In LiteLLM,
 `async_pre_call_hook` callbacks execute in registration order
 (`proxy/utils.py:1425`: `for _callback in caps.resolved_callbacks`).
 
-The HTB hook (`_PROXY_DynamicRateLimitHandlerV3`) sets `htb_priority` in its
-`async_pre_call_hook` (`dynamic_rate_limiter_v3.py:392`). It is registered
-as a callback via the string `"dynamic_rate_limiter_v3"` in the `callbacks`
+The HTB hook (`_PROXY_DynamicRateLimitHandlerV3Htb`) sets `htb_priority` in its
+`async_pre_call_hook` (`dynamic_rate_limiter_v3_htb.py:845`). It is registered
+as a callback via the string `"dynamic_rate_limiter_v3_htb"` in the `callbacks`
 list (resolved by `custom_logger_registry.py:100`). It is NOT auto-registered
 when `priority_reservation` is set; it must be explicitly listed.
 
-Final registration in `litellm-proxy.yaml`:
+Final registration in the `litellm-config` ConfigMap:
 ```yaml
 callbacks:
   - litellm_hooks.vllm_param_injector.vllm_param_injector
-  - dynamic_rate_limiter_v3                              # sets htb_priority
+  - dynamic_rate_limiter_v3_htb                          # sets htb_priority
   - litellm_hooks.priority_bridge.priority_bridge        # reads htb_priority
   - prometheus
 ```
 
-The `dynamic_rate_limiter_v3` callback MUST appear before
+The `dynamic_rate_limiter_v3_htb` callback MUST appear before
 `priority_bridge` in the list. Callbacks execute in list order, so the
 HTB hook's `async_pre_call_hook` runs first (setting `htb_priority`), then
 the bridge's `async_pre_call_hook` runs (reading `htb_priority`).
@@ -913,25 +913,25 @@ that matches the existing codebase.
 
 ### Hook Execution Order (resolved)
 
-The `callbacks` list in `litellm-proxy.yaml` registers hooks in order:
+The `callbacks` list in the `litellm-config` ConfigMap registers hooks in order:
 
 ```yaml
 callbacks:
   - litellm_hooks.vllm_param_injector.vllm_param_injector
-  - dynamic_rate_limiter_v3                              # sets htb_priority
+  - dynamic_rate_limiter_v3_htb                          # sets htb_priority
   - litellm_hooks.priority_bridge.priority_bridge        # reads htb_priority
   - prometheus
 ```
 
-The HTB rate limiter (`dynamic_rate_limiter_v3`) is a callback string
+The HTB rate limiter (`dynamic_rate_limiter_v3_htb`) is a callback string
 resolved by `custom_logger_registry.py:100` to `_PROXY_DynamicRateLimitHandlerV3`.
-Its `async_pre_call_hook` (`dynamic_rate_limiter_v3.py:392`) sets
+Its `async_pre_call_hook` (`dynamic_rate_limiter_v3_htb.py:392`) sets
 `htb_priority`. It is NOT auto-registered when `priority_reservation` is
 configured; it must be explicitly listed in `callbacks`.
 
 Callbacks execute in list order (`proxy/utils.py:1425`:
 `for _callback in caps.resolved_callbacks`). By placing
-`dynamic_rate_limiter_v3` before `priority_bridge`, the HTB hook's
+`dynamic_rate_limiter_v3_htb` before `priority_bridge`, the HTB hook's
 `async_pre_call_hook` runs first, setting `htb_priority`, then the bridge's
 `async_pre_call_hook` runs, reading `htb_priority`.
 
@@ -966,7 +966,7 @@ tests, and deployment config. The `extra_body` injection path is verified
 end-to-end (see "End-to-End Verification Trace" section above):
 
 1. `htb_priority` ContextVar is set by the HTB hook at
-   `dynamic_rate_limiter_v3.py:392`
+   `dynamic_rate_limiter_v3_htb.py:392`
 2. A dedicated `PriorityBridge` hook reads it in `async_pre_call_hook` and
    looks up `litellm.priority_body_fields` (config-driven, not hardcoded)
 3. The field-value dict (e.g. `{"priority": 0}`) is merged into
@@ -1011,7 +1011,7 @@ approach:
 - Keeps priority bridging decoupled from vLLM param injection
 - Is independently testable and toggleable
 
-The `dynamic_rate_limiter_v3` callback must be listed before
+The `dynamic_rate_limiter_v3_htb` callback must be listed before
 `priority_bridge` in the `callbacks` list so `htb_priority` is set before
 the bridge reads it. This is verified by callback registration order
 (explicit in the YAML), not by code-path analysis. Phase 4 (Verify) should

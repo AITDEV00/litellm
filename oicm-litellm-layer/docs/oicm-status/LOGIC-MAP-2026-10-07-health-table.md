@@ -10,48 +10,48 @@ the flow, with file:line refs, inputs/outputs, and side effects.
 
 | Entry | Where | Auth |
 |---|---|---|
-| `POST /oicm/v1/status-reports` | `litellm/proxy/oicm_routes.py:106` | `user_api_key_auth` + PROXY_ADMIN |
-| `POST /oicm/v1/heartbeats` | `litellm/proxy/oicm_routes.py:151` | `user_api_key_auth` + PROXY_ADMIN |
+| `POST /oicm/v1/status-reports` | `litellm/proxy/oicm_routes.py:114` | `user_api_key_auth` + PROXY_ADMIN |
+| `POST /oicm/v1/heartbeats` | `litellm/proxy/oicm_routes.py:152` | `user_api_key_auth` + PROXY_ADMIN |
 
 Both are mounted in `proxy_server.py` (~line 18892) in the fork-appended block.
 
 ## 2. Controller flow (10s loop)
 
 ```
-StatusPoller.run()                              status_poller.py:140
+StatusPoller.run()                              status_poller.py:142
   while running:
-    await self.refresh()                        status_poller.py:83
-      asyncio.gather(_fetch(s) for s in sources)  status_poller.py:65   # poll OICM, 1 call/source
+    await self.refresh()                        status_poller.py:84
+      asyncio.gather(_fetch(s) for s in sources)  status_poller.py:72   # poll OICM, 1 call/source
       build_snapshot(...) per summary           status/snapshot.py
       self.persister.persist_snapshots(...)     status_poller.py:120
     await asyncio.sleep(self.interval)          # STATUS_SYNC_INTERVAL = 10s
 ```
 
-`StatusPersister.persist_snapshots` (`status_persister.py:170`) reads the gateway
-rows, then calls `persist` (`status_persister.py:190`), which makes three
+`StatusPersister.persist_snapshots` (`status_persister.py:174`) reads the gateway
+rows, then calls `persist` (`status_persister.py:191`), which makes three
 independent write decisions:
 
 ```
 persist(snapshots, litellm_by_uuid, now)
   |
-  +-- plan_writes(...)                          status_persister.py:109
+  +-- plan_writes(...)                          status_persister.py:110
   |     -> StatusWrite per changed model
-  |     -> litellm.patch_status(...) x N        litellm_client.py:84   # PATCH model_info.oicm + blocked
+  |     -> litellm.patch_status(...) x N        litellm_client.py:88   # PATCH model_info.oicm + blocked
   |        [on change only; 0 writes when steady]
   |
-  +-- _maybe_report_health(snapshots, by_uuid, now)   status_persister.py:228
+  +-- _maybe_report_health(snapshots, by_uuid, now)   status_persister.py:226
   |     skip if last is not None and (now - last) < health_refresh_seconds (3600)
   |     reports.append({model_name, litellm_model_id, healthy=serving_available,
   |                     error_message, details={**block, cluster}})
-  |     if await litellm.report_status(reports):        litellm_client.py:158
+  |     if await litellm.report_status(reports):        litellm_client.py:151
   |         for r in reports: _last_health_at[id] = now   # only on success
   |     [on change OR hourly]
   |
-  +-- _maybe_heartbeat(snapshots, now)          status_persister.py:270
+  +-- _maybe_heartbeat(snapshots, now)          status_persister.py:268
         skip if no snapshots
         skip if (now - _last_heartbeat) < heartbeat_interval (30s)
         clusters = sorted({snap.cluster})
-        results = await litellm.report_heartbeats(clusters)  litellm_client.py:198
+        results = await litellm.report_heartbeats(clusters)  litellm_client.py:191
         if results: self.checked_at = MappingProxyType(dict(results))
         [every 30s]
 ```
@@ -59,10 +59,10 @@ persist(snapshots, litellm_by_uuid, now)
 ## 3. Gateway flow (per POST)
 
 ```
-oicm_status_reports(batch, user_api_key_dict)   oicm_routes.py:106
+oicm_status_reports(batch, user_api_key_dict)   oicm_routes.py:114
   from litellm.proxy.proxy_server import prisma_client   # deferred (circular import)
-  _require_admin(user_api_key_dict)             oicm_routes.py:92   # 403 unless PROXY_ADMIN
-  _require_prisma(prisma_client)                oicm_routes.py:100  # 500 if None
+  _require_admin(user_api_key_dict)             oicm_routes.py:94   # 403 unless PROXY_ADMIN
+  _require_prisma(prisma_client)                oicm_routes.py:102  # 500 if None
   writes = tuple(
     prisma_client.save_health_check_result(...) # native, utils.py:6429
       -> PrismaClient._clean_details(details)   # utils.py:6419, wraps in prisma.Json
@@ -74,7 +74,7 @@ oicm_status_reports(batch, user_api_key_dict)   oicm_routes.py:106
   return {"saved": saved, "received": len(batch.reports)}
 ```
 
-`oicm_heartbeats` (`oicm_routes.py:151`) is identical except each row has
+`oicm_heartbeats` (`oicm_routes.py:152`) is identical except each row has
 `model_name = f"{_SOURCE_ROW_PREFIX}{hb.cluster}"`, `model_id=None`, `details=None`.
 
 ## 4. Native write path (unchanged, reused)

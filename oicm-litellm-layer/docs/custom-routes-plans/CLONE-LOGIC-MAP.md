@@ -2,6 +2,14 @@
 
 > **Scope**: Full 7-layer trace of the existing `/v1/audio/speech/clone` route, used as the reference implementation pattern for the missing OmniVoice routes (`/v1/audio/script`, `/v1/voices`, `/v1/voices/profiles`).
 >
+> **Status (2026-10-08)**: the route was later extracted into a vertical slice.
+> `audio_speech_clone` now lives in `litellm/proxy/voice_routes.py` (mounted on
+> the app), not inline in `proxy_server.py`, and the OmniVoice routes traced as
+> "missing" here (`/v1/audio/script`, `/v1/voices`, `/v1/voices/profiles` CRUD)
+> are implemented in the same file. The `proxy_server.py:NNNN` line references
+> below are the pre-extraction locations; read them as "the route handler" and
+> look in `voice_routes.py` for the current code.
+>
 > **Methodology**: [logic_mapping_technique.md](../techniques/logic_mapping_technique.md) Phase 1 (Trace)
 
 ## 7-Layer Architecture Overview

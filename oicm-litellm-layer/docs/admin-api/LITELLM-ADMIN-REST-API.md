@@ -6,13 +6,13 @@ All endpoints are served by the proxy's FastAPI app (default port `4000`). Unles
 
 ## Connecting to the ADEO LiteLLM Proxy
 
-The ADEO gateway uses a self-signed TLS certificate. All `curl` commands must use the `-k` (insecure) flag.
+The ADEO gateway serves a valid DigiCert wildcard certificate for `*.ecouncil.ae`, so TLS verification succeeds and the `-k` (insecure) flag is not required. The examples below keep `-k` for copy-paste safety, but it can be dropped.
 
 | Setting | Value |
 |---------|-------|
 | **Base URL** | `https://litellm.ecouncil.ae` |
 | **Master Key** | `{{ master_key }}` |
-| **TLS** | Self-signed; use `-k` with curl |
+| **TLS** | Valid DigiCert wildcard; `-k` optional |
 
 Set these environment variables for convenience:
 
@@ -28,7 +28,7 @@ curl -sk "$PROXY_BASE_URL/health/liveness" \
   -H "Authorization: Bearer $LITELLM_API_KEY"
 ```
 
-All curl examples in this guide use `$PROXY_BASE_URL` and `$LITELLM_API_KEY`. For the ADEO proxy, every command needs the `-k` flag to skip TLS verification. For example:
+All curl examples in this guide use `$PROXY_BASE_URL` and `$LITELLM_API_KEY`. The gateway cert is publicly trusted, so `-k` is not needed; the examples keep it for copy-paste safety. For example:
 
 ```bash
 curl -sk -X GET "$PROXY_BASE_URL/model/info" \

@@ -22,7 +22,7 @@ Auth: `Authorization: Bearer {{ master_key }}`
 
 ### Pod-direct path
 
-Python3 `urllib.request` from inside a litellm-proxy pod (`mlops/litellm-proxy-7c9bb48cbb-56pfg`) to the inception pods directly:
+Python3 `urllib.request` from inside a litellm-proxy pod (`adeo-litellm/litellm-proxy-7c9bb48cbb-56pfg`; namespace was `mlops` at the time) to the inception pods directly:
 
 ```
 http://s-9aff17c0-988c-4cb1-98b9-e99faa6e9cdc.adeo.svc.cluster.local:8080/v1/audio/speech        (TTS)

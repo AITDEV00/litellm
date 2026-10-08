@@ -6,31 +6,44 @@ The LiteLLM gateway provides a unified OpenAI-compatible API for accessing Hamsa
 
 **Gateway URL**: `https://litellm.ecouncil.ae`
 
-**API Key**: `sk-omQbswRlepuTISV-1wgsDg`
+**API Key**: `<YOUR_API_KEY>` (replace everywhere below with your LiteLLM gateway API key; `sk-...`)
 
 All requests use the `Authorization: Bearer <api_key>` header unless otherwise noted.
 
 ## Available Models
 
+The gateway serves 28 models; this key is scoped to the 12 below. `GET /v1/models`
+with this key returns exactly this set.
+
 | Model | Type | Description |
 |---|---|---|
 | `hamsa-tts` | Text-to-Speech | Arabic/English TTS with 110+ speakers |
 | `hamsa-stt` | Speech-to-Text | Arabic STT (REST + WebSocket realtime) |
+| `inception-tts` | Text-to-Speech | Inception TTS |
+| `inception-stt` | Speech-to-Text | Inception STT |
 | `Qwen/Qwen3-Next-80B-A3B-Instruct` | LLM Chat | 80B parameter instruct model |
 | `Qwen/Qwen3.5-122B-A10B-GPTQ-Int4` | LLM Chat | 122B reasoning model (outputs reasoning_content) |
 | `Qwen3.6-35B-A3B-FP8` | LLM Chat | 35B reasoning model (outputs reasoning_content) |
-| `MiniMaxAI/MiniMax-M3-MXFP8` | LLM Chat | MiniMax M3 reasoning model (outputs reasoning_content) |
+| `Qwen/Qwen3.8-Flash-Next-FP8` | LLM Chat | Flash reasoning model (outputs reasoning_content) |
+| `deepseek-ai/DeepSeek-V4-Flash-0731` | LLM Chat | DeepSeek V4 Flash reasoning model |
+| `deepseek-ai/DeepSeek-V4.1-Flash` | LLM Chat | DeepSeek V4.1 Flash reasoning model |
 | `Qwen/Qwen3-Embedding-4B` | Embeddings | 2560-dimensional embeddings |
 | `Qwen/Qwen3-Embedding-0.6B` | Embeddings | 1024-dimensional embeddings |
 
 ### Reasoning Models
 
-`Qwen/Qwen3.5-122B-A10B-GPTQ-Int4`, `Qwen3.6-35B-A3B-FP8`, and `MiniMaxAI/MiniMax-M3-MXFP8` are reasoning models. They produce output in two fields:
+`Qwen/Qwen3.5-122B-A10B-GPTQ-Int4`, `Qwen3.6-35B-A3B-FP8`,
+`Qwen/Qwen3.8-Flash-Next-FP8`, `deepseek-ai/DeepSeek-V4-Flash-0731`, and
+`deepseek-ai/DeepSeek-V4.1-Flash` are reasoning models. They produce output in
+two fields:
 
 - `reasoning_content`: the chain-of-thought (not shown to end users)
 - `content`: the final answer
 
 These models need a higher `max_tokens` (e.g. 1000+) because reasoning tokens count toward the limit. With `max_tokens=50` the model may exhaust tokens on reasoning alone and return `content: null`.
+
+See [Reasoning Control Guide](REASONING_CONTROL_GUIDE.md) for per-model
+`reasoning_effort` tiers and how to disable thinking.
 
 ---
 
@@ -92,7 +105,7 @@ Wael, William, Yara, Yehya, Zeina
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "hamsa-tts",
@@ -109,7 +122,7 @@ curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "hamsa-tts",
@@ -165,7 +178,7 @@ Verified by calling the endpoint through the gateway:
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "hamsa-tts",
@@ -230,7 +243,7 @@ Once you have the extracted tokens, register the voice through the gateway:
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/voices" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "hamsa-tts",
@@ -253,7 +266,7 @@ After loading, the new voice is immediately usable in `/v1/audio/speech` by pass
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "hamsa-tts",
@@ -288,7 +301,7 @@ POST /v1/audio/transcriptions
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -F "model=hamsa-stt" \
   -F "file=@audio.wav" \
   -F "language=auto"
@@ -335,7 +348,7 @@ Browsers cannot set custom headers on WebSocket connections, so the API key is p
 ```javascript
 const ws = new WebSocket(
   "wss://litellm.ecouncil.ae/v1/realtime?model=hamsa-stt",
-  ["openai-insecure-api-key.sk-omQbswRlepuTISV-1wgsDg"]
+  ["openai-insecure-api-key.<YOUR_API_KEY>"]
 );
 ```
 
@@ -346,8 +359,8 @@ const ws = new WebSocket(
 ```json
 {
   "type": "handshake",
-  "api_key": "gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=",
-  "authorization": "Bearer sk-omQbswRlepuTISV-1wgsDg",
+  "api_key": "<HAMSA_STT_FERNET_TOKEN>",
+  "authorization": "Bearer <YOUR_API_KEY>",
   "options": {
     "silence_timeout": 30,
     "sample_rate": 16000,
@@ -416,14 +429,14 @@ The `api_key` field is the Hamsa STT encrypted key (Fernet token). The `authoriz
 
 ### Interactive Test Page
 
-An interactive WebSocket test page is available at `test-ws.html` in this directory. To use it:
+An interactive WebSocket test page is available at `hamsa-stt-realtime-test-ws.html` in this directory. To use it:
 
 ```bash
 cd oicm-litellm-layer/examples/usage/hamsa-stt
 python3 -m http.server 8765
 ```
 
-Then open `http://localhost:8765/test-ws.html` in a browser. The page is pre-configured with the correct gateway URL, API keys, and default options. Click "Connect & Start Recording" to begin streaming microphone audio for real-time transcription.
+Then open `http://localhost:8765/hamsa-stt-realtime-test-ws.html` in a browser. The page is pre-configured with the correct gateway URL, API keys, and default options. Click "Connect & Start Recording" to begin streaming microphone audio for real-time transcription.
 
 ---
 
@@ -441,7 +454,7 @@ Standard OpenAI-compatible chat completions API.
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
@@ -477,14 +490,16 @@ curl -sk -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
 
 ### Example: Reasoning Model
 
-Reasoning models (`Qwen3.5-122B`, `Qwen3.6-35B`, `MiniMax-M3`) produce a `reasoning_content` field in addition to `content`. Use a higher `max_tokens`:
+Reasoning models (`Qwen3.5-122B`, `Qwen3.6-35B`, `Qwen3.8-Flash-Next`,
+`DeepSeek-V4-Flash-0731`, `DeepSeek-V4.1-Flash`) produce a `reasoning_content`
+field in addition to `content`. Use a higher `max_tokens`:
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+    "model": "deepseek-ai/DeepSeek-V4.1-Flash",
     "messages": [
       {"role": "user", "content": "What is 2+2?"}
     ],
@@ -516,7 +531,11 @@ If `max_tokens` is too low, the model exhausts tokens on reasoning and returns `
 To skip chain-of-thought for faster, cheaper responses, pass the disable-reasoning parameter for the model family in use:
 
 - **Qwen** (vLLM) — `chat_template_kwargs: {"enable_thinking": false}`
-- **MiniMax / DeepSeek** — `thinking: false`
+- **DeepSeek** — `thinking: false`
+
+For SGLang-served reasoning models the reliable switch is the top-level
+`reasoning_effort: "none"`; see
+[Reasoning Control Guide](REASONING_CONTROL_GUIDE.md).
 
 Qwen example:
 
@@ -541,7 +560,9 @@ curl -s -X POST "https://litellm.ecouncil.ae/v1/chat/completions" \
 | `Qwen/Qwen3-Next-80B-A3B-Instruct` | Standard | Best for general chat, fast response |
 | `Qwen/Qwen3.5-122B-A10B-GPTQ-Int4` | Reasoning | Large model, needs high max_tokens |
 | `Qwen3.6-35B-A3B-FP8` | Reasoning | Mid-size, needs high max_tokens |
-| `MiniMaxAI/MiniMax-M3-MXFP8` | Reasoning | MiniMax M3, needs high max_tokens |
+| `Qwen/Qwen3.8-Flash-Next-FP8` | Reasoning | Flash model, needs high max_tokens |
+| `deepseek-ai/DeepSeek-V4-Flash-0731` | Reasoning | DeepSeek V4 Flash |
+| `deepseek-ai/DeepSeek-V4.1-Flash` | Reasoning | DeepSeek V4.1 Flash |
 
 ---
 
@@ -564,7 +585,7 @@ POST /v1/embeddings
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/embeddings" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "Qwen/Qwen3-Embedding-4B",
@@ -601,7 +622,7 @@ curl -sk -X POST "https://litellm.ecouncil.ae/v1/embeddings" \
 
 ```bash
 curl -sk -X POST "https://litellm.ecouncil.ae/v1/embeddings" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "Qwen/Qwen3-Embedding-0.6B",
@@ -623,7 +644,7 @@ GET /v1/models
 
 ```bash
 curl -sk "https://litellm.ecouncil.ae/v1/models" \
-  -H "Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg" | python3 -m json.tool
+  -H "Authorization: Bearer <YOUR_API_KEY>" | python3 -m json.tool
 ```
 
 Returns the list of models accessible with this API key.
@@ -636,8 +657,8 @@ All endpoints use the same base URL and API key:
 
 ```
 Base URL:  https://litellm.ecouncil.ae
-API Key:   sk-omQbswRlepuTISV-1wgsDg
-Header:    Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg
+API Key:   <YOUR_API_KEY>
+Header:    Authorization: Bearer <YOUR_API_KEY>
 ```
 
 | Endpoint | Method | Path | Model |
@@ -646,6 +667,6 @@ Header:    Authorization: Bearer sk-omQbswRlepuTISV-1wgsDg
 | Voice Management | POST | `/v1/audio/voices` | `hamsa-tts` |
 | Speech-to-Text (REST) | POST | `/v1/audio/transcriptions` | `hamsa-stt` |
 | Speech-to-Text (WS) | WS | `/v1/realtime?model=hamsa-stt` | `hamsa-stt` |
-| Chat Completions | POST | `/v1/chat/completions` | Qwen / MiniMax models |
+| Chat Completions | POST | `/v1/chat/completions` | Qwen / DeepSeek models |
 | Embeddings | POST | `/v1/embeddings` | Qwen embedding models |
 | Model List | GET | `/v1/models` | - |

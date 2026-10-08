@@ -10,10 +10,10 @@ Two paths trigger pricing resolution:
 K8s watch event (model added)
     |
     v
-[DiscoveryController._handle_add] (controller.py:197)
+[DiscoveryController._handle_add] (controller.py:259)
     |
-    +-- detect_mode(model_id, extra_args) -> mode
-    +-- if mode == "tts_skip": return (skip entirely)
+    +-- LocalDeploymentSource.discover_for_deployment() already ran detect_mode_from_paths
+    +-- if mode == "tts_skip": the model is not built at all (skipped upstream)
     |
     v
 [self.pricing_resolver.resolve(model.model_id)] (resolver.py:24)
@@ -22,13 +22,13 @@ K8s watch event (model added)
 [pricing_to_params(pricing)] (utils.py:6)
     |
     v
-[self.litellm.register_model(model, inherited)] (litellm_client.py:96)
+[self.litellm.register_model(model, inherited)] (litellm_client.py:283)
     |
     v
-[self.litellm.batch([], [(model, inherited)], [])] (litellm_client.py:74)
+[self.litellm.batch([], [(model, inherited)], [])] (litellm_client.py:242)
     |
     v
-[self._register_one(client, model, inherited)] (litellm_client.py:130)
+[self._register_one(client, model, inherited)] (litellm_client.py:345)
     |
     +-- litellm_params = {model, api_base, api_key, drop_params}
     +-- for k,v in inherited.items():
@@ -42,22 +42,28 @@ POST /model/new with litellm_params including input_cost_per_token + output_cost
 ### Path B: Sync reconciliation (`reconciler.py:compute_plan`)
 
 ```
-SyncReconciler.compute_plan(k8s_models, litellm_by_uuid) (reconciler.py:52)
+SyncReconciler.compute_plan(k8s_models, litellm_by_uuid) (reconciler.py:154)
     |
-    +-- For NEW models (uuid in k8s, not in litellm):
+    +-- For NEW models (uuid in k8s, not in litellm) (reconciler.py:219):
     |       pricing = await self.pricing.resolve(model.model_id)
     |       plan.registers.append((model, pricing_to_params(pricing)))
     |
     +-- For EXISTING models (uuid in both):
-    |       if existing_model_name != model.model_name:
+    |       if existing_model_name != model.model_name (reconciler.py:249):
     |           pricing = await self.pricing.resolve(model.model_id)
     |           plan.registers.append((model, pricing_to_params(pricing)))
     |       else:
-    |           plan.patches.append((existing_id, {model, api_base}))  # BUG: no pricing
+    |           pricing = await self.pricing.resolve(model.model_id)  # reconciler.py:268
+    |           inherited = pricing_to_params(pricing)
+    |           patch_params.update(inherited)  # pricing IS resolved on the patch path
     |
     v
-[litellm.batch(deletes, registers, patches)] (litellm_client.py:66)
+[litellm.batch(deletes, registers, patches)] (litellm_client.py:242)
 ```
+
+> Historical note: an earlier revision of this map flagged the patch path as
+> "BUG: no pricing". That is fixed: `compute_plan` now resolves pricing for the
+> patch case too (reconciler.py:268) and folds it into `patch_params`.
 
 ## Resolver Internal Flow
 
@@ -98,7 +104,7 @@ normalized = normalize_model_name(model_id) (normalizer.py:14)
     +-- strip leading/trailing -
     |
     v
-for matcher in DEFAULT_MATCHERS: (resolver.py:37)
+for matcher in DEFAULT_MATCHERS: (resolver.py:6,18)
     |
     +-- exact_match(normalized, index.by_normalized_key) (matchers.py:10)
     |       index.get(normalized) -> score 1.0
@@ -142,7 +148,7 @@ output_cost_per_token: float # USD per token
 has_pricing: bool            # False if no pricing fields or zero-cost chat
 ```
 
-### PricingResult (models.py:25)
+### PricingResult (models.py:22)
 ```python
 input_cost_per_token: float
 output_cost_per_token: float
@@ -157,7 +163,7 @@ strategy: str                   # matcher_name or "aggregated"
 # or None if result is None
 ```
 
-### LiteLLM _register_one inherited_params merge (litellm_client.py:151)
+### LiteLLM _register_one inherited_params merge (litellm_client.py:345)
 ```python
 for k, v in inherited_params.items():
     if k not in litellm_params and v is not None:

@@ -2,7 +2,7 @@
 
 Date: 2026-07-07
 
-Environment: litellm v1.89.3 on k8s (OICM cluster), `mlops` namespace, 1 replica, image `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.89.3`
+Environment: litellm v1.89.3 on k8s (OICM cluster), `adeo-litellm` namespace (named `mlops` at the time), 1 replica, image `registry.adeoaiengine.ecouncil.ae/.../litellm-src:jya0-v1.89.3`
 
 Server: Granian v2.7.4 (Rust-backed ASGI server), 4 worker processes
 
@@ -74,7 +74,7 @@ litellm --config /app/config.yaml --port 4000 --run_granian --num_workers 4 --us
 ### 1. Verify deployment state
 
 ```bash
-kubectl logs -n mlops deploy/litellm-proxy --tail=200 2>/dev/null | grep -E "Spawning worker|Started worker" | sort -u
+kubectl logs -n adeo-litellm deploy/litellm-proxy --tail=200 2>/dev/null | grep -E "Spawning worker|Started worker" | sort -u
 ```
 
 Result:
@@ -92,7 +92,7 @@ Result:
 ### 2. Verify Redis connection
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import redis, os
 r = redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), password=os.environ['REDIS_PASSWORD'])
 info = r.info()
@@ -112,7 +112,7 @@ redis_version: 7.4.3
 ### 3. Health checks
 
 ```bash
-kubectl exec -n mlops deploy/litellm-proxy -- python3 -c "
+kubectl exec -n adeo-litellm deploy/litellm-proxy -- python3 -c "
 import urllib.request
 for path in ['/health/readiness', '/health/liveliness']:
     r = urllib.request.urlopen(f'http://localhost:4000{path}', timeout=10)
@@ -133,9 +133,9 @@ Benchmark script deployed to pod and run with httpx async client. Tests both dir
 Payload: `{"model": "Qwen/Qwen3-Next-80B-A3B-Instruct", "messages": [{"role": "user", "content": "Say hello in one word."}], "max_tokens": 5, "temperature": 0.1, "stream": false}`
 
 ```bash
-POD=$(kubectl get pod -n mlops -l app=litellm-proxy --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
-kubectl cp oicm-litellm-layer/bench_after.py mlops/$POD:/tmp/bench_after.py
-kubectl exec -n mlops $POD -- python3 /tmp/bench_after.py
+POD=$(kubectl get pod -n adeo-litellm -l app=litellm-proxy --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+kubectl cp oicm-litellm-layer/bench_after.py adeo-litellm/$POD:/tmp/bench_after.py
+kubectl exec -n adeo-litellm $POD -- python3 /tmp/bench_after.py
 ```
 
 Result (first run, before Redis pool fix - pool exhaustion caused massive tail latency):
@@ -226,7 +226,7 @@ Redis errors during full benchmark run: **0** (verified via `kubectl logs --sinc
 ### 7. Resource usage under load
 
 ```bash
-kubectl top pod -n mlops 2>&1 | grep litellm
+kubectl top pod -n adeo-litellm 2>&1 | grep litellm
 ```
 
 Result after full benchmark suite (idle, settling):
