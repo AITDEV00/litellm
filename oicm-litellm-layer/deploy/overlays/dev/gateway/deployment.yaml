@@ -19,6 +19,15 @@ spec:
   # One replica: dev is a debug surface, not a traffic path. Override to 0 when
   # not debugging to release the node.
   replicas: 1
+  # The base selects `app: litellm-proxy`, the PROD pod label, and a Deployment
+  # selector is immutable. Dev pods must carry `app: litellm-proxy-dev` so the
+  # dev Service reaches them and the prod Service never does, so both the
+  # selector and the pod template labels are overridden here. Leaving them at
+  # the base value would also make `kubectl apply` fail, because it would try to
+  # change an immutable field on the already-`-dev` Deployment.
+  selector:
+    matchLabels:
+      app: litellm-proxy-dev
   # Recreate, not RollingUpdate. There is nothing to keep serving during a dev
   # restart, and Recreate guarantees the old pod is gone before the new one
   # starts, so a stale worker cannot answer a probe.
@@ -26,6 +35,9 @@ spec:
     $patch: replace
     type: Recreate
   template:
+    metadata:
+      labels:
+        app: litellm-proxy-dev
     spec:
       containers:
         - name: litellm

@@ -240,3 +240,62 @@ def _flatten(document: object, prefix: str = "") -> dict[str, object]:
     else:
         out[prefix] = document
     return out
+
+
+# The pod label each environment's own pods carry. The base hardcodes the prod
+# value, and `nameSuffix` renames objects but never rewrites a selector, so a dev
+# object left at the base value selects the PROD pods.
+_PROD_POD_LABEL: Final = "litellm-proxy"
+_DEV_POD_LABEL: Final = "litellm-proxy-dev"
+
+
+def _selector_labels(document: dict) -> tuple[str, ...]:
+    """Every pod-label value this object selects on, from either selector shape."""
+    spec = document.get("spec") or {}
+    found: list[str] = []
+    selector = spec.get("selector")
+    if isinstance(selector, dict):
+        if isinstance(selector.get("matchLabels"), dict):
+            found.extend(str(v) for v in selector["matchLabels"].values())
+        found.extend(str(v) for v in selector.values() if isinstance(v, str))
+    return tuple(found)
+
+
+def test_dev_selectors_never_target_prod_pods(dev: dict[str, dict]):
+    """No dev object may select a prod pod label.
+
+    This is the regression guard for the dev Service (and PDB) selecting
+    `app: litellm-proxy`, the prod pod label. With that selector the dev Service's
+    endpoints were the prod replicas, so the dev discovery controller read and
+    wrote PRODUCTION. A selector value is a pod label, so a dev object naming the
+    prod label is always a routing bug, never a coincidence.
+    """
+    offenders = {
+        key: _selector_labels(doc)
+        for key, doc in dev.items()
+        if _PROD_POD_LABEL in _selector_labels(doc)
+    }
+    assert not offenders, (
+        "dev objects select the prod pod label "
+        f"{_PROD_POD_LABEL!r}, so they route to production: {offenders}"
+    )
+
+
+def test_dev_deployment_pods_carry_the_dev_label(dev: dict[str, dict]):
+    """Dev pods must be labeled with the dev value, not the base's prod value.
+
+    The pod label is what a Service selects on. If it stays at the base value,
+    the prod Service selects the dev pod and sends production traffic to it.
+    """
+    labels = dev["Deployment/litellm-proxy-dev"]["spec"]["template"]["metadata"]["labels"]
+    assert labels.get("app") == _DEV_POD_LABEL, (
+        f"dev pods must carry app={_DEV_POD_LABEL!r}, got {labels.get('app')!r}"
+    )
+
+
+def test_prod_selectors_target_prod_pods(prod: dict[str, dict]):
+    """Prod objects must still select the prod pod label, unchanged."""
+    for key in ("Service/litellm-proxy", "PodDisruptionBudget/litellm-proxy-pdb"):
+        assert _PROD_POD_LABEL in _selector_labels(prod[key]), (
+            f"{key} must select app={_PROD_POD_LABEL!r}"
+        )

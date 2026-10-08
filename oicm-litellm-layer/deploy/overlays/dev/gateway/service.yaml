@@ -1,0 +1,19 @@
+# Dev Service selector.
+#
+# The base Service selects `app: litellm-proxy`, which is the PROD pod label.
+# `nameSuffix: -dev` renames this Service object but does NOT rewrite its
+# selector, so without this patch the dev Service routes to the prod pods: its
+# endpoints are the prod replicas and the dev pod is not among them. Anything
+# pointed at the dev Service (the dev discovery controller, a dev client) then
+# reads and writes PRODUCTION.
+#
+# The dev pods carry `app: litellm-proxy-dev` (see deployment.yaml), so the
+# selector must name that value for the dev Service to reach its own pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+spec:
+  selector:
+    app: litellm-proxy-dev

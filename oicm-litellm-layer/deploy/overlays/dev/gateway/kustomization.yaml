@@ -16,7 +16,14 @@ resources:
 nameSuffix: -dev
 
 patches:
-  # Deployment: replica shape, worker count, and the dev-only Secrets and DB.
+  # Deployment: selector/pod labels, replica shape, worker count, and the
+  # dev-only Secrets and DB.
   - path: deployment.yaml
+  # Service: the selector, so the dev Service routes to the dev pod. Without it
+  # the dev Service selects the prod pods (the base selector is the prod label)
+  # and anything pointed at it reads and writes production.
+  - path: service.yaml
+  # PodDisruptionBudget: the selector, so the dev budget counts dev pods.
+  - path: pdb.yaml
   # ConfigMap: the config values that genuinely differ on dev.
   - path: config.yaml
