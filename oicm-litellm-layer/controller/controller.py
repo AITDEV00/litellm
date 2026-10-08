@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import replace
-from typing import Dict, List, Optional
+from typing import Dict, FrozenSet, List, Optional
 
 from aiohttp import web
 from kubernetes import watch
@@ -16,6 +16,7 @@ from .config import (
     WORKLOAD_ID_LABEL,
     WORKLOAD_TYPE_LABEL,
 )
+from .exclusions import excluded, load_exclusions
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
@@ -38,7 +39,12 @@ class DiscoveryController:
         sources: List[ModelSource] | None = None,
         litellm: LiteLLMClient | None = None,
         status_poller: StatusPoller | None = None,
+        exclusions: FrozenSet[str] | None = None,
     ):
+        # Identities that must never be registered. Injected rather than read
+        # from the environment here, so a test can pin the set without a file.
+        self.exclusions = exclusions if exclusions is not None else load_exclusions()
+
         if sources is not None:
             self.sources = sources
         else:
@@ -145,11 +151,11 @@ class DiscoveryController:
     async def full_sync(self):
         logger.info("Starting full sync...")
 
-        discovered: Dict[str, OicmModel] = {}
+        k8s_discovered: Dict[str, OicmModel] = {}
         for source in self.sources:
             try:
                 models = await source.discover()
-                discovered.update(models)
+                k8s_discovered.update(models)
                 logger.info(
                     "Source %s: discovered %d models",
                     source.__class__.__name__,
@@ -158,13 +164,38 @@ class DiscoveryController:
             except Exception as e:
                 logger.error("Source %s failed: %s", source.__class__.__name__, e)
 
+        # Drop excluded deployments before the plan is computed, so an already
+        # registered one reads as deleted and is removed rather than kept as a
+        # Stopped-style placeholder. Both halves of `desired` must be filtered:
+        # the k8s records and the OICM snapshots are independent views of the
+        # same deployment, and filtering only one leaves it registered.
+        #
+        # The OICM half is keyed off `excluded_keys` as well as its own fields,
+        # because a summary carries only the uuid as a model id. Without this, a
+        # running deployment excluded by served model id would drop out of the
+        # k8s half but survive as an OICM placeholder.
+        excluded_keys = {
+            key
+            for key, model in k8s_discovered.items()
+            if excluded(model, self.exclusions)
+        }
+        discovered = {
+            key: model
+            for key, model in k8s_discovered.items()
+            if key not in excluded_keys
+        }
+
         litellm_by_key = await self.litellm.list_all_models_by_key()
 
         # Existence comes from the poller's latest snapshots, not from a fresh
         # fetch here. The poll loop is the single writer, so this reads the same
         # map the poller just produced instead of issuing a second identical
         # call and blocking the reconcile on OICM.
-        oicm_models = _summaries_to_models(self.status_poller.snapshots)
+        oicm_models = {
+            key: model
+            for key, model in _summaries_to_models(self.status_poller.snapshots).items()
+            if key not in excluded_keys and not excluded(model, self.exclusions)
+        }
 
         plan = await self.reconciler.compute_plan(
             discovered,
@@ -229,9 +260,22 @@ class DiscoveryController:
         if not self._running:
             return
 
-        models = await self.local_source.discover_for_deployment(dep)
-        if not models:
+        found = await self.local_source.discover_for_deployment(dep)
+        if not found:
             logger.warning("No models discovered for j-%s", uuid[:8])
+            return
+
+        models = {
+            key: model
+            for key, model in found.items()
+            if not excluded(model, self.exclusions)
+        }
+        if not models:
+            logger.info(
+                "Ignoring excluded deployment j-%s (%s)",
+                uuid[:8],
+                ", ".join(sorted(m.model_id for m in found.values())),
+            )
             return
 
         serving = (dep.status.ready_replicas or 0) > 0

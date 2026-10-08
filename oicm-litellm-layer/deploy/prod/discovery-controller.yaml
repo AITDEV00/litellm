@@ -175,6 +175,12 @@ spec:
             # credentials are absent here is skipped with a warning.
             - name: OICM_SOURCES_FILE
               value: "/etc/oicm/sources.yaml"
+            # Models the controller must never register. Declared in the
+            # oicm-exclusions ConfigMap, mounted alongside the sources file. An
+            # excluded model is deleted if already registered, so it disappears
+            # from /v1/models entirely rather than just leaving the routing pool.
+            - name: OICM_EXCLUSIONS_FILE
+              value: "/etc/oicm-exclusions/exclusions.yaml"
             - name: OICM_SOURCE_ALAIN_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -206,6 +212,9 @@ spec:
             - name: oicm-sources
               mountPath: /etc/oicm
               readOnly: true
+            - name: oicm-exclusions
+              mountPath: /etc/oicm-exclusions
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -229,3 +238,6 @@ spec:
         - name: oicm-sources
           configMap:
             name: oicm-sources
+        - name: oicm-exclusions
+          configMap:
+            name: oicm-exclusions

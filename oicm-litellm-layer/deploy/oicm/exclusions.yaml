@@ -1,0 +1,26 @@
+# Models the controller must NEVER register in LiteLLM.
+#
+# An entry here is stronger than the `blocked` routing flag: an excluded model is
+# not registered at all, and one that is already registered is deleted, so it is
+# absent from /v1/models and invisible to every consumer rather than merely
+# unroutable.
+#
+# An entry may be any identity of the deployment:
+#   - the served model id, e.g. "Qwen/Qwen3.6-35B-A3B-FP8"
+#   - the gateway's sanitized name, e.g. "Qwen--Qwen3.6-35B-A3B-FP8"
+#   - the deployment uuid, e.g. "766b1720-f516-4077-b22c-6ce97c045470"
+#
+# Prefer the served model id: it is stable across redeploys, whereas a uuid is
+# regenerated every time the deployment is recreated. The uuid is the only handle
+# for a deployment that is Stopped, whose served id cannot be discovered.
+#
+# Empty by default. Add an entry and re-apply this ConfigMap; the controller
+# reads it on the next full sync, so no redeploy is needed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-exclusions
+  namespace: adeo-litellm
+data:
+  exclusions.yaml: |
+    model_ids: []

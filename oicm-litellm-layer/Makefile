@@ -118,6 +118,7 @@ controller-deploy-dev: controller-release-dev deploy-dev
 ## rather than depending on a ConfigMap someone applied by hand.
 deploy-dev:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
 
@@ -126,6 +127,7 @@ deploy-dev:
 ## Use `litellm-src-deploy` when the image should move too.
 deploy:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
@@ -201,6 +203,7 @@ litellm-src-deploy:
 	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/base/gateway/proxy/deployment.yaml
 	@echo "Deploying to cluster"
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml

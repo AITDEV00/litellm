@@ -39,6 +39,7 @@ controller/
   models.py                OicmModel dataclass, sanitize_model_id, detect_mode.
   litellm_client.py        LiteLLMClient. Batch register/deregister/patch via REST API.
   reconciler.py            SyncReconciler. Pure compute_plan + execute. Dedup logic.
+  exclusions.py            Excluded model ids. Declarative slice, like sources_config.
   controller.py            DiscoveryController. Orchestration: start/stop, full_sync,
                            watch loop, event handlers, health endpoint.
   fallbacks/
@@ -124,6 +125,8 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | `ENABLE_SUBMARINER_IMPORTS` | `true` | Enable Submariner cross-cluster import source |
 | `STATUS_SYNC_INTERVAL` | `10` | Seconds between OICM status polls, per source |
 | `OICM_SOURCES_FILE` | `/etc/oicm/sources.yaml` | Path to the OICM source definitions |
+| `OICM_EXCLUSIONS_FILE` | `/etc/oicm-exclusions/exclusions.yaml` | Path to the excluded-model definitions |
+| `OICM_EXCLUDED_MODEL_IDS` | (unset) | Comma-separated model ids to exclude, merged with the file |
 
 ## OICM status sources
 
@@ -159,6 +162,36 @@ Both OICM versions the controller talks to (Al Ain `1.15.19` and Abu Dhabi
 `1.7.1`) use the same `OicmStatusSource`; they differ only in whether
 `status_detail[]` carries `metadata`, which the shared availability logic treats
 as optional.
+
+## Excluding models
+
+Models that must never appear on the gateway are declared in
+`deploy/oicm/exclusions.yaml`, applied as the `oicm-exclusions` ConfigMap and
+mounted at `/etc/oicm-exclusions`. Exclusion is stronger than the `blocked`
+routing flag: an excluded deployment is never registered, and one that is already
+registered is deleted, so it is absent from `/v1/models` rather than merely
+unroutable.
+
+```yaml
+model_ids:
+  - Qwen/Qwen3.6-35B-A3B-FP8
+  - 766b1720-f516-4077-b22c-6ce97c045470
+```
+
+An entry matches any of a deployment's identities: the served model id, the
+gateway's sanitized name (slashes as `--`), or the deployment uuid. Prefer the
+served model id, because it is stable across redeploys while the uuid is
+regenerated each time. The uuid is the only handle for a Stopped deployment,
+whose served id cannot be discovered.
+
+The controller reads the file once at startup, so an edit plus a re-apply of the
+ConfigMap takes effect on the next controller restart. Reading it once rather
+than every sync is deliberate: a transiently unreadable file would otherwise
+yield an empty set and re-register every excluded model. The
+`OICM_EXCLUDED_MODEL_IDS` env var is merged with the file for a temporary
+exclusion. A malformed file yields an empty set rather than raising: exclusion is
+a safety net, and the worst case of missing it is a model that stays registered,
+whereas raising would stall the controller.
 
 ## OicmModel Fields
 
