@@ -497,7 +497,7 @@
                     </div>
                     <div class="input-wrapper">
                         <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
-                        <input type="text" id="bearerToken" placeholder="sk-..." value="sk-05132025">
+                        <input type="text" id="bearerToken" placeholder="sk-..." value="">
                     </div>
                 </div>
             </div>
@@ -612,7 +612,7 @@
                 <div class="results-container" style="max-height: none; background: #1e1e1e; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all;">
 curl -s -X POST \
   "https://litellm.ecouncil.ae/v1/audio/transcriptions" \
-  -H "Authorization: Bearer sk-05132025" \
+  -H "Authorization: Bearer sk-..." \
   -F "model=hamsa-stt" \
   -F "file=@/path/to/audio.wav" \
   -F "language=auto"</div>
