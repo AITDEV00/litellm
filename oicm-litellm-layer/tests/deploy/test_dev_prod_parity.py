@@ -16,9 +16,11 @@ Run with the controller's test extra:
 
 from __future__ import annotations
 
+import base64
 import subprocess
 from pathlib import Path
 from typing import Final
+from urllib.parse import urlparse
 
 import pytest
 import yaml
@@ -42,8 +44,48 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
         "LITELLM_MASTER_KEY",  # dev has its own master key Secret
         "UI_PASSWORD",  # follows the master key
         "LITELLM_SALT_KEY",  # dev has its own salt key Secret
-        "DATABASE_URL",  # dev points at the dev-only Postgres
     }
+)
+
+# Env vars dev declares that prod does not, with the reason. Prod pins one
+# `DATABASE_URL`; dev sets the discrete `DATABASE_*` vars LiteLLM assembles a URL
+# from instead, so it can read CNPG's per-field keys rather than the Secret's
+# `uri` key (whose embedded password is stale).
+_DEV_ONLY_ENV_VARS: Final = frozenset(
+    {
+        "DATABASE_HOST",
+        "DATABASE_USERNAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_NAME",
+    }
+)
+
+# Env vars prod declares that dev does not, with the reason.
+_PROD_ONLY_ENV_VARS: Final = frozenset({"DATABASE_URL"})
+
+# Objects prod declares that dev must NOT have a copy of.
+#
+# `litellm-db-credentials` holds the prod connection string. `nameSuffix` would
+# clone it into dev as `litellm-db-credentials-dev`, and dev would then connect
+# to the prod database, which is what happened before this was deleted. Dev
+# reads CNPG's own `adeo-litellm-postgres-dev-app` Secret instead.
+_PROD_ONLY_OBJECTS: Final = frozenset({"Secret/litellm-db-credentials"})
+
+# The Secret CNPG creates for the dev cluster. It is not part of the kustomize
+# render because the operator owns it, so it is named here to assert what dev
+# points at instead of the prod connection string.
+_DEV_CNPG_SECRET: Final = "adeo-litellm-postgres-dev-app"
+
+# The dev cluster's read-write Service. Prod must never point at it.
+_DEV_DB_HOST: Final = "adeo-litellm-postgres-dev-rw.adeo-litellm"
+
+# The env vars dev sets to reach its own database. LiteLLM assembles a URL from
+# these when DATABASE_URL is unset.
+_DEV_DB_ENV_VARS: Final = (
+    "DATABASE_HOST",
+    "DATABASE_USERNAME",
+    "DATABASE_PASSWORD",
+    "DATABASE_NAME",
 )
 
 # Config keys under `general_settings` expected to differ, with the reason. Dev
@@ -111,12 +153,25 @@ def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dic
     expected = {
         key if key in _SHARED_UNSUFFIXED else f"{key.split('/')[0]}/{key.split('/')[1]}{_DEV_SUFFIX}"
         for key in prod
+        if key not in _PROD_ONLY_OBJECTS
     }
     assert set(dev) == expected, (
         "dev must declare one object per prod object (shared ones unsuffixed).\n"
         f"missing from dev: {sorted(expected - set(dev))}\n"
         f"unexpected in dev: {sorted(set(dev) - expected)}"
     )
+
+
+def test_prod_only_objects_are_absent_from_dev(prod: dict[str, dict], dev: dict[str, dict]):
+    """The objects dev deliberately drops must be gone, not renamed.
+
+    `litellm-db-credentials` carries prod's connection string. If it is renamed
+    into dev rather than deleted, the dev gateway connects to the prod database.
+    """
+    for key in _PROD_ONLY_OBJECTS:
+        assert key in prod, f"{key} must still be declared in prod"
+        suffixed = f"{key.split('/')[0]}/{key.split('/')[1]}{_DEV_SUFFIX}"
+        assert suffixed not in dev, f"{suffixed} must not exist; dev reads CNPG's own Secret"
 
 
 def test_shared_objects_are_identical(prod: dict[str, dict], dev: dict[str, dict]):
@@ -132,12 +187,14 @@ def test_shared_objects_are_identical(prod: dict[str, dict], dev: dict[str, dict
 
 
 def test_deployment_env_keys_match(prod: dict[str, dict], dev: dict[str, dict]):
-    """The two Deployments must set exactly the same env vars."""
+    """The two Deployments must set the same env vars, bar the declared swaps."""
     prod_env = set(_env_sources(prod["Deployment/litellm-proxy"]))
     dev_env = set(_env_sources(dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"]))
-    assert prod_env == dev_env, (
-        f"env vars only in prod: {sorted(prod_env - dev_env)}\n"
-        f"env vars only in dev: {sorted(dev_env - prod_env)}"
+    assert prod_env - dev_env == _PROD_ONLY_ENV_VARS, (
+        f"env vars only in prod: {sorted((prod_env - dev_env) - _PROD_ONLY_ENV_VARS)}"
+    )
+    assert dev_env - prod_env == _DEV_ONLY_ENV_VARS, (
+        f"env vars only in dev: {sorted((dev_env - prod_env) - _DEV_ONLY_ENV_VARS)}"
     )
 
 
@@ -145,7 +202,9 @@ def test_deployment_env_diff_is_only_the_expected_values(prod: dict[str, dict], 
     """Every env difference must be one the dev overlay declares."""
     prod_env = _env_sources(prod["Deployment/litellm-proxy"])
     dev_env = _env_sources(dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"])
-    differing = {name for name in prod_env if prod_env[name] != dev_env[name]}
+    differing = {
+        name for name in prod_env if name in dev_env and prod_env[name] != dev_env[name]
+    }
     unexpected = differing - _EXPECTED_ENV_DIFFS
     assert not unexpected, (
         f"env vars differ without being declared in the dev overlay: {sorted(unexpected)}"
@@ -328,3 +387,88 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
         assert _PROD_POD_LABEL in _selector_labels(prod[key]), (
             f"prod {key} must still select app={_PROD_POD_LABEL!r}"
         )
+
+
+def _secret_value(secret: dict, key: str) -> str:
+    """Read one key from a rendered Secret, from either `data` or `stringData`."""
+    if key in (secret.get("stringData") or {}):
+        return str(secret["stringData"][key])
+    raw = (secret.get("data") or {}).get(key)
+    return base64.b64decode(raw).decode() if raw else ""
+
+
+def _env_secret_source(deployment: dict, env_name: str) -> tuple[str, str]:
+    """Where one env var comes from, as (secretName, key). Fails if it is inline."""
+    for entry in _container(deployment).get("env", []):
+        if entry["name"] != env_name:
+            continue
+        ref = (entry.get("valueFrom") or {}).get("secretKeyRef")
+        assert ref, f"{env_name} must come from a Secret, never an inline value"
+        return ref["name"], ref["key"]
+    raise AssertionError(f"no {env_name} env var on the Deployment")
+
+
+def test_dev_database_env_never_reads_a_prod_shaped_secret(dev: dict[str, dict]):
+    """Dev's DB credentials must not come from a Secret that carries prod's values.
+
+    This is the regression that put the dev gateway on the prod database: the
+    base `litellm-db-credentials` Secret holds PROD's connection string, and
+    `nameSuffix` cloned it into dev as `litellm-db-credentials-dev`, so dev
+    connected to prod and wrote spend logs and model rows there.
+
+    Dev reads CNPG's own `adeo-litellm-postgres-dev-app` Secret instead. Any
+    Secret named `litellm-db-credentials*` is a prod connection string by
+    construction, so referencing one from dev is always wrong.
+    """
+    deployment = dev["Deployment/litellm-proxy-dev"]
+    for env_name in _DEV_DB_ENV_VARS:
+        name, key = _env_secret_source(deployment, env_name)
+        assert not name.startswith("litellm-db-credentials"), (
+            f"dev {env_name} reads {name!r}, which carries prod's connection string; "
+            "use CNPG's adeo-litellm-postgres-dev-app Secret"
+        )
+        assert key, f"{env_name} must name a key in the Secret"
+
+
+def test_dev_database_env_does_not_use_the_stale_cnpg_uri_key(dev: dict[str, dict]):
+    """Dev must read CNPG's discrete fields, not the `uri` key.
+
+    CNPG's `adeo-litellm-postgres-dev-app` Secret carries a 32-char `password`
+    that authenticates and a 64-char password embedded in `uri` that does not,
+    so pointing DATABASE_URL at `uri` fails startup with `P1000: Authentication
+    failed`. The discrete fields plus `password` are the ones that work.
+    """
+    deployment = dev["Deployment/litellm-proxy-dev"]
+    for env_name in _DEV_DB_ENV_VARS:
+        _, key = _env_secret_source(deployment, env_name)
+        assert key != "uri", (
+            f"dev {env_name} reads the Secret's `uri` key, whose embedded password "
+            "is stale; use the discrete host/username/password/dbname fields"
+        )
+
+
+def test_dev_and_prod_database_urls_target_different_hosts(prod: dict[str, dict], dev: dict[str, dict]):
+    """Whatever dev points at, it must not be the host prod points at.
+
+    The two gateways run the same workload. If they share a database, dev traffic
+    lands in prod spend logs and model tables, and the dev janitor has nothing
+    real to archive.
+    """
+    prod_url = _secret_value(prod["Secret/litellm-db-credentials"], "DATABASE_URL")
+    prod_host = urlparse(prod_url).hostname
+    assert prod_host, f"could not parse a host out of the prod DATABASE_URL: {prod_url!r}"
+
+    name, key = _env_secret_source(dev["Deployment/litellm-proxy-dev"], "DATABASE_HOST")
+    assert name != "litellm-db-credentials", f"dev must not read prod's {name!r} Secret"
+
+    # Dev reads a Secret CNPG owns, so it is not in the render. The name is the
+    # dev cluster's managed Secret, which is per-environment by construction.
+    assert name == _DEV_CNPG_SECRET, (
+        f"dev DATABASE_HOST reads {name!r}, which is neither declared in the dev "
+        f"overlay nor the dev cluster's managed Secret {_DEV_CNPG_SECRET!r}"
+    )
+    assert key == "host", f"dev DATABASE_HOST must read the Secret's `host` key, got {key!r}"
+    assert prod_host != f"{_DEV_CNPG_SECRET}", "prod must not point at the dev cluster"
+    assert _DEV_DB_HOST not in prod_url, (
+        f"prod DATABASE_URL points at the dev host {_DEV_DB_HOST!r}: {prod_url!r}"
+    )

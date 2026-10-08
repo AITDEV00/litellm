@@ -34,3 +34,19 @@ patches:
   - path: deployment.yaml
   # ConfigMap: the config values that genuinely differ on dev.
   - path: config.yaml
+  # Drop the base DB Secret from dev entirely. `nameSuffix` would otherwise
+  # clone it as `litellm-db-credentials-dev` carrying PROD's connection string,
+  # which the dev gateway then used to write to the prod database. Dev reads
+  # CNPG's own `adeo-litellm-postgres-dev-app` Secret instead, so a `-dev` copy
+  # of this Secret must not exist to point at by mistake.
+  - target:
+      kind: Secret
+      name: litellm-db-credentials
+      namespace: adeo-litellm
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: litellm-db-credentials
+        namespace: adeo-litellm

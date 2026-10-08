@@ -62,11 +62,48 @@ spec:
             # Dev points at the dev-only single-instance CNPG cluster
             # (adeo-litellm-postgres-dev) so gateway runs exercise the real
             # logging pipeline without touching prod data.
+            #
+            # These are the discrete DATABASE_* vars LiteLLM assembles a URL
+            # from when DATABASE_URL is unset
+            # (`construct_database_url_from_env_vars` in litellm/proxy/utils.py),
+            # all read from CNPG's own managed Secret so no password lives in
+            # this repo and a rotation needs no edit here.
+            #
+            # Read the individual fields, NOT the Secret's `uri` key. That key
+            # holds a password CNPG no longer uses (32-char `password` vs 64-char
+            # in `uri`), so pointing DATABASE_URL at it fails authentication with
+            # P1000 while the `password` field works. Do NOT point this at a
+            # `-dev` clone of the base `litellm-db-credentials` Secret either:
+            # the base value is PROD's connection string, which is how the dev
+            # gateway ended up writing to the prod database.
+            #
+            # Drop the base's DATABASE_URL. A strategic merge only adds and
+            # overrides list entries by name, so without this delete the pod
+            # would keep prod's URL and ignore the vars below. LiteLLM prefers
+            # DATABASE_URL over the discrete vars, so that would silently put dev
+            # back on the prod database.
             - name: DATABASE_URL
+              $patch: delete
+            - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
-                  name: litellm-db-credentials-dev
-                  key: DATABASE_URL
+                  name: adeo-litellm-postgres-dev-app
+                  key: host
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: dbname
       volumes:
         - name: config
           configMap:
