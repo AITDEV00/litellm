@@ -23,12 +23,12 @@ deploy/
                complete dev/prod delta. base/shared comes in unsuffixed.
   prod/, dev/, rollback/   non-gateway resources (controller, redis, ingress,
                postgres, janitor, servicemonitor, rollback sets)
-  recovery/    DISASTER RECOVERY RECORDS, never applied. The Cluster spec that
-               rebuilds prod Postgres from the litellm-recovery-* snapshots, and
-               the PVCs that bind the older PVs still holding pre-migration data.
-               Both declare objects that already exist live, so applying them
-               overwrites the running cluster instead of creating anything
 ```
+
+Postgres recovery is a runbook, not a manifest, because a
+`spec.bootstrap.recovery` cluster spec rebuilds the live database from a snapshot
+and CNPG has no retention for snapshots. See
+`docs/runbooks/postgres-backup-and-recovery.md`.
 
 The dev overlay's two patch files are the single place the dev/prod difference
 lives. `tests/deploy/test_dev_prod_parity.py` renders both overlays and fails if
@@ -58,8 +58,6 @@ they diverge in any way those patches do not declare.
 | `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `jya0-v1.96.2` | `adeo-litellm` |
 | `deploy/rollback/litellm-proxy-rollback-key.yaml` | Secret for rollback apply | `adeo-litellm` |
 | `deploy/rollback/discovery-controller-rollback-key.yaml` | Secret for controller rollback apply | `adeo-litellm` |
-| `deploy/recovery/restore-prod-postgres-from-snapshots.yaml` | DO NOT APPLY. Cluster spec that rebuilds prod Postgres from the `litellm-recovery-*` snapshots | `adeo-litellm` |
-| `deploy/recovery/bind-old-postgres-pvs.yaml` | DO NOT APPLY. PVCs binding the older PVs that still hold pre-migration data | `adeo-litellm` |
 
 ## Apply
 

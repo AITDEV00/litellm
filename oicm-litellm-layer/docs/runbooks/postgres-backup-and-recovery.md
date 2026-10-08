@@ -10,10 +10,14 @@ rows) and has no backup of any kind. It is one of three CNPG clusters in this
 cluster that are not enrolled in the org-wide backup convention, and it is the
 only one of the three that holds data anyone would miss.
 
-There are four VolumeSnapshots on disk from the migration on 2026-09-11. They are
-the only recovery artifact that exists. They are not a backup, and they are about
-to be deleted. The replacement is a CNPG `barmanObjectStore` backup into the
+There are four VolumeSnapshots on disk from the migration on 2026-09-11. They were
+the only recovery artifact that existed. They were deleted on 2026-10-08, along
+with the four Longhorn volumes behind them and the two recovery manifests that
+referenced them. The replacement is a CNPG `barmanObjectStore` backup into the
 existing MinIO, which is the pattern six other clusters already use.
+
+Until that backup is in place and has been restored from once, prod Postgres has
+no recovery path. This is the open item in this document.
 
 ## What exists today
 
@@ -29,10 +33,10 @@ existing MinIO, which is the pattern six other clusters already use.
 | Storage | 200 GB PGDATA + 50 GB WAL |
 | Memory | request 2G, limit 8G (raised 2026-10-08 from 2G after 24 OOMKills) |
 
-### The four snapshots
+### The four snapshots (deleted 2026-10-08)
 
-Taken 2026-09-11 during the migration off the old mlops Postgres. All are
-`ReadyToUse`, all use the `longhorn-snapshot-retain` class, all are in
+Taken 2026-09-11 during the migration off the old mlops Postgres. All were
+`ReadyToUse`, all used the `longhorn-snapshot-retain` class, all were in
 `adeo-litellm`.
 
 | Snapshot | Source PVC | VolumeSnapshotContent | Actual bytes |
@@ -42,8 +46,23 @@ Taken 2026-09-11 during the migration off the old mlops Postgres. All are
 | `litellm-recovery-data-v1` | `inspect-old-litellm-data` | `snapcontent-060e57e1` | 60.5 GiB |
 | `litellm-recovery-wal-v1` | `inspect-old-litellm-wal` | `snapcontent-01429b1f` | 35.0 GiB |
 
-They sit on four detached Longhorn volumes, which cost roughly 90 GB of actual
-disk. The snapshot class is `Retain`, so none of this is reclaimed automatically.
+They sat on four detached Longhorn volumes, costing roughly 90 GB of actual disk.
+
+Removal took four steps, because a `Retain` reclaim policy means deleting the
+VolumeSnapshot does not delete the underlying data.
+
+1. Delete the four `VolumeSnapshot` objects. The `VolumeSnapshotContent` objects
+   remain, because the class sets `deletionPolicy: Retain`.
+2. Delete the four `VolumeSnapshotContent` objects. This removes the Longhorn
+   snapshot CRs but leaves the volumes and their snapshots, because the volumes
+   were detached and Longhorn has nothing to trigger its cleanup on.
+3. Delete the four `PersistentVolume` objects.
+4. Delete the four Longhorn `Volume` resources. This is the step that actually
+   reclaims the disk. Skipping it leaks the space permanently.
+
+Verified afterwards: no `VolumeSnapshot`, `VolumeSnapshotContent`, Longhorn
+snapshot, `PersistentVolume`, or Longhorn `Volume` matched the four names, and the
+prod cluster reported `Cluster in healthy state` with 1/1 instances ready.
 
 ### The archive is not a safety net
 
@@ -193,9 +212,11 @@ recovery. The two are complementary and neither replaces the other.
 
 **Layer 3, remove the custom StorageClass.** See below.
 
-**Layer 4, retire the snapshots.** Keep all four until a CNPG backup has completed
-and a restore from it has been tested. Then delete them, the four Longhorn volumes
-behind them, and the two manifests in `deploy/recovery/`.
+**Layer 4, retire the snapshots.** Done on 2026-10-08. The four snapshots, the
+four Longhorn volumes behind them, and the two manifests in `deploy/recovery/`
+are gone. The manifests were deleted because they existed only to restore from
+those snapshots; the restore procedure is now steps 1 to 4 of the implementation
+order below, kept in this runbook rather than as an appliable file.
 
 ## The custom StorageClass
 
@@ -237,9 +258,10 @@ The dev cluster already uses `longhorn-crypto-global`, so it is unaffected.
 4. Restore into a throwaway cluster and check the row count. This is the gate for
    step 5. A backup that has never been restored from is a hypothesis.
 5. Raise the three volumes to 3 replicas and delete the custom StorageClass.
-6. Delete the four snapshots, the four Longhorn volumes, and `deploy/recovery/`.
+6. Done: the four snapshots, the four Longhorn volumes, and `deploy/recovery/`
+   were removed on 2026-10-08.
 
-Steps 1 to 4 need MinIO credentials. Steps 5 and 6 need nothing further.
+Steps 1 to 4 need MinIO credentials. Step 5 needs nothing further.
 
 ## Risks
 
@@ -265,18 +287,20 @@ true off-site copy is out of scope here and would be the next layer up.
 
 ## Deleting the old data
 
-The four snapshots and their four Longhorn volumes are being removed as part of
-step 6. The risks accepted, explicitly:
+The four snapshots and their four Longhorn volumes were removed on 2026-10-08. The
+risks accepted, explicitly:
 
-- Until step 4 passes, there is no recovery path for prod Postgres at all.
-- The old mlops data is not a substitute. `mlops-postgres` still exists and is
+- Until a CNPG backup is in place and restored from once, there is no recovery
+  path for prod Postgres at all.
+- The old mlops data was not a substitute. `mlops-postgres` still exists and is
   backed up, but its `oicm` database is 8 MB and contains no LiteLLM tables, so the
-  spend logs are not in it.
-- The archive PVC holds 22 MB of dumps for 87,498 rows, so it cannot stand in for
-  the snapshots either.
+  spend logs were never in it.
+- The archive PVC holds 22 MB of dumps for 87,498 rows, so it could not stand in
+  for the snapshots either.
 
 Deleting a `Released` PV with a `Retain` reclaim policy does not free the disk. The
 Longhorn Volume resource must be deleted as well, or the space is never reclaimed.
+That is what step 4 of the removal above does.
 
 ## Related
 

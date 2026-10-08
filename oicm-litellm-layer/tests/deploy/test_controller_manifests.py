@@ -191,55 +191,55 @@ def test_cluster_name_names_the_physical_cluster(env: str):
     )
 
 
-def test_recovery_manifests_are_not_deployable():
-    """The two disaster-recovery records must stay out of every deploy path.
+def test_no_recovery_records_are_reintroduced():
+    """Nothing may declare a snapshot-recovery bootstrap against the live cluster.
 
-    `restore-prod-postgres-from-snapshots.yaml` declares the live prod cluster's
-    name, so applying it rebuilds prod from snapshots. It only fails today because
-    its storage request is smaller than the live one; anything that tolerates a
-    shrink would destroy prod data. Both files must stay under deploy/recovery and
-    be named by no Makefile target.
+    `deploy/recovery/` used to hold two records that rebuilt prod Postgres from
+    the migration snapshots. They declared the LIVE cluster's name, so applying
+    one rebuilt prod from snapshots, and they only failed because their storage
+    request was smaller than the live one. Both the records and the snapshots
+    behind them are gone as of 2026-10-08, replaced by the CNPG backup in
+    docs/runbooks/postgres-backup-and-recovery.md.
+
+    A future recovery record is legitimate during an actual restore, but it must
+    not sit in a directory anyone would apply. This pins that no such file is
+    lying around now.
     """
+    recovery_dir = _LAYER_ROOT / "deploy" / "recovery"
+    assert not recovery_dir.exists(), (
+        f"deploy/recovery must not come back without a matching plan: "
+        f"{sorted(p.name for p in recovery_dir.glob('*')) if recovery_dir.exists() else []}"
+    )
+
     prod_dir = _LAYER_ROOT / "deploy" / "prod"
     stray = sorted(p.name for p in prod_dir.glob("*recovery*")) + sorted(
         p.name for p in prod_dir.glob("*old-postgres*")
     )
     assert not stray, f"recovery records must not sit in deploy/prod: {stray}"
 
-    recovery = _LAYER_ROOT / "deploy" / "recovery"
-    records = sorted(p.name for p in recovery.glob("*.yaml"))
-    assert records == [
-        "bind-old-postgres-pvs.yaml",
-        "restore-prod-postgres-from-snapshots.yaml",
-    ], f"unexpected contents in deploy/recovery: {records}"
-
     makefile = (_LAYER_ROOT / "Makefile").read_text()
-    for name in records:
-        assert name not in makefile, f"Makefile must not apply deploy/recovery/{name}"
     assert "deploy/recovery" not in makefile, "the Makefile must never apply deploy/recovery"
 
-    for name in records:
-        assert "DO NOT APPLY" in (recovery / name).read_text(), (
-            f"deploy/recovery/{name} must say it is not applied"
-        )
 
+@pytest.mark.parametrize("env", sorted(_MANIFESTS))
+def test_cluster_bootstrap_is_initdb_not_recovery(env: str):
+    """No deployable cluster manifest may bootstrap from a snapshot.
 
-def test_recovery_cluster_record_collides_with_the_live_cluster():
-    """Pin the collision, so the record cannot be mistaken for a safe manifest.
-
-    If the name ever stops colliding the record is harmless, and this test should
-    be deleted rather than relaxed; until then the name is why it must not ship.
+    `spec.bootstrap.recovery` rebuilds the database from a snapshot, and CNPG has
+    no retention for those, so it would be a one-shot restore with no way back.
+    The deployable manifests must stay `initdb`; recovery belongs in a runbook.
     """
-    record = _LAYER_ROOT / "deploy" / "recovery" / "restore-prod-postgres-from-snapshots.yaml"
-    docs = [d for d in yaml.safe_load_all(record.read_text()) if isinstance(d, dict)]
+    manifest = (
+        _LAYER_ROOT / "deploy" / "prod" / "litellm-postgres-cluster.yaml"
+        if env == "prod"
+        else _LAYER_ROOT / "deploy" / "dev" / "litellm-postgres-dev-cluster.yaml"
+    )
+    docs = [d for d in yaml.safe_load_all(manifest.read_text()) if isinstance(d, dict)]
     cluster = next(d for d in docs if d["kind"] == "Cluster")
-    assert cluster["metadata"]["name"] == "adeo-litellm-postgres"
-
-    live = _LAYER_ROOT / "deploy" / "prod" / "litellm-postgres-cluster.yaml"
-    live_docs = [d for d in yaml.safe_load_all(live.read_text()) if isinstance(d, dict)]
-    live_cluster = next(d for d in live_docs if d["kind"] == "Cluster")
-    assert cluster["metadata"]["name"] == live_cluster["metadata"]["name"], (
-        "the record no longer collides with the live cluster; this guard can go"
+    bootstrap = cluster["spec"].get("bootstrap") or {}
+    assert "initdb" in bootstrap, f"{env}: deployable cluster must bootstrap with initdb"
+    assert "recovery" not in bootstrap, (
+        f"{env}: deployable cluster must not bootstrap from a snapshot"
     )
 
 
