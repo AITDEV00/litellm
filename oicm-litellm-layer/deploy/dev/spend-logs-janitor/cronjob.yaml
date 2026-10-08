@@ -173,7 +173,7 @@ data:
             log "VERIFY ${DUMPFILE}"
             verify_db="janitor_verify"
             run_psql -d postgres -c "CREATE DATABASE ${verify_db} WITH TEMPLATE template0" || fail "create verify db"
-            if ! "${PGRESTORE}" --exit-on-error "--dbname=host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${verify_db}" "${DUMPFILE}"; then
+            if ! "${PGRESTORE}" --exit-on-error --no-owner "--dbname=host=${DB_HOST} port=${DB_PORT} user=${DB_USER} dbname=${verify_db}" "${DUMPFILE}"; then
                 run_psql -d postgres -c "DROP DATABASE IF EXISTS ${verify_db}"
                 fail "pg_restore failed"
             fi

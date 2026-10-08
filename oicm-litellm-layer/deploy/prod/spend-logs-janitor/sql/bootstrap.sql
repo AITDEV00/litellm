@@ -1,12 +1,15 @@
--- Canonical DB-side setup for spend-logs archival on dev.
+-- Canonical DB-side setup for spend-logs archival.
 -- Idempotent; every statement is safe to re-run.
 --
 -- Owns:
 --   * LiteLLM_SpendLogsArchiveLedger  (state per partition)
 --   * LiteLLM_SpendLogsArchiveMeta    (runtime-discoverable config: master_table)
---   * Ownership of the master table + its partitions + both archiver tables (litellm)
+--   * Ownership of the master table + its partitions + both archiver tables
 --   * Grants the janitor needs (ledger R/W, CREATEDB for pg_restore verify)
---   * Role attribute litellm needs (CREATEDB)
+--
+-- The janitor connects as oicm on prod and litellm on dev. Both must be able to
+-- read, dump and drop every partition, so every partition is chowned to litellm
+-- and oicm is granted litellm membership.
 --
 -- Does NOT do: the one-shot partition conversion. For that see
 -- db_scripts/partition_spend_logs.sql (upstream LiteLLM runbook).
@@ -100,13 +103,15 @@ BEGIN
 
     EXECUTE format('ALTER TABLE %I OWNER TO litellm', master);
 
+    -- Every relation named <master>_p*: the attached partitions, _pdefault, and
+    -- any partition a previous janitor run detached and has not dropped yet.
     FOR r IN
         SELECT c.relname
-        FROM pg_partition_tree(format('public.%I', master)::regclass) t
-        JOIN pg_class c ON c.oid = t.relid
-        WHERE c.relkind IN ('r','p')
-        UNION
-        SELECT master || '_pdefault'
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND c.relname LIKE master || '\_p%' ESCAPE '\'
     LOOP
         EXECUTE format('ALTER TABLE %I OWNER TO litellm', r.relname);
     END LOOP;
@@ -128,26 +133,14 @@ GRANT SELECT, INSERT, UPDATE ON "LiteLLM_SpendLogsArchiveMeta"   TO oicm;
 GRANT CREATE ON DATABASE litellm TO oicm;
 ALTER USER oicm WITH CREATEDB;
 GRANT litellm TO oicm;
-ALTER DEFAULT PRIVILEGES FOR ROLE oicm GRANT ALL ON TABLES TO oicm;
 
 -- ===========================================================================
--- Default privileges for future partitions LiteLLM creates
+-- Default privileges for future partitions
 -- ===========================================================================
 
-ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO litellm;
-
--- ===========================================================================
--- Legacy table cleanup (opt-in, one-shot)
--- ===========================================================================
-
--- Set BOOTSTRAP_DROP_LEGACY=true to drop the pre-partitioning heap table.
--- 12 GiB at time of writing; drop only after a stable soak period.
-DO $$
-BEGIN
-    IF current_setting('app.bootstrap_drop_legacy', true) = 'true' THEN
-        EXECUTE 'DROP TABLE IF EXISTS "LiteLLM_SpendLogs_legacy"';
-        RAISE NOTICE 'Dropped LiteLLM_SpendLogs_legacy';
-    ELSE
-        RAISE NOTICE 'BOOTSTRAP_DROP_LEGACY not set; keeping LiteLLM_SpendLogs_legacy';
-    END IF;
-END $$;
+-- The proxy creates partitions as litellm, so those are litellm-owned already.
+-- The postgres line covers partitions created by the conversion runbook or any
+-- other role, which is how prod ended up with 64 postgres-owned partitions
+-- that the janitor could not read.
+ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO oicm;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO litellm;
