@@ -15,15 +15,22 @@ resources:
 
 nameSuffix: -dev
 
+# The pod label, declared once. The base hardcodes `app: litellm-proxy` in five
+# places that must agree or pods route to the wrong environment: the Service
+# selector, the PDB selector, the Deployment selector, the pod template labels,
+# and the topology spread constraint. `nameSuffix` renames objects but rewrites
+# no selector, so a dev object left at the base value selects the PROD pods.
+#
+# This transformer rewrites all five from one declaration, so the value cannot
+# drift between them and a future environment cannot forget one. It also adds
+# `app: litellm-proxy-dev` to every object's own labels.
+labels:
+  - pairs:
+      app: litellm-proxy-dev
+    includeSelectors: true
+
 patches:
-  # Deployment: selector/pod labels, replica shape, worker count, and the
-  # dev-only Secrets and DB.
+  # Deployment: replica shape, worker count, and the dev-only Secrets and DB.
   - path: deployment.yaml
-  # Service: the selector, so the dev Service routes to the dev pod. Without it
-  # the dev Service selects the prod pods (the base selector is the prod label)
-  # and anything pointed at it reads and writes production.
-  - path: service.yaml
-  # PodDisruptionBudget: the selector, so the dev budget counts dev pods.
-  - path: pdb.yaml
   # ConfigMap: the config values that genuinely differ on dev.
   - path: config.yaml

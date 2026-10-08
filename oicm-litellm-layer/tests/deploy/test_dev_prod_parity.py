@@ -250,7 +250,12 @@ _DEV_POD_LABEL: Final = "litellm-proxy-dev"
 
 
 def _selector_labels(document: dict) -> tuple[str, ...]:
-    """Every pod-label value this object selects on, from either selector shape."""
+    """Every pod-label value this object selects on, from any selector site.
+
+    Covers both selector shapes (Service's flat `selector`, the others'
+    `matchLabels`) and the Deployment's topology spread constraint, which is a
+    third place the pod label appears and which a Service selector bug hides in.
+    """
     spec = document.get("spec") or {}
     found: list[str] = []
     selector = spec.get("selector")
@@ -258,6 +263,10 @@ def _selector_labels(document: dict) -> tuple[str, ...]:
         if isinstance(selector.get("matchLabels"), dict):
             found.extend(str(v) for v in selector["matchLabels"].values())
         found.extend(str(v) for v in selector.values() if isinstance(v, str))
+    template_spec = (spec.get("template") or {}).get("spec") or {}
+    for constraint in template_spec.get("topologySpreadConstraints") or []:
+        match_labels = (constraint.get("labelSelector") or {}).get("matchLabels") or {}
+        found.extend(str(v) for v in match_labels.values())
     return tuple(found)
 
 
@@ -281,7 +290,7 @@ def test_dev_selectors_never_target_prod_pods(dev: dict[str, dict]):
     )
 
 
-def test_dev_deployment_pods_carry_the_dev_label(dev: dict[str, dict]):
+def test_dev_pods_carry_the_dev_label(dev: dict[str, dict]):
     """Dev pods must be labeled with the dev value, not the base's prod value.
 
     The pod label is what a Service selects on. If it stays at the base value,
@@ -293,9 +302,29 @@ def test_dev_deployment_pods_carry_the_dev_label(dev: dict[str, dict]):
     )
 
 
-def test_prod_selectors_target_prod_pods(prod: dict[str, dict]):
-    """Prod objects must still select the prod pod label, unchanged."""
+def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str, dict]):
+    """Every dev gateway object's own labels and selectors agree on the dev value.
+
+    The overlay declares the pod label once (a `labels` transformer), so all five
+    sites that must agree are rewritten together. This pins that they do, which is
+    what stops a future edit from setting one site by hand and letting the others
+    drift back to the base value.
+
+    Scoped to the suffixed gateway objects: the shared `litellm-hooks` ConfigMap
+    and `litellm-redis-password` Secret are pulled in one level up and are
+    deliberately unsuffixed and unlabeled, so they are not part of this contract.
+    """
+    gateway = {key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX)}
+    assert gateway, "expected the suffixed gateway objects in the dev render"
+    for key, doc in gateway.items():
+        own = (doc.get("metadata") or {}).get("labels") or {}
+        assert own.get("app") == _DEV_POD_LABEL, (
+            f"{key} must carry app={_DEV_POD_LABEL!r} on its own labels, got {own.get('app')!r}"
+        )
+        assert _PROD_POD_LABEL not in _selector_labels(doc), (
+            f"{key} still selects the prod pod label"
+        )
     for key in ("Service/litellm-proxy", "PodDisruptionBudget/litellm-proxy-pdb"):
         assert _PROD_POD_LABEL in _selector_labels(prod[key]), (
-            f"{key} must select app={_PROD_POD_LABEL!r}"
+            f"prod {key} must still select app={_PROD_POD_LABEL!r}"
         )
