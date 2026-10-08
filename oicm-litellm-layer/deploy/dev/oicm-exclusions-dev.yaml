@@ -1,15 +1,15 @@
-# Models the controller must NEVER register in LiteLLM. PRODUCTION list.
+# Models the controller must NEVER register in LiteLLM. DEV list.
 #
 # An entry here is stronger than the `blocked` routing flag: an excluded model is
 # not registered at all, and one that is already registered is deleted, so it is
 # absent from /v1/models and invisible to every consumer rather than merely
 # unroutable.
 #
-# This is the PRODUCTION list, mounted only by the prod controller
-# (`deploy/prod/discovery-controller.yaml`). Dev has its own list in
-# `deploy/dev/oicm-exclusions-dev.yaml` (ConfigMap `oicm-exclusions-dev`), so a
-# model can be excluded in one environment and kept in the other. Editing that
-# file never changes production.
+# This is the DEV list, mounted only by the dev controller
+# (`deploy/dev/discovery-controller-dev.yaml`). Production has its own list in
+# `deploy/oicm/exclusions.yaml` (ConfigMap `oicm-exclusions`), so a model can be
+# excluded in one environment and kept in the other. Editing this file never
+# changes production.
 #
 # An entry may be any identity of the deployment:
 #   - the served model id, e.g. "Qwen/Qwen3.6-35B-A3B-FP8"
@@ -20,13 +20,14 @@
 # regenerated every time the deployment is recreated. The uuid is the only handle
 # for a deployment that is Stopped, whose served id cannot be discovered.
 #
-# Add an entry and re-apply this ConfigMap, then restart the prod controller: the
+# Add an entry and re-apply this ConfigMap, then restart the dev controller: the
 # file is read once at startup, so a restart is what picks up the change.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: oicm-exclusions
+  name: oicm-exclusions-dev
   namespace: adeo-litellm
 data:
   exclusions.yaml: |
-    model_ids: []
+    model_ids:
+      - orcarouter/Qwen3.8-27B-Uncensored-FP8

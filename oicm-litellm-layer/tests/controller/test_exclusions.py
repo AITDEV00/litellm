@@ -7,6 +7,7 @@ with the file, and an entry matches any identity an operator is likely to write.
 """
 
 import textwrap
+from pathlib import Path
 
 from controller.exclusions import excluded, load_exclusions, parse_exclusions
 from controller.models import OicmModel
@@ -84,13 +85,20 @@ class TestLoad:
         path = _write(tmp_path, wrapped)
         assert load_exclusions(path, env={}) == frozenset({"Excluded-Model"})
 
-    def test_repository_exclusions_file_is_valid(self):
-        """The committed ConfigMap must parse and carry the current exclusions."""
+    def test_repository_exclusions_files_are_valid(self):
+        """Both committed ConfigMaps must parse. Prod ships empty by default."""
         from controller.exclusions import _LOCAL_EXCLUSIONS_FILE
 
-        assert load_exclusions(str(_LOCAL_EXCLUSIONS_FILE), env={}) == frozenset(
+        prod = Path(__file__).resolve().parents[2] / "deploy" / "oicm" / "exclusions.yaml"
+        dev = Path(__file__).resolve().parents[2] / "deploy" / "dev" / "oicm-exclusions-dev.yaml"
+
+        assert load_exclusions(str(prod), env={}) == frozenset()
+        assert load_exclusions(str(dev), env={}) == frozenset(
             {"orcarouter/Qwen3.8-27B-Uncensored-FP8"}
         )
+        # The repo-local fallback must point at the prod list, so a local run
+        # matches what prod serves rather than picking up dev's exclusions.
+        assert _LOCAL_EXCLUSIONS_FILE == prod
 
 
 class TestExcluded:

@@ -118,7 +118,7 @@ controller-deploy-dev: controller-release-dev deploy-dev
 ## rather than depending on a ConfigMap someone applied by hand.
 deploy-dev:
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
+	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/oicm-exclusions-dev.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
 	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
 

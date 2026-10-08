@@ -132,7 +132,8 @@ spec:
             - name: OICM_SOURCES_FILE
               value: "/etc/oicm/sources.yaml"
             # Models the controller must never register. Declared in the
-            # oicm-exclusions ConfigMap, mounted alongside the sources file. An
+            # dev-only oicm-exclusions-dev ConfigMap (production has its own
+            # list in oicm-exclusions), mounted alongside the sources file. An
             # excluded model is deleted if already registered, so it disappears
             # from /v1/models entirely rather than just leaving the routing pool.
             - name: OICM_EXCLUSIONS_FILE
@@ -196,4 +197,4 @@ spec:
             name: oicm-sources
         - name: oicm-exclusions
           configMap:
-            name: oicm-exclusions
+            name: oicm-exclusions-dev

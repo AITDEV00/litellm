@@ -165,12 +165,18 @@ as optional.
 
 ## Excluding models
 
-Models that must never appear on the gateway are declared in
-`deploy/oicm/exclusions.yaml`, applied as the `oicm-exclusions` ConfigMap and
-mounted at `/etc/oicm-exclusions`. Exclusion is stronger than the `blocked`
-routing flag: an excluded deployment is never registered, and one that is already
-registered is deleted, so it is absent from `/v1/models` rather than merely
-unroutable.
+Models that must never appear on the gateway are declared per environment, so a
+model can be excluded in one and kept in the other. Each controller mounts only
+its own ConfigMap at `/etc/oicm-exclusions`:
+
+| Environment | File | ConfigMap |
+|---|---|---|
+| prod | `deploy/oicm/exclusions.yaml` | `oicm-exclusions` |
+| dev | `deploy/dev/oicm-exclusions-dev.yaml` | `oicm-exclusions-dev` |
+
+Exclusion is stronger than the `blocked` routing flag: an excluded deployment is
+never registered, and one that is already registered is deleted, so it is absent
+from `/v1/models` rather than merely unroutable.
 
 ```yaml
 model_ids:
