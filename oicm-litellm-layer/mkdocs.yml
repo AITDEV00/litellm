@@ -145,6 +145,16 @@ nav:
       - ADEOGPT Model Performance (7d): reports/ADEOGPT-MODEL-PERFORMANCE.md
   - Persona Drift:
       - Spike Note: persona-drift/SPIKE.md
+  - Client Distribution:
+      - Design Plan: client-distribution/PLAN.md
+      - Architecture: client-distribution/architecture.md
+      - Mirror Content: client-distribution/mirror-content.md
+      - Install Script: client-distribution/installer-script.md
+      - Platform Matrix: client-distribution/platform-matrix.md
+      - Deployment: client-distribution/deployment.md
+      - Security: client-distribution/security.md
+      - Rollout: client-distribution/rollout.md
+      - Open Questions: client-distribution/open-questions.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
