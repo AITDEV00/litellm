@@ -1,13 +1,25 @@
 # Same-Origin Client Distribution — Design Plan
 
 Status: design, not implemented. This folder is the plan of record for serving the
-LiteLLM CLI (`lite`) and its install chain from the OICM gateway hostname, so a
+LiteLLM CLI (`lite`) and its install chain from the OICM gateway, so a
 locked-down developer machine whose only reachable host is `litellm.ecouncil.ae`
 can go from bare OS to a configured coding agent with one command and zero
 external network access.
 
 Everything here is designed against the current source tree
 (`jya0-v1.102.0`) and reuses existing upstream components wherever they exist.
+
+## Revision note (v2)
+
+The first draft put the artifacts on a separate static-serving pod routed by
+nginx path. Review rejected that as overengineering: the gateway already
+serves its own Admin UI via `StaticFiles` and OICM custom routes via an
+`APIRouter` slice, so the same-origin chain now lives **inside the running
+litellm gateway as a vertical slice** (`litellm/proxy/client_distribution/`),
+pinned by the standard drop-detection tests. One deployment, one ingress
+rule, and `/install` becomes a generated artifact that can read the
+gateway's own state (config, DB, request host). See
+[architecture.md](architecture.md) for the decision record.
 
 ## Problem
 
@@ -36,17 +48,17 @@ Non-goals:
 
 - No fork of upstream `litellm[cli]`. All client behavior stays the stock CLI
   (`lite configure`, `lite login`, `lite claude/codex/opencode/pi`, model sync
-  via `/v1/models`). We distribute; we do not modify.
-- No per-user personalized install scripts. The served script is generic; the
-  per-key personalization already happens client-side at runtime
-  (`agent_model_sync_env` fetches `/v1/models` with the user's key). That
-  boundary was settled in the earlier research: a plain `curl` of a static
-  path carries no caller identity, so per-key adaptation must live where the
-  key lives.
-- No new auth surface. `/install` and the artifact routes below are
-  unauthenticated static files (see [security.md](security.md) for the
-  reasoning and the key-verification step that happens after install, inside the
-  CLI).
+  via `/v1/models`). We distribute; we do not modify. The only new code is the
+  gateway-side serving slice.
+- No per-user personalized install scripts in v1. The served script is
+  generic (with the gateway URL and adopted versions generated from gateway
+  state); the per-key personalization already happens client-side at runtime
+  (`agent_model_sync_env` fetches `/v1/models` with the user's key). The
+  slice's in-app position makes authenticated/personalized variants a
+  possible future extension — recorded, not built.
+- No new auth surface in v1. `/install` and the artifact routes are
+  unauthenticated (see [security.md](security.md) for the reasoning and the
+  bootstrap paradox).
 - No guarantee of literal universality. See [platform-matrix.md](platform-matrix.md)
   for the supported matrix and the Android/iOS stance.
 
@@ -54,26 +66,28 @@ Non-goals:
 
 Keep upstream's exact installation mechanism and move its origins. `uv` is the
 only piece of the chain that is a genuine standalone binary, so we mirror the
-pinned `uv` release artifacts behind the gateway; we mirror the `litellm[cli]`
-wheel closure as a flat wheelhouse; and we mirror the exact CPython builds `uv`
-would fetch. The served `/install` script is a lightly-modified copy of
-upstream's `scripts/install-cli.sh`, changed only to (1) point the uv bootstrap
-at the gateway mirror via `INSTALLER_DOWNLOAD_URL`, (2) run
-`uv tool install --find-links <gateway wheelhouse> --no-index`, and (3) pin
-Python via the gateway's managed-Python mirror. After install, `lite` is
-pointed at the gateway with `lite config set base_url https://litellm.ecouncil.ae`
-and the stock CLI takes over. No code changes to litellm or uv; only mirror
-content and an installer script.
+pinned `uv` release artifacts; we mirror the `litellm[cli]` wheel closure as a
+flat wheelhouse; and we mirror the exact CPython builds `uv` would fetch. All
+of it is served by a vertical slice inside the running gateway: `GET /mirror/*`
+is a `StaticFiles` mount on a read-only artifact volume, and `GET /install` is
+a router handler that generates the bootstrap script at request time, baking
+in the gateway's own base URL and the currently adopted versions from
+`manifest.json`. The script body is upstream's `scripts/install-cli.sh` with
+three origin changes (`INSTALLER_DOWNLOAD_URL` for the uv bootstrap,
+`--no-index --find-links` for the wheelhouse, `UV_PYTHON_INSTALL_MIRROR` for
+managed Python), then `lite config set base_url` pre-configures the CLI and
+the stock flow takes over. No modification of litellm's or uv's logic; one new
+slice, two wiring lines, drop-detection tests.
 
 ## Document map
 
 | Doc | Purpose |
 |-----|---------|
-| [architecture.md](architecture.md) | The full flow: ingress routing, mirror layout, install script anatomy, what runs where |
+| [architecture.md](architecture.md) | Host model, the in-gateway slice, why in-app won, the full flow |
 | [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
-| [installer-script.md](installer-script.md) | Line-by-line design of the served `/install` script, derived from upstream `scripts/install-cli.sh` |
+| [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
 | [platform-matrix.md](platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
-| [deployment.md](deployment.md) | Ingress paths, the artifact pod, mirror sync job, rollout |
+| [deployment.md](deployment.md) | Artifact volume, gateway pod mount, sync job, rollout |
 | [security.md](security.md) | Threat model, checksums, signature question, why static unauth is OK |
 | [rollout.md](rollout.md) | Phased rollout: pilot users, success metrics, cut-over |
 | [open-questions.md](open-questions.md) | Unresolved decisions that need a human call |
