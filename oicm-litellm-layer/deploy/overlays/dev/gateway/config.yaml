@@ -1,0 +1,136 @@
+# The dev gateway's config values: the complete dev/prod delta from
+# deploy/base/gateway/config/litellm-config.yaml, plus cancel_on_disconnect
+# (tested on dev first; prod follows once verified).
+#
+# This is a strategic-merge patch on the BASE name (`litellm-config`), applied
+# before `nameSuffix: -dev` renames it. It must carry the namespace, or its
+# resource ID is `[noNs]` and it matches nothing.
+#
+# `data.config.yaml` is a single string value, so a strategic merge replaces the
+# whole block: this file holds the COMPLETE dev config, not just the changed
+# keys. tests/deploy/test_dev_prod_parity.py renders both overlays and fails if
+# dev and prod diverge in any way this file does not declare.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: adeo-litellm
+data:
+  config.yaml: |
+    model_list: []
+    litellm_settings:
+      store_model_in_db: true
+      cache: true
+      cache_params:
+        type: redis
+        ttl: 3600
+        default_in_memory_ttl: 60
+        max_connections: 500
+        socket_timeout: 10.0
+      enable_redis_auth_cache: true
+      callbacks:
+        - litellm_hooks.vllm_param_injector.vllm_param_injector
+        - dynamic_rate_limiter_v3_htb
+        - litellm_hooks.priority_bridge.priority_bridge
+        - prometheus
+        # Infers/stamps metadata.session_id for no-client-id traffic so
+        # session_affinity can pin a conversation to one replica (prefix KV reuse).
+        # The loader needs an instance, not a class: proxy_handler_instance is a
+        # module-level singleton whose cache binds per-request. Enabled via
+        # SESSION_IDENTITY_ENABLED=true on the dev pod.
+        - litellm.router_utils.session_identity.resolver.proxy_handler_instance
+      require_auth_for_metrics_endpoint: true
+      priority_reservation:
+        prior1: 0.50
+        prior2: 0.30
+        prior3: 0.20
+      priority_reservation_settings:
+        saturation_threshold: 1.0
+      priority_body_fields:
+        prior1:
+          priority: 0
+        prior2:
+          priority: 100
+        prior3:
+          priority: 200
+      # EXEMPT METHOD: prior1 is fully exempt from priority enforcement (cap = 100% model RPM).
+      # prior2 and prior3 fall into a shared default_pool at default_priority.
+      # Use key-level rpm_limit on individual API keys to separate prior2/prior3.
+      # priority_reservation:
+      #   prior1: 1.0
+      # priority_reservation_settings:
+      #   saturation_threshold: 0.75
+      #   default_priority: 0.50
+    router_settings:
+      routing_strategy: usage-based-routing-v2
+      # Sticky sessions: a conversation keeps landing on the replica that served
+      # its earlier turns so vLLM/SGLang prefix KV cache is reused instead of
+      # re-prefilled on a second replica. Idle TTL, refreshed on every request.
+      optional_pre_call_checks:
+        - enforce_model_rate_limits
+        - session_affinity
+      deployment_affinity_ttl_seconds: 86400
+      # ---- Retry budget per exception class (preemptive, post-OOM hardening).
+      # AuthenticationError / BadRequest / ContentPolicyViolation almost never
+      # self-heal, so don't waste a retry; transient network/5xx do.
+      retry_policy:
+        InternalServerErrorRetries: 3
+        ServiceUnavailableErrorRetries: 3
+        TimeoutErrorRetries: 2
+        RateLimitErrorRetries: 2
+        AuthenticationErrorRetries: 0
+        BadRequestErrorRetries: 0
+        ContentPolicyViolationErrorRetries: 0
+      # Floor for the exponential backoff in _calculate_retry_after; the actual
+      # sleep is max(this, INITIAL_RETRY_DELAY * 2**n) plus jitter.
+      retry_after: 0.5
+      # Per-request and per-stream-chunk upper bounds so a stalled stream
+      # fails loud instead of hanging on the outer HTTP timeout. Non-streaming
+      # requests on big reasoning models can legitimately take several minutes.
+      # stream_timeout must exceed the LONGEST legitimate silence from sglang
+      # (which buffers tokens under load and emits them late), not just the
+      # average chunk gap. 300s covers Kimi-K3 deep-thinking batches.
+      timeout: 600
+      stream_timeout: 300
+      # Deployment health hysteresis: trip to cooldown after 3 fails, sleep 30s
+      # before retrying that deployment (default is 1 fail / 1s).
+      allowed_fails: 3
+      cooldown_time: 30
+      # Fallbacks intentionally omitted for now; to be configured separately.
+    general_settings:
+      use_redis_transaction_buffer: true
+      # Native PG partitioning: upstream creates daily partitions and drops
+      # them at retention. 999d means upstream never drops; the janitor
+      # CronJob owns actual retention (pressure-based, 60d floor).
+      use_spend_logs_partitioning: true
+      maximum_spend_logs_retention_period: "999d"
+      # DIFF VS PROD ("1h"): temporarily "1m" for a SpendLogCleanup registration
+      # probe on dev, to observe the job fire every ~60s. Switch back to "1h"
+      # (and match prod) once that is observed. This is the one value here that
+      # is meant to be temporary rather than a permanent dev/prod difference.
+      maximum_spend_logs_retention_interval: "1m"
+      # DIFF VS PROD (absent there): prod delegates drain sizing to the
+      # spend-logs janitor CronJob, dev bounds it at the gateway instead.
+      maximum_spend_logs_cleanup_batch_size: 1000
+      maximum_spend_logs_cleanup_max_batches: 20000
+      maximum_spend_logs_cleanup_run_budget: "20m"
+      # DIFF VS PROD (absent there): bounds the OICM health rows the controller
+      # writes into the native health table (per-model reports plus per-source
+      # liveness). A month of history keeps incident review possible; unset means
+      # rows never delete.
+      maximum_health_check_retention_period: "30d"
+      # DIFF VS PROD (absent there): cancel the in-flight upstream LLM call when
+      # the client disconnects mid-request, so SGLang/vLLM abort the generation
+      # instead of burning GPU tokens into a dead pipe. Verified on dev
+      # (trace: num_running_reqs drops ~1s after client close; spend log 499).
+      # Streaming already aborts via the generator's disconnect handling;
+      # this flag is what covers the non-streaming path.
+      cancel_on_disconnect: true
+      # Decouple gateway availability from Postgres (2026-09-08 incident:
+      # flush-retry CPU churn starved the event loop until liveness timed
+      # out and pods restarted). With this on: auth falls back to cached
+      # identity instead of 503 on cache misses, and the pod starts even
+      # when the DB is down. Spend-log queueing stays bounded (64MB,
+      # drop-oldest) so RAM cannot grow unboundedly while the DB is down.
+      allow_requests_on_db_unavailable: true
