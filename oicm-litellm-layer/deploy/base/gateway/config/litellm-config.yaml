@@ -106,3 +106,11 @@ data:
       # when the DB is down. Spend-log queueing stays bounded (64MB,
       # drop-oldest) so RAM cannot grow unboundedly while the DB is down.
       allow_requests_on_db_unavailable: true
+      # Cancel the in-flight upstream LLM call when the client disconnects
+      # mid-request, so SGLang/vLLM abort the generation instead of burning
+      # GPU tokens into a dead pipe. Verified on dev first (trace: socket
+      # closed t+3s into a 4000-token generation, SGLang decode loop stopped
+      # at ~1500/4000 tokens within 1s). Streaming already aborts via the
+      # generator's disconnect handling; this flag covers the non-streaming
+      # path.
+      cancel_on_disconnect: true

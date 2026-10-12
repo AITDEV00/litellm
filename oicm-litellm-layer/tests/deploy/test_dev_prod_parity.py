@@ -90,9 +90,6 @@ _DEV_DB_ENV_VARS: Final = (
 
 # Config keys under `general_settings` expected to differ, with the reason. Dev
 # sets drain sizing at the gateway; prod delegates it to the janitor CronJob.
-# Dev also turns on upstream cancellation for non-streaming requests whose
-# client disconnected, so the backend (SGLang/vLLM) aborts generation; verified
-# on dev first, prod follows.
 _EXPECTED_CONFIG_DIFFS: Final = frozenset(
     {
         "maximum_spend_logs_retention_interval",
@@ -100,7 +97,6 @@ _EXPECTED_CONFIG_DIFFS: Final = frozenset(
         "maximum_spend_logs_cleanup_max_batches",
         "maximum_spend_logs_cleanup_run_budget",
         "maximum_health_check_retention_period",
-        "cancel_on_disconnect",
     }
 )
 

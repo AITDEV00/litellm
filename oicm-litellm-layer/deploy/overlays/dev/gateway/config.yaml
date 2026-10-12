@@ -1,6 +1,5 @@
 # The dev gateway's config values: the complete dev/prod delta from
-# deploy/base/gateway/config/litellm-config.yaml, plus cancel_on_disconnect
-# (tested on dev first; prod follows once verified).
+# deploy/base/gateway/config/litellm-config.yaml.
 #
 # This is a strategic-merge patch on the BASE name (`litellm-config`), applied
 # before `nameSuffix: -dev` renames it. It must carry the namespace, or its
@@ -120,12 +119,14 @@ data:
       # liveness). A month of history keeps incident review possible; unset means
       # rows never delete.
       maximum_health_check_retention_period: "30d"
-      # DIFF VS PROD (absent there): cancel the in-flight upstream LLM call when
-      # the client disconnects mid-request, so SGLang/vLLM abort the generation
-      # instead of burning GPU tokens into a dead pipe. Verified on dev
-      # (trace: num_running_reqs drops ~1s after client close; spend log 499).
-      # Streaming already aborts via the generator's disconnect handling;
-      # this flag is what covers the non-streaming path.
+      # Cancel the in-flight upstream LLM call when the client disconnects
+      # mid-request, so SGLang/vLLM abort the generation instead of burning
+      # GPU tokens into a dead pipe. Same value as prod (the base config
+      # owns it; this file repeats it because a strategic merge replaces the
+      # whole config.yaml string). Verified on dev: socket closed t+3s into a
+      # 4000-token generation, SGLang decode loop stopped at ~1500/4000 tokens
+      # within 1s. Streaming already aborts via the generator's disconnect
+      # handling; this flag covers the non-streaming path.
       cancel_on_disconnect: true
       # Decouple gateway availability from Postgres (2026-09-08 incident:
       # flush-retry CPU churn starved the event loop until liveness timed
