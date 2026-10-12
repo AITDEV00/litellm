@@ -137,6 +137,12 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |-----|----------|
 | Session-id resolver implementation plan | `docs/session-identity/IMPLEMENTATION-PLAN.md` |
 
+## Persona drift
+
+| Doc | Location |
+|-----|----------|
+| Persona / language-confusion drift spike note | `docs/persona-drift/SPIKE.md` |
+
 ## Techniques
 
 | Doc | Location |

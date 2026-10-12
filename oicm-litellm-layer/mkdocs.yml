@@ -143,6 +143,8 @@ nav:
       - Before/After Correct Configuration: performance/before-after-correct-configuration.md
   - Reports:
       - ADEOGPT Model Performance (7d): reports/ADEOGPT-MODEL-PERFORMANCE.md
+  - Persona Drift:
+      - Spike Note: persona-drift/SPIKE.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
