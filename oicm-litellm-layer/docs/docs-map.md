@@ -148,6 +148,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Design plan (start here) | `docs/client-distribution/PLAN.md` |
+| Implementation plan (phase by phase) | `docs/client-distribution/implementation.md` |
 | Architecture | `docs/client-distribution/architecture.md` |
 | Mirror content (uv / wheelhouse / Python) | `docs/client-distribution/mirror-content.md` |
 | Served install script design | `docs/client-distribution/installer-script.md` |

@@ -138,6 +138,7 @@ line, drop-detection tests.
 
 | Doc | Purpose |
 |-----|---------|
+| [implementation.md](implementation.md) | Phase-by-phase build order, grounded in the live namespace |
 | [architecture.md](architecture.md) | Host model, the in-gateway slice, why in-app won, the full flow |
 | [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
 | [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |

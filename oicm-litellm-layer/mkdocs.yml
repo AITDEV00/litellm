@@ -147,6 +147,7 @@ nav:
       - Spike Note: persona-drift/SPIKE.md
   - Client Distribution:
       - Design Plan: client-distribution/PLAN.md
+      - Implementation Plan: client-distribution/implementation.md
       - Architecture: client-distribution/architecture.md
       - Mirror Content: client-distribution/mirror-content.md
       - Install Script: client-distribution/installer-script.md
