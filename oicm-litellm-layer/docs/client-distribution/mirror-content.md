@@ -1,21 +1,42 @@
 # Mirror Content — exact bytes we serve
 
-Everything under `/mirror/` is produced by the admin sync script (see
+Everything under the mirror is produced by the admin sync script (see
 [admin-sync.md](admin-sync.md)) on a machine that does have internet, then
-pushed into the cluster over the gateway's admin REST API into the artifact
-PVC. The dev machine only ever consumes.
+pushed into the cluster over the gateway's admin REST API into the MinIO
+bucket `litellm-client-mirror`. The dev machine only ever consumes, through
+the gateway.
 
-Storage decision (v3): a **PVC**, not MinIO/S3. LiteLLM does have S3 support,
-but only as a logging callback (`litellm/integrations/s3.py` and `s3_v2.py`
-write spend/audit logs to a bucket via `put_object`, with `s3_endpoint_url`
-for MinIO); there is no download/serve path. Since nothing here uses MinIO for
-anything but logs, standing up MinIO to hold a few CLI artifacts is overkill.
-A PVC matches the repo's existing patterns and needs no new service.
+Storage decision (v4): **MinIO**, a cluster-internal S3-compatible store in
+`adeo-litellm`. v3 chose a PVC; v4 moved to MinIO because it removes the
+multi-replica constraint entirely and because LiteLLM already ships S3 logging
+support (`integrations/s3.py`, `s3_v2.py`) that can share the same instance.
+See [minio.md](minio.md).
 
-## `/mirror/manifest.json`
+**One current version of everything.** Per decision 2, the mirror holds exactly
+one `uv` version and one `litellm[cli]` version — the ones matching the current
+gateway. There is no multi-version selection and no PEP 503 index. One previous
+version set is retained only as a race guard: a client that started a download
+moments before a version swap should still be able to finish, so the swap keeps
+the outgoing set until the incoming one is fully published.
 
-Single source of truth for versions and hashes. Fetched by the install script
-first; every later download is cross-checked against it.
+## Object layout in the bucket
+
+```
+litellm-client-mirror/
+├── manifest.json
+├── uv/<version>/uv-<target>.tar.gz (+ .sha256)
+├── pypi/<wheel files>            (flat, no index metadata)
+└── python/<archive files>
+```
+
+Served to clients as `/install/manifest.json`, `/install/uv/...`,
+`/install/pypi/...`, `/install/python/...`.
+
+## `manifest.json`
+
+Single source of truth for versions and hashes, served at
+`/install/manifest.json`. Fetched by the install script first; every later
+download is cross-checked against it.
 
 ```json
 {
@@ -37,14 +58,13 @@ first; every later download is cross-checked against it.
     "sha256": "..."
   },
   "wheelhouse": {
-    "index": "pypi/index.html",
     "sha256": "..."
   }
 }
 ```
 
 Only the artifacts for the [supported matrix](platform-matrix.md) are listed;
-the sync job refuses to publish a manifest referencing a missing file.
+the admin sync refuses to publish a manifest referencing a missing object.
 
 ## uv release artifacts
 
@@ -57,18 +77,18 @@ Naming follows Astral's release scheme verbatim (verified against the pinned
 installer's `select_archive_for_arch`):
 
 ```
-/mirror/uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz
-/mirror/uv/0.10.9/uv-x86_64-unknown-linux-musl.tar.gz
-/mirror/uv/0.10.9/uv-aarch64-unknown-linux-gnu.tar.gz
-/mirror/uv/0.10.9/uv-aarch64-unknown-linux-musl.tar.gz
-/mirror/uv/0.10.9/uv-x86_64-apple-darwin.tar.gz
-/mirror/uv/0.10.9/uv-aarch64-apple-darwin.tar.gz
-/mirror/uv/0.10.9/uv-x86_64-pc-windows-msvc.zip
-/mirror/uv/0.10.9/uv-aarch64-pc-windows-msvc.zip
+/install/uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz
+/install/uv/0.10.9/uv-x86_64-unknown-linux-musl.tar.gz
+/install/uv/0.10.9/uv-aarch64-unknown-linux-gnu.tar.gz
+/install/uv/0.10.9/uv-aarch64-unknown-linux-musl.tar.gz
+/install/uv/0.10.9/uv-x86_64-apple-darwin.tar.gz
+/install/uv/0.10.9/uv-aarch64-apple-darwin.tar.gz
+/install/uv/0.10.9/uv-x86_64-pc-windows-msvc.zip
+/install/uv/0.10.9/uv-aarch64-pc-windows-msvc.zip
 ```
 
 Each `.tar.gz` is served next to its checksum sidecar (Astral publishes
-`.sha256` files in the release) at `/mirror/uv/0.10.9/<file>.sha256`, plus the
+`.sha256` files in the release) at `/install/uv/0.10.9/<file>.sha256`, plus the
 same hash in `manifest.json`.
 
 The installer's own override hooks (verified in the pinned `install.sh`):
@@ -79,25 +99,23 @@ per-file layout rather than a GitHub-release-shaped tree.
 
 ## Wheelhouse: `litellm[cli]` + closure
 
-Two options, pick by risk tolerance (decision logged in
-[open-questions.md](open-questions.md)):
+**One form: flat `--find-links`.** Per decision 2 (one current version of
+everything), there is no PEP 503 index and no multi-version selection. The
+bucket holds one flat directory of `.whl` files with no index metadata:
 
-- **Option A — flat `--find-links` wheelhouse.** One directory of `.whl` files
-  with no index metadata at all. Install with
-  `uv tool install --no-index --find-links https://.../mirror/pypi 'litellm[cli]'`.
-  Fully offline-proof; `--no-index` makes it impossible for uv to quietly
-  reach PyPI. Chosen as the default because the failure mode of an accidental
-  external hit is the exact thing we are preventing.
-- **Option B — PEP 503 simple index.** Let the sync job generate
-  `index.html` links pages. Needed only if we ever want uv's resolver to see
-  candidate versions beyond the pinned one (e.g. user asks for a specific older
-  `lite`). Defer.
+```
+uv tool install --no-index --find-links https://.../install/pypi 'litellm[cli]'
+```
+
+`--no-index` makes it impossible for uv to quietly reach PyPI; if the
+wheelhouse is missing something it fails loudly instead of phoning home. That
+is the whole point, so this is settled, not a choice.
 
 Content: the exact version-resolved closure that
 `uv tool install 'litellm[cli]'` produces on the sync machine — `litellm`
 itself, the `cli` extra's direct dependencies, and every transitive wheel.
 Recording the exact closure (not "latest of everything") means the mirror is
-byte-for-byte the combination upstream ships for that release. The sync job
+byte-for-byte the combination upstream ships for that release. The sync script
 runs `uv pip compile` (or `uv tool install` into a scratch venv, then copies
 the wheels out of uv's cache) against the target Python version and writes the
 resulting file list plus hashes into the manifest.
@@ -108,9 +126,10 @@ wheelhouse must cover the interpreter range, and wheels that publish
 multiple ABI variants (e.g. orjson, pydantic-core, tokenizers wheels for
 cp310-cp313) must include every variant the sync job resolves for.
 
-Update cadence: per upstream `litellm` release we choose to adopt — the
-manifest's `litellm_cli_version` moves, the sync job re-resolves, and old
-wheelhouses stay (previous manifest versions kept for rollback).
+Update cadence (decision 7): the pinned `litellm[cli]` version always equals
+the gateway's version, so every gateway bump re-pins the CLI. The admin sync
+publishes the new set, then removes the outgoing set once the new manifest is
+live (the one-previous retention from the race guard above).
 
 ## Managed Python mirror
 
@@ -118,7 +137,7 @@ wheelhouses stay (previous manifest versions kept for rollback).
 host has no suitable interpreter. Redirect with:
 
 ```
-UV_PYTHON_INSTALL_MIRROR=https://litellm.ecouncil.ae/mirror/python
+UV_PYTHON_INSTALL_MIRROR=https://litellm.ecouncil.ae/install/python
 ```
 
 This is an official uv mechanism (the URL replaces the upstream
@@ -131,8 +150,8 @@ metadata.
 
 Sizing note: python-build-standalone archives are ~30-70 MB each; the whole
 matrix is a few hundred MB. The wheelhouse is ~50-150 MB. The uv artifacts are
-~20 MB each. Total artifact store well under a few GB — a PVC or a plain
-ConfigMap-free OCI image are both viable (see [deployment.md](deployment.md)).
+~20 MB each. Total well under a few GB — comfortable in a MinIO bucket (see
+[minio.md](minio.md)).
 
 ## What we deliberately do NOT mirror
 

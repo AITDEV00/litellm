@@ -8,74 +8,90 @@ store could push to developers).
 
 Trust anchors: TLS to `litellm.ecouncil.ae` (the firewall already requires
 this hostname; the cert serving is the existing DigiCert `*.ecouncil.ae`
-secret — verified in the ingress memory notes), and the manifest's hashes.
+secret), MinIO's cluster-internal isolation, and the manifest's hashes.
 
-## Why the artifact routes are unauthenticated static files
+## Why `/install` and the artifact reads are unauthenticated (decision 9)
 
-- The scripts and wheels contain no secrets: no API keys, no credentials. The
-  key enters the picture only inside the stock CLI (`lite login` / `--api-key`
-  / env), which talks to the authenticated `/v1` surface.
-- Adding a key gate on `/install` would create a bootstrap paradox (you need
-  the CLI to get the token, but the token to get the CLI).
-- Personalization-by-key was considered and rejected in the earlier research:
-  a plain `curl` of a static path carries no caller identity, and asking the
-  user to pass a key to a piped shell would put secrets into shell history
-  and process lists.
+- The script and the artifacts contain no secrets: no API keys, no
+  credentials. Installing the CLI and wiring a harness needs no identity.
+- The user supplies their LiteLLM key at `lite login` / `lite configure`,
+  which is where it belongs; the install path never handles it.
+- Personalization-by-key was considered and rejected: a plain `curl` of a
+  static path carries no caller identity, and asking a user to pass a key to a
+  piped shell would put secrets into shell history and process lists.
 
 What unauthenticated does allow: anyone inside the network can download the
-CLI. That is the same posture as every internal tool's docs page, and the CLI
-without a key is useless. Rate-limiting is a cheap add if abuse ever shows up
-(one nginx annotation on the existing ingress, or middleware in the slice).
+CLI. Same posture as every internal tool's docs page, and the CLI without a key
+is useless. Rate-limiting is a cheap add if abuse ever shows up.
 
-Note the v2 nuance: because the slice runs **inside the app**, an
-authenticated or personalized `/install` variant is now *architecturally
-possible* (`Depends(user_api_key_auth)`, read the caller's team, emit a
-script with the right defaults). v1 deliberately does not do this — the
-bootstrap paradox stands until the CLI exists on the machine. The in-app
-position is what keeps that door open without a redesign; it is a non-goal
-for v1, recorded in [open-questions.md](open-questions.md).
+MinIO itself is not exposed: no ingress, and a `NetworkPolicy` allows only the
+gateway. The dev machine never talks to MinIO; it only ever reaches the
+gateway, which proxies the bytes.
+
+## Write surface
+
+The admin sync API (`/install/admin/v1/*`, see [admin-sync.md](admin-sync.md))
+is the one authenticated surface. Its security properties:
+
+- **Admin-only.** `Depends(user_api_key_auth)` plus `_require_admin`
+  (`PROXY_ADMIN`), the same pattern as `litellm/proxy/oicm_routes.py`. The
+  master key satisfies it; a non-admin virtual key gets `403`.
+- **Prefix containment.** Every artifact key is normalized against the
+  `litellm-client-mirror` bucket prefix; `..` and escapes are rejected, so the
+  write API cannot reach the `litellm-logs` bucket or any other key.
+- **Body size cap.** A per-request limit (reject `413` above it) so a runaway
+  client cannot fill the bucket in one request.
+- **Manifest integrity.** The manifest `PUT` verifies every referenced object
+  exists with a matching hash and rejects `409` otherwise, so a published
+  manifest never lies about the store.
+- **Separate prefix.** Write (`/install/admin/*`) and read (the rest of
+  `/install/*`) are distinct sub-paths, so the ingress can restrict the write
+  surface to an admin network range without affecting public reads.
+
+The master key never appears in a tracked file: it lives in the
+`litellm-master-key` Secret and is supplied to the admin sync script from the
+environment, never committed. MinIO credentials likewise live only in the
+`litellm-minio-credentials` Secret, referenced by `secretKeyRef`.
 
 ## Integrity chain
 
 1. Every artifact download is checksum-verified by the install script against
-   `manifest.json` (fetched first, over the same TLS).
+   `/install/manifest.json` (fetched first, over the same TLS).
 2. The uv installer verifies nothing itself when re-pointed via
-   `INSTALLER_DOWNLOAD_URL`, so our script does the sha256 check before
-   piping the installer — the installer script is treated as an artifact like
-   any other.
+   `INSTALLER_DOWNLOAD_URL`, so our script does the sha256 check before piping
+   the installer — the installer script is treated as an artifact like any
+   other.
 3. The wheelhouse is installed with `--no-index`, so a compromised or stale
-   mirror cannot cause resolution to fall back to PyPI; a tampered wheel
-   either fails the hash or fails to install.
+   store cannot cause resolution to fall back to PyPI; a tampered wheel either
+   fails the hash or fails to install.
 4. `lite config set base_url` normalization (verified in source) rejects
    credentials/fragments in the URL, so the persisted gateway URL cannot
    smuggle a hostile credential.
 
 Residual risk: the manifest itself. A store compromise can rewrite the
 manifest too, so hash-checking against it is tamper-evidence against
-accidental corruption, not against a full store compromise. Full end-to-end
-assurance would need signature verification (below).
+accidental corruption, not against a full store compromise. That is accepted
+per decision 3 (no signing): the only writer is a master-key holder, so the
+key is already the trust anchor.
 
-## Signature verification (deferred, decision recorded)
+## No manifest signing (decision 3)
 
-The clean form: the sync job signs the manifest with a private key kept on
-the sync machine; the slice embeds the public key and the generated `/install`
-verifies the manifest signature before trusting any hash. That makes a
-store compromise insufficient to push malicious tooling, at the cost of key
-management.
+Signing was dropped deliberately. The reasoning: the sole writer is a
+master-key-authenticated admin, so an attacker who can rewrite the manifest
+already holds the master key and has bigger problems. The sha256 hashes stay,
+because they still do work — corruption detection and the idempotency check on
+the write path. Dropping the signature drops the signature, not the hashes.
 
-Deferred because: the firewall already restricts reachability to the
-hostname, TLS protects transport, and the initial user population is
-internal. Revisit when [rollout.md](rollout.md) metrics show broad adoption
-or if the store moves to an externally-reachable surface. Logged in
-[open-questions.md](open-questions.md).
+If the store ever becomes externally reachable, revisit; the in-app slice
+makes adding verification cheap (public key rides the image, the generator
+emits the verify step).
 
 ## Notes on the piped-curl pattern
 
-`curl | sh` is normally an anti-pattern (you run bytes you cannot inspect).
-Here it is acceptable because: the script is ours, generated by a
-versioned slice in this repo, served over the same TLS as the API itself,
-and hash-pinned via the manifest. Still, the docs will offer the two-step
-form for cautious users:
+`curl | sh` is normally an anti-pattern. Here it is acceptable because the
+script is ours, generated by a versioned slice in this repo, served over the
+same TLS as the API, and hash-pinned via the manifest. The docs still offer
+the two-step form for cautious users:
 
 ```sh
 curl -fsSL https://litellm.ecouncil.ae/install -o lite-install.sh
@@ -83,36 +99,9 @@ less lite-install.sh
 sh lite-install.sh
 ```
 
-## Supply-chain hygiene for the sync job
+## Supply-chain hygiene for the admin sync script
 
-From the repo's CI supply-chain rules, applied to the mirror builder:
-download to file + verify SHA-256 before use; pin every external tool by exact
-version and full URL; prefer official `.sha256` sidecars (Astral publishes
-them) over third-party checksum pages.
-
-## Write surface (v3 addition)
-
-The admin sync API (`/client-mirror/v1/*`, see [admin-sync.md](admin-sync.md))
-is the one authenticated surface. Its security properties:
-
-- **Admin-only.** `Depends(user_api_key_auth)` plus `_require_admin`
-  (`PROXY_ADMIN`), the same pattern as `litellm/proxy/oicm_routes.py`. The
-  master key satisfies it; a non-admin virtual key gets `403`.
-- **Path containment.** Every artifact path is resolved against the mirror
-  root with an `os.path.realpath` containment check; `..`, absolute paths, and
-  symlink escapes are rejected, so the write API cannot touch anything outside
-  the mirror directory.
-- **Body size cap.** A per-request limit (reject `413` above it) so a runaway
-  client cannot fill the PVC in one request. Expected largest artifact is tens
-  of MB; the cap sits above that.
-- **Manifest integrity.** The manifest `PUT` verifies every referenced
-  artifact exists with a matching hash and rejects `409` otherwise, so a
-  published manifest never lies about the store.
-- **Separate prefix.** Write (`/client-mirror/*`) and read (`/mirror/*`) are
-  distinct, so the ingress can restrict the write surface to an admin network
-  range without affecting public reads.
-
-The master key never appears in a tracked file: it lives in the
-`litellm-master-key` Secret (`deploy/base/gateway/proxy/deployment.yaml`,
-`secretKeyRef` -> env `LITELLM_MASTER_KEY`) and is supplied to the admin sync
-script from the environment, never committed.
+From the repo's CI supply-chain rules, applied to the fetch step: download to
+file + verify SHA-256 before use; pin every external tool by exact version and
+full URL; prefer official `.sha256` sidecars (Astral publishes them) over
+third-party checksum pages.

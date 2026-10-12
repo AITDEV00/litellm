@@ -11,6 +11,11 @@ request time, filling the gateway base URL and the adopted versions from
 `manifest.json` (see [architecture.md](architecture.md), "Why `/install` is
 generated"). The template below is what the generator emits.
 
+The script is served at `GET /install` and is **unauthenticated** (decision 9):
+installing the CLI and wiring a harness needs no credential. The user supplies
+their LiteLLM key later, at `lite login` / `lite configure`, which is where it
+belongs. See [security.md](security.md).
+
 ## The three modifications
 
 ### 1. uv bootstrap -> gateway mirror
@@ -24,8 +29,8 @@ curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | env UV_NO_MODIFY_PA
 Ours:
 
 ```sh
-export INSTALLER_DOWNLOAD_URL="https://litellm.ecouncil.ae/mirror/uv/${UV_VERSION}"
-curl -fsSL "https://litellm.ecouncil.ae/mirror/installers/uv-${UV_VERSION}.sh" \
+export INSTALLER_DOWNLOAD_URL="https://litellm.ecouncil.ae/install/uv/${UV_VERSION}"
+curl -fsSL "https://litellm.ecouncil.ae/install/uv/${UV_VERSION}/uv-installer.sh" \
   | env INSTALLER_DOWNLOAD_URL="${INSTALLER_DOWNLOAD_URL}" UV_NO_MODIFY_PATH=1 sh
 ```
 
@@ -48,10 +53,10 @@ Upstream:
 Ours:
 
 ```sh
-export UV_PYTHON_INSTALL_MIRROR="https://litellm.ecouncil.ae/mirror/python"
+export UV_PYTHON_INSTALL_MIRROR="https://litellm.ecouncil.ae/install/python"
 "$UV_BIN" tool install \
   --python '>=3.10,<3.15' --python-preference system --force \
-  --no-index --find-links "https://litellm.ecouncil.ae/mirror/pypi" \
+  --no-index --find-links "https://litellm.ecouncil.ae/install/pypi" \
   'litellm[cli]'
 ```
 
@@ -180,4 +185,57 @@ Properties:
 
 This closes a gap in the earlier draft, which said re-running was safe and
 idempotent but did not separate acquire from auth or record progress.
-```
+
+## Idempotency and update path
+
+Re-running `/install` must be safe and must be the update mechanism:
+
+1. Script fetches `/install/manifest.json` first.
+2. If `lite` exists and reports the manifest's `litellm_cli_version`, exit 0
+   with a "already up to date" line (no reinstall).
+3. Otherwise proceed; `uv tool install --force` replaces the tool in place.
+   `lite`'s own state (`~/.litellm/config.json`, keyring tokens) survives
+   reinstalls — verified: those live under `~/.litellm/` and the OS keyring,
+   not inside the tool venv.
+
+CLI version != model access: adding/removing a model on the gateway never
+requires a reinstall — `/v1/models` is read live by the CLI at
+launch/configure time. This preserves the clean separation (distribution vs
+entitlement).
+
+Version policy (decision 7): the mirror pins exactly one `litellm[cli]`
+version, always equal to the gateway's version. A gateway bump re-pins the CLI
+and the admin publishes the new set; the outgoing set is retained only until
+the new manifest is live, to cover a client mid-download during the swap.
+
+## Windows (Git Bash / WSL)
+
+A bash script cannot run natively in PowerShell, so native `/install.ps1` is
+deferred (decision 4). Windows is supported today through the shells that
+already ship bash:
+
+- **Git Bash** (ships with Git for Windows) and **WSL** both run the script
+  unchanged.
+- One detection detail: under Git Bash / MSYS, `uname -s` returns
+  `MINGW64_NT-...` (or `MSYS_NT-...`), not `Linux`. The script maps a
+  `MINGW*` / `MSYS*` result to the Windows artifacts
+  (`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`) so the platform
+  detection still lands on the right tarball.
+- Harness detection uses `where <name>` under these shells, as in the table
+  above.
+
+## Failure modes the script must handle
+
+- Mirror missing a platform artifact -> clear message naming the exact URL
+  that 404'd (the manifest lists what should exist; the script trusts nothing
+  not in the manifest).
+- Checksum mismatch -> abort before extraction/installation, message says
+  "artifact store may be corrupt, contact platform team".
+- `lite` present but broken (half-installed tool) -> `--force` re-install
+  handles it; no special-casing.
+- No `curl` -> the script cannot bootstrap; error says so (acceptable: every
+  target OS in the matrix ships curl or wget; wget fallback is a two-line
+  mapping of the same URLs and can be added if a real user needs it).
+- MinIO unreachable (the gateway proxies reads from it) -> the artifact fetch
+  returns 503 from the slice; the script aborts with the URL, never falls back
+  to the internet.

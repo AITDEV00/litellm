@@ -21,6 +21,38 @@ rule, and `/install` becomes a generated artifact that can read the
 gateway's own state (config, DB, request host). See
 [architecture.md](architecture.md) for the decision record.
 
+## Revision note (v4)
+
+Ten review decisions folded in. The ones that changed the design:
+
+1. **Everything under `/install`.** One prefix for the user and the firewall.
+   Public reads (`/install/uv/...`, `/install/pypi/...`, `/install/python/...`,
+   `/install/manifest.json`) and the admin write surface (`/install/admin/*`)
+   all nest under it.
+2. **Only the latest uv and the latest lite.** One current version set, with
+   one previous retained purely as a race guard during a version swap.
+3. **No manifest signing.** The only writer is a master-key holder, so the
+   key is already the trust anchor. Sha256 hashes stay (they do corruption
+   detection and power the idempotency check).
+4. **Windows via Git Bash / WSL now**, native `/install.ps1` deferred. The
+   script's detection maps MINGW/MSYS to the Windows artifacts.
+5. **No harness mirroring.** Explicit non-goal: `lite` wires up a harness, it
+   never installs one.
+6. **No upstream contribution.** Proprietary, `jya0-` branches only. This
+   raises the importance of the drop-detection tests, since we maintain the
+   fork ourselves.
+7. **CLI version tracks the gateway version.** Every gateway bump re-pins the
+   `litellm[cli]` wheel to the same version number.
+8. **MinIO replaces the PVC.** Removes the multi-replica problem entirely and
+   earns its keep twice (artifacts + the S3 logging path that already exists).
+   See [minio.md](minio.md).
+9. **`/install` is unauthenticated.** Installing the CLI and wiring a harness
+   needs no credential; the user supplies their LiteLLM key at `lite login` /
+   `lite configure`, which is where it belongs.
+10. **Admin uses the master key; the slice talks to MinIO on its behalf.** The
+    admin never points `mc` at MinIO directly, which would desync the
+    manifest/DTO shape.
+
 ## Revision note (v3)
 
 Three decisions from review, folded in:
@@ -90,16 +122,17 @@ Keep upstream's exact installation mechanism and move its origins. `uv` is the
 only piece of the chain that is a genuine standalone binary, so we mirror the
 pinned `uv` release artifacts; we mirror the `litellm[cli]` wheel closure as a
 flat wheelhouse; and we mirror the exact CPython builds `uv` would fetch. All
-of it is served by a vertical slice inside the running gateway: `GET /mirror/*`
-is a `StaticFiles` mount on a read-only artifact volume, and `GET /install` is
-a router handler that generates the bootstrap script at request time, baking
-in the gateway's own base URL and the currently adopted versions from
-`manifest.json`. The script body is upstream's `scripts/install-cli.sh` with
-three origin changes (`INSTALLER_DOWNLOAD_URL` for the uv bootstrap,
-`--no-index --find-links` for the wheelhouse, `UV_PYTHON_INSTALL_MIRROR` for
-managed Python), then `lite config set base_url` pre-configures the CLI and
-the stock flow takes over. No modification of litellm's or uv's logic; one new
-slice, two wiring lines, drop-detection tests.
+of it lives in a cluster-internal MinIO bucket, and is served by a vertical
+slice inside the running gateway under a single `/install` prefix: the
+artifact reads proxy from MinIO, and `GET /install` is a router handler that
+generates the bootstrap script at request time, baking in the gateway's own
+base URL and the currently adopted versions from `manifest.json`. The script
+body is upstream's `scripts/install-cli.sh` with three origin changes
+(`INSTALLER_DOWNLOAD_URL` for the uv bootstrap, `--no-index --find-links` for
+the wheelhouse, `UV_PYTHON_INSTALL_MIRROR` for managed Python), then
+`lite config set base_url` pre-configures the CLI and the stock flow takes
+over. No modification of litellm's or uv's logic; one new slice, one wiring
+line, drop-detection tests.
 
 ## Document map
 
@@ -109,7 +142,8 @@ slice, two wiring lines, drop-detection tests.
 | [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
 | [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
 | [platform-matrix.md](platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
-| [deployment.md](deployment.md) | Artifact volume, gateway pod mount, admin sync API, rollout |
+| [deployment.md](deployment.md) | MinIO, gateway wiring, admin sync API, rollout |
+| [minio.md](minio.md) | Object storage deployment, buckets, and the shared S3 client |
 | [admin-sync.md](admin-sync.md) | Admin REST API to push/upsert/delete mirror artifacts idempotently |
 | [security.md](security.md) | Threat model, checksums, signature question, why static unauth is OK |
 | [rollout.md](rollout.md) | Phased rollout: pilot users, success metrics, cut-over |

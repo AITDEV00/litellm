@@ -152,6 +152,7 @@ nav:
       - Install Script: client-distribution/installer-script.md
       - Platform Matrix: client-distribution/platform-matrix.md
       - Deployment: client-distribution/deployment.md
+      - MinIO Backend: client-distribution/minio.md
       - Admin Sync API: client-distribution/admin-sync.md
       - Security: client-distribution/security.md
       - Rollout: client-distribution/rollout.md

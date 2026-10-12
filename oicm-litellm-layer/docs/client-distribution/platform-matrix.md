@@ -17,7 +17,7 @@ every OS. We guarantee the matrix below and label everything else honestly.
 
 | OS / arch | uv upstream status | Notes |
 |---|---|---|
-| Windows x64 | Tier 1 | Needs `/install.ps1`; no Windows user behind the firewall yet |
+| Windows x64 | Tier 1 | Via Git Bash / WSL (the bash script runs there); native `/install.ps1` deferred |
 | Windows ARM64 | Tier 2 | Same |
 | Linux ARMv7 | Tier 2 + official binary | Only if real hardware shows up |
 
