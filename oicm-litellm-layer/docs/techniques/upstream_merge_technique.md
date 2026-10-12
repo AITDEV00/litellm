@@ -12,14 +12,14 @@
 > resolution silently drops a custom feature (a dropped argument, a deleted
 > slice, a lost re-export) that only surfaces later in tests or at runtime.
 
-> **Solution:** A deterministic sequence of git commands that (0) untracks
-> regenerable artifacts once per branch, (1) records the pre-merge SHAs and
-> refreshes the staging branch from upstream, (2) merges the upstream **tag
-> directly into the existing custom branch while the custom branch is checked
-> out** (never the reverse), (3) resolves each conflict by class, (4) verifies
-> compile + drop-detection wiring, (5) audits files the merge deleted, (6)
-> ratchets lint budgets, and (7) commits a proper two-parent merge commit
-> (first parent = custom) and pushes.
+> **Solution:** A deterministic sequence of git commands that (0) keeps
+> regenerable `out/` artifacts out of the branch, (1) records the pre-merge
+> SHAs and refreshes the staging branch from upstream if it still exists,
+> (2) merges the upstream **tag directly into the existing custom branch while
+> the custom branch is checked out** (never the reverse), (3) resolves each
+> conflict by class, (4) verifies compile + drop-detection wiring, (5) audits
+> files the merge deleted, (6) ratchets lint budgets, and (7) commits a proper
+> two-parent merge commit (first parent = custom) and pushes.
 
 ---
 
@@ -60,19 +60,31 @@ git merge jya0-v1.102.0           # ... then merging the custom branch in
 
 ...or deleting/recreating `jya0-v1.102.0` from the tag. Both put the upstream
 commit in the first-parent slot: `--ours`/`--theirs` then mean the opposite of
-what the resolver assumes, and every path upstream deleted since the previous
-merge deletes the custom copy with it.
+what the resolver assumes, so every conflict resolved on autopilot takes the
+wrong side (that is how the v1.102.0 merge clobbered hamsa's `api_surface` and
+the UI Model Performance mounts; see the case study for why the OCR gate and
+the 13 test files were lost regardless of direction).
 
-Verify the parents right after the merge resolves:
+Verify the direction at two moments — the commands differ because mid-merge
+`HEAD` is still the pre-merge tip (a merge commit's parents do not exist until
+you commit):
 
 ```bash
+# While the merge is in progress (conflicts unresolved or resolved, NOT yet committed):
+git rev-parse HEAD         # must equal the pre-merge custom tip ($OLD_CUSTOM_HEAD)
+git rev-parse MERGE_HEAD   # must be the upstream tag
+
+# After the merge commit exists:
 git show --no-patch --format="%P" HEAD   # <ours> <upstream-tag>
-git merge-base HEAD <old-head>           # should == <old-head> (our side is linear)
+git rev-parse HEAD^1                     # must print $OLD_CUSTOM_HEAD
 ```
 
-First parent must be the **custom** tip and second the **upstream** tag. If the
-first parent resolves to an upstream/BerriAI commit, the direction flipped:
-stop and redo the merge from the custom branch before resolving anything.
+First parent must be the **custom** tip and second the **upstream** tag. Use
+`HEAD^1` for the post-commit check: `git merge-base HEAD <old-head>` always
+prints `<old-head>` even when the direction is flipped, because both parents
+are ancestors of the merge, so it proves nothing. If the first parent resolves
+to an upstream/BerriAI commit, the direction flipped: stop and redo the merge
+from the custom branch before resolving anything.
 
 ---
 
@@ -80,14 +92,16 @@ stop and redo the merge from the custom branch before resolving anything.
 
 | Root Cause | Example | Step That Catches It |
 |---|---|---|
-| Untracked generated files block the merge | `litellm/proxy/_experimental/out/` tracked upstream but gitignored locally | Step 0: deliberate untrack commit |
-| Piped `git merge` aborts via SIGPIPE | `git merge \| head` kills git mid-merge | Step 2: never pipe a merge |
+| Piped `git merge` aborts via SIGPIPE | `git merge \| head` kills git mid-merge (exit 141; git rolls the whole merge back cleanly, but any resolution done before the abort is lost) | Step 2: never pipe a merge |
+| `out/` re-imports every merge | Upstream keeps shipping new `litellm/proxy/_experimental/out/` files; a merge adds the ones that are new since last time even when the branch untracked them (173 were tracked again at `jya0-v1.102.0` HEAD after the v1.102.0 merge) | Step 3: bulk `git rm` + re-commit the untrack |
+| `git checkout --ours` on a modify/delete conflict | Out/ paths have no "ours" stage, so it errors with "does not have our version"; `git rm` is the resolution | Step 3: resolve by conflict class |
 | Took the wrong side of a shared-file conflict | Dropped `Final:` annotation, dropped a custom handler block | Step 4: py_compile + re-diff |
-| Multi-line edit lost leading indentation | `Final:` annotation re-edit dropped 8/12 spaces | Step 4: `py_compile` every resolved file |
+| Multi-line edit lost leading indentation | `Final:` annotation re-edit dropped 8/12 spaces | Step 4: py_compile every resolved file |
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
+| Upstream deletes a file the branch still carries | Upstream's `test: drop static cost-map value assertions` removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict | Step 5: deletion audit |
 | Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
 | Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted | Step 6: `make lint-budget-update` |
-| **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
+| **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, and its transitive `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
 ---
 
@@ -107,49 +121,76 @@ UPSTREAM_BASE=$(git merge-base $CUSTOM_BRANCH $NEW_TAG)   # common ancestor
 cannot be reconstructed reliably after the merge. Record them (or keep the
 terminal open) before going further.
 
-### Step 0 — Make generated `out/` unconflicted (do this once, per branch)
+### Step 0 — Make generated `out/` trivially resolvable (commit once; re-apply after every merge)
 
 Upstream tracks `litellm/proxy/_experimental/out/`; the custom branch
-gitignores it. Every merge then floods 400+ conflicts on regenerable artifacts.
-Neutralize it **once per branch** with a deliberate untrack commit:
+gitignores it. Without an explicit deletion on our side, every merge floods
+400+ conflicts that are *content* conflicts — all three stages present, the
+worktree littered with `<<<<<<<` markers — and each one looks like it needs a
+manual resolution. After a deliberate untrack commit, our side has an explicit
+deletion, so the same paths come back each merge as *modify/delete* conflicts
+(only stages 1 and 3, no "ours" content) that one bulk `git rm` clears:
 
 ```bash
 git rm -r --cached litellm/proxy/_experimental/out
 git commit -m "chore: untrack generated litellm/proxy/_experimental/out build artifacts"
 ```
 
-After this, those paths resolve as "take ours" (deletion) automatically on every
-future merge. In the v1.97.0 merge this single commit removed **489 of the 518**
-conflicts.
+What this commit does **not** do (both were believed at some point, both are
+wrong):
+
+- It does **not** remove the out/ conflicts from later merges. The v1.97.0
+  merge still hit 489 out/ paths (518 conflicted paths total) and the v1.99.1
+  merge still hit 442 — all as modify/delete, all cleared by `git rm` (Step 3).
+- It does **not** make out/ paths "resolve as take-ours automatically". They
+  conflict every single merge and `git checkout --ours` **fails** on them with
+  `error: path ... does not have our version`, because a modify/delete
+  conflict has no stage-2 entry. `git rm` is the resolution.
+
+> **Re-import trap:** the merge silently *re-adds* every out/ path that is new
+> since the previous merge (upstream keeps shipping fresh build artifacts).
+> After the v1.102.0 merge, 173 out/ files were tracked again on a branch that
+> had an untrack commit. Re-run the `git rm -r --cached` after resolving and
+> fold it into the merge commit, or out/ creeps back one merge at a time.
 
 > Rule of thumb: if a conflict is a **regenerable artifact** (build output,
-> generated code, lockfiles the tool manages), take ours and move on. If it is
-> **real source**, it needs a real resolution.
+> generated code), resolve for deletion (`git rm`) and move on. If it is **real
+> source**, it needs a real resolution.
 >
 > **⚠️ Lockfile exception — `uv.lock` is NOT safe to revert.** Unlike `out/`, the
 > OICM branch's `uv.lock` deliberately **adds** dependencies that upstream does
-> not ship (`openrouter>=1.1.0,<2.0`, `jsonpath-python`) and pins `pydantic<2.13`
-> because `openrouter` requires it. The merge can show `uv.lock` as a conflict or
-> an "unintended local artifact". **Do NOT revert it.** Taking the upstream
-> version (or deleting it) silently drops the OICM deps; the Docker
-> `uv sync --frozen` build then fails or produces an image that crashes with
-> `ModuleNotFoundError: No module named 'openrouter'`. Keep the OICM lockfile, or
-> if it must be regenerated, pin the exact cutoff that was committed:
->
-> ```bash
-> uv lock --exclude-newer 2026-08-04T19:23:00.077310687Z
-> ```
->
-> and confirm the known-good combo is present before committing:
-> `openrouter ~= 1.1.28`, `jsonpath-python ~= 1.1.6`, `pydantic == 2.12.5`
-> (see `oicm-slices.md` → Deployments for the current pins).
+> not ship: `openrouter` (which pulls in `jsonpath-python` transitively) and a
+> `pydantic` pin that tracks what the installed openrouter SDK requires. The
+> merge can show `uv.lock` as a conflict or an "unintended local artifact".
+> **Do NOT revert it.** Taking the upstream version (or deleting it) silently
+> drops the OICM deps; the Docker `uv sync --frozen` build then fails or
+> produces an image that crashes with `ModuleNotFoundError: No module named
+> 'openrouter'`. Keep the OICM lockfile; if it must be regenerated, merge the
+> OICM deps back in and confirm all three are present before committing:
+> `openrouter` (currently 1.3.22; pyproject pins `>=1.2.0,<2.0`),
+> `jsonpath-python` (1.1.6), `pydantic` (2.12.5). These move: check
+> `uv.lock` + `pyproject.toml` at the branch tip for the current values
+> instead of trusting the numbers printed here.
 
-### Step 1 — Refresh `litellm_internal_staging` from upstream
+### Step 1 — Refresh `litellm_internal_staging` from upstream (only if the ref still exists)
 
 ```bash
 git fetch upstream --tags
 git checkout litellm_internal_staging
 git merge --ff-only upstream/litellm_internal_staging
+```
+
+`upstream/litellm_internal_staging` existed when this sequence was written but
+**BerriAI has since deleted it** (archived locally as tag
+`archive/litellm_internal_staging`; `git fetch upstream litellm_internal_staging`
+fails with `couldn't find remote ref`). If the remote-tracking ref is gone,
+skip the ff-only refresh — the local/origin `litellm_internal_staging` branch
+is still an ancestor of `upstream/main` and purely a convenience mirror, not an
+input the merge depends on. Verify before relying on it:
+
+```bash
+git rev-parse -q --verify upstream/litellm_internal_staging \
+  || echo "ref gone upstream; skip the staging refresh"
 ```
 
 ### Step 2 — Merge the target tag into the custom branch
@@ -168,15 +209,23 @@ git rev-parse MERGE_HEAD   # must be the upstream tag
 ```
 
 If either is wrong, `git merge --abort` and restart from `$CUSTOM_BRANCH`.
-Resolving a flipped merge drops custom-only files silently (Step 5 exists
-because this actually happened in v1.102.0).
+Resolving a flipped merge inverts `--ours`/`--theirs`, so conflicts resolved on
+autopilot take the wrong side — that is what clobbered three custom features in
+v1.102.0 (see the case study at the bottom).
 
-> **Trap — never pipe a `git merge`.** `git merge $NEW_TAG | tail` aborts the
-> merge midway with a SIGPIPE, leaving a half-written index. If you must view
-> partial output, redirect to a file: `git merge $NEW_TAG > /tmp/merge.log 2>&1`.
+> **Trap — never pipe a `git merge`.** `git merge $NEW_TAG | head` kills git with
+> SIGPIPE (exit 141) and git rolls the whole merge back: `MERGE_HEAD` gone,
+> index clean. That is safer than it sounds, but any resolution you already made
+> in that invocation is lost and the merge must restart from zero. If you must
+> view partial output, redirect to a file:
+> `git merge $NEW_TAG > /tmp/merge.log 2>&1`.
 
-> Expect hundreds of conflicts. The `out/` untrack commit (Step 0) turned the
-> bulk into trivial take-ours deletions; the rest are the 22 real source files.
+> Expect hundreds of conflicts even with the Step 0 untrack commit. The out/
+> paths still conflict (as modify/delete — our side deleted them, upstream
+> regenerated them); one bulk `git rm` in Step 3 clears all of them. What is
+> left is the real set: 29 unique paths in v1.97.0 and in v1.99.1, of which
+> roughly 20 are hand-resolved source files and the rest are budgets,
+> `.gitignore`, `pyproject.toml`, `uv.lock`, and UI lock/build artifacts.
 
 ### Step 3 — Resolve conflicts by class
 
@@ -190,18 +239,29 @@ git diff --check                 # catch stray whitespace / conflict markers
 
 Classify each conflict:
 
-- **Generated `out/` artifacts** — take ours (the branch keeps them untracked):
+- **Generated `out/` artifacts (modify/delete)** — our side deleted them, so
+  there is no "ours" content and `git checkout --ours -- <path>` **errors**
+  with `path ... does not have our version`. Resolve for deletion instead:
   ```bash
-  git checkout --ours -- <path>
+  git ls-files -u | awk '{print $4}' | grep '_experimental/out/' \
+    | sort -u | xargs git rm -q --
   ```
-  This is the *deletion* side (they are untracked on our branch), so it removes
-  the upstream file. Do this for all 489 `out/` paths.
+  (489 paths in v1.97.0, 442 in v1.99.1. After resolving, note the merge has
+  also *staged additions* of out/ paths that are new upstream — end Step 3 by
+  re-running `git rm -r --cached litellm/proxy/_experimental/out` so they do
+  not creep back into the tree; see the re-import trap in Step 0.)
 - **Lint budget files** (`basedpyright-code-budget.json`,
-  `ruff-strict-budget.json`, `type-discipline-budget.json`) — take ours, then
-  ratchet in Step 6.
+  `ruff-strict-budget.json`, `type-discipline-budget.json`,
+  `test-quality-budget.json`) — take ours, then ratchet in Step 6.
 - **Real source files** — merge line by line, **always keeping the OICM custom
   logic** and carrying the upstream structural/typing changes across. The full
-  list of custom-kept resolutions in v1.97.0:
+  list of custom-kept resolutions in v1.97.0 (paths as they were at that
+  merge; several have since moved upstream — e.g. `dual_cache.py` is now
+  `litellm/caching/dual_cache.py`, `user_api_key_cache.py` is now
+  `litellm/proxy/common_utils/user_api_key_cache.py`,
+  `model_rate_limit_check.py` is now
+  `litellm/router_utils/pre_call_checks/model_rate_limit_check.py` — the table
+  is a historical record, not a current path map):
 
   | File | What OICM kept vs what upstream changed |
   |---|---|
@@ -235,8 +295,13 @@ Classify each conflict:
 After resolution:
 
 ```bash
+# Capture the resolved file list BEFORE clearing the unmerged index —
+# `git ls-files -u` prints nothing once every conflict is resolved, so
+# deriving the list inside the loop is a no-op at that point.
+git ls-files -u | awk '{print $4}' | sort -u > /tmp/resolved-files.txt
+
 # Every resolved file must compile (catches lost indentation from re-edits)
-for f in $(git ls-files -u | awk '{print $4}'); do python3 -m py_compile "$f"; done
+while read -r f; do python3 -m py_compile "$f"; done < /tmp/resolved-files.txt
 
 # No conflict markers / whitespace
 git diff --check
@@ -249,6 +314,15 @@ python -c "from litellm.proxy import proxy_server"
 python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
 ```
 
+> **Safety-net caveat:** drop-detection covers the *wired* slices (voice
+> routes mount, HTB callback registration, provider dispatch, team-cache
+> invalidation, prometheus ledger). It does not cover hamsa's `api_surface`
+> passthrough kwargs, the OCR `_RUST_OCR_PROVIDERS` gate, or the UI Model
+> Performance mounts — the v1.102.0 merge clobbered all three without failing
+> a single test. Wiring that lives outside `test_oicm_drop_detection.py` is
+> unprotected; check the merge diff for it manually, and add a drop-detection
+> case when you add a slice.
+
 > **Lost-indentation trap:** multi-line edit tools often trim the leading spaces
 > off the first line of the replaced block, producing a silent `IndentationError`.
 > This bit ~10 files in v1.97.0 (`dual_cache.py`, `prometheus.py` x2,
@@ -257,29 +331,39 @@ python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
 
 ### Step 5 — Drop audit: files the merge deleted (mandatory post-merge)
 
-Conflict resolution cannot catch whole files the merge deleted outright because
-both sides touched the same paths; the v1.102.0 merge lost ten custom test
-files that way. Run before committing (works on the resolved working tree, or
-after the merge commit by adding `HEAD` to the diff):
+Conflict resolution cannot catch whole files the merge removed without
+conflicting — either because both sides touched the same paths, or because
+upstream deleted a file our side never modified (git resolves that silently
+to "deleted" in *any* merge direction; a rehearsal of the v1.102.0 pair in
+the correct direction deletes the same 13 files the flipped merge did). Run
+all three checks before committing (they also work after the merge commit by
+adding `HEAD` to the diff):
 
 ```bash
-# 1. Deleted files that never existed upstream (pure custom additions)
-git diff --name-status $OLD_CUSTOM_HEAD -- litellm/ tests/ ui/ oicm-litellm-layer/ | grep '^D' | \
-while read _ f; do
-  git cat-file -e "$UPSTREAM_BASE:$f" 2>/dev/null || echo "CUSTOM-ONLY FILE DELETED: $f"
-done
+# 1. Every file that exists pre-merge but is gone post-merge — the raw list
+git diff --name-status $OLD_CUSTOM_HEAD -- litellm/ tests/ ui/ oicm-litellm-layer/ \
+  | grep '^D' | cut -f2 > /tmp/deleted.txt
 
-# 2. Deleted files that carried custom edits over the base (upstream deleted
-#    the file; the custom changes to it died with it)
-git diff --name-status $OLD_CUSTOM_HEAD -- litellm/ tests/ ui/ | grep '^D' | \
-while read _ f; do
+# 2. Which of those never existed upstream (pure custom additions)
+while read -r f; do
+  git cat-file -e "$UPSTREAM_BASE:$f" 2>/dev/null || echo "CUSTOM-ONLY FILE DELETED: $f"
+done < /tmp/deleted.txt
+
+# 3. Which of those carried custom edits over the base
+while read -r f; do
   git cat-file -e "$UPSTREAM_BASE:$f" 2>/dev/null || continue
-  git diff --quiet $UPSTREAM_BASE $OLD_CUSTOM_HEAD -- "$f" 2>/dev/null || \
+  git diff --quiet $UPSTREAM_BASE $OLD_CUSTOM_HEAD -- "$f" || \
     echo "DELETED WITH CUSTOM EDITS: $f"
-done
+done < /tmp/deleted.txt
 ```
 
-Every hit needs a classification before you act:
+**Check 1 is the one that matters and must not be skipped.** It was
+check-1-style listing that surfaced the 13 files lost in v1.102.0 — checks 2
+and 3 print nothing for them, because those files were upstream-authored,
+upstream-deleted, and byte-identical on our side. If you only run 2 and 3 you
+will conclude "nothing was lost" exactly when everything was. Every file from
+check 1 that you do not deliberately accept needs a classification before you
+act:
 
 - **Subject still exists** (the feature, pricing entry, or helper the test
   imports survived) → restore from `$OLD_CUSTOM_HEAD`
@@ -289,29 +373,34 @@ Every hit needs a classification before you act:
   the same assertions) → do **not** restore; note the replacement in the merge
   PR so the deletion is a decision, not an accident.
 
-Blind-restoring a superseded test fails against current behavior; three of the
-ten v1.102.0 losses were in that class (see Lessons Learned at the bottom).
+Blind-restoring a superseded test fails against current behavior; several of
+the 13 v1.102.0 losses were in that class (see Lessons Learned at the bottom).
+That audit restored five (their subjects still exist), retired the embedding
+`extra_body` patch, and deliberately dropped the rest as superseded — the
+decision record is commit `104fcbcf2a` and its CHANGELOG entry.
 
 ### Step 6 — Lint budget ratchet (mandatory post-merge)
 
-Per `CLAUDE.md`, the three budget files are **ratcheted down** so lint ceilings
+Per `CLAUDE.md`, the budget files are **ratcheted down** so lint ceilings
 don't leave stale headroom after the merge. Run once on a clean working tree:
 
 ```bash
 make lint-budget-update
 ```
 
-This runs three gates (the basedpyright one takes ~8 minutes; it provisions a
+This runs four gates (the basedpyright one takes ~8 minutes; it provisions a
 `.venv-typecheck` and runs head+base passes):
 - `make lint-ruff-budget-update` (ruff-strict)
 - `make lint-type-discipline-budget-update` (type-discipline)
+- `make lint-test-quality-budget-update` (test-quality)
 - `make lint-basedpyright-budget-update` (basedpyright — slowest)
 
 Each reports a ratchet, e.g. "Ratcheted basedpyright limits down by 2416 errors
 this branch fixed across 48 rules". Commit the budgets separately:
 
 ```bash
-git add ruff-strict-budget.json type-discipline-budget.json basedpyright-code-budget.json
+git add ruff-strict-budget.json type-discipline-budget.json \
+  test-quality-budget.json basedpyright-code-budget.json
 git commit -m "chore(lint): ratchet budgets after v1.97.0 merge"
 ```
 
@@ -336,12 +425,13 @@ Verify the final state — the parent order one last time:
 
 ```bash
 git show --no-patch --format="%P" HEAD    # first parent MUST be $OLD_CUSTOM_HEAD
+git rev-parse HEAD^1                      # same check, machine-comparable
 git log --oneline -5                      # merge, then budget/manifest commits
 git rev-parse HEAD origin/$CUSTOM_BRANCH  # must be identical (fully pushed)
 git status --short                        # clean tree
 ```
 
-If the first parent is not `$OLD_CUSTOM_HEAD`, the direction flipped; see the
+If `HEAD^1` is not `$OLD_CUSTOM_HEAD`, the direction flipped; see the
 Merge direction section above and redo before pushing.
 
 ---
@@ -370,29 +460,41 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
 
 ## Lessons Learned (v1.97.0)
 
-- **`out/` untrack commit is the single biggest lever.** It cut 518 conflicts to
-  29 real. Do it once per branch and every later merge is cheap.
+- **The out/ untrack commit changes the conflict *class*, not the count.**
+  It does not stop the conflicts (489 out/ paths conflicted in v1.97.0 and
+  442 in v1.99.1), but it turns them from content conflicts with markers
+  into modify/delete conflicts that one bulk `git rm` clears. It also must be
+  re-applied after every merge: each merge re-imports the out/ paths that are
+  new upstream.
 - **Merge INTO the custom branch**, keeping first-parent = ours. Recreating from
   the tag loses the merge-parent lineage.
-- **Never pipe a merge.** SIGPIPE aborts git mid-merge.
+- **Never pipe a merge.** SIGPIPE (exit 141) makes git roll the merge back
+  cleanly, losing any resolution already done in that invocation.
 - **Keep custom logic, adopt upstream typing.** The dominant conflict pattern is
   upstream adding `Final:`/typing discipline while OICM carries concrete logic.
 - **`py_compile` every touched file.** Silent indentation loss from multi-line
-  edits is the top source of "compiles upstream but not after the merge".
-- **Ratchet the lint budgets.** Three separate budget files; run
+  edits is the top source of "compiles upstream but not after the merge". Build
+  the file list *before* resolving the last conflict; `git ls-files -u` is
+  empty once the index is clean.
+- **Ratchet the lint budgets.** Four separate budget files; run
   `make lint-budget-update` on a clean tree.
-- **Drop-detection tests are your safety net.** The OICM slice refactors are
-  covered by `tests/test_litellm/proxy/test_oicm_drop_detection.py`; a future
-  merge that drops a mount/re-export/callback fails a test instead of production.
+- **Drop-detection tests are your safety net — with limits.** The OICM slice
+  refactors are covered by `tests/test_litellm/proxy/test_oicm_drop_detection.py`;
+  a future merge that drops a mount/re-export/callback fails a test instead of
+  production. But it only covers the wired slices; kwargs lists and UI mounts
+  have no drop-detection coverage and must be checked in the diff.
 - **Production stays on the last known-good tag.** Merge and validate the debug
   gateway on the new image; never deploy the merged image to production.
 - **Never revert a lockfile that adds an OICM dependency.** `uv.lock` is a
   first-class part of the OICM diff, not a local artifact. Reverting it in a
-  merge drops `openrouter`/`jsonpath-python` and unpins `pydantic`, so the image
-  fails to import `openrouter_compat` at startup. If the lockfile looks
-  "wrong" after a merge, diff it against the pre-merge branch
-  (`git diff <old-branch> -- uv.lock`) before touching it; the extra packages
-  are intentional OICM additions.
+  merge drops `openrouter` (and its transitive `jsonpath-python`) and unpins
+  the `pydantic` the SDK needs, so the image fails to import `openrouter_compat`
+  at startup. If the lockfile looks "wrong" after a merge, diff it against
+  the pre-merge branch (`git diff <old-branch> -- uv.lock`) before touching it;
+  the extra packages are intentional OICM additions. The versions move over
+  time (openrouter is past 1.3.x now, pydantic pin tracked the SDK
+  requirement) — read the current pins out of `uv.lock`/`pyproject.toml` at
+  the branch tip, not out of this doc.
 - **Smoke-test the image, not just the tree.** `python -c "import litellm"` and
   the drop-detection tests prove the Python tree, but they do not prove the
   **container** has the right deps. After building, verify the merged image
@@ -404,30 +506,59 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
 
 ## How the v1.102.0 merge went wrong (case study)
 
-The v1.99.1 → v1.102.0 merge was performed with the direction reversed (first
-parent was an upstream commit and the old custom branch was merged in), which
-silently dropped custom-side files that upstream had also deleted or rewritten.
-The restore commits after that merge (hamsa `api_surface`, OCR provider gate,
-UI Model Performance mounts) each fixed a clobber that the Step 5 audit would
-have caught on merge day. The audit is now a mandatory sequence step; the
-lessons below record what each class of loss looked like.
+The v1.99.1 → v1.102.0 merge was performed with the direction reversed: merge
+commit `82e738ccf9` carries the upstream tag as **first** parent and the old
+custom branch as second. What that actually cost, verified by re-running the
+same merge pair in both directions in scratch worktrees, splits into two
+distinct loss classes that need different fixes:
+
+- **`--ours`/`--theirs` meant the opposite of what the resolver assumed.**
+  Content conflicts resolved on autopilot took the wrong side. That is how
+  hamsa's `api_surface` kwargs and the UI Model Performance mounts were
+  clobbered — both files *conflict* in a correct-direction rehearsal, so a
+  properly directioned merge forces a human decision exactly where the
+  flipped merge let autopilot take the wrong side. The restore commits
+  (`147a4e93b6` hamsa, `1b75323dcf` UI mounts) each fixed one of these, days
+  later.
+- **The OCR `_RUST_OCR_PROVIDERS` gate was lost in *either* direction.** Our
+  `ocr/main.py` was byte-identical to the merge base; upstream's native
+  lifecycle rework gutted the file (-705 lines) and removed the gate. Since
+  our side never touched the file, git silently takes upstream's rewrite in
+  the correct direction too. Restoring it (`031043b779`) was a deliberate
+  re-port of custom behavior onto upstream's new structure — the class of
+  loss the Step 5 audit + "subject still exists" classification exists for,
+  not a direction failure.
+- **The 13 lost test/source files were NOT caused by the flip.** All of them
+  were upstream-authored, deleted upstream between the tags (e.g. `test: drop
+  static cost-map value assertions`), and byte-identical on our side. A
+  correct-direction rehearsal of the same pair deletes the exact same 13 files,
+  silently and without conflict — that is plain git behavior for
+  "upstream deleted, we never touched it". The flip made them *easier to
+  miss* (they hid among ~280 staged deletions of out/ churn), but the lesson
+  is that any merge, done perfectly, still needs the Step 5 deletion audit.
 
 ## Lessons Learned (v1.99.1 → v1.102.0)
 
-- **Direction violation is recoverable but expensive.** The merge landed with
-  upstream as first parent; `--ours`/`--theirs` then meant the opposite of what
-  the resolver assumed, and custom-only files that upstream had also deleted
-  were silently dropped. Ten custom test files were lost this way.
-- **The audit that matters most is deleted custom-only files.** File-content
-  conflicts were resolved fine; the losses were whole files the merge removed
-  because both sides touched the same paths. Compare deletions against the
-  upstream base, not just conflict counts.
+- **Direction violation is recoverable but expensive.** The flipped merge
+  landed upstream-first; `--ours`/`--theirs` then meant the opposite of what
+  the resolver assumed, and every conflict resolved on autopilot took the
+  wrong side.
+- **"Upstream deleted it, we never modified it" is invisible in every
+  direction.** The file losses that prompted the Step 5 audit were not flip
+  artifacts at all; git silently takes upstream's deletion whether the merge
+  is directioned correctly or not. The audit that matters is the *raw
+  deletion list* (Step 5, check 1), not just the custom-only/custom-edit
+  subclasses (checks 2 and 3), which print nothing for this loss class.
+- **A silent deletion still shows in `git status`** as a staged `D` — but only
+  if someone reads it. It drowns in the ~280 out/ deletions staged at the
+  same time. Bulk-resolve out/ first, then read what is left.
 - **Superseded custom tests should be dropped, not restored.** Upstream rewrote
   `test_tool_call_streaming_transformation.py` (fc_ item-id prefix behavior),
   the rust OCR bridge (lifecycle/configuration split), and the autoroute
   settings module (merge_claude_settings refactor); restoring the old tests
   against the new code fails. Verify coverage exists in the upstream
-  replacement first.
+  replacement first. The final classification lives in commit `104fcbcf2a`:
+  five restored, the rest accepted as superseded.
 - **Embedding `extra_body` patch is retired.** Upstream now passes vLLM
   embedding `extra_body` through `get_optional_params_embeddings` natively;
   `patches/embedding-extra-body.patch` no longer applies and was removed.
