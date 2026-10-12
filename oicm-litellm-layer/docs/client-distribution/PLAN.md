@@ -21,6 +21,28 @@ rule, and `/install` becomes a generated artifact that can read the
 gateway's own state (config, DB, request host). See
 [architecture.md](architecture.md) for the decision record.
 
+## Revision note (v3)
+
+Three decisions from review, folded in:
+
+1. **Storage is a PVC, not MinIO/S3.** LiteLLM has S3 support but only as a
+   *logging* callback (`integrations/s3.py`, `s3_v2.py` write spend/audit logs
+   to a bucket via `put_object`; there is no serve/download path). Using MinIO
+   purely to hold a few CLI artifacts, when nothing else uses it beyond logs,
+   is overkill. A PVC keeps it simple and matches the repo's existing
+   PVC + CronJob patterns. See [mirror-content.md](mirror-content.md) and
+   [deployment.md](deployment.md).
+2. **Admin-facing sync API on the gateway.** Because a PVC can be deleted
+   accidentally, the slice exposes admin-authenticated CRUD routes so an admin
+   with internet access can push, upsert, or delete artifacts over REST,
+   idempotently, using the gateway's master key as the bearer token. This
+   replaces "admin copies bytes with `kubectl cp`" with a documented API. See
+   [admin-sync.md](admin-sync.md).
+3. **Harness detection is a reporter, not a gate.** The script detects
+   installed harnesses (cross-platform) and reports them; it does not
+   auto-select one. Auto-selection was considered and dropped as a product
+   choice, left to the user. See [installer-script.md](installer-script.md).
+
 ## Problem
 
 Developer machines inside the firewall can reach `litellm.ecouncil.ae` (443) and
@@ -87,7 +109,8 @@ slice, two wiring lines, drop-detection tests.
 | [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
 | [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
 | [platform-matrix.md](platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
-| [deployment.md](deployment.md) | Artifact volume, gateway pod mount, sync job, rollout |
+| [deployment.md](deployment.md) | Artifact volume, gateway pod mount, admin sync API, rollout |
+| [admin-sync.md](admin-sync.md) | Admin REST API to push/upsert/delete mirror artifacts idempotently |
 | [security.md](security.md) | Threat model, checksums, signature question, why static unauth is OK |
 | [rollout.md](rollout.md) | Phased rollout: pilot users, success metrics, cut-over |
 | [open-questions.md](open-questions.md) | Unresolved decisions that need a human call |

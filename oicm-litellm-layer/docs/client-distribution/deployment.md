@@ -1,24 +1,25 @@
-# Deployment (v2 — gateway slice)
+# Deployment (v3 — gateway slice, PVC, admin sync API)
 
-> v2: no artifact pod, no ingress changes. The gateway serves everything.
+> v3: no artifact pod, no ingress changes, no MinIO. Storage is a PVC filled
+> by an admin-facing REST API on the gateway (see [admin-sync.md](admin-sync.md)).
 
 ## Components
 
-1. **Artifact volume.** A PVC holding the `/mirror/*` tree (uv artifacts,
-   wheelhouse, Python builds, `manifest.json`).
-2. **Gateway pod change.** Mount the volume read-only into the existing
-   `litellm-proxy` deployment (one `volumeMounts` + one `volumes` entry in
+1. **Artifact PVC.** A PersistentVolumeClaim holding the `/mirror/*` tree
+   (uv artifacts, wheelhouse, Python builds, `manifest.json`).
+2. **Gateway pod change.** Mount the PVC into the existing `litellm-proxy`
+   deployment (one `volumeMounts` + one `volumes` entry in
    `deploy/base/gateway/proxy/deployment.yaml`, next to the existing
    `config`, `hooks`, and `assets` mounts).
-3. **Slice wiring.** The two lines in `proxy_server.py` pinned by the
-   drop-detection tests (see [architecture.md](architecture.md)). These ride
-   the normal image build; no manifest change.
-4. **Sync job.** A CronJob (or manual job run from the connected workstation)
-   that refreshes the PVC contents. This job runs on a machine/network that
-   has internet; the cluster job only copies bytes in, or the workstation
-   pushes via `kubectl cp`/rsync-over-port-forward.
+3. **Slice wiring.** The `proxy_server.py` lines pinned by the drop-detection
+   tests (see [architecture.md](architecture.md)): the public `/install`
+   router, the public `/mirror` static mount, and the admin
+   `/client-mirror/v1` router. These ride the normal image build.
+4. **Admin sync API.** The write surface in [admin-sync.md](admin-sync.md).
+   The admin pushes artifacts and the manifest over REST with the master key.
 
-Nothing else. No new Deployment, Service, Ingress, or NetworkPolicy.
+Nothing else. No new Deployment, Service, Ingress, or NetworkPolicy. No
+MinIO, no S3, no CronJob.
 
 ## Volume mount on the gateway
 
@@ -27,70 +28,71 @@ Nothing else. No new Deployment, Service, Ingress, or NetworkPolicy.
 volumeMounts:
   - name: client-artifacts
     mountPath: /app/client_mirror
-    readOnly: true
+    # NOT readOnly: the admin sync API writes here. The public /mirror mount
+    # serves reads from the same directory.
 volumes:
   - name: client-artifacts
     persistentVolumeClaim:
       claimName: litellm-client-artifacts
 ```
 
-The slice reads its base directory from an env var (e.g.
-`LITELLM_CLIENT_MIRROR_DIR`, default `/app/client_mirror`), so dev overlays
-can point it at a local directory and prod at the PVC. If the directory is
-absent, the slice logs and serves 404s rather than crashing the app — the
-gateway must never depend on the artifact store to boot (the same
-"proxy never depends on the artifact pod" property, now enforced inside the
-app).
+Writable, unlike the earlier draft: the admin sync API is a write path, so the
+volume cannot be `readOnly`. This is a deliberate change from v2 and is the
+one place where the gateway now writes to a mounted volume. The slice only
+ever writes under the mirror root (path containment enforced, see
+[admin-sync.md](admin-sync.md)).
+
+The slice reads its base directory from `LITELLM_CLIENT_MIRROR_DIR` (default
+`/app/client_mirror`), so dev overlays can point it at a local directory. If
+the directory is absent, the slice logs and serves 404s rather than crashing
+the app — the gateway must never depend on the artifact store to boot.
 
 PVC sizing from [mirror-content.md](mirror-content.md): ~5 Gi with a few
-manifest versions retained for rollback. Access mode `ReadWriteOnce` is
-fine while the gateway is single-replica; see the multi-replica caveat in
+manifest versions retained for rollback. Access mode `ReadWriteOnce` is fine
+while the gateway is single-replica; see the multi-replica caveat in
 [architecture.md](architecture.md).
 
-## Sync job
+## Filling the PVC: the admin sync API
 
-Runs on the connected workstation (this one), not in the cluster: it needs
-internet. Steps (idempotent):
+The admin runs the idempotent push loop from [admin-sync.md](admin-sync.md)
+on a machine with internet access: fetch the pinned uv artifacts, resolve the
+wheelhouse, fetch the Python builds, compute hashes, `PUT` each artifact,
+then `PUT` the manifest last. The gateway does the hashing on write and skips
+unchanged objects, so re-running is cheap and safe.
 
-1. Read target versions (upstream release to adopt: `litellm`, pinned `uv`,
-   pinned Python).
-2. Fetch uv release artifacts + `.sha256` sidecars for the
-   [platform matrix](platform-matrix.md); verify against the published
-   checksums.
-3. Resolve the `litellm[cli]` wheel closure for the target Python range and
-   collect wheels (method in [mirror-content.md](mirror-content.md)).
-4. Fetch the python-build-standalone archives for the pinned CPython.
-5. Compute sha256 for everything, write `manifest.json`, and ship the tree
-   to the PVC (`kubectl cp` into a helper pod, or rsync via a port-forward).
-
-CI supply-chain rule from the repo guidelines applies to the sync job:
-download to file, verify checksum, never `curl | bash`; pin every tool by
-full URL and version. The sync script itself lives in `examples/` per the
-layer's doc conventions (runnable things are not docs).
+This replaces the earlier "sync CronJob" and "`kubectl cp`" approaches. The
+job that fetches from the internet can still be a script the admin runs, but
+its output is delivered via the API, not by cluster copy. The fetch script
+itself lives in `examples/` per the layer's doc conventions (runnable things
+are not docs), and follows the repo's CI supply-chain rules (download to
+file, verify checksum, never `curl | bash`, pin by full URL + version).
 
 ## Rollout sequence
 
 1. Phase 0 proof still applies exactly as written in
    [rollout.md](rollout.md) — the containerized `--network none` test of the
    install chain does not involve the cluster at all.
-2. Create the PVC, run the sync job, mount the volume on the gateway
-   deployment (a normal image rollout includes the slice wiring).
-3. Verify from the workstation: `curl -fsSL https://litellm.ecouncil.ae/install`
-   returns the generated script with the right base URL baked in;
+2. Create the PVC, mount it on the gateway deployment, roll out the image
+   that includes the slice wiring.
+3. Admin syncs the artifacts via the API
+   (`curl ... /client-mirror/v1/artifact/...`, then the manifest).
+4. Verify from the workstation: `curl -fsSL https://litellm.ecouncil.ae/install`
+   returns the generated script with the right base URL;
    `curl -fsSL .../mirror/manifest.json` returns the manifest.
-4. Pilot: 2-3 internal users run the full journey (`/install` -> `lite login`
+5. Pilot: 2-3 internal users run the full journey (`/install` -> `lite login`
    -> `lite configure claude` -> a day of real agent use).
-5. Fix what the pilot surfaces (likely candidates: PATH refresh in current
-   shells, keyring on headless hosts, MIME types for `.tar.gz` under
-   StaticFiles).
-6. Announce; retire hand-rolled per-team setup scripts.
+6. Fix what the pilot surfaces (likely: PATH refresh in current shells,
+   keyring on headless hosts, MIME types for `.tar.gz` under StaticFiles).
+7. Announce; retire hand-rolled per-team setup scripts.
 
 ## Rollback
 
-- Unmount the volume and/or comment the two wiring lines -> `/install` and
-  `/mirror/*` 404; nothing else in the gateway is affected (the slice is
-  additive; the drop tests confirm removal is detectable).
+- Unmount the PVC and/or comment the wiring lines -> `/install`, `/mirror/*`,
+  and the admin API all 404; nothing else in the gateway is affected. The
+  drop-detection tests intentionally fail in this state (the tripwire).
 - Installed clients keep working: `lite` talks only to `/v1`; a client whose
   mirror disappears is fully functional, it just cannot update.
 - Store rollback: previous manifest retained on the PVC; swap back and the
   next `/install` run pins users to the older version.
+- Accidental PVC deletion: recreate the PVC, re-run the admin sync loop; the
+  API's idempotency means no partial-state cleanup is needed.

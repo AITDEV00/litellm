@@ -81,6 +81,13 @@ litellm/proxy/client_distribution/
 | `GET /install` | router handler | POSIX bootstrap script, **generated at request time** (see below) |
 | `GET /install.ps1` | router handler | Windows variant (deferred, same generator) |
 | `GET /mirror/*` | `StaticFiles` mount on the artifact volume | uv tarballs/zips + `.sha256`, wheelhouse, Python builds, `manifest.json` |
+| `* /client-mirror/v1/*` | router handlers, admin-only | write surface: push/upsert/delete artifacts + publish manifest (see [admin-sync.md](admin-sync.md)) |
+
+The read paths (`/mirror`, `/install`) are public; the write path
+(`/client-mirror/v1`) is admin-only via the same `_require_admin` /
+`PROXY_ADMIN` pattern used by `litellm/proxy/oicm_routes.py`. Keeping write
+and read on distinct prefixes means the write surface can be restricted at
+the ingress without affecting public reads.
 
 ### Why `/install` is generated, not a static file
 
@@ -142,9 +149,11 @@ the CLI exists.
   already uses to serve the multi-MB Admin UI bundle; the artifact set (a few
   GB on disk, see [mirror-content.md](mirror-content.md)) adds no
   per-worker memory beyond the mount.
-- The volume is mounted **read-only** into the gateway pod (the pod never
-  writes; the sync job does), matching the existing `hooks` and `assets`
-  readOnly volume pattern in the deployment.
+- The volume is mounted into the gateway pod. Unlike v2 it is **not
+  read-only**: the admin sync API (see [admin-sync.md](admin-sync.md)) writes
+  artifacts there. The slice only writes under the mirror root (path
+  containment enforced), and public reads go through `StaticFiles` on the same
+  volume.
 - Artifact traffic and `/v1` traffic share the pod, so a pathological
   download storm competes with API traffic. Mitigations if it ever matters:
   nginx `limit_req` on `/mirror` paths (one annotation on the existing

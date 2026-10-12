@@ -89,3 +89,30 @@ From the repo's CI supply-chain rules, applied to the mirror builder:
 download to file + verify SHA-256 before use; pin every external tool by exact
 version and full URL; prefer official `.sha256` sidecars (Astral publishes
 them) over third-party checksum pages.
+
+## Write surface (v3 addition)
+
+The admin sync API (`/client-mirror/v1/*`, see [admin-sync.md](admin-sync.md))
+is the one authenticated surface. Its security properties:
+
+- **Admin-only.** `Depends(user_api_key_auth)` plus `_require_admin`
+  (`PROXY_ADMIN`), the same pattern as `litellm/proxy/oicm_routes.py`. The
+  master key satisfies it; a non-admin virtual key gets `403`.
+- **Path containment.** Every artifact path is resolved against the mirror
+  root with an `os.path.realpath` containment check; `..`, absolute paths, and
+  symlink escapes are rejected, so the write API cannot touch anything outside
+  the mirror directory.
+- **Body size cap.** A per-request limit (reject `413` above it) so a runaway
+  client cannot fill the PVC in one request. Expected largest artifact is tens
+  of MB; the cap sits above that.
+- **Manifest integrity.** The manifest `PUT` verifies every referenced
+  artifact exists with a matching hash and rejects `409` otherwise, so a
+  published manifest never lies about the store.
+- **Separate prefix.** Write (`/client-mirror/*`) and read (`/mirror/*`) are
+  distinct, so the ingress can restrict the write surface to an admin network
+  range without affecting public reads.
+
+The master key never appears in a tracked file: it lives in the
+`litellm-master-key` Secret (`deploy/base/gateway/proxy/deployment.yaml`,
+`secretKeyRef` -> env `LITELLM_MASTER_KEY`) and is supplied to the admin sync
+script from the environment, never committed.

@@ -1,8 +1,16 @@
 # Mirror Content — exact bytes we serve
 
-Everything under `/mirror/` is produced by a sync job (see
-[deployment.md](deployment.md)) on a machine that does have internet, then
-shipped into the cluster. The dev machine only ever consumes.
+Everything under `/mirror/` is produced by the admin sync script (see
+[admin-sync.md](admin-sync.md)) on a machine that does have internet, then
+pushed into the cluster over the gateway's admin REST API into the artifact
+PVC. The dev machine only ever consumes.
+
+Storage decision (v3): a **PVC**, not MinIO/S3. LiteLLM does have S3 support,
+but only as a logging callback (`litellm/integrations/s3.py` and `s3_v2.py`
+write spend/audit logs to a bucket via `put_object`, with `s3_endpoint_url`
+for MinIO); there is no download/serve path. Since nothing here uses MinIO for
+anything but logs, standing up MinIO to hold a few CLI artifacts is overkill.
+A PVC matches the repo's existing patterns and needs no new service.
 
 ## `/mirror/manifest.json`
 

@@ -153,6 +153,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Served install script design | `docs/client-distribution/installer-script.md` |
 | Supported platform matrix | `docs/client-distribution/platform-matrix.md` |
 | Deployment (ingress, artifact pod, sync job) | `docs/client-distribution/deployment.md` |
+| Admin sync API (push/upsert/delete artifacts) | `docs/client-distribution/admin-sync.md` |
 | Security (threat model, checksums) | `docs/client-distribution/security.md` |
 | Rollout plan | `docs/client-distribution/rollout.md` |
 | Open questions | `docs/client-distribution/open-questions.md` |

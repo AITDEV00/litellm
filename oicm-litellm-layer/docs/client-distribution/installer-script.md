@@ -100,41 +100,84 @@ tested: render with a known manifest, assert the three origin overrides and
 the `lite config set` line appear with the right values. The test belongs in
 the slice's co-located test module, in the established drop-detection style.
 
-## Idempotency and update path
+## Harness detection (v3 addition)
 
-Re-running `/install` must be safe and must be the update mechanism:
+After installing `lite`, the script scans the machine for known coding
+harnesses and **reports** what it found. It does not auto-select one; choosing
+which harness to wire is left to the user (a deliberate product decision —
+`lite configure` and the per-agent commands already handle selection).
 
-1. Script fetches `/mirror/manifest.json` first.
-2. If `lite` exists and reports the manifest's `litellm_cli_version`, exit 0
-   with a "already up to date" line (no reinstall).
-3. Otherwise proceed; `uv tool install --force` replaces the tool in place.
-   `lite`'s own state (`~/.litellm/config.json`, keyring tokens) survives
-   reinstalls — verified: those live under `~/.litellm/` and the OS keyring,
-   not inside the tool venv.
+The scan is cross-platform and cheap:
 
-CLI version != model access: adding/removing a model on the gateway never
-requires a reinstall — `/v1/models` is read live by the CLI at launch/configure
-time. This preserves the clean separation (distribution vs. entitlement).
+| Platform | Probe |
+|---|---|
+| POSIX (Linux/macOS) | `command -v claude`, `command -v codex`, `command -v opencode`, `command -v pi` |
+| Windows | `where claude`, etc. (same names) |
 
-## Windows (`/install.ps1`)
+The script does **not** reimplement the Windows `.cmd`/`.bat` shim logic; that
+is already handled inside `lite` itself (`_WINDOWS_SHIM_SUFFIXES` /
+`_windows_command` in `agents.py`), and the script's job is only to report.
+The authoritative detection happens at run time when `lite <agent>` resolves
+the binary with `shutil.which` and raises a clear "could not find" with an
+install-docs hint.
 
-Same flow, PowerShell: `irm https://litellm.ecouncil.ae/install.ps1 | iex`.
-Astral's `install.ps1` accepts an equivalent environment override for its
-artifacts. Not designed further until a Windows user actually exists behind
-the firewall ([open-questions.md](open-questions.md)).
+Output is a plain summary so the user knows what `lite configure` / `lite
+<agent>` will work with:
 
-## Failure modes the script must handle
+```
+Detected harnesses:
+  claude    found   (Claude Code)
+  codex     found   (Codex)
+  opencode  not found
+  pi        not found
+Configure a found harness with:  lite configure claude
+```
 
-- Mirror missing a platform artifact -> clear message naming the exact URL
-  that 404'd (the manifest lists what should exist; the script trusts nothing
-  not in the manifest).
-- Checksum mismatch -> abort before extraction/installation, message says
-  "artifact store may be corrupt, contact platform team".
-- `lite` present but broken (half-installed tool) -> `--force` re-install
-  handles it; no special-casing.
-- No `curl` -> the script cannot bootstrap; error says so (acceptable: every
-  target OS in the matrix ships curl or wget; wget fallback is a two-line
-  mapping of the same URLs and can be added if a real user needs it).
-- Gateway serving but artifact volume not mounted (slice's base dir absent)
-  -> the manifest fetch 404s with the slice's explanatory message; the script
-  aborts with the URL, never falls back to the internet.
+Two caveats recorded, not solved:
+
+- The `lite configure` wizard's target list is Claude Code + Codex only
+  (`_TARGETS` in `configure.py`); OpenCode and pi are wired by their own
+  commands (`lite opencode`, `lite pi`). So the summary line should point at
+  the right command per harness, not always `lite configure`.
+- On a platform `uv` does not support as a host (Android/Termux experimental,
+  iOS unsupported — see [platform-matrix.md](platform-matrix.md)), the script
+  fails with a clear message before the scan rather than producing a summary
+  for a machine it cannot install onto.
+
+## Resume behaviour (v3 addition)
+
+A wrong API key at the auth step must never cost a re-download. The script is
+two independently re-runnable phases, with progress recorded so a second run
+skips what is already done.
+
+```
+Phase A — acquire (expensive; touches the gateway mirror)
+  A1 uv present and version matches manifest   -> skip
+  A2 lite present and version matches manifest -> skip
+  A3 base_url already set to this gateway      -> skip
+  (progress: ~/.litellm/install_state.json)
+
+Phase B — auth + configure (cheap; user-supplied values)
+  B1 lite login / --api-key   <- a wrong key lands here and is retryable
+  B2 lite configure <harness> (or lite <agent>)
+```
+
+Properties:
+
+- Re-running `/install` after a bad key re-enters at Phase B; A1-A3
+  short-circuit on the state file plus the manifest version check, so nothing
+  is downloaded again.
+- Each phase is idempotent on its own, so a partial run (network drop
+  mid-download) resumes cleanly: `uv tool install --force` handles a
+  half-written tool, and the version check makes "already correct" a no-op.
+- The state file records only phase completion and the adopted version, never
+  the key. The key stays in the OS keyring or the CLI's own config, where it
+  already lives.
+- Phase B can be interactive (`lite login` prompts) or, in a fully scripted
+  run, supplied `--api-key`; either way it is a distinct step, so a piped
+  `curl | sh` never blocks on the interactive part unless the user chose to
+  run Phase B in that same invocation.
+
+This closes a gap in the earlier draft, which said re-running was safe and
+idempotent but did not separate acquire from auth or record progress.
+```
