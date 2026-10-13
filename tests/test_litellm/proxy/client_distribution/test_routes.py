@@ -66,7 +66,7 @@ class _FakeS3Client:
         client: _FakeS3Client = self
 
         class _FakePaginator:
-            def paginate(self, Bucket: str) -> list[dict[str, Any]]:
+            def paginate(self, Bucket: str, Prefix: str = "") -> list[dict[str, Any]]:
                 import datetime
 
                 contents: list[dict[str, Any]] = [
@@ -77,6 +77,7 @@ class _FakeS3Client:
                         "LastModified": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
                     }
                     for k, v in sorted(client._store.items())
+                    if k.startswith(Prefix)
                 ]
                 return [{"Contents": contents}]
 
@@ -221,6 +222,21 @@ class TestGetManifest:
         client: TestClient = TestClient(app)
         response = client.get("/install/manifest.json")
         assert response.status_code == 404
+
+
+class TestWheelhouseIndex:
+    def test_lists_wheels_as_find_links_page(self, app: FastAPI, s3: _FakeS3Client) -> None:
+        s3._store["pypi/litellm-1.102.0-py3-none-any.whl"] = b"wheel-a"
+        s3._store["pypi/click-8.1.7-py3-none-any.whl"] = b"wheel-b"
+        s3._store["pypi/not-a-wheel.txt"] = b"nope"
+        client: TestClient = TestClient(app)
+        for path in ("/install/pypi", "/install/pypi/"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert "text/html" in response.headers["content-type"]
+            assert '/install/pypi/litellm-1.102.0-py3-none-any.whl' in response.text
+            assert '/install/pypi/click-8.1.7-py3-none-any.whl' in response.text
+            assert "not-a-wheel" not in response.text
 
 
 class TestGetArtifact:
