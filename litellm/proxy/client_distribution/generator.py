@@ -14,10 +14,14 @@ the renderer changing. Three origin modifications over upstream
    wheelhouse, never PyPI.
 3. After install, ``lite config set base_url`` pre-configures the gateway.
 
-Rendering is sandboxed + strict + no-autoescape:
+Rendering is sandboxed + strict + no-autoescape, with an **open context**:
 
-- ``StrictUndefined`` turns a template that references a variable we did not
-  pass into a hard render error instead of a silently broken installer.
+every key in the manifest is exposed to the template, plus ``base_url`` and a
+typed ``platforms`` list. Adding a manifest field makes it usable in the
+template with no code change or rebuild — only a RustFS sync.
+
+- ``StrictUndefined`` turns a reference to a key the manifest does not carry
+  into a hard render error instead of a silently broken installer.
 - ``SandboxedEnvironment`` bounds what a store-pushed template can reach.
 - ``autoescape=False`` keeps shell metacharacters (``&``, ``<``, ``>``) intact.
 
@@ -206,10 +210,19 @@ class MirrorManifest:
     python_version: str
     python_build_tag: str
     platforms: tuple[PlatformTarget, ...] = field(default=())
+    extra: dict[str, object] = field(default_factory=dict)
 
     def to_context(self, base_url: str) -> dict[str, object]:
-        """Build the Jinja2 render context for this manifest + gateway."""
+        """Build the Jinja2 render context for this manifest + gateway.
+
+        Open context: every declared field plus any extra manifest keys are
+        exposed by name, so a template can reference new manifest data without
+        a code change. ``platforms`` is exposed as typed PlatformTarget
+        objects (``p.target`` / ``p.archive_ext``); everything else is the raw
+        manifest value.
+        """
         return {
+            **self.extra,
             "base_url": base_url,
             "uv_version": self.uv_version,
             "litellm_cli_version": self.litellm_cli_version,
@@ -270,12 +283,26 @@ def manifest_from_json(raw: str) -> MirrorManifest:
     if not isinstance(python_build_tag, str) or not python_build_tag:
         raise ValueError("manifest missing 'python_build_tag'")
 
+    declared: Final = {
+        "schema",
+        "uv_version",
+        "litellm_cli_version",
+        "python_version",
+        "python_build_tag",
+        "platforms",
+        "uv_artifacts",
+        "python_artifacts",
+        "wheelhouse",
+    }
+    extra: dict[str, object] = {k: v for k, v in data.items() if k not in declared}
+
     return MirrorManifest(
         uv_version=uv_version,
         litellm_cli_version=cli_version,
         python_version=python_version,
         python_build_tag=python_build_tag,
         platforms=_platforms_from_json(data.get("platforms")),
+        extra=extra,
     )
 
 

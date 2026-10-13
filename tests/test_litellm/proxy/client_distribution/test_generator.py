@@ -211,3 +211,24 @@ def test_render_store_and_baked_identical() -> None:
     a: str = render_install_script(_MANIFEST, _BASE_URL)
     b: str = render_install_script(_MANIFEST, _BASE_URL, template=get_template())
     assert a == b
+
+
+def test_render_open_context_exposes_extra_manifest_keys() -> None:
+    """Open context: a manifest key not declared on MirrorManifest is usable
+    in the template with no code change."""
+    raw: str = (
+        '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", '
+        '"python_version": "3.13.12", "python_build_tag": "20260303", '
+        '"support_url": "https://help.example.com", "airgap_note": "no egress"}'
+    )
+    m: MirrorManifest = manifest_from_json(raw)
+    script: str = render_install_script(
+        m, _BASE_URL, template="help={{ support_url }} note={{ airgap_note }}"
+    )
+    assert script == "help=https://help.example.com note=no egress"
+
+
+def test_render_open_context_still_strict_on_missing_key() -> None:
+    """StrictUndefined over the open context: a key the manifest lacks raises."""
+    with pytest.raises(UndefinedError):
+        render_install_script(_MANIFEST, _BASE_URL, template="{{ never_in_manifest }}")
