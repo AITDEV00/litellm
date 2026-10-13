@@ -13,3 +13,4 @@ kind: Kustomization
 resources:
   - litellm-hooks.yaml
   - litellm-redis-password.yaml
+  - rustfs.yaml

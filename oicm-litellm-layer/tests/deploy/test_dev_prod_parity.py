@@ -35,7 +35,21 @@ _DEV_SUFFIX: Final = "-dev"
 
 # Objects both environments share on purpose, so they must render byte-identical
 # and must NOT be suffixed. A dev-only edit to one of these would change prod.
-_SHARED_UNSUFFIXED: Final = ("ConfigMap/litellm-hooks", "Secret/litellm-redis-password")
+#
+# The RustFS object store and its bucket-bootstrap Job are shared for the same
+# reason as the hooks ConfigMap: there is one store, both gateways read it, and
+# its NetworkPolicy names both pod labels. A per-environment copy would give dev
+# its own store and silently break that.
+_SHARED_UNSUFFIXED: Final = (
+    "ConfigMap/litellm-hooks",
+    "Secret/litellm-redis-password",
+    "Secret/litellm-rustfs-credentials",
+    "ConfigMap/litellm-rustfs-bootstrap",
+    "Job/litellm-rustfs-bootstrap",
+    "Service/rustfs",
+    "StatefulSet/rustfs",
+    "NetworkPolicy/rustfs",
+)
 
 # Env keys whose value is expected to differ, with the reason. Anything else that
 # differs is a drift bug.

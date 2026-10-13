@@ -1,0 +1,243 @@
+---
+# RustFS object store for the client-distribution mirror and (later) S3 logging.
+#
+# Shared by both environments without a name suffix, like `litellm-hooks` and
+# `litellm-redis-password`: there is one store, both gateways read it, and the
+# NetworkPolicy below names both pod labels. See docs/client-distribution/rustfs.md.
+#
+# Everything here was verified against the pinned image (registry.adeoaiengine
+# .ecouncil.ae/rustfs/rustfs:1.0.1): standalone start, /health and /health/ready
+# both 200, boto3 SigV4 path-style put/get/list/multipart, mc mb idempotency,
+# and the read-only-rootfs constraints recorded inline below.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-rustfs-credentials
+  namespace: adeo-litellm
+type: Opaque
+stringData:
+  access-key: cz3uN7wAoGE5vQNehr24
+  secret-key: 9GGFTriVWG2TUuCiyzqEXiGIfD0Sg0iON13p9yJ8
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+  labels:
+    app: rustfs
+spec:
+  serviceName: rustfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rustfs
+  template:
+    metadata:
+      labels:
+        app: rustfs
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: rustfs
+          image: registry.adeoaiengine.ecouncil.ae/rustfs/rustfs:1.0.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: secret-key
+            - name: RUSTFS_VOLUMES
+              value: "/data"
+            - name: RUSTFS_ADDRESS
+              value: "0.0.0.0:9000"
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "false"
+            # The image bakes RUSTFS_OBS_LOG_DIRECTORY=/logs, and with a
+            # read-only root filesystem it cannot create that directory, which
+            # is a fatal startup error. An explicit empty value routes logs to
+            # stdout instead.
+            - name: RUSTFS_OBS_LOG_DIRECTORY
+              value: ""
+          ports:
+            - name: endpoint
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: endpoint
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: endpoint
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn-crypto-global
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+  labels:
+    app: rustfs
+spec:
+  selector:
+    app: rustfs
+  ports:
+    - name: endpoint
+      port: 9000
+      targetPort: endpoint
+---
+# Bucket bootstrap. RustFS has no MINIO_DEFAULT_BUCKETS equivalent, so this Job
+# is the only way the buckets get created, and it is idempotent:
+# `mc mb --ignore-existing` succeeds on an existing bucket and RustFS's own
+# duplicate-bucket response is success too, so re-applying the manifest is safe.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+    : "${RUSTFS_ENDPOINT_URL:?}"
+    : "${RUSTFS_ACCESS_KEY:?}"
+    : "${RUSTFS_SECRET_KEY:?}"
+
+    i=0
+    until mc alias set rustfs "$RUSTFS_ENDPOINT_URL" "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" >/dev/null 2>&1; do
+      i=$((i + 1))
+      if [ "$i" -ge 30 ]; then
+        echo "rustfs not reachable at $RUSTFS_ENDPOINT_URL after 30 attempts" >&2
+        exit 1
+      fi
+      echo "waiting for rustfs (attempt $i)"
+      sleep 2
+    done
+
+    for bucket in litellm-client-mirror litellm-logs; do
+      mc mb --ignore-existing "rustfs/$bucket"
+    done
+    mc ls rustfs
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm
+  labels:
+    app: litellm-rustfs-bootstrap
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: litellm-rustfs-bootstrap
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: mc
+          image: registry.adeoaiengine.ecouncil.ae/minio/mc:latest
+          command:
+            - /bin/sh
+            - /scripts/bootstrap.sh
+          env:
+            - name: RUSTFS_ENDPOINT_URL
+              value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: secret-key
+            # `mc` writes its alias config here; without a writable dir it
+            # cannot persist the alias the loop depends on.
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: litellm-rustfs-bootstrap
+---
+# The first NetworkPolicy in this namespace. Only the gateway pods (prod and dev
+# labels) and the bootstrap Job may reach the S3 API; everything else is denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+spec:
+  podSelector:
+    matchLabels:
+      app: rustfs
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: litellm-proxy
+        - podSelector:
+            matchLabels:
+              app: litellm-proxy-dev
+        - podSelector:
+            matchLabels:
+              app: litellm-rustfs-bootstrap
+      ports:
+        - protocol: TCP
+          port: 9000
