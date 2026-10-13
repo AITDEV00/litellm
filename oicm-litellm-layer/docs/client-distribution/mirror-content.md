@@ -2,15 +2,17 @@
 
 Everything under the mirror is produced by the admin sync script (see
 [admin-sync.md](admin-sync.md)) on a machine that does have internet, then
-pushed into the cluster over the gateway's admin REST API into the MinIO
+pushed into the cluster over the gateway's admin REST API into the RustFS
 bucket `litellm-client-mirror`. The dev machine only ever consumes, through
 the gateway.
 
-Storage decision (v4): **MinIO**, a cluster-internal S3-compatible store in
-`adeo-litellm`. v3 chose a PVC; v4 moved to MinIO because it removes the
-multi-replica constraint entirely and because LiteLLM already ships S3 logging
-support (`integrations/s3.py`, `s3_v2.py`) that can share the same instance.
-See [minio.md](minio.md).
+Storage decision (v4): **RustFS**, a cluster-internal S3-compatible store in
+`adeo-litellm`. v3 chose a PVC; v4 moved to object storage because it removes
+the multi-replica constraint entirely and because LiteLLM already ships S3
+logging support (`integrations/s3.py`, `s3_v2.py`) that can share the same
+instance. RustFS replaces the originally sketched MinIO because MinIO
+Community Edition reached end of life (repository archived, images deleted
+from Docker Hub). See [rustfs.md](rustfs.md).
 
 **One current version of everything.** Per decision 2, the mirror holds exactly
 one `uv` version and one `litellm[cli]` version — the ones matching the current
@@ -150,8 +152,8 @@ metadata.
 
 Sizing note: python-build-standalone archives are ~30-70 MB each; the whole
 matrix is a few hundred MB. The wheelhouse is ~50-150 MB. The uv artifacts are
-~20 MB each. Total well under a few GB — comfortable in a MinIO bucket (see
-[minio.md](minio.md)).
+~20 MB each. Total well under a few GB — comfortable in a RustFS bucket (see
+[rustfs.md](rustfs.md)).
 
 ## What we deliberately do NOT mirror
 

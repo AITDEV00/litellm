@@ -43,14 +43,17 @@ Ten review decisions folded in. The ones that changed the design:
    fork ourselves.
 7. **CLI version tracks the gateway version.** Every gateway bump re-pins the
    `litellm[cli]` wheel to the same version number.
-8. **MinIO replaces the PVC.** Removes the multi-replica problem entirely and
-   earns its keep twice (artifacts + the S3 logging path that already exists).
-   See [minio.md](minio.md).
+8. **Object storage replaces the PVC.** Removes the multi-replica problem
+   entirely and earns its keep twice (artifacts + the S3 logging path that
+   already exists). The backend is RustFS, not MinIO, because MinIO
+   Community Edition reached end of life (repository archived April 2026,
+   Docker Hub images deleted September 2026); RustFS is S3-compatible, which
+   is the only contract LiteLLM depends on. See [rustfs.md](rustfs.md).
 9. **`/install` is unauthenticated.** Installing the CLI and wiring a harness
    needs no credential; the user supplies their LiteLLM key at `lite login` /
    `lite configure`, which is where it belongs.
-10. **Admin uses the master key; the slice talks to MinIO on its behalf.** The
-    admin never points `mc` at MinIO directly, which would desync the
+10. **Admin uses the master key; the slice talks to RustFS on its behalf.** The
+    admin never points `mc` at RustFS directly, which would desync the
     manifest/DTO shape.
 
 ## Revision note (v3)
@@ -59,7 +62,8 @@ Three decisions from review, folded in:
 
 1. **Storage is a PVC, not MinIO/S3.** LiteLLM has S3 support but only as a
    *logging* callback (`integrations/s3.py`, `s3_v2.py` write spend/audit logs
-   to a bucket via `put_object`; there is no serve/download path). Using MinIO
+   to a bucket via `put_object`; there is no serve/download path). Using object
+   storage
    purely to hold a few CLI artifacts, when nothing else uses it beyond logs,
    is overkill. A PVC keeps it simple and matches the repo's existing
    PVC + CronJob patterns. See [mirror-content.md](mirror-content.md) and
@@ -122,9 +126,9 @@ Keep upstream's exact installation mechanism and move its origins. `uv` is the
 only piece of the chain that is a genuine standalone binary, so we mirror the
 pinned `uv` release artifacts; we mirror the `litellm[cli]` wheel closure as a
 flat wheelhouse; and we mirror the exact CPython builds `uv` would fetch. All
-of it lives in a cluster-internal MinIO bucket, and is served by a vertical
+of it lives in a cluster-internal RustFS bucket, and is served by a vertical
 slice inside the running gateway under a single `/install` prefix: the
-artifact reads proxy from MinIO, and `GET /install` is a router handler that
+artifact reads proxy from RustFS, and `GET /install` is a router handler that
 generates the bootstrap script at request time, baking in the gateway's own
 base URL and the currently adopted versions from `manifest.json`. The script
 body is upstream's `scripts/install-cli.sh` with three origin changes
@@ -143,8 +147,8 @@ line, drop-detection tests.
 | [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
 | [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
 | [platform-matrix.md](platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
-| [deployment.md](deployment.md) | MinIO, gateway wiring, admin sync API, rollout |
-| [minio.md](minio.md) | Object storage deployment, buckets, and the shared S3 client |
+| [deployment.md](deployment.md) | RustFS, gateway wiring, admin sync API, rollout |
+| [rustfs.md](rustfs.md) | Object storage deployment, buckets, and the shared S3 client |
 | [admin-sync.md](admin-sync.md) | Admin REST API to push/upsert/delete mirror artifacts idempotently |
 | [security.md](security.md) | Threat model, checksums, signature question, why static unauth is OK |
 | [rollout.md](rollout.md) | Phased rollout: pilot users, success metrics, cut-over |

@@ -2,7 +2,7 @@
 
 Status: not started. Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),
-[minio.md](minio.md), [admin-sync.md](admin-sync.md)).
+[rustfs.md](rustfs.md), [admin-sync.md](admin-sync.md)).
 
 Everything below is grounded in the **current** source tree and the **live**
 `adeo-litellm` namespace as of 2026-10-12:
@@ -209,8 +209,8 @@ litellm/proxy/client_distribution/
 
 Key implementation points, each grounded in what exists:
 
-- **storage.py** reads `MINIO_ENDPOINT_URL`, `MINIO_ACCESS_KEY`,
-  `MINIO_SECRET_KEY` (new env vars added in Phase 3). boto3 is already a
+- **storage.py** reads `RUSTFS_ENDPOINT_URL`, `RUSTFS_ACCESS_KEY`,
+  `RUSTFS_SECRET_KEY` (new env vars added in Phase 3). boto3 is already a
   litellm main dependency (`pyproject.toml`: `boto3>=1.43.1,<2.0`), so no new
   dependency. Use the `BaseAWSLLM`-free simple path: a plain
   `boto3.client("s3", endpoint_url=...)` created once per worker, matching how
@@ -220,13 +220,13 @@ Key implementation points, each grounded in what exists:
     `text/x-shellscript` with `Content-Type: application/x-sh`. Source of
     `base_url`: `LITELLM_PUBLIC_BASE_URL` env (add in Phase 3) with
     request-host fallback.
-  - `GET /install/{path:path}` — unauthenticated proxy read from MinIO
-    (`get_object`, stream). 404 if absent, 503 if MinIO down. Content types
-    by extension (`.json`, `.tar.gz`, `.zip`, `.whl`, `.sha256`).
+  - `GET /install/{path:path}` — unauthenticated proxy read from RustFS
+    (`get_object`, stream). 404 if absent, 503 if RustFS is down. Content
+    types by extension (`.json`, `.tar.gz`, `.zip`, `.whl`, `.sha256`).
   - `* /install/admin/v1/*` — `dependencies=[Depends(user_api_key_auth)]` +
     `_require_admin` copied from the `oicm_routes.py` precedent
     (`LitellmUserRoles.PROXY_ADMIN` check). Handlers: manifest GET/PUT,
-    artifact PUT (stream to MinIO, sha256 on the fly, skip-if-same), artifact
+    artifact PUT (stream to RustFS, sha256 on the fly, skip-if-same), artifact
     DELETE (409 if manifest-referenced), inventory GET.
   - Path containment: normalize the key against `litellm-client-mirror/`
     and reject escapes (cannot touch `litellm-logs`).
@@ -265,7 +265,7 @@ two new drop tests).
 
 ## Phase 3 — wiring (one block, both env vars, DEV FIRST)
 
-**Goal:** the slice mounts on the app; the dev gateway can reach MinIO.
+**Goal:** the slice mounts on the app; the dev gateway can reach RustFS.
 
 1. `proxy_server.py`: add to the fork-appended block (after line 18899, next to
    the oicm_status_router include):
@@ -282,12 +282,12 @@ app.include_router(client_distribution_router)
 ```yaml
 # BASE deployment (deploy/base/gateway/proxy/deployment.yaml) — identical
 # for dev and prod, so the parity test stays quiet:
-- name: MINIO_ENDPOINT_URL
-  value: "http://minio.adeo-litellm.svc.cluster.local:9000"
-- name: MINIO_ACCESS_KEY
-  valueFrom: {secretKeyRef: {name: litellm-minio-credentials, key: access-key}}
-- name: MINIO_SECRET_KEY
-  valueFrom: {secretKeyRef: {name: litellm-minio-credentials, key: secret-key}}
+- name: RUSTFS_ENDPOINT_URL
+  value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"
+- name: RUSTFS_ACCESS_KEY
+  valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: access-key}}
+- name: RUSTFS_SECRET_KEY
+  valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: secret-key}}
 
 # DEV overlay (deploy/overlays/dev/gateway/deployment.yaml) — value differs
 # per environment, declared in _EXPECTED_ENV_DIFFS:
@@ -296,8 +296,8 @@ app.include_router(client_distribution_router)
 ```
 
    The **base** deployment gets the same block only at Phase 6, so prod never
-   receives a half-verified env change. (MinIO creds are shared dev/prod by
-   design — same store, see [minio.md](minio.md) — but the base-URL env
+   receives a half-verified env change. (RustFS creds are shared dev/prod by
+   design — same store, see [rustfs.md](rustfs.md) — but the base-URL env
    differs per environment, which is exactly what the overlay is for.)
 
    The **parity test is the tripwire for this split.**
@@ -310,10 +310,10 @@ app.include_router(client_distribution_router)
 
    The clean split, given the test's shape:
 
-- `MINIO_ENDPOINT_URL` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` go in
+- `RUSTFS_ENDPOINT_URL` / `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY` go in
   the **base** deployment in this phase. They are identical for both
   environments (one shared store), so the parity test stays quiet: env
-  keys match, values match. Prod mounting MinIO creds before its router
+  keys match, values match. Prod mounting RustFS creds before its router
   is wired is harmless — env presence is not behavior, and the Phase 6
   diff for prod shrinks accordingly.
 - `LITELLM_PUBLIC_BASE_URL` stays **overlay-scoped** with its per-host
@@ -354,9 +354,9 @@ curls.
 
 **Goal:** the buckets contain the mirror content.
 
-The store is shared (one MinIO, both gateways can read it), but the sync
-writes are made through the **dev gateway's** admin API so the write path
-itself is what gets exercised and verified.
+The store is shared (one RustFS instance, both gateways can read it), but the
+sync writes are made through the **dev gateway's** admin API so the write
+path itself is what gets exercised and verified.
 
 The fetch script lives in `examples/` per layer conventions (runnable things
 are not docs): `oicm-litellm-layer/examples/client-distribution/sync-mirror.sh`.
@@ -449,13 +449,13 @@ The single prod round (this is the entire prod change):
 1. Prod overlay gets its `LITELLM_PUBLIC_BASE_URL` value
    (`https://litellm.ecouncil.ae`), declared in `_EXPECTED_ENV_DIFFS` — or the
    existing dev declaration simply keeps covering it, since the test already
-   expects that one value difference. The `MINIO_*` vars are already in the
+   expects that one value difference. The `RUSTFS_*` vars are already in the
    base (Phase 3), identical for both environments. The router include is
    already in the image bytes (same tag, from the dev build). So the actual
    prod delta at this point is: the prod `LITELLM_PUBLIC_BASE_URL` value (if
    not yet present), the image pin (if the tag moved), and nothing else.
 2. `kubectl apply -k deploy/overlays/prod` — one clean apply of the
-   known-good manifests. This picks up: MinIO (already running, no-op
+   known-good manifests. This picks up: RustFS (already running, no-op
    diff), the NetworkPolicy (no-op, already applied with dev), the gateway
    env vars, and the image pin. Then
    `kubectl -n adeo-litellm rollout restart deployment/litellm-proxy` +

@@ -5,17 +5,17 @@ with internet access. This doc defines the REST surface for that: push, upsert,
 or delete artifacts idempotently, over the gateway, with no `kubectl`, no
 `mc`, and no direct object-storage access.
 
-## Why the API, not direct MinIO access (Conflict A resolution)
+## Why the API, not direct RustFS access (Conflict A resolution)
 
 The alternative was to have the admin point `mc` / the S3 API straight at
-MinIO. Rejected: that desyncs the manifest from the objects, because the
+RustFS. Rejected: that desyncs the manifest from the objects, because the
 manifest's shape, the hash-on-write check, and the "publish only if every
-referenced object exists" invariant are logic that MinIO does not provide.
+referenced object exists" invariant are logic that RustFS does not provide.
 Two writers (the admin's `mc` and any future tooling) would each have to
 reimplement that logic, and would drift.
 
-So the admin talks to the slice, and the slice talks to MinIO. One place
-enforces the invariants. The gateway is the only thing with MinIO credentials;
+So the admin talks to the slice, and the slice talks to RustFS. One place
+enforces the invariants. The gateway is the only thing with RustFS credentials;
 the admin only ever holds the LiteLLM master key.
 
 ## Why on the gateway
@@ -43,7 +43,7 @@ network range without touching public reads.
 | `GET` | `/install/admin/v1/inventory` | List stored objects + sizes + hashes |
 
 `PUT` semantics are upsert: writing the same bytes twice is a no-op and
-succeeds. The slice computes the sha256 on write (streaming into MinIO) and
+succeeds. The slice computes the sha256 on write (streaming into RustFS) and
 compares; if the stored object already matches, it returns `200` with
 `"unchanged": true` and writes nothing. That is what makes re-running the sync
 idempotent.
@@ -52,7 +52,7 @@ idempotent.
 
 `PUT /install/admin/v1/artifact/{path}` takes the raw bytes as the body
 (`Content-Type: application/octet-stream`), not multipart, so a plain
-`curl --data-binary @file` works and the slice streams to MinIO without
+`curl --data-binary @file` works and the slice streams to RustFS without
 buffering the whole artifact in memory (the Python artifacts are tens of MB).
 
 ```json

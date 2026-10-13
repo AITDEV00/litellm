@@ -236,6 +236,6 @@ already ship bash:
 - No `curl` -> the script cannot bootstrap; error says so (acceptable: every
   target OS in the matrix ships curl or wget; wget fallback is a two-line
   mapping of the same URLs and can be added if a real user needs it).
-- MinIO unreachable (the gateway proxies reads from it) -> the artifact fetch
+- RustFS unreachable (the gateway proxies reads from it) -> the artifact fetch
   returns 503 from the slice; the script aborts with the URL, never falls back
   to the internet.

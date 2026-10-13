@@ -6,8 +6,10 @@ each item has a default so the plan is actionable without waiting.
 Settled across v1-v4 (removed from the list):
 
 - Where artifacts are served from -> inside the gateway as a slice.
-- Storage backend -> MinIO, cluster-internal (v3's PVC was replaced in v4).
-- How the store is filled -> admin REST sync API (slice talks to MinIO).
+- Storage backend -> RustFS, cluster-internal (v3's PVC was replaced in v4;
+  the originally sketched MinIO was replaced by RustFS after MinIO
+  Community Edition reached end of life).
+- How the store is filled -> admin REST sync API (slice talks to RustFS).
 - Harness auto-selection -> dropped; detection is a reporter.
 - Public path prefix -> everything under `/install`.
 - Wheelhouse form -> flat `--find-links` + `--no-index`; one version only.
@@ -15,9 +17,9 @@ Settled across v1-v4 (removed from the list):
 - Harness mirroring -> non-goal; users install their own harnesses.
 - Upstream contribution -> none; proprietary `jya0-` branches only.
 - CLI version policy -> always equal to the gateway version.
-- Multi-replica storage -> resolved by MinIO being shared.
+- Multi-replica storage -> resolved by RustFS being shared.
 - `/install` authentication -> unauthenticated.
-- Admin sync storage -> MinIO via the slice, master-key auth.
+- Admin sync storage -> RustFS via the slice, master-key auth.
 
 ## 1. Windows native support timing
 
@@ -34,9 +36,9 @@ decide whether that stays `PROXY_ADMIN` or becomes a narrower role.
 
 **Default:** `PROXY_ADMIN` only, matching the `oicm_routes.py` precedent.
 
-## 3. Spend-log archival cutover to MinIO
+## 3. Spend-log archival cutover to RustFS
 
-MinIO is now deployed and the `litellm-logs` bucket is planned for the S3
+RustFS is now deployed and the `litellm-logs` bucket is planned for the S3
 logging callback (`s3_callback_params`). Whether to actually switch spend-log
 archival to it (vs. the existing PVC-based janitor) is a separate, later
 decision; this design only reserves the bucket and the shared client.

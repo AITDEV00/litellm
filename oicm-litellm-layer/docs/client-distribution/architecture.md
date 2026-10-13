@@ -1,7 +1,7 @@
-# Architecture (v4 — gateway slice, MinIO backend)
+# Architecture (v4 — gateway slice, RustFS backend)
 
-> Revision 4. Storage moved from a PVC to a cluster-internal MinIO instance
-> (see [minio.md](minio.md)), which removes the multi-replica problem. All
+> Revision 4. Storage moved from a PVC to a cluster-internal RustFS instance
+> (see [rustfs.md](rustfs.md)), which removes the multi-replica problem. All
 > routes now nest under `/install`. `/install` is unauthenticated; the user
 > supplies their key at `lite login` / `lite configure`.
 
@@ -18,16 +18,16 @@
         ┌─────────────────┼──────────────────────┐
         │                 │                      │
         ▼                 ▼                      ▼
-   /v1/*, /ui       /install/*               MinIO (cluster-internal)
-   (upstream,       (slice: generated          minio.adeo-litellm:9000
+   /v1/*, /ui       /install/*               RustFS (cluster-internal)
+   (upstream,       (slice: generated          rustfs.adeo-litellm:9000
     unchanged)       script + proxied           buckets: client-mirror, logs
                      artifact reads +
                      /install/admin/* writes)
 ```
 
 No ingress changes. The existing `Prefix /` rule delivers `/install/*` to the
-gateway; the slice registers the routes and proxies artifact reads to MinIO.
-MinIO has no ingress and is reached only over the cluster network.
+gateway; the slice registers the routes and proxies artifact reads to RustFS.
+RustFS has no ingress and is reached only over the cluster network.
 
 ## Why in-app (unchanged from v2, still the core decision)
 
@@ -39,20 +39,20 @@ MinIO has no ingress and is reached only over the cluster network.
   `/swagger`, and OICM already serves an `APIRouter` slice
   (`litellm/proxy/oicm_routes.py`) pinned by drop-detection tests. This is the
   same pattern again.
-- **The slice is the MinIO boundary.** It does not implement object-storage
-  semantics (MinIO does); it adds auth, path containment, hashing, and
-  manifest consistency, which MinIO cannot.
+- **The slice is the RustFS boundary.** It does not implement object-storage
+  semantics (RustFS does); it adds auth, path containment, hashing, and
+  manifest consistency, which RustFS cannot.
 
 ## Route map (all under `/install`)
 
 | Route | Auth | Mechanism | Content |
 |-------|------|-----------|---------|
 | `GET /install` | none | router handler, generated | POSIX bootstrap script |
-| `GET /install/manifest.json` | none | router handler -> MinIO | version/hash manifest |
-| `GET /install/uv/<file>` | none | router handler -> MinIO | uv release artifact |
-| `GET /install/pypi/<file>` | none | router handler -> MinIO | wheelhouse wheel |
-| `GET /install/python/<file>` | none | router handler -> MinIO | python-build-standalone archive |
-| `* /install/admin/*` | `PROXY_ADMIN` | router handlers -> MinIO | write surface (see [admin-sync.md](admin-sync.md)) |
+| `GET /install/manifest.json` | none | router handler -> RustFS | version/hash manifest |
+| `GET /install/uv/<file>` | none | router handler -> RustFS | uv release artifact |
+| `GET /install/pypi/<file>` | none | router handler -> RustFS | wheelhouse wheel |
+| `GET /install/python/<file>` | none | router handler -> RustFS | python-build-standalone archive |
+| `* /install/admin/*` | `PROXY_ADMIN` | router handlers -> RustFS | write surface (see [admin-sync.md](admin-sync.md)) |
 
 The whole surface is one prefix, so the firewall allows `litellm.ecouncil.ae`
 and nothing else, and a single ingress rule covers it. The admin sub-path is
@@ -71,7 +71,7 @@ litellm/proxy/client_distribution/
 ├── __init__.py          ← re-exports router
 ├── routes.py            ← APIRouter: /install, /install/*, /install/admin/*
 ├── generator.py         ← pure script generator (manifest + base URL -> text)
-└── storage.py           ← thin MinIO helper shared with the S3 logging config
+└── storage.py           ← thin S3 client helper shared with the logging config
 ```
 
 - `routes.py` builds a standalone `APIRouter` and lazily imports `proxy_server`
@@ -80,7 +80,7 @@ litellm/proxy/client_distribution/
   `app.include_router(client_distribution.router)`.
 - **Drop-detection tests** in `tests/test_litellm/proxy/test_oicm_drop_detection.py`
   pin the wiring so an upstream merge that clobbers the line fails a test.
-- No `StaticFiles` mount this time: reads are proxied from MinIO by a handler,
+- No `StaticFiles` mount this time: reads are proxied from RustFS by a handler,
   because the bytes live in a bucket, not a directory. (That is the one place
   v4 diverges from v2's mechanism.)
 
@@ -120,10 +120,10 @@ CLI to the gateway.
 ## Sizing and isolation
 
 - No volume in the gateway pod. The gateway holds no artifact bytes; it streams
-  them from MinIO per request, so pod memory is unaffected by artifact size.
-- MinIO is cluster-internal, no ingress, `NetworkPolicy` allowing only the
-  gateway. Single-node StatefulSet + PVC (see [minio.md](minio.md)).
-- Multi-replica: no longer a constraint. MinIO is shared, so the gateway can
+  them from RustFS per request, so pod memory is unaffected by artifact size.
+- RustFS is cluster-internal, no ingress, `NetworkPolicy` allowing only the
+  gateway. Single-node StatefulSet + PVC (see [rustfs.md](rustfs.md)).
+- Multi-replica: no longer a constraint. RustFS is shared, so the gateway can
   scale out freely. (Open question 8 is resolved and removed.)
 
 ## What stays untouched upstream

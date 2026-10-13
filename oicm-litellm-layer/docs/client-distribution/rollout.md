@@ -21,7 +21,7 @@ overrides) and the bucket tree served locally. The two only meet in Phase 1.
 
 ## Phase 1 — pilot (1 week)
 
-- Deploy MinIO + buckets, add the gateway env vars, and roll out the image
+- Deploy RustFS + buckets, add the gateway env vars, and roll out the image
   that includes the slice wiring (per [deployment.md](deployment.md)); the
   admin then syncs artifacts via the API.
 - 2-3 pilot users on Linux x86-64; each does the full journey:
@@ -31,7 +31,7 @@ overrides) and the bucket tree served locally. The two only meet in Phase 1.
   refresh quirks (new shells vs current), and whether `/v1/models`-driven
   model lists look right in each harness's picker. Also watch gateway
   metrics during a few parallel installs for any artifact-traffic impact on
-  `/v1` latency (expected none; the proxy streams from MinIO).
+  `/v1` latency (expected none; the proxy streams from RustFS).
 - Exit criteria: all pilots install without manual intervention and complete
   a real task through their agent; drop-detection tests green in CI.
 

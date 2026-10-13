@@ -8,7 +8,7 @@ store could push to developers).
 
 Trust anchors: TLS to `litellm.ecouncil.ae` (the firewall already requires
 this hostname; the cert serving is the existing DigiCert `*.ecouncil.ae`
-secret), MinIO's cluster-internal isolation, and the manifest's hashes.
+secret), RustFS's cluster-internal isolation, and the manifest's hashes.
 
 ## Why `/install` and the artifact reads are unauthenticated (decision 9)
 
@@ -24,8 +24,8 @@ What unauthenticated does allow: anyone inside the network can download the
 CLI. Same posture as every internal tool's docs page, and the CLI without a key
 is useless. Rate-limiting is a cheap add if abuse ever shows up.
 
-MinIO itself is not exposed: no ingress, and a `NetworkPolicy` allows only the
-gateway. The dev machine never talks to MinIO; it only ever reaches the
+RustFS itself is not exposed: no ingress, and a `NetworkPolicy` allows only the
+gateway. The dev machine never talks to RustFS; it only ever reaches the
 gateway, which proxies the bytes.
 
 ## Write surface
@@ -50,8 +50,8 @@ is the one authenticated surface. Its security properties:
 
 The master key never appears in a tracked file: it lives in the
 `litellm-master-key` Secret and is supplied to the admin sync script from the
-environment, never committed. MinIO credentials likewise live only in the
-`litellm-minio-credentials` Secret, referenced by `secretKeyRef`.
+environment, never committed. RustFS credentials likewise live only in the
+`litellm-rustfs-credentials` Secret, referenced by `secretKeyRef`.
 
 ## Integrity chain
 
