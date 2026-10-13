@@ -161,3 +161,4 @@ oicm-litellm-layer/litellm_session_identity_upstream_sources.zip
 # patch; without this negation the bare `config.yaml` rule above swallows it and
 # the dev overlay cannot build from a clean checkout.
 !oicm-litellm-layer/deploy/overlays/dev/gateway/config.yaml
+oicm-litellm-layer/examples/client-distribution/.staging/

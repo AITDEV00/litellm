@@ -153,6 +153,13 @@ async def _read_request_body(request: Request | None) -> dict:
             parsed_body = dict(form_data)
             if "metadata" in parsed_body and isinstance(parsed_body["metadata"], str):
                 parsed_body["metadata"] = json.loads(parsed_body["metadata"])
+        elif not is_json_content_type(content_type):
+            # Non-JSON, non-form body (e.g. octet-stream binary upload). Auth
+            # does not need to parse it; consume the body so the handler can
+            # still read it, and return empty dict so the caller proceeds to
+            # authenticate via headers alone.
+            await request.body()
+            parsed_body = {}
         else:
             # Read the request body
             body: Final = await request.body()
