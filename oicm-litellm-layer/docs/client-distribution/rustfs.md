@@ -69,6 +69,16 @@ Deployed in `adeo-litellm` alongside the gateway, Redis, and Postgres:
   and `/health/ready` (readiness), and `RUSTFS_OBS_LOG_DIRECTORY` set
   explicitly empty because the image bakes `RUSTFS_OBS_LOG_DIRECTORY=/logs`
   and telemetry initialization fails fatally when it cannot create it.
+- The data PVC uses the existing `longhorn-crypto-global` StorageClass
+  (encrypted, Delete reclaim). No `StorageClass` is created by this
+  deployment; the class is referenced by name. It was chosen over the cluster
+  default `longhorn-crypto-retain` so a deleted StatefulSet does not leak its
+  volume.
+- The manifest is `deploy/base/shared/rustfs.yaml`, shared by both overlays
+  unsuffixed (one store, both gateways read it), and is the single write
+  path: nothing about the store is created by hand. See the idempotency notes
+  in [implementation.md](implementation.md) Phase 1 for the re-apply
+  semantics, including the Job-template immutability caveat.
 
 Bucket creation: a one-shot Job at bootstrap creates both buckets with the
 `mc` client (Harbor's
@@ -77,7 +87,10 @@ Bucket creation: a one-shot Job at bootstrap creates both buckets with the
 which works unchanged against RustFS. RustFS has no
 `MINIO_DEFAULT_BUCKETS`-style startup hook, so the Job is required. It is
 idempotent: `mc mb --ignore-existing` succeeds on an existing bucket, and
-RustFS's own duplicate-bucket response is success rather than error.
+RustFS's own duplicate-bucket response is success rather than error. The Job
+pins `runAsUser: 65532` (the `mc` image runs as root by default, which would
+trip `runAsNonRoot`) and carries `ttlSecondsAfterFinished: 3600` so a
+completed run reaps itself, matching the repo's other Jobs.
 
 ## The DRY S3 client
 

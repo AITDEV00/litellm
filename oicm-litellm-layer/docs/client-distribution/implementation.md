@@ -40,7 +40,10 @@ Everything below is grounded in the **current** source tree and the **live**
    state is always reproducible from `kubectl apply`. The one exception in
    this plan is one-shot bucket creation, which is itself a manifest
    (a Job with `mc mb --ignore-existing`, so it is idempotent and re-runnable
-   from git, not a hand command).
+   from git, not a hand command). Where an object has a Kubernetes
+   immutability limit that a plain re-apply cannot cross (a Job's
+   `spec.template`), the recovery is written down next to the object rather
+   than performed by hand: see "Idempotency and re-apply" in Phase 1.
 4. Once dev is verified and the manifests are known-good, prod gets **one
    round of clean `kubectl apply -k deploy/overlays/prod`** (plus the
    ImagePull restart the Makefile performs). No incremental prod changes, no
@@ -90,7 +93,10 @@ all work, `mc mb --ignore-existing` succeeds and is re-runnable, and a bucket
 re-create returns success rather than an error.
 
 New manifest `deploy/base/shared/rustfs.yaml` (follows the
-`litellm-redis-password.yaml` precedent of living in shared):
+`litellm-redis-password.yaml` precedent of living in shared). This is the
+object set, and it is what is applied to the cluster; `kubectl apply -k
+deploy/overlays/dev` is the only write path, so nothing here is created by
+hand.
 
 ```yaml
 apiVersion: v1
@@ -101,17 +107,19 @@ stringData: {access-key: ..., secret-key: ...}   # generate, never commit real v
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-metadata: {name: rustfs, namespace: adeo-litellm}
+metadata: {name: rustfs, namespace: adeo-litellm, labels: {app: rustfs}}
 spec:
   serviceName: rustfs
   replicas: 1
+  selector: {matchLabels: {app: rustfs}}
   template:
     metadata: {labels: {app: rustfs}}
     spec:
-      securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, fsGroupChangePolicy: OnRootMismatch}
       containers:
         - name: rustfs
           image: registry.adeoaiengine.ecouncil.ae/rustfs/rustfs:1.0.1
+          imagePullPolicy: IfNotPresent
           securityContext:
             {readOnlyRootFilesystem: true, runAsNonRoot: true, allowPrivilegeEscalation: false,
              capabilities: {drop: [ALL]}}
@@ -127,20 +135,79 @@ spec:
             # configured and logs outputs to stdout").
             - {name: RUSTFS_OBS_LOG_DIRECTORY, value: ""}
           ports: [{name: endpoint, containerPort: 9000}]
+          readinessProbe: {httpGet: {path: /health/ready, port: endpoint}, initialDelaySeconds: 10, periodSeconds: 5, timeoutSeconds: 3}
+          livenessProbe: {httpGet: {path: /health, port: endpoint}, initialDelaySeconds: 30, periodSeconds: 10, timeoutSeconds: 3}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
           volumeMounts: [{name: data, mountPath: /data}]
-          readinessProbe: {httpGet: {path: /health/ready, port: endpoint}}
-          livenessProbe: {httpGet: {path: /health, port: endpoint}}
   volumeClaimTemplates:
     - metadata: {name: data}
-      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 10Gi}}}
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: longhorn-crypto-global   # existing class, referenced not created
+        resources: {requests: {storage: 10Gi}}
 ---
 apiVersion: v1
 kind: Service
+metadata: {name: rustfs, namespace: adeo-litellm, labels: {app: rustfs}}
+spec: {selector: {app: rustfs}, ports: [{name: endpoint, port: 9000, targetPort: endpoint}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: litellm-rustfs-bootstrap, namespace: adeo-litellm}
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+    : "${RUSTFS_ENDPOINT_URL:?}"; : "${RUSTFS_ACCESS_KEY:?}"; : "${RUSTFS_SECRET_KEY:?}"
+    i=0
+    until mc alias set rustfs "$RUSTFS_ENDPOINT_URL" "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" >/dev/null 2>&1; do
+      i=$((i + 1))
+      [ "$i" -ge 30 ] && { echo "rustfs not reachable after 30 attempts" >&2; exit 1; }
+      echo "waiting for rustfs (attempt $i)"; sleep 2
+    done
+    for bucket in litellm-client-mirror litellm-logs; do mc mb --ignore-existing "rustfs/$bucket"; done
+    mc ls rustfs
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: litellm-rustfs-bootstrap, namespace: adeo-litellm, labels: {app: litellm-rustfs-bootstrap}}
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata: {labels: {app: litellm-rustfs-bootstrap}}
+    spec:
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532}
+      containers:
+        - name: mc
+          image: registry.adeoaiengine.ecouncil.ae/minio/mc:latest
+          command: [/bin/sh, /scripts/bootstrap.sh]
+          env:
+            - {name: RUSTFS_ENDPOINT_URL, value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"}
+            - {name: RUSTFS_ACCESS_KEY, valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: access-key}}}
+            - {name: RUSTFS_SECRET_KEY, valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: secret-key}}}
+            - {name: MC_CONFIG_DIR, value: /tmp/.mc}
+          volumeMounts: [{name: script, mountPath: /scripts, readOnly: true}]
+      volumes:
+        - name: script
+          configMap: {name: litellm-rustfs-bootstrap}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata: {name: rustfs, namespace: adeo-litellm}
-spec: {selector: {app: rustfs}, ports: [{name: endpoint, port: 9000, targetPort: 9000}]}
+spec:
+  podSelector: {matchLabels: {app: rustfs}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: litellm-proxy}}
+        - podSelector: {matchLabels: {app: litellm-proxy-dev}}
+        - podSelector: {matchLabels: {app: litellm-rustfs-bootstrap}}
+      ports: [{protocol: TCP, port: 9000}]
 ```
 
-Three things to know about that spec, each verified:
+Four things about that spec, each verified:
 
 - **`RUSTFS_OBS_LOG_DIRECTORY` must be set empty.** The image's own `ENV`
   sets it to `/logs`, and with `readOnlyRootFilesystem: true` telemetry
@@ -153,35 +220,62 @@ Three things to know about that spec, each verified:
 - **No `imagePullSecrets`.** Kyverno's `add-image-pull-secrets` ClusterPolicy
   injects `registry-credentials` into every pod in this cluster, which is why
   no existing manifest declares it either.
+- **The storage class is referenced, not created.** `longhorn-crypto-global`
+  is an existing encrypted, Delete-reclaim class; this manifest creates no
+  `StorageClass`. It was chosen over the cluster default
+  `longhorn-crypto-retain` so a deleted StatefulSet does not leak its volume.
+  Because the manifest is shared, prod binds the same class.
 
-Plus, in the same manifest, two things that keep everything idempotent:
+The Job and the NetworkPolicy are the two pieces that keep the deployment
+reproducible:
 
-- A **one-shot bootstrap Job** (part of the manifest, not a hand command).
-  RustFS has no `MINIO_DEFAULT_BUCKETS` equivalent, so unlike the MinIO plan
-  this Job is required, not optional. It runs the `mc` client (already in
-  Harbor at `registry.adeoaiengine.ecouncil.ae/minio/mc:latest`,
-  `sha256:512a1cb685940ded1b0ff55470a226a3830e16305a3e0f1bfbb77056171601fd`)
-  which works unchanged against RustFS. Re-applying the manifest is safe:
-  the Job is `restartPolicy: Never`, and both `mc mb --ignore-existing` and
-  RustFS's own duplicate-bucket response are success, not error. Wait on
-  readiness with `mc alias set` (which fails loudly, exit 1, when the
-  endpoint is not up) rather than `mc ready`, which was observed to exit 0
-  even against a dead endpoint and is therefore not a usable gate.
-- A **NetworkPolicy** (the first in this namespace) allowing ingress to
-  `app: rustfs` port 9000 only from pods with label `app: litellm-proxy` OR
-  `app: litellm-proxy-dev` (both verified live), plus the bootstrap Job's
-  label. This manifest is shared by dev and prod by design: the object store
-  is a common dependency, and the policy covering both labels is what makes
-  the Phase 6 prod apply a no-surprise diff.
+- The **bootstrap Job** is required, not optional: RustFS has no
+  `MINIO_DEFAULT_BUCKETS` equivalent, so this is the only way the buckets get
+  created. It runs the `mc` client (already in Harbor at
+  `registry.adeoaiengine.ecouncil.ae/minio/mc:latest`,
+  `sha256:512a1cb685940ded1b0ff55470a226a3830e16305a3e0f1bfbb77056171601fd`),
+  which works unchanged against RustFS. Readiness is gated on `mc alias set`
+  (which fails loudly, exit 1, when the endpoint is not up) rather than
+  `mc ready`, which was observed to exit 0 even against a dead endpoint and
+  is therefore not a usable gate. `runAsUser: 65532` is pinned because the
+  `mc` image runs as root by default and would otherwise trip `runAsNonRoot`;
+  `mc` runs correctly as any non-root uid.
+- The **NetworkPolicy** (the first in this namespace) allows ingress to
+  `app: rustfs` port 9000 only from the prod and dev gateway pod labels
+  (both verified live) plus the bootstrap Job's label. This manifest is
+  shared by dev and prod by design: the object store is a common dependency,
+  and the policy covering both labels is what makes the Phase 6 prod apply a
+  no-surprise diff.
 
-Steps (all dev-scoped verification):
+### Idempotency and re-apply
+
+`kubectl apply -k deploy/overlays/dev` is safe to run any number of times.
+`kubectl diff -k deploy/overlays/dev` exits 0 against the applied state, so a
+re-apply changes nothing semantically.
+
+- The Secret and the StatefulSet report `configured` on every apply (the
+  API server normalizes a couple of fields), but the diff is empty, so it is
+  metadata-only and not drift.
+- The Job is the one object with a caveat: a Job's `spec.template` is
+  **immutable**. If the bootstrap script in the ConfigMap changes, the apply
+  fails with `field is immutable`. The documented recovery is delete-then-apply
+  in the same round:
+  `kubectl -n adeo-litellm delete job litellm-rustfs-bootstrap` then re-apply.
+  `ttlSecondsAfterFinished: 3600` reaps the completed Job after an hour, so
+  once the script is stable a routine re-apply needs no delete. That TTL
+  matches the repo's other Jobs (`deploy/oicm/provision-alain.yaml`).
+- Bucket creation itself is idempotent independently of the Job lifecycle:
+  `mc mb --ignore-existing` succeeds on an existing bucket, and RustFS's own
+  duplicate-bucket response is success, not error.
+
+Steps (all dev-scoped verification; this is what was run):
 
 1. Generate credentials; commit the Secret manifest following the same
    convention as `litellm-master-key.yaml` in this private repo.
 2. `kubectl apply -k deploy/overlays/dev` (the overlay includes
    `base/shared`), then verify:
-   `kubectl -n adeo-litellm rollout status statefulset/rustfs`, Job completes,
-   buckets listed by the Job's log.
+   `kubectl -n adeo-litellm rollout status statefulset/rustfs`, the Job
+   completes, and the Job's log lists both buckets.
 3. Verify isolation: from a pod in another namespace, the S3 endpoint must
    NOT be reachable; from a `litellm-proxy-dev` pod, it must.
 
@@ -492,9 +586,11 @@ cautious two-step form from [security.md](security.md).
 
 ## Rollback at every phase
 
-- Phase 1: `kubectl delete -f` the RustFS manifests (or git-revert + apply);
-  nothing consumes them yet. The StatefulSet PVC can be retained or deleted
-  with it.
+- Phase 1: `kubectl delete -k deploy/overlays/dev` (or git-revert + apply);
+  nothing consumes the RustFS objects yet. Deleting the StatefulSet does not
+  delete its PVC (Kubernetes leaves `volumeClaimTemplates` PVCs in place), so
+  the data survives; the class's `Delete` reclaim policy only applies if the
+  PVC itself is deleted, which is a deliberate separate step.
 - Phase 2: pure code addition; revert the commit
 - Phase 3: revert the two-line wiring + env vars; the drop tests trip by
   design (that is the tripwire working). Re-apply the dev overlay.

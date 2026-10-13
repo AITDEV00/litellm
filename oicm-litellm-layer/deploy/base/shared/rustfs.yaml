@@ -109,6 +109,11 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
+        # An existing cluster StorageClass, referenced by name; this manifest
+        # creates none. `longhorn-crypto-global` is the encrypted, Delete-reclaim
+        # class dev's Postgres already uses, chosen over the cluster default
+        # `longhorn-crypto-retain` so a deleted StatefulSet does not leak its
+        # volume. Because this manifest is shared, prod binds the same class.
         storageClassName: longhorn-crypto-global
         resources:
           requests:
@@ -133,6 +138,12 @@ spec:
 # is the only way the buckets get created, and it is idempotent:
 # `mc mb --ignore-existing` succeeds on an existing bucket and RustFS's own
 # duplicate-bucket response is success too, so re-applying the manifest is safe.
+#
+# Caveat: a Job's `spec.template` is immutable, so if the script below changes
+# an apply fails with "field is immutable". Delete the Job first
+# (`kubectl -n adeo-litellm delete job litellm-rustfs-bootstrap`) and re-apply;
+# `ttlSecondsAfterFinished` then reaps the completed Job so that delete is not
+# needed on a routine re-apply where the script is unchanged.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -171,6 +182,7 @@ metadata:
     app: litellm-rustfs-bootstrap
 spec:
   backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels:
@@ -179,6 +191,9 @@ spec:
       restartPolicy: Never
       securityContext:
         runAsNonRoot: true
+        # The `mc` image runs as root by default, which trips `runAsNonRoot`.
+        # Pin an explicit unprivileged uid instead of dropping the control;
+        # `mc` runs correctly as any non-root uid.
         runAsUser: 65532
         runAsGroup: 65532
         fsGroup: 65532
