@@ -38,14 +38,29 @@ Served to clients as `/install/manifest.json`, `/install/uv/...`,
 
 Single source of truth for versions and hashes, served at
 `/install/manifest.json`. Fetched by the install script first; every later
-download is cross-checked against it.
+download is cross-checked against it. The gateway also reads it to build the
+install-script render context.
+
+Schema 2 adds a `platforms` array so the install template can iterate the
+target matrix as data instead of hardcoding it in bash. There is no
+backwards compatibility with schema 1: the gateway accepts only `schema: 2`.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "litellm_cli_version": "1.102.0",
   "uv_version": "0.10.9",
   "python_version": "3.13.9",
+  "platforms": [
+    {"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"},
+    {"target": "x86_64-unknown-linux-musl", "archive_ext": "tar.gz"},
+    {"target": "aarch64-unknown-linux-gnu", "archive_ext": "tar.gz"},
+    {"target": "aarch64-unknown-linux-musl", "archive_ext": "tar.gz"},
+    {"target": "x86_64-apple-darwin", "archive_ext": "tar.gz"},
+    {"target": "aarch64-apple-darwin", "archive_ext": "tar.gz"},
+    {"target": "x86_64-pc-windows-msvc", "archive_ext": "zip"},
+    {"target": "aarch64-pc-windows-msvc", "archive_ext": "zip"}
+  ],
   "uv_artifacts": {
     "x86_64-unknown-linux-gnu": {"file": "uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "..."},
     "x86_64-unknown-linux-musl": {"file": "uv-x86_64-unknown-linux-musl.tar.gz", "sha256": "..."},

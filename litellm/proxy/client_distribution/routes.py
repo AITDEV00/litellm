@@ -189,10 +189,10 @@ async def admin_put_manifest(
         ) from exc
 
     schema_version: object = data.get("schema")
-    if schema_version != 1:
+    if schema_version != 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported schema version: {schema_version}",
+            detail=f"unsupported schema version: {schema_version} (expected 2)",
         )
 
     # Validate every referenced artifact exists in the store
@@ -378,7 +378,16 @@ async def install_script(request: Request) -> Response:
         template: str = await asyncio.to_thread(_fetch_template, config, s3)
     except HTTPException:
         raise
-    script: str = render_install_script(manifest, base_url, template=template)
+    try:
+        script: str = render_install_script(manifest, base_url, template=template)
+    except Exception as exc:
+        # A store-pushed template that is malformed Jinja or references an
+        # undefined variable must fail loudly here, not ship a broken script.
+        verbose_proxy_logger.warning("client_distribution: template render failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"install template failed to render: {exc}",
+        ) from exc
     return Response(content=script, media_type="application/x-sh")
 
 

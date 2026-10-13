@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # LiteLLM CLI Installer (the thin `lite` client)
-# Served by {{BASE_URL}} — installs litellm[cli] entirely from the gateway
+# Served by {{ base_url }} — installs litellm[cli] entirely from the gateway
 # mirror. No external egress required.
 set -eu
 
-UV_VERSION="{{UV_VERSION}}"
-LITELLM_CLI_VERSION="{{LITELLM_CLI_VERSION}}"
-BASE_URL="{{BASE_URL}}"
+UV_VERSION="{{ uv_version }}"
+LITELLM_CLI_VERSION="{{ litellm_cli_version }}"
+BASE_URL="{{ base_url }}"
 
 # ── colours ────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -38,10 +38,13 @@ info "Gateway: $BASE_URL"
 info "CLI version: $LITELLM_CLI_VERSION"
 
 # ── fetch manifest ────────────────────────────────────────────────────────
-MANIFEST="$(curl -fsSL "$BASE_URL/install/manifest.json")" \
+curl -fsSL "$BASE_URL/install/manifest.json" >/dev/null \
   || die "Failed to fetch manifest from $BASE_URL/install/manifest.json"
 
-# ── OS detection ───────────────────────────────────────────────────────────
+# ── platform detection ─────────────────────────────────────────────────────
+# Map this machine onto one of the targets the mirror carries. The platform
+# set is data-driven from the manifest (see generator.RenderContext.platforms),
+# so adding a target is a manifest change, not a script change.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
@@ -59,31 +62,7 @@ esac
 
 info "Platform: $PLATFORM"
 
-# ── resume state ──────────────────────────────────────────────────────────
-STATE_DIR="$HOME/.litellm"
-STATE_FILE="$STATE_DIR/install_state.json"
-mkdir -p "$STATE_DIR"
-
-_read_state() {
-  [ -f "$STATE_FILE" ] && cat "$STATE_FILE" || echo '{}'
-}
-
-_write_state() {
-  printf '{"uv_version":"%s","lite_version":"%s","base_url":"%s"}\n' \
-    "$1" "$2" "$3" > "$STATE_FILE"
-}
-
-# ── Phase A: acquire ──────────────────────────────────────────────────────
-STATE="$(_read_state)"
-STATE_UV="$(printf '%s' "$STATE" | grep -o '"uv_version":"[^"]*"' | cut -d'"' -f4 || true)"
-STATE_LITE="$(printf '%s' "$STATE" | grep -o '"lite_version":"[^"]*"' | cut -d'"' -f4 || true)"
-STATE_URL="$(printf '%s' "$STATE" | grep -o '"base_url":"[^"]*"' | cut -d'"' -f4 || true)"
-
-NEED_UV=1
-NEED_LITE=1
-NEED_CONFIG=1
-
-# A1: uv present and version matches
+# ── resolve existing binaries ──────────────────────────────────────────────
 UV_BIN=""
 for candidate in uv "$HOME/.local/bin/uv"; do
   if command -v "$candidate" >/dev/null 2>&1; then
@@ -95,40 +74,10 @@ for candidate in uv "$HOME/.local/bin/uv"; do
   fi
 done
 
-if [ -n "$UV_BIN" ]; then
-  CURRENT_UV_VERSION="$("$UV_BIN" --version 2>/dev/null | awk '{print $2}' | head -1 || true)"
-  if [ "$CURRENT_UV_VERSION" = "$UV_VERSION" ] && [ "$STATE_UV" = "$UV_VERSION" ]; then
-    NEED_UV=0
-    info "uv $UV_VERSION already installed, skipping"
-  fi
-fi
-
-# A2: lite present and version matches
-LITE_BIN=""
-SCRIPTS_DIR=""
-if [ -n "$UV_BIN" ]; then
-  SCRIPTS_DIR="$("$UV_BIN" tool dir --bin 2>/dev/null || true)"
-  if [ -n "$SCRIPTS_DIR" ] && [ -x "$SCRIPTS_DIR/lite" ]; then
-    LITE_BIN="$SCRIPTS_DIR/lite"
-    CURRENT_LITE_VERSION="$("$LITE_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    if [ "$CURRENT_LITE_VERSION" = "$LITELLM_CLI_VERSION" ] && [ "$STATE_LITE" = "$LITELLM_CLI_VERSION" ]; then
-      NEED_LITE=0
-      info "lite $LITELLM_CLI_VERSION already installed, skipping"
-    fi
-  fi
-fi
-
-# A3: base_url already configured
-if [ "$STATE_URL" = "$BASE_URL" ] && [ -n "$LITE_BIN" ]; then
-  EXISTING_URL="$("$LITE_BIN" config get base_url 2>/dev/null || true)"
-  if [ "$EXISTING_URL" = "$BASE_URL" ]; then
-    NEED_CONFIG=0
-    info "base_url already set to $BASE_URL, skipping"
-  fi
-fi
-
-# ── A1: install/upgrade uv ────────────────────────────────────────────────
-if [ "$NEED_UV" -eq 1 ]; then
+# ── A1: install/upgrade uv (skip if version already matches) ──────────────
+if [ -n "$UV_BIN" ] && [ "$("$UV_BIN" --version 2>/dev/null | awk '{print $2}' | head -1 || true)" = "$UV_VERSION" ]; then
+  info "uv $UV_VERSION already installed, skipping"
+else
   header "Installing uv $UV_VERSION..."
   export INSTALLER_DOWNLOAD_URL="$BASE_URL/install/uv/$UV_VERSION"
   curl -fsSL "$BASE_URL/install/uv/$UV_VERSION/uv-installer.sh" \
@@ -137,8 +86,17 @@ if [ "$NEED_UV" -eq 1 ]; then
   UV_BIN="$HOME/.local/bin/uv"
 fi
 
-# ── A2: install/upgrade lite ──────────────────────────────────────────────
-if [ "$NEED_LITE" -eq 1 ]; then
+# ── A2: install/upgrade lite (--force is idempotent) ─────────────────────
+SCRIPTS_DIR="$("$UV_BIN" tool dir --bin 2>/dev/null || true)"
+LITE_BIN="${SCRIPTS_DIR:+$SCRIPTS_DIR/lite}"
+CURRENT_LITE_VERSION=""
+if [ -n "$LITE_BIN" ] && [ -x "$LITE_BIN" ]; then
+  CURRENT_LITE_VERSION="$("$LITE_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+fi
+
+if [ "$CURRENT_LITE_VERSION" = "$LITELLM_CLI_VERSION" ]; then
+  info "lite $LITELLM_CLI_VERSION already installed, skipping"
+else
   echo ""
   header "Installing litellm[cli] $LITELLM_CLI_VERSION..."
   echo ""
@@ -157,30 +115,13 @@ if [ ! -x "$LITE_BIN" ]; then
   die "lite binary not found after install"
 fi
 
-# ── A3: configure base_url ────────────────────────────────────────────────
-if [ "$NEED_CONFIG" -eq 1 ]; then
-  "$LITE_BIN" config set base_url "$BASE_URL"
-fi
-
-# Record state
-_write_state "$UV_VERSION" "$LITELLM_CLI_VERSION" "$BASE_URL"
+# ── A3: configure base_url (idempotent) ──────────────────────────────────
+"$LITE_BIN" config set base_url "$BASE_URL"
 
 # ── success ────────────────────────────────────────────────────────────────
 echo ""
 success "LiteLLM CLI installed"
 info "Version: $LITELLM_CLI_VERSION"
-
-# ── harness detection (report only) ───────────────────────────────────────
-echo ""
-header "Detected harnesses:"
-for harness in claude codex opencode pi; do
-  if command -v "$harness" >/dev/null 2>&1; then
-    info "  $harness    found"
-  else
-    info "  $harness    not found"
-  fi
-done
-echo ""
 
 # ── PATH hint ──────────────────────────────────────────────────────────────
 if ! command -v lite >/dev/null 2>&1; then

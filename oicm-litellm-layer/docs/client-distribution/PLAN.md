@@ -74,10 +74,12 @@ Three decisions from review, folded in:
    idempotently, using the gateway's master key as the bearer token. This
    replaces "admin copies bytes with `kubectl cp`" with a documented API. See
    [admin-sync.md](admin-sync.md).
-3. **Harness detection is a reporter, not a gate.** The script detects
-   installed harnesses (cross-platform) and reports them; it does not
-   auto-select one. Auto-selection was considered and dropped as a product
-   choice, left to the user. See [installer-script.md](installer-script.md).
+3. **Harness wiring lives in the CLI, not the install script.** Harness
+   detection and configuration are owned by the `lite` CLI (`shutil.which` at
+   runtime, `lite configure <agent>`). The served install script does not scan
+   for harnesses; earlier versions printed a report-only summary, which was
+   removed as duplicated state. See
+   [installer-script.md](installer-script.md).
 
 ## Problem
 

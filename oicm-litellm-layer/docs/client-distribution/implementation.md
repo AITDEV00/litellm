@@ -3,7 +3,10 @@
 Status: Phase 1 done (RustFS deployed, per-environment). Phase 2 done (slice code,
 unit-tested). Phase 3 done (wired, deployed to dev, verified). Phase 4 done
 (store populated: 8 uv artifacts, 8 python archives, 77 wheels, manifest
-published; /install serves the generated script on dev).
+published; /install serves the generated script on dev). v5: the generator is
+now Jinja2-based with a structured render context and manifest schema 2 (see
+installer-script.md "Generator contract"); the harness-detection block and the
+`install_state.json` state machine were removed from the script.
 Next: Phase 5 (end-to-end validation).
 Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),
@@ -363,11 +366,16 @@ Key implementation points, each grounded in what exists:
     DELETE (409 if manifest-referenced), inventory GET.
   - Path containment: normalize the key against `litellm-client-mirror/`
     and reject escapes (cannot touch `litellm-logs`).
-- **generator.py**: pure, no FastAPI imports. Template is upstream's
-  `scripts/install-cli.sh` with the three origin modifications from
-  [installer-script.md](installer-script.md). Two-phase A/B split and
-  `~/.litellm/install_state.json` progress file per the resume design.
-  Harness detection (report-only) per the v3/v4 sections.
+- **generator.py**: pure, no FastAPI imports. The template is a Jinja2
+  document rendered with a structured context (`RenderContext`: base URL,
+  versions, `platforms` list) built from manifest schema 2. Rendered with
+  `SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)`, so a
+  template referencing an undefined variable fails `/install` loudly (500)
+  rather than shipping a broken script. The template keeps only the three
+  origin modifications from [installer-script.md](installer-script.md);
+  resume is a version-check short-circuit (`--force` is idempotent) with no
+  `install_state.json` state machine, and harness detection is removed (the
+  `lite` CLI owns that).
 - Follow repo code conventions: `Final` annotations, frozen dataclasses,
   `MappingProxyType`, typed everything, no `Any`. `# noqa` only with named
   rule + reason.
@@ -375,9 +383,11 @@ Key implementation points, each grounded in what exists:
 Tests (co-located, mirroring `tests/test_litellm/proxy/client_distribution/`):
 
 - `test_generator.py` — render with a known manifest + base URL; assert the
-  three origin overrides, the `lite config set` line, phase markers, and
-  that no upstream URL (`astral.sh`, `github.com`, `pypi.org`) appears in
-  the output.
+  three origin overrides, the `lite config set` line, that no upstream URL
+  (`astral.sh`, `github.com`, `pypi.org`) appears, and the Jinja2 contract:
+  undefined variable raises, no HTML escaping of shell metacharacters, a
+  `{% for %}` loop over `platforms`, and store/baked-in templates render
+  identically.
 - `test_routes.py` — handler-level tests with a stubbed storage layer
   (dependency-injected, not monkeypatched, per repo rules): unauth GET works;
   admin routes 403 for non-admin; manifest PUT rejects a manifest referencing

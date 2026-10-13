@@ -158,9 +158,13 @@ class TestInstallScript:
     def test_serves_script_with_200(self, app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = json.dumps(
             {
+                "schema": 2,
                 "uv_version": "0.10.9",
                 "litellm_cli_version": "1.102.0",
                 "python_version": "3.13.9",
+                "platforms": [
+                    {"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"}
+                ],
             }
         ).encode()
         client: TestClient = TestClient(app)
@@ -168,6 +172,24 @@ class TestInstallScript:
         assert response.status_code == 200
         assert "application/x-sh" in response.headers["content-type"]
         assert 'UV_VERSION="0.10.9"' in response.text
+
+    def test_500_when_template_references_undefined(
+        self, app: FastAPI, s3: _FakeS3Client
+    ) -> None:
+        """A store template referencing an unknown variable fails loudly."""
+        s3._store["manifest.json"] = json.dumps(
+            {
+                "schema": 2,
+                "uv_version": "0.10.9",
+                "litellm_cli_version": "1.102.0",
+                "python_version": "3.13.9",
+            }
+        ).encode()
+        s3._store["templates/install.sh.tmpl"] = b"gateway={{ not_a_real_var }}"
+        client: TestClient = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/install")
+        assert response.status_code == 500
+        assert "failed to render" in response.text
 
     def test_503_when_store_unconfigured(self) -> None:
         # Build a bare app without the _get_storage patch, so the real
@@ -302,7 +324,7 @@ class TestAdminPutManifest:
     def test_rejects_missing_objects(self, admin_app: FastAPI) -> None:
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 1,
+            "schema": 2,
             "uv_version": "0.10.9",
             "litellm_cli_version": "1.102.0",
             "python_version": "3.13.9",
@@ -325,7 +347,7 @@ class TestAdminPutManifest:
         s3._store["uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz"] = b"uv-binary"
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 1,
+            "schema": 2,
             "uv_version": "0.10.9",
             "litellm_cli_version": "1.102.0",
             "python_version": "3.13.9",

@@ -6,10 +6,11 @@ installer aside, the LiteLLM part is ~120 lines). Keeping the diff tiny keeps
 the maintenance burden proportional: when upstream changes its installer, we
 re-apply three modifications, not re-invent.
 
-In v2 the script is not a static file: the gateway slice generates it at
-request time, filling the gateway base URL and the adopted versions from
-`manifest.json` (see [architecture.md](architecture.md), "Why `/install` is
-generated"). The template below is what the generator emits.
+The script is not a static file: the gateway slice renders it at request time
+from a Jinja2 template and a structured context (base URL, adopted versions,
+platform list) built from `manifest.json` (see
+[architecture.md](architecture.md), "Why `/install` is generated", and the
+generator contract below). The template below is what the generator emits.
 
 The script is served at `GET /install` and is **unauthenticated** (decision 9):
 installing the CLI and wiring a harness needs no credential. The user supplies
@@ -89,102 +90,81 @@ installation (Claude Code / OpenCode are installed by their own channels),
 no auto-run of `lite login` (it is interactive on first use; the script must
 stay non-interactive so `curl | sh` cannot hang).
 
-## Generator contract (v2 addition)
+## Generator contract (v5: Jinja2, structured context)
 
-The slice's `/install` handler owns these substitutions — nothing else
-varies:
+The slice's `/install` handler renders the template with **Jinja2**. The
+template is a Jinja2 document, not a find-replace string, so it can grow
+conditionals and loops without the renderer changing.
 
-| Placeholder | Source |
-|---|---|
-| `{{BASE_URL}}` | `LITELLM_PUBLIC_BASE_URL` env/config, request host as fallback |
-| `{{UV_VERSION}}` | `manifest.json` `uv_version` |
-| `{{LITELLM_CLI_VERSION}}` | `manifest.json` `litellm_cli_version` (informational banner only) |
+The render context is structured (`generator.RenderContext`):
+
+| Variable | Type | Source |
+|---|---|---|
+| `base_url` | str | `LITELLM_PUBLIC_BASE_URL` env/config, request host as fallback |
+| `uv_version` | str | `manifest.json` `uv_version` |
+| `litellm_cli_version` | str | `manifest.json` `litellm_cli_version` |
+| `python_version` | str | `manifest.json` `python_version` |
+| `platforms` | list of `{target, archive_ext}` | `manifest.json` `platforms` |
+
+Rendering is sandboxed, strict, and not autoescaped
+(`SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)`):
+
+- **`StrictUndefined`** — a template that references a variable we did not
+  pass raises at render time. `/install` returns 500 with the error rather
+  than serving a half-rendered installer to every client.
+- **`SandboxedEnvironment`** — bounds what a store-pushed template can reach
+  (the store copy at `templates/install.sh.tmpl` is content we execute).
+- **`autoescape=False`** — shell metacharacters (`&`, `<`, `>`) are not turned
+  into HTML entities.
 
 The generator is pure (manifest + base URL in, script text out) and unit
-tested: render with a known manifest, assert the three origin overrides and
-the `lite config set` line appear with the right values. The test belongs in
-the slice's co-located test module, in the established drop-detection style.
+tested in the slice's co-located module: the three origin overrides, the
+no-HTML-escape rule, the undefined-variable error, and a `{% for %}` loop over
+`platforms` all have regression tests.
 
-## Harness detection (v3 addition)
+A store-pushed template must be valid Jinja2 and reference only context
+variables. A bad push breaks `/install` loudly on the next request (500 in the
+gateway logs / a curl), so template pushes must be validated before going
+live — `sync-mirror.sh --push-only` after editing `install.sh.tmpl`.
 
-After installing `lite`, the script scans the machine for known coding
-harnesses and **reports** what it found. It does not auto-select one; choosing
-which harness to wire is left to the user (a deliberate product decision —
-`lite configure` and the per-agent commands already handle selection).
+## Harness detection — removed (v5)
 
-The scan is cross-platform and cheap:
+Earlier versions had the script scan for coding harnesses (`claude`, `codex`,
+`opencode`, `pi`) and print a "Detected harnesses" summary. This was removed.
 
-| Platform | Probe |
-|---|---|
-| POSIX (Linux/macOS) | `command -v claude`, `command -v codex`, `command -v opencode`, `command -v pi` |
-| Windows | `where claude`, etc. (same names) |
+The scan was report-only UX: it did no wiring, and the authoritative detection
+already lives in the `lite` CLI (`shutil.which` at runtime, `_TARGETS` in
+`configure.py`, and the per-agent `lite <agent>` commands). Keeping a second
+hardcoded list in the served script duplicated that state. The "Next steps"
+footer still tells the user to run `lite login` / `lite configure claude`,
+which is where selection and detection actually happen.
 
-The script does **not** reimplement the Windows `.cmd`/`.bat` shim logic; that
-is already handled inside `lite` itself (`_WINDOWS_SHIM_SUFFIXES` /
-`_windows_command` in `agents.py`), and the script's job is only to report.
-The authoritative detection happens at run time when `lite <agent>` resolves
-the binary with `shutil.which` and raises a clear "could not find" with an
-install-docs hint.
+## Resume behaviour (v5: simplified)
 
-Output is a plain summary so the user knows what `lite configure` / `lite
-<agent>` will work with:
+A wrong API key at the auth step must never cost a re-download. Re-running is
+safe and cheap, with no client-side state file.
 
-```
-Detected harnesses:
-  claude    found   (Claude Code)
-  codex     found   (Codex)
-  opencode  not found
-  pi        not found
-Configure a found harness with:  lite configure claude
-```
-
-Two caveats recorded, not solved:
-
-- The `lite configure` wizard's target list is Claude Code + Codex only
-  (`_TARGETS` in `configure.py`); OpenCode and pi are wired by their own
-  commands (`lite opencode`, `lite pi`). So the summary line should point at
-  the right command per harness, not always `lite configure`.
-- On a platform `uv` does not support as a host (Android/Termux experimental,
-  iOS unsupported — see [platform-matrix.md](platform-matrix.md)), the script
-  fails with a clear message before the scan rather than producing a summary
-  for a machine it cannot install onto.
-
-## Resume behaviour (v3 addition)
-
-A wrong API key at the auth step must never cost a re-download. The script is
-two independently re-runnable phases, with progress recorded so a second run
-skips what is already done.
+The earlier design kept a `~/.litellm/install_state.json` state machine
+(`NEED_UV` / `NEED_LITE` / `NEED_CONFIG`) and parsed it with `grep`. That was
+over-engineered: the two expensive steps are already idempotent on their own,
+so the script now short-circuits on a plain version check and lets the tools
+do the rest.
 
 ```
-Phase A — acquire (expensive; touches the gateway mirror)
-  A1 uv present and version matches manifest   -> skip
-  A2 lite present and version matches manifest -> skip
-  A3 base_url already set to this gateway      -> skip
-  (progress: ~/.litellm/install_state.json)
-
-Phase B — auth + configure (cheap; user-supplied values)
-  B1 lite login / --api-key   <- a wrong key lands here and is retryable
-  B2 lite configure <harness> (or lite <agent>)
+A1 uv:        skip if `uv --version` already matches the manifest
+A2 lite:      skip if `lite --version` already matches, else
+              `uv tool install --force` (idempotent, replaces a half-install)
+A3 base_url:  always `lite config set base_url` (idempotent)
 ```
 
 Properties:
 
-- Re-running `/install` after a bad key re-enters at Phase B; A1-A3
-  short-circuit on the state file plus the manifest version check, so nothing
-  is downloaded again.
-- Each phase is idempotent on its own, so a partial run (network drop
-  mid-download) resumes cleanly: `uv tool install --force` handles a
-  half-written tool, and the version check makes "already correct" a no-op.
-- The state file records only phase completion and the adopted version, never
-  the key. The key stays in the OS keyring or the CLI's own config, where it
-  already lives.
-- Phase B can be interactive (`lite login` prompts) or, in a fully scripted
-  run, supplied `--api-key`; either way it is a distinct step, so a piped
-  `curl | sh` never blocks on the interactive part unless the user chose to
-  run Phase B in that same invocation.
-
-This closes a gap in the earlier draft, which said re-running was safe and
-idempotent but did not separate acquire from auth or record progress.
+- Re-running after a bad key re-runs only the cheap auth/configure steps; the
+  version checks make A1/A2 no-ops, so nothing is downloaded again.
+- No `install_state.json`, no JSON parsing in bash. `lite`'s own state
+  (`~/.litellm/config.json`, keyring) survives reinstalls because it lives
+  outside the tool venv.
+- The script stays non-interactive; `lite login` is a separate, later step.
 
 ## Idempotency and update path
 

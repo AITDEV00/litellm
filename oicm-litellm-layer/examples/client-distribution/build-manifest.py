@@ -52,10 +52,17 @@ def main() -> None:
         sys.exit(1)
 
     manifest: dict = {
-        "schema": 1,
+        "schema": 2,
         "litellm_cli_version": LITELLM_CLI_VERSION,
         "uv_version": UV_VERSION,
         "python_version": PYTHON_VERSION,
+        "platforms": [
+            {
+                "target": t,
+                "archive_ext": "zip" if "windows" in t else "tar.gz",
+            }
+            for t in UV_TARGETS
+        ],
         "uv_artifacts": {},
         "python_artifacts": {"sha256": {}},
         "wheelhouse": {"sha256": ""},
@@ -106,6 +113,8 @@ def main() -> None:
         json.dump(manifest, f, indent=2)
         f.write("\n")
     print(f"manifest written: {out}")
+    print(f"  schema: {manifest['schema']}")
+    print(f"  platforms: {len(manifest['platforms'])}")
     print(f"  uv artifacts: {len(manifest['uv_artifacts'])}")
     print(f"  python archives: {len(pbs_hashes)}")
     print(f"  wheels: {len(wheel_hashes)}")
