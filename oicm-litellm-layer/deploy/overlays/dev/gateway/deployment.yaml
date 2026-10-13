@@ -104,6 +104,27 @@ spec:
                 secretKeyRef:
                   name: adeo-litellm-postgres-dev-app
                   key: dbname
+            # Client-distribution slice: dev has its own RustFS store
+            # (rustfs-dev) with its own credentials, so override the
+            # base's prod values.
+            - name: RUSTFS_ENDPOINT_URL
+              value: "http://rustfs-dev.adeo-litellm.svc.cluster.local:9000"
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials-dev
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials-dev
+                  key: secret-key
+            - name: RUSTFS_BUCKET
+              value: "litellm-client-mirror-dev"
+            # The URL the install script embeds for lite config set.
+            # Dev is reached via port-forward; prod uses its ingress host.
+            - name: LITELLM_PUBLIC_BASE_URL
+              value: "http://localhost:14001"
       volumes:
         - name: config
           configMap:

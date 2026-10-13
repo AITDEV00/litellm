@@ -1,7 +1,9 @@
 # Implementation Plan
 
 Status: Phase 1 done (RustFS deployed, per-environment). Phase 2 done (slice code,
-unit-tested, not yet wired). Next: Phase 3 (wiring). Step-by-step build order for the v4 design
+unit-tested). Phase 3 done (wired, deployed to dev, verified: /install resolves
+and 404s on the empty store). Next: Phase 4 (artifact sync).
+Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),
 [rustfs.md](rustfs.md), [admin-sync.md](admin-sync.md)).
 
@@ -409,25 +411,30 @@ app.include_router(client_distribution_router)
 2. Env vars, split by the parity-test rule above:
 
 ```yaml
-# BASE deployment (deploy/base/gateway/proxy/deployment.yaml) — identical
-# for dev and prod, so the parity test stays quiet:
+# BASE deployment (deploy/base/gateway/proxy/deployment.yaml) — prod values;
+# dev overlay overrides each one with its own endpoint, Secret, and bucket:
 - name: RUSTFS_ENDPOINT_URL
   value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"
 - name: RUSTFS_ACCESS_KEY
   valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: access-key}}
 - name: RUSTFS_SECRET_KEY
   valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials, key: secret-key}}
+- name: RUSTFS_BUCKET
+  value: "litellm-client-mirror"
 
-# DEV overlay (deploy/overlays/dev/gateway/deployment.yaml) — value differs
-# per environment, declared in _EXPECTED_ENV_DIFFS:
+# DEV overlay (deploy/overlays/dev/gateway/deployment.yaml) — overrides the
+# base's prod values with dev's own store, plus the per-environment base URL:
+- name: RUSTFS_ENDPOINT_URL
+  value: "http://rustfs-dev.adeo-litellm.svc.cluster.local:9000"
+- name: RUSTFS_ACCESS_KEY
+  valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials-dev, key: access-key}}
+- name: RUSTFS_SECRET_KEY
+  valueFrom: {secretKeyRef: {name: litellm-rustfs-credentials-dev, key: secret-key}}
+- name: RUSTFS_BUCKET
+  value: "litellm-client-mirror-dev"
 - name: LITELLM_PUBLIC_BASE_URL
-  value: "https://<dev-host>"   # confirm the dev host before apply
+  value: "http://localhost:14001"   # dev is reached via port-forward
 ```
-
-   The **base** deployment gets the same block only at Phase 6, so prod never
-   receives a half-verified env change. (RustFS creds are shared dev/prod by
-   design — same store, see [rustfs.md](rustfs.md) — but the base-URL env
-   differs per environment, which is exactly what the overlay is for.)
 
    The **parity test is the tripwire for this split.**
    `oicm-litellm-layer/tests/deploy/test_dev_prod_parity.py` fails if dev and
@@ -437,21 +444,16 @@ app.include_router(client_distribution_router)
    `_EXPECTED_ENV_DIFFS`. It also fails on stale declarations, so every
    move between phases must update the test in the same commit.
 
-   The clean split, given the test's shape:
+   The clean split, given the per-environment store:
 
-- `RUSTFS_ENDPOINT_URL` / `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY` go in
-  the **base** deployment in this phase. They are identical for both
-  environments (one shared store), so the parity test stays quiet: env
-  keys match, values match. Prod mounting RustFS creds before its router
-  is wired is harmless — env presence is not behavior, and the Phase 6
-  diff for prod shrinks accordingly.
-- `LITELLM_PUBLIC_BASE_URL` stays **overlay-scoped** with its per-host
-  value (dev: the dev host; prod at Phase 6: `https://litellm.ecouncil.ae`),
-  declared in `_EXPECTED_ENV_DIFFS`. The values genuinely differ, so
-  overlay-scoped is the honest permanent shape; do not move it to base.
-- Never add anything to `_DEV_ONLY_ENV_VARS` for this feature — a var
-  that only ever exists on dev is exactly the half-shipped state the
-  parity test exists to catch.
+- `RUSTFS_ENDPOINT_URL` / `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY` /
+  `RUSTFS_BUCKET` go in the **base** deployment with prod values (base IS
+  prod). The dev overlay overrides each one with dev's own endpoint, Secret,
+  and bucket name. All four are declared in `_EXPECTED_ENV_DIFFS`.
+- `LITELLM_PUBLIC_BASE_URL` is **dev-only** for now (declared in
+  `_DEV_ONLY_ENV_VARS`). At Phase 6 it gets its prod value
+  (`https://litellm.ecouncil.ae`) in the prod overlay and moves to
+  `_EXPECTED_ENV_DIFFS`.
 
 3. Release to dev: `make litellm-src-release-dev` (builds
    `litellm-src:$(LITELLM_SRC_TAG)`, pushes to Harbor, pins the base image,

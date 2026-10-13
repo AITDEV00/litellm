@@ -143,6 +143,23 @@ spec:
               value: "86400"
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090"
+            # Client-distribution slice: the gateway streams artifacts from
+            # the per-environment RustFS store. These are prod values; the dev
+            # overlay overrides them with its own endpoint and Secret.
+            - name: RUSTFS_ENDPOINT_URL
+              value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-rustfs-credentials
+                  key: secret-key
+            - name: RUSTFS_BUCKET
+              value: "litellm-client-mirror"
           command:
             - "litellm"
             - "--config"

@@ -18898,6 +18898,11 @@ from litellm.proxy.oicm_routes import router as oicm_status_router
 
 app.include_router(oicm_status_router)
 
+# OICM same-origin client distribution (/install). Co-located vertical slice.
+from litellm.proxy.client_distribution.routes import router as client_distribution_router
+
+app.include_router(client_distribution_router)
+
 attach_lazy_features(app)
 app.router.routes = hot_routes_first(app.router.routes)
 app.add_middleware(
