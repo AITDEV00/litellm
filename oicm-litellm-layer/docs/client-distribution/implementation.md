@@ -1,6 +1,7 @@
 # Implementation Plan
 
-Status: not started. Step-by-step build order for the v4 design
+Status: Phase 1 done (RustFS deployed, per-environment). Phase 2 done (slice code,
+unit-tested, not yet wired). Next: Phase 3 (wiring). Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),
 [rustfs.md](rustfs.md), [admin-sync.md](admin-sync.md)).
 

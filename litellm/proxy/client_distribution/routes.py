@@ -1,0 +1,426 @@
+"""Same-origin client distribution routes (/install).
+
+Co-located vertical slice, following the ``oicm_routes.py`` / ``voice_routes.py``
+pattern: a standalone ``APIRouter`` that lazily imports ``proxy_server`` globals
+inside handlers. Mounted in the fork-appended include block at the bottom of
+``proxy_server.py``.
+
+Serves the install script, proxies artifact reads from RustFS, and exposes
+the admin write surface under ``/install/admin/v1/*``.
+
+Route registration order matters: specific admin routes must come before the
+catch-all ``GET /install/{path:path}`` so FastAPI matches them first.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import io
+import json
+import os
+from typing import Final
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import StreamingResponse
+
+from litellm._logging import verbose_proxy_logger
+from litellm.proxy._types import LitellmUserRoles
+from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
+from litellm.proxy.client_distribution.generator import (
+    MirrorManifest,
+    manifest_from_json,
+    render_install_script,
+)
+from litellm.proxy.client_distribution.storage import (
+    RustFSConfig,
+    create_s3_client,
+    load_config_from_env,
+    normalize_key,
+)
+
+router = APIRouter(tags=["install"])
+
+# Max artifact upload size (python-build-standalone archives are ~70 MB).
+_MAX_ARTIFACT_BYTES: Final = 200 * 1024 * 1024
+
+_CONTENT_TYPES: Final = {
+    ".json": "application/json",
+    ".tar.gz": "application/gzip",
+    ".zip": "application/zip",
+    ".whl": "application/zip",
+    ".sha256": "text/plain",
+    ".sh": "application/x-sh",
+}
+
+_DEFAULT_CONTENT_TYPE: Final = "application/octet-stream"
+
+
+def _content_type_for(key: str) -> str:
+    for suffix, ct in _CONTENT_TYPES.items():
+        if key.endswith(suffix):
+            return ct
+    return _DEFAULT_CONTENT_TYPE
+
+
+def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
+    if user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only proxy admins can manage the client mirror",
+        )
+
+
+def _get_storage() -> tuple[RustFSConfig, object]:
+    """Build the S3 client from env. Returns (config, client).
+
+    Raises 503 if the store is not configured.
+    """
+    try:
+        config: RustFSConfig = load_config_from_env()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return config, create_s3_client(config)
+
+
+def _get_base_url(request: Request) -> str:
+    """Resolve the gateway's public base URL.
+
+    Prefers the ``LITELLM_PUBLIC_BASE_URL`` env var; falls back to the
+    request's Host header with the forwarded protocol.
+    """
+    env_url: str | None = os.environ.get("LITELLM_PUBLIC_BASE_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    forwarded_proto: str = request.headers.get("x-forwarded-proto", "https")
+    host: str = request.headers.get("host", "localhost")
+    return f"{forwarded_proto}://{host}"
+
+
+def _fetch_manifest(config: RustFSConfig, s3: object) -> MirrorManifest:
+    """Fetch and parse the manifest from the store."""
+    try:
+        response: dict[str, object] = s3.get_object(Bucket=config.bucket, Key="manifest.json")  # type: ignore[union-attr]
+        body: object = response["Body"]
+        raw: bytes = body.read()  # type: ignore[union-attr]
+        return manifest_from_json(raw.decode("utf-8"))
+    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="manifest.json not found in the store",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"corrupt manifest in store: {exc}",
+        )
+    except Exception as exc:
+        verbose_proxy_logger.warning("client_distribution: manifest fetch failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object store unreachable",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Admin routes (PROXY_ADMIN only). Must be registered BEFORE the catch-all
+# GET /install/{path:path} so FastAPI matches them first.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/install/admin/v1/manifest",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_get_manifest(
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> Response:
+    """Read the current manifest (admin view)."""
+    _require_admin(user_api_key_dict)
+    return await get_manifest()
+
+
+@router.put(
+    "/install/admin/v1/manifest",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_put_manifest(
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> dict[str, object]:
+    """Upsert the manifest. Validates that every referenced object exists."""
+    _require_admin(user_api_key_dict)
+    config, s3 = _get_storage()
+
+    body: bytes = await request.body()
+    try:
+        data: dict[str, object] = json.loads(body)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"invalid JSON: {exc}",
+        ) from exc
+
+    schema_version: object = data.get("schema")
+    if schema_version != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unsupported schema version: {schema_version}",
+        )
+
+    # Validate every referenced artifact exists in the store
+    uv_artifacts: object = data.get("uv_artifacts", {})
+    if isinstance(uv_artifacts, dict):
+        missing: list[str] = []
+        for platform_key, artifact in uv_artifacts.items():
+            if not isinstance(artifact, dict):
+                continue
+            filename: object = artifact.get("file")
+            if not isinstance(filename, str):
+                continue
+            uv_version: object = data.get("uv_version", "")
+            key: str = f"uv/{uv_version}/{filename}"
+            try:
+                await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=key)  # type: ignore[union-attr]
+            except Exception:
+                missing.append(key)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"manifest references missing objects: {missing}",
+            )
+
+    # Write the manifest
+    await asyncio.to_thread(
+        s3.put_object,  # type: ignore[union-attr]
+        Bucket=config.bucket,
+        Key="manifest.json",
+        Body=body,
+        ContentType="application/json",
+    )
+    return {"ok": True, "size": len(body)}
+
+
+@router.put(
+    "/install/admin/v1/artifact/{path:path}",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_put_artifact(
+    path: str,
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> dict[str, object]:
+    """Upsert one artifact. Streams to RustFS with sha256 on the fly."""
+    _require_admin(user_api_key_dict)
+    config, s3 = _get_storage()
+
+    content_length: int = int(request.headers.get("content-length", "0"))
+    if content_length > _MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"artifact too large: {content_length} bytes (max {_MAX_ARTIFACT_BYTES})",
+        )
+
+    try:
+        key: str = normalize_key(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    body: bytes = await request.body()
+    sha256: str = hashlib.sha256(body).hexdigest()
+
+    # Check if the object already exists with the same hash
+    unchanged: bool = False
+    try:
+        head: dict[str, object] = await asyncio.to_thread(
+            s3.head_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        )
+        existing_etag: str = head.get("ETag", "").strip('"')  # type: ignore[union-attr]
+        if existing_etag == sha256:
+            unchanged = True
+    except Exception:
+        pass  # Object doesn't exist yet; proceed to upload
+
+    if not unchanged:
+        await asyncio.to_thread(
+            s3.put_object,  # type: ignore[union-attr]
+            Bucket=config.bucket,
+            Key=key,
+            Body=io.BytesIO(body),
+            ContentType=_content_type_for(key),
+        )
+
+    return {
+        "path": key,
+        "sha256": sha256,
+        "size": len(body),
+        "unchanged": unchanged,
+    }
+
+
+@router.delete(
+    "/install/admin/v1/artifact/{path:path}",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_delete_artifact(
+    path: str,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> dict[str, object]:
+    """Delete one artifact. Rejects if the manifest still references it."""
+    _require_admin(user_api_key_dict)
+    config, s3 = _get_storage()
+
+    try:
+        key: str = normalize_key(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Check manifest references
+    try:
+        response: dict[str, object] = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key="manifest.json"  # type: ignore[union-attr]
+        )
+        body: object = response["Body"]
+        manifest_data: dict[str, object] = json.loads(body.read())  # type: ignore[union-attr]
+        uv_artifacts: object = manifest_data.get("uv_artifacts", {})
+        if isinstance(uv_artifacts, dict):
+            uv_version: object = manifest_data.get("uv_version", "")
+            for artifact in uv_artifacts.values():
+                if isinstance(artifact, dict):
+                    filename: object = artifact.get("file")
+                    if isinstance(filename, str) and f"uv/{uv_version}/{filename}" == key:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"object is still referenced by the manifest: {key}",
+                        )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # No manifest or unreadable; allow the delete
+
+    await asyncio.to_thread(s3.delete_object, Bucket=config.bucket, Key=key)  # type: ignore[union-attr]
+    return {"ok": True, "path": key}
+
+
+@router.get(
+    "/install/admin/v1/inventory",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_inventory(
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> dict[str, object]:
+    """List stored objects with sizes and hashes."""
+    _require_admin(user_api_key_dict)
+    config, s3 = _get_storage()
+
+    objects: list[dict[str, object]] = []
+    try:
+        paginator: object = s3.get_paginator("list_objects_v2")  # type: ignore[union-attr]
+        for page in paginator.paginate(Bucket=config.bucket):  # type: ignore[union-attr]
+            for obj in page.get("Contents", []):  # type: ignore[union-attr]
+                objects.append(
+                    {
+                        "key": obj["Key"],
+                        "size": obj["Size"],
+                        "etag": obj.get("ETag", "").strip('"'),
+                        "last_modified": obj["LastModified"].isoformat(),
+                    }
+                )
+    except Exception as exc:
+        verbose_proxy_logger.warning("client_distribution: inventory failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object store unreachable",
+        ) from exc
+
+    return {"bucket": config.bucket, "objects": objects, "count": len(objects)}
+
+
+# ---------------------------------------------------------------------------
+# Public routes (unauthenticated)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/install")
+async def install_script(request: Request) -> Response:
+    """Serve the generated install script."""
+    config, s3 = _get_storage()
+    base_url: str = _get_base_url(request)
+    try:
+        manifest: MirrorManifest = await asyncio.to_thread(_fetch_manifest, config, s3)
+    except HTTPException:
+        raise
+    script: str = render_install_script(manifest, base_url)
+    return Response(content=script, media_type="application/x-sh")
+
+
+@router.get("/install/manifest.json")
+async def get_manifest() -> Response:
+    """Serve the mirror manifest."""
+    config, s3 = _get_storage()
+    try:
+        response: dict[str, object] = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key="manifest.json"  # type: ignore[union-attr]
+        )
+        body: object = response["Body"]
+        raw: bytes = body.read()  # type: ignore[union-attr]
+        return Response(content=raw, media_type="application/json")
+    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found")
+    except Exception as exc:
+        verbose_proxy_logger.warning("client_distribution: manifest read failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object store unreachable",
+        ) from exc
+
+
+@router.get("/install/{path:path}")
+async def get_artifact(path: str) -> StreamingResponse:
+    """Proxy an artifact read from RustFS."""
+    config, s3 = _get_storage()
+    try:
+        key: str = normalize_key(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    try:
+        response: dict[str, object] = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        )
+        body: object = response["Body"]
+        content_length: int = response.get("ContentLength", 0)  # type: ignore[union-attr]
+        content_type: str = _content_type_for(key)
+
+        async def _stream() -> object:
+            try:
+                while True:
+                    chunk: bytes = await asyncio.to_thread(body.read, 65536)  # type: ignore[union-attr]
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                body.close()  # type: ignore[union-attr]
+
+        headers: dict[str, str] = {}
+        if content_length:
+            headers["content-length"] = str(content_length)
+        return StreamingResponse(
+            _stream(),  # type: ignore[arg-type]
+            media_type=content_type,
+            headers=headers,
+        )
+    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"object not found: {key}",
+        )
+    except Exception as exc:
+        verbose_proxy_logger.warning("client_distribution: artifact read failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object store unreachable",
+        ) from exc

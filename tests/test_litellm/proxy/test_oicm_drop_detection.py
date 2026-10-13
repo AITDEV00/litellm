@@ -149,3 +149,26 @@ def test_team_cache_invalidation_wired_into_model_management() -> None:
     )
 
     assert _invalidate_team_key_caches is slice_fn
+
+
+# ---------------------------------------------------------------------------
+# Slice: client distribution (litellm/proxy/client_distribution)
+# ---------------------------------------------------------------------------
+
+
+def test_client_distribution_router_mounted_on_app() -> None:
+    """The /install router must be included on the FastAPI app after a merge."""
+    from litellm.proxy.proxy_server import app
+
+    mounted_paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None) and "/install" in route.path
+    }
+    assert mounted_paths, "no /install route mounted; client_distribution slice was dropped"
+
+
+def test_client_distribution_module_has_router() -> None:
+    from litellm.proxy.client_distribution import router
+
+    assert len(router.routes) > 0, "client_distribution router is empty"
