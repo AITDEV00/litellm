@@ -2792,6 +2792,8 @@ async def ui_view_spend_logs(
                 page_size=page_size,
                 sort_desc=order_direction != "asc",
                 session_cursor=session_cursor,
+                start_time_utc=start_date_obj,
+                end_time_utc=end_date_obj,
             )
 
         # Build the ORDER BY expression. ttft_ms is computed from
@@ -2880,6 +2882,8 @@ async def ui_view_spend_logs(
             total_pages,
             enrich_session_counts=not is_v2,
             total_is_capped=total_is_capped,
+            start_time_utc=start_date_obj,
+            end_time_utc=end_date_obj,
         )
     except Exception as e:
         verbose_proxy_logger.exception("Error in ui_view_spend_logs: %s", e)
@@ -2970,6 +2974,8 @@ async def _ui_session_grouped_spend_logs(
     page_size: int,
     sort_desc: bool,
     session_cursor: str | None,
+    start_time_utc: "datetime | None" = None,
+    end_time_utc: "datetime | None" = None,
 ) -> Mapping[str, object]:
     """
     One row per session, keyset-paginated by session last activity.
@@ -3069,6 +3075,8 @@ async def _ui_session_grouped_spend_logs(
         total_pages,
         enrich_session_counts=True,
         total_is_capped=total_is_capped,
+        start_time_utc=start_time_utc,
+        end_time_utc=end_time_utc,
     )
     return {**response, "next_session_cursor": next_cursor, "has_more": has_more}  # mutable-ok: FastAPI response body
 
@@ -4450,6 +4458,8 @@ async def _build_ui_spend_logs_response(
     total_pages: int,
     enrich_session_counts: bool = True,
     total_is_capped: bool = False,
+    start_time_utc: "datetime | None" = None,
+    end_time_utc: "datetime | None" = None,
 ) -> dict[str, object]:
     """
     Build the paginated response for the UI spend-logs endpoint.
@@ -4505,6 +4515,20 @@ async def _build_ui_spend_logs_response(
                     if (row.get("api_key") if isinstance(row, dict) else getattr(row, "api_key", None)) is not None
                 }
             )
+            # Bound the aggregate to the listing's date window so partition
+            # pruning can drop every partition outside it. Without a window the
+            # query probes all ~77 partitions per session (one page of 50 rows
+            # took ~14s once session-identity gave every row a session_id);
+            # bounding it to the window cuts that to the window's partitions.
+            window_condition: Final = (
+                "AND \"startTime\" >= ($5::timestamptz AT TIME ZONE 'UTC') "
+                "AND \"startTime\" <= ($6::timestamptz AT TIME ZONE 'UTC')"
+                if start_time_utc is not None and end_time_utc is not None
+                else ""
+            )
+            window_params: Final[Sequence[object]] = (
+                (start_time_utc, end_time_utc) if start_time_utc is not None and end_time_utc is not None else ()
+            )
             rows: Final[Sequence[_SessionSpendRow]] = await _query_raw(
                 prisma_client,
                 f"""
@@ -4530,6 +4554,7 @@ async def _build_ui_spend_logs_response(
                     FROM "LiteLLM_SpendLogs"
                     WHERE session_id = ANY($1::text[])
                       AND api_key = ANY($2::text[])
+                      {window_condition}
                     GROUP BY session_id, api_key
                 ) s
                 LEFT JOIN LATERAL (
@@ -4540,6 +4565,7 @@ async def _build_ui_spend_logs_response(
                         WHERE session_id = s.session_id
                           AND api_key = s.api_key
                           AND model IS NOT NULL AND model <> ''
+                          {window_condition}
                         ORDER BY 1
                         LIMIT $4::int
                     ) d
@@ -4549,6 +4575,7 @@ async def _build_ui_spend_logs_response(
                 authorized_api_keys,
                 _SESSION_MODEL_NAME_MAX_LEN,
                 _SESSION_MODELS_LIMIT + 1,
+                *window_params,
             )
             session_spend_map = {
                 (row["session_id"], row["api_key"]): _SessionSpendStats(
