@@ -119,6 +119,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Before / after | `docs/performance/before-optimization.md`, `after-optimization.md` |
 | Perf recovery / session notes | `docs/performance/model-performance-perf-recovery.md` |
 | Analytics reads -> prisma engine OOM logic map | `docs/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md` |
+| Spend-logs UI enrichment window-bound fix | `docs/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md` |
 | Prisma OOM live-data evidence | `docs/performance/live-data/` (README indexes the artifacts) |
 | Retention flags + OOM logic map v2 | `docs/performance/retention-flags-and-oom-LOGIC-MAP-v2.md` |
 | Spend logs + RAM logic map | `docs/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md` |
