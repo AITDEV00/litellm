@@ -1,0 +1,49 @@
+# Dev's object store, renamed and re-labeled from the base.
+#
+# `nameSuffix` renames the objects but rewrites no label or selector, so without
+# more the dev StatefulSet and Service would still carry `app: rustfs` (prod's
+# value) and cross-select prod's pods in the one shared namespace. A `labels`
+# transformer cannot be used here: it would also rewrite the NetworkPolicy's
+# ingress `from` podSelector to the store's own label and break the allow rule.
+# So the store's label is declared once (in `label.yaml`) and a `replacements`
+# spreads it to only the sites that must carry it: the StatefulSet and Service
+# labels/selectors and the NetworkPolicy `podSelector`. The policy's `from`
+# selectors are left alone and patched separately to dev's gateway.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../base/rustfs
+
+nameSuffix: -dev
+
+patches:
+  - path: values.yaml
+  - path: networkpolicy.yaml
+
+replacements:
+  - source:
+      kind: StatefulSet
+      name: rustfs-dev
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: StatefulSet
+        fieldPaths:
+          - metadata.labels.app
+          - spec.selector.matchLabels.app
+          - spec.template.metadata.labels.app
+      - select:
+          kind: Service
+        fieldPaths:
+          - metadata.labels.app
+          - spec.selector.app
+      - select:
+          kind: NetworkPolicy
+        fieldPaths:
+          - spec.podSelector.matchLabels.app
+      - select:
+          kind: Job
+        fieldPaths:
+          - metadata.labels.app
+          - spec.template.metadata.labels.app

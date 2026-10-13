@@ -18,3 +18,5 @@ resources:
   - ../../base/shared
   # Suffixed and patched: per-environment, see ./gateway/kustomization.yaml.
   - gateway
+  # Dev's own object store and its NetworkPolicy; prod has its own.
+  - rustfs

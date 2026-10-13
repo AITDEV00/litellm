@@ -92,9 +92,43 @@ non-root, read-only-rootfs container: it starts standalone, `/health` and
 all work, `mc mb --ignore-existing` succeeds and is re-runnable, and a bucket
 re-create returns success rather than an error.
 
-New manifest `deploy/base/shared/rustfs.yaml` (follows the
-`litellm-redis-password.yaml` precedent of living in shared). This is the
-object set, and it is what is applied to the cluster; `kubectl apply -k
+**One store per environment, not a shared one.** Dev and prod share the
+`adeo-litellm` namespace, so a single unsuffixed store would give both
+gateways the same StatefulSet, PVC, credentials, and buckets, and a dev sync
+could write prod's data. So the store is per-environment, exactly like the
+gateway: the base in `deploy/base/rustfs/` is prod's store verbatim, and the
+dev overlay (`deploy/overlays/dev/rustfs/`) renames everything to `-dev`,
+re-labels it, and replaces the credentials and bucket names. Dev therefore
+has its own `rustfs-dev` StatefulSet, `data-rustfs-dev-0` PVC,
+`litellm-rustfs-credentials-dev` Secret, and `litellm-client-mirror-dev` /
+`litellm-logs-dev` buckets, and a `rustfs-dev` NetworkPolicy that admits only
+`litellm-proxy-dev` and the dev store's own pods. Prod's is the symmetric
+shape without the suffix.
+
+The label handling is the subtle part, and the reason a plain `nameSuffix` is
+not enough:
+
+- `nameSuffix` renames objects but rewrites no label or selector, so on its
+  own the dev StatefulSet would still carry and select `app: rustfs` (prod's
+  value) and cross-select prod's pods in the shared namespace.
+- A `labels` transformer cannot fix it, because it would also rewrite the
+  NetworkPolicy's ingress `from` podSelector to the store's own label and
+  break the allow rule (verified: `from` ended up `rustfs-dev`, allowing only
+  the store to reach itself).
+- So the store's label is spread by a kustomize `replacements` to exactly the
+  sites that carry it (the StatefulSet and Service labels/selectors, the
+  NetworkPolicy `podSelector`, and the bootstrap Job's own label), and the
+  NetworkPolicy's `from` gateway label is patched per environment. The store
+  and its bootstrap Job share one label, so one `from` rule admits both.
+
+The dev parity test pins all of this: each prod store object must have a
+suffixed dev counterpart, the dev store and Service must carry the dev label,
+the credentials and bucket names must differ, and the NetworkPolicy must
+select its own environment's store and gateway.
+
+New manifests: the base store in `deploy/base/rustfs/rustfs.yaml` and the
+dev-only overrides in `deploy/overlays/dev/rustfs/`. This is the object set,
+and it is what is applied to the cluster; `kubectl apply -k
 deploy/overlays/dev` is the only write path, so nothing here is created by
 hand.
 

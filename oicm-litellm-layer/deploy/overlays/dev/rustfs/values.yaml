@@ -1,0 +1,58 @@
+# Everything about the dev object store that differs from prod, in one file:
+# dev's own credentials and its own bucket names, so dev cannot write prod's
+# buckets. The base carries the prod values, the same way the gateway base
+# carries the prod master key. A strategic merge patch only replaces the
+# fields listed here; everything else comes from the base.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-rustfs-credentials
+  namespace: adeo-litellm
+stringData:
+  access-key: Ub2gkxRC2mxSwPulOEja
+  secret-key: PU7AxsqD7N49djkythpOy1CQUhXXG1NKK609AeIM
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+    : "${RUSTFS_ENDPOINT_URL:?}"
+    : "${RUSTFS_ACCESS_KEY:?}"
+    : "${RUSTFS_SECRET_KEY:?}"
+
+    i=0
+    until mc alias set rustfs "$RUSTFS_ENDPOINT_URL" "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" >/dev/null 2>&1; do
+      i=$((i + 1))
+      if [ "$i" -ge 30 ]; then
+        echo "rustfs not reachable at $RUSTFS_ENDPOINT_URL after 30 attempts" >&2
+        exit 1
+      fi
+      echo "waiting for rustfs (attempt $i)"
+      sleep 2
+    done
+
+    for bucket in litellm-client-mirror-dev litellm-logs-dev; do
+      mc mb --ignore-existing "rustfs/$bucket"
+    done
+    mc ls rustfs
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm
+spec:
+  template:
+    spec:
+      containers:
+        - name: mc
+          env:
+            # Point at the DEV store, not the base's prod service name.
+            - name: RUSTFS_ENDPOINT_URL
+              value: "http://rustfs-dev.adeo-litellm.svc.cluster.local:9000"

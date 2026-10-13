@@ -17,6 +17,7 @@ Run with the controller's test extra:
 from __future__ import annotations
 
 import base64
+import re
 import subprocess
 from pathlib import Path
 from typing import Final
@@ -36,19 +37,12 @@ _DEV_SUFFIX: Final = "-dev"
 # Objects both environments share on purpose, so they must render byte-identical
 # and must NOT be suffixed. A dev-only edit to one of these would change prod.
 #
-# The RustFS object store and its bucket-bootstrap Job are shared for the same
-# reason as the hooks ConfigMap: there is one store, both gateways read it, and
-# its NetworkPolicy names both pod labels. A per-environment copy would give dev
-# its own store and silently break that.
+# Only the genuinely shared secrets and config live here. The RustFS object
+# store is NOT shared: it is per-environment, so dev renders it suffixed and is
+# checked by the rustfs-specific tests below, not by these shared lists.
 _SHARED_UNSUFFIXED: Final = (
     "ConfigMap/litellm-hooks",
     "Secret/litellm-redis-password",
-    "Secret/litellm-rustfs-credentials",
-    "ConfigMap/litellm-rustfs-bootstrap",
-    "Job/litellm-rustfs-bootstrap",
-    "Service/rustfs",
-    "StatefulSet/rustfs",
-    "NetworkPolicy/rustfs",
 )
 
 # Env keys whose value is expected to differ, with the reason. Anything else that
@@ -84,6 +78,24 @@ _PROD_ONLY_ENV_VARS: Final = frozenset({"DATABASE_URL"})
 # to the prod database, which is what happened before this was deleted. Dev
 # reads CNPG's own `adeo-litellm-postgres-dev-app` Secret instead.
 _PROD_ONLY_OBJECTS: Final = frozenset({"Secret/litellm-db-credentials"})
+
+# The RustFS object store is per-environment, so its objects come in a prod and
+# a dev copy whose names differ by `-dev` and whose labels, credentials, and
+# buckets are scoped to their own environment. These sets drive the checks that
+# the split stays real and never leaks a prod value into dev.
+_STORE_OBJECT_SETS: Final = {
+    "StatefulSet/rustfs": "rustfs-dev",
+    "Service/rustfs": "rustfs-dev",
+    "NetworkPolicy/rustfs": "rustfs-dev",
+    "Secret/litellm-rustfs-credentials": "rustfs-dev",
+    "ConfigMap/litellm-rustfs-bootstrap": "rustfs-dev",
+    "Job/litellm-rustfs-bootstrap": "rustfs-dev",
+}
+
+# Bucket names per environment. Dev uses its own so a dev sync cannot write a
+# prod bucket.
+_PROD_BUCKETS: Final = ("litellm-client-mirror", "litellm-logs")
+_DEV_BUCKETS: Final = ("litellm-client-mirror-dev", "litellm-logs-dev")
 
 # The Secret CNPG creates for the dev cluster. It is not part of the kustomize
 # render because the operator owns it, so it is named here to assert what dev
@@ -198,6 +210,60 @@ def test_shared_objects_are_identical(prod: dict[str, dict], dev: dict[str, dict
         assert key in prod, f"{key} must be declared in prod"
         assert key in dev, f"{key} must be shared into dev unsuffixed"
         assert prod[key] == dev[key], f"{key} differs between prod and dev"
+
+
+def test_rustfs_store_is_per_environment(prod: dict[str, dict], dev: dict[str, dict]):
+    """The object store must be a dev/prod pair, not a shared one.
+
+    Dev and prod share one namespace, so a single unsuffixed store would give
+    both environments the same StatefulSet, PVC, credentials, and buckets. Each
+    prod store object must have a suffixed dev counterpart carrying the store's
+    own dev label, and the dev credentials and buckets must differ from prod's,
+    so dev cannot write prod's buckets.
+    """
+    for key, label in _STORE_OBJECT_SETS.items():
+        kind, name = key.split("/", 1)
+        assert key in prod, f"prod must declare {key}"
+        dev_key = f"{kind}/{name}{_DEV_SUFFIX}"
+        assert dev_key in dev, f"dev must declare its own store object {dev_key}"
+        assert dev_key != key, "the dev store object must not collide with prod's"
+        # The store's StatefulSet and Service must carry and select the store's
+        # own label so they cannot select prod's pods. The NetworkPolicy's own
+        # label is irrelevant; what it SELECTS is checked by the next test.
+        if kind in ("StatefulSet", "Service"):
+            own = (dev[dev_key].get("metadata") or {}).get("labels") or {}
+            assert own.get("app") == label, (
+                f"{dev_key} must carry app={label!r} so it cannot select prod's pods, "
+                f"got {own.get('app')!r}"
+            )
+    dev_creds = _secret_value(dev["Secret/litellm-rustfs-credentials-dev"], "access-key")
+    prod_creds = _secret_value(prod["Secret/litellm-rustfs-credentials"], "access-key")
+    assert dev_creds and prod_creds and dev_creds != prod_creds, (
+        "dev and prod must hold different RustFS credentials"
+    )
+    dev_script = dev["ConfigMap/litellm-rustfs-bootstrap-dev"]["data"]["bootstrap.sh"]
+    prod_script = prod["ConfigMap/litellm-rustfs-bootstrap"]["data"]["bootstrap.sh"]
+
+    def _has_bucket(script: str, bucket: str) -> bool:
+        # Whole-word match: `litellm-client-mirror` must not match inside
+        # `litellm-client-mirror-dev`.
+        return re.search(rf"(?<![\w-]){re.escape(bucket)}(?![\w-])", script) is not None
+
+    for bucket in _DEV_BUCKETS:
+        assert _has_bucket(dev_script, bucket), f"dev bootstrap must create its own bucket {bucket}"
+        assert not _has_bucket(prod_script, bucket), f"prod bootstrap must not touch dev bucket {bucket}"
+    for bucket in _PROD_BUCKETS:
+        assert not _has_bucket(dev_script, bucket), f"dev bootstrap must not touch prod bucket {bucket}"
+        assert _has_bucket(prod_script, bucket), f"prod bootstrap must create its own bucket {bucket}"
+    # The store's NetworkPolicy must select its own environment's store and
+    # allow only that environment's gateway plus the store's own (store + Job)
+    # pods, never the other environment's.
+    np = dev["NetworkPolicy/rustfs-dev"]["spec"]
+    assert np["podSelector"]["matchLabels"]["app"] == "rustfs-dev"
+    allowed = {src["podSelector"]["matchLabels"]["app"] for src in np["ingress"][0]["from"]}
+    assert allowed == {"litellm-proxy-dev", "rustfs-dev"}, (
+        f"dev store policy must allow only dev pods, got {allowed}"
+    )
 
 
 def test_deployment_env_keys_match(prod: dict[str, dict], dev: dict[str, dict]):
@@ -387,7 +453,8 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
     and `litellm-redis-password` Secret are pulled in one level up and are
     deliberately unsuffixed and unlabeled, so they are not part of this contract.
     """
-    gateway = {key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX)}
+    store_names = {f"{k}/{n}{_DEV_SUFFIX}" for k, n in (s.split("/", 1) for s in _STORE_OBJECT_SETS)}
+    gateway = {key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX) and key not in store_names}
     assert gateway, "expected the suffixed gateway objects in the dev render"
     for key, doc in gateway.items():
         own = (doc.get("metadata") or {}).get("labels") or {}

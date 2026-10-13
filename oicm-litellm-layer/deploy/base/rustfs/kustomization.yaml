@@ -1,0 +1,9 @@
+# The per-environment object store. Prod applies this verbatim (base names, the
+# `app: rustfs` label). Dev renders it from `deploy/overlays/dev/rustfs`, which
+# renames everything to `-dev` and rewrites the `app` label, so the two stores
+# never share a name or a pod label in the one `adeo-litellm` namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - rustfs.yaml

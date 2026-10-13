@@ -74,11 +74,16 @@ Deployed in `adeo-litellm` alongside the gateway, Redis, and Postgres:
   deployment; the class is referenced by name. It was chosen over the cluster
   default `longhorn-crypto-retain` so a deleted StatefulSet does not leak its
   volume.
-- The manifest is `deploy/base/shared/rustfs.yaml`, shared by both overlays
-  unsuffixed (one store, both gateways read it), and is the single write
-  path: nothing about the store is created by hand. See the idempotency notes
-  in [implementation.md](implementation.md) Phase 1 for the re-apply
-  semantics, including the Job-template immutability caveat.
+- **One store per environment, not shared.** Dev and prod live in the same
+  `adeo-litellm` namespace, so a single store would let a dev sync write
+  prod's buckets. Dev runs `rustfs-dev` (own StatefulSet, PVC, credentials
+  `litellm-rustfs-credentials-dev`, buckets `litellm-client-mirror-dev` and
+  `litellm-logs-dev`, and a `rustfs-dev` NetworkPolicy admitting only the
+  dev gateway and the dev store's pods); prod runs the symmetric unsuffixed
+  set. The base is prod's store, the dev overlay renames, re-labels, and
+  re-keys it via `replacements` (a `labels` transformer cannot be used: it
+  would rewrite the NetworkPolicy's `from` selector and break the allow
+  rule). The parity test pins that the two stay genuinely separate.
 
 Bucket creation: a one-shot Job at bootstrap creates both buckets with the
 `mc` client (Harbor's

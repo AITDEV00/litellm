@@ -1,9 +1,17 @@
 ---
 # RustFS object store for the client-distribution mirror and (later) S3 logging.
 #
-# Shared by both environments without a name suffix, like `litellm-hooks` and
-# `litellm-redis-password`: there is one store, both gateways read it, and the
-# NetworkPolicy below names both pod labels. See docs/client-distribution/rustfs.md.
+# The base here is the PROD store, verbatim. Dev renders it from
+# `deploy/overlays/dev/rustfs`, which renames the objects to `-dev`, rewrites
+# the `app` label, replaces the credentials and bucket names with dev's own,
+# and adds its own NetworkPolicy, so dev and prod have fully separate stores
+# in the one `adeo-litellm` namespace. The label uniqueness stops the two
+# stores' pods from cross-selecting each other.
+#
+# The NetworkPolicy is deliberately NOT here. The overlay `labels` transformer
+# rewrites `podSelector` (good) but would also rewrite the ingress `from`
+# podSelector to the store's own label (broken: it would allow only the store
+# to reach itself). It lives as an explicit per-overlay file instead.
 #
 # Everything here was verified against the pinned image (registry.adeoaiengine
 # .ecouncil.ae/rustfs/rustfs:1.0.1): standalone start, /health and /health/ready
@@ -140,10 +148,10 @@ spec:
 # duplicate-bucket response is success too, so re-applying the manifest is safe.
 #
 # Caveat: a Job's `spec.template` is immutable, so if the script below changes
-# an apply fails with "field is immutable". Delete the Job first
-# (`kubectl -n adeo-litellm delete job litellm-rustfs-bootstrap`) and re-apply;
-# `ttlSecondsAfterFinished` then reaps the completed Job so that delete is not
-# needed on a routine re-apply where the script is unchanged.
+# an apply fails with "field is immutable". Delete the Job first (the suffixed
+# name, e.g. `kubectl -n adeo-litellm delete job litellm-rustfs-bootstrap-dev`)
+# and re-apply; `ttlSecondsAfterFinished` then reaps the completed Job so that
+# delete is not needed on a routine re-apply where the script is unchanged.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -179,14 +187,17 @@ metadata:
   name: litellm-rustfs-bootstrap
   namespace: adeo-litellm
   labels:
-    app: litellm-rustfs-bootstrap
+    app: rustfs
 spec:
   backoffLimit: 6
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
+      # The store's own label, so the NetworkPolicy's single `app: rustfs` rule
+      # admits both the store and this Job. The dev overlay's `replacements`
+      # rewrites it to `rustfs-dev`, so dev's Job carries the dev store label.
       labels:
-        app: litellm-rustfs-bootstrap
+        app: rustfs
     spec:
       restartPolicy: Never
       securityContext:
@@ -204,6 +215,8 @@ spec:
             - /bin/sh
             - /scripts/bootstrap.sh
           env:
+            # Base value is prod's service name; the dev overlay's values patch
+            # rewrites this to the dev service so the Job talks to its own store.
             - name: RUSTFS_ENDPOINT_URL
               value: "http://rustfs.adeo-litellm.svc.cluster.local:9000"
             - name: RUSTFS_ACCESS_KEY
@@ -229,8 +242,12 @@ spec:
           configMap:
             name: litellm-rustfs-bootstrap
 ---
-# The first NetworkPolicy in this namespace. Only the gateway pods (prod and dev
-# labels) and the bootstrap Job may reach the S3 API; everything else is denied.
+# The ingress policy lives in the base, but the overlay does NOT use a `labels`
+# transformer on it: that would rewrite the ingress `from` podSelector to the
+# store's own label and break the allow rule. Instead the overlay's
+# `replacements` sets only the `podSelector.matchLabels.app` (the selector
+# naming which store this policy protects), leaving the gateway labels below
+# untouched. Dev then patches its `from` labels to its own gateway's.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -247,12 +264,12 @@ spec:
         - podSelector:
             matchLabels:
               app: litellm-proxy
+        # The store's own label. The store pod and its bootstrap Job both carry
+        # it, so this one rule admits the Job without naming a per-environment
+        # Job label that the overlay's suffix would not rewrite.
         - podSelector:
             matchLabels:
-              app: litellm-proxy-dev
-        - podSelector:
-            matchLabels:
-              app: litellm-rustfs-bootstrap
+              app: rustfs
       ports:
         - protocol: TCP
           port: 9000

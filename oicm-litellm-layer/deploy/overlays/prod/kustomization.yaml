@@ -11,3 +11,4 @@ kind: Kustomization
 resources:
   - ../../base/shared
   - ../../base/gateway
+  - ../../base/rustfs
