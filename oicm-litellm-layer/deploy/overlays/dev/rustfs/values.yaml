@@ -42,44 +42,6 @@ data:
     done
     mc ls rustfs
 ---
-# Enable the console on dev only (prod keeps it off). The console serves on
-# port 9001 alongside the S3 API on 9000.
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: rustfs
-  namespace: adeo-litellm
-spec:
-  template:
-    spec:
-      containers:
-        - name: rustfs
-          env:
-            - name: RUSTFS_CONSOLE_ENABLE
-              value: "true"
-            - name: RUSTFS_CONSOLE_ADDRESS
-              value: "0.0.0.0:9001"
-          ports:
-            - name: endpoint
-              containerPort: 9000
-            - name: console
-              containerPort: 9001
----
-# Expose the console port on the Service alongside the S3 API.
-apiVersion: v1
-kind: Service
-metadata:
-  name: rustfs
-  namespace: adeo-litellm
-spec:
-  ports:
-    - name: endpoint
-      port: 9000
-      targetPort: endpoint
-    - name: console
-      port: 9001
-      targetPort: console
----
 apiVersion: batch/v1
 kind: Job
 metadata:

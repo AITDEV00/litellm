@@ -77,7 +77,9 @@ spec:
             - name: RUSTFS_ADDRESS
               value: "0.0.0.0:9000"
             - name: RUSTFS_CONSOLE_ENABLE
-              value: "false"
+              value: "true"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: "0.0.0.0:9001"
             # The image bakes RUSTFS_OBS_LOG_DIRECTORY=/logs, and with a
             # read-only root filesystem it cannot create that directory, which
             # is a fatal startup error. An explicit empty value routes logs to
@@ -87,6 +89,8 @@ spec:
           ports:
             - name: endpoint
               containerPort: 9000
+            - name: console
+              containerPort: 9001
           readinessProbe:
             httpGet:
               path: /health/ready
@@ -141,6 +145,9 @@ spec:
     - name: endpoint
       port: 9000
       targetPort: endpoint
+    - name: console
+      port: 9001
+      targetPort: console
 ---
 # Bucket bootstrap. RustFS has no MINIO_DEFAULT_BUCKETS equivalent, so this Job
 # is the only way the buckets get created, and it is idempotent:
