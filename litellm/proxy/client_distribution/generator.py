@@ -11,6 +11,10 @@ with three origin modifications (see docs/client-distribution/installer-script.m
 2. ``uv tool install`` uses ``--no-index --find-links`` against the gateway
    wheelhouse, never PyPI.
 3. After install, ``lite config set base_url`` pre-configures the gateway.
+
+The template can be overridden from the object store so it can be iterated
+on without a gateway rebuild. The baked-in ``_TEMPLATE`` is the fallback
+when the store copy is missing or unreadable.
 """
 
 from __future__ import annotations
@@ -234,16 +238,31 @@ class MirrorManifest:
     python_version: str
 
 
-def render_install_script(manifest: MirrorManifest, base_url: str) -> str:
+def render_install_script(
+    manifest: MirrorManifest,
+    base_url: str,
+    template: str = _TEMPLATE,
+) -> str:
     """Render the /install script from the manifest and gateway base URL.
 
     Pure function: same inputs always produce the same output, no I/O.
+    ``template`` defaults to the baked-in version; pass a store-fetched
+    string to override it.
     """
-    script: str = _TEMPLATE
+    script: str = template
     script = script.replace(_PLACEHOLDER_BASE_URL, base_url)
     script = script.replace(_PLACEHOLDER_UV_VERSION, manifest.uv_version)
     script = script.replace(_PLACEHOLDER_LITELLM_CLI_VERSION, manifest.litellm_cli_version)
     return script
+
+
+def get_template() -> str:
+    """Return the current install-script template.
+
+    This is the pure-function entry point used by tests. For the store-aware
+    version, see ``routes._fetch_template``.
+    """
+    return _TEMPLATE
 
 
 def manifest_from_json(raw: str) -> MirrorManifest:

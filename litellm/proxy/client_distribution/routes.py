@@ -125,6 +125,30 @@ def _fetch_manifest(config: RustFSConfig, s3: object) -> MirrorManifest:
         ) from exc
 
 
+_TEMPLATE_KEY: Final = "templates/install.sh.tmpl"
+
+
+def _fetch_template(config: RustFSConfig, s3: object) -> str:
+    """Fetch the install-script template from the store.
+
+    Falls back to the baked-in template if the store copy is missing or
+    unreadable, so a broken store never breaks /install.
+    """
+    try:
+        response: dict[str, object] = s3.get_object(Bucket=config.bucket, Key=_TEMPLATE_KEY)  # type: ignore[union-attr]
+        body: object = response["Body"]
+        template: str = body.read().decode("utf-8")  # type: ignore[union-attr]
+        if not template.strip():
+            raise ValueError("template is empty")
+        verbose_proxy_logger.info("client_distribution: using template from store (%s)", _TEMPLATE_KEY)
+        return template
+    except Exception:
+        verbose_proxy_logger.info("client_distribution: using baked-in template (store copy not found)")
+        from litellm.proxy.client_distribution.generator import get_template
+
+        return get_template()
+
+
 # ---------------------------------------------------------------------------
 # Admin routes (PROXY_ADMIN only). Must be registered BEFORE the catch-all
 # GET /install/{path:path} so FastAPI matches them first.
@@ -351,9 +375,10 @@ async def install_script(request: Request) -> Response:
     base_url: str = _get_base_url(request)
     try:
         manifest: MirrorManifest = await asyncio.to_thread(_fetch_manifest, config, s3)
+        template: str = await asyncio.to_thread(_fetch_template, config, s3)
     except HTTPException:
         raise
-    script: str = render_install_script(manifest, base_url)
+    script: str = render_install_script(manifest, base_url, template=template)
     return Response(content=script, media_type="application/x-sh")
 
 

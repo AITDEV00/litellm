@@ -248,6 +248,14 @@ if [ "$push" -eq 1 ]; then
     push_artifact "pypi/$(basename "$f")" "$f"
   done
 
+  # Push the install-script template if it has been modified locally.
+  # The template is what /install renders from; iterating on it does not
+  # require a gateway rebuild, only an admin PUT.
+  TEMPLATE_LOCAL="${SCRIPT_DIR}/install.sh.tmpl"
+  if [ -f "$TEMPLATE_LOCAL" ]; then
+    push_artifact "templates/install.sh.tmpl" "$TEMPLATE_LOCAL"
+  fi
+
   # Push manifest last (the commit point)
   log "=== Phase 7: publish manifest ==="
   http_code="$(curl -sS -o /dev/null -w '%{http_code}' \
