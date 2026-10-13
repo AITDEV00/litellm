@@ -16,7 +16,8 @@ from pathlib import Path
 
 UV_VERSION = "0.10.9"
 LITELLM_CLI_VERSION = "1.102.0"
-PYTHON_VERSION = "3.13.9"
+PYTHON_VERSION = "3.13.12"
+PYTHON_BUILD_TAG = "20260303"
 
 UV_TARGETS = [
     "x86_64-unknown-linux-gnu",
@@ -56,6 +57,7 @@ def main() -> None:
         "litellm_cli_version": LITELLM_CLI_VERSION,
         "uv_version": UV_VERSION,
         "python_version": PYTHON_VERSION,
+        "python_build_tag": PYTHON_BUILD_TAG,
         "platforms": [
             {
                 "target": t,

@@ -22,6 +22,7 @@ _MANIFEST: MirrorManifest = MirrorManifest(
     uv_version="0.10.9",
     litellm_cli_version="1.102.0",
     python_version="3.13.9",
+    python_build_tag="20251014",
     platforms=_PLATFORMS,
 )
 _BASE_URL: str = "https://litellm-dev.example.com"
@@ -71,6 +72,14 @@ def test_render_uses_mirror_for_python() -> None:
     assert "$BASE_URL/install/python" in script or f"{_BASE_URL}/install/python" in script
 
 
+def test_render_pins_exact_python_build() -> None:
+    """The managed-Python fetch must pin the exact mirrored build, not a range."""
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert 'UV_PYTHON_CPYTHON_BUILD="$PYTHON_BUILD_TAG"' in script
+    assert '--python "$PYTHON_VERSION"' in script
+    assert "--python-preference only-managed" in script
+
+
 def test_render_no_upstream_urls() -> None:
     """No upstream URL should appear in the rendered script."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
@@ -112,28 +121,41 @@ def test_render_different_base_url() -> None:
 def test_manifest_from_json_valid() -> None:
     raw: str = (
         '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", '
-        '"python_version": "3.13.9", '
+        '"python_version": "3.13.9", "python_build_tag": "20251014", '
         '"platforms": [{"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"}]}'
     )
     m: MirrorManifest = manifest_from_json(raw)
     assert m.uv_version == "0.10.9"
     assert m.litellm_cli_version == "1.102.0"
     assert m.python_version == "3.13.9"
+    assert m.python_build_tag == "20251014"
     assert m.platforms == (
         PlatformTarget(target="x86_64-unknown-linux-gnu", archive_ext="tar.gz"),
     )
 
 
 def test_manifest_from_json_platforms_optional() -> None:
-    raw: str = '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", "python_version": "3.13.9"}'
+    raw: str = (
+        '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", '
+        '"python_version": "3.13.9", "python_build_tag": "20251014"}'
+    )
     m: MirrorManifest = manifest_from_json(raw)
     assert m.platforms == ()
+
+
+def test_manifest_from_json_missing_python_build_tag() -> None:
+    raw: str = (
+        '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", '
+        '"python_version": "3.13.9"}'
+    )
+    with pytest.raises(ValueError, match="python_build_tag"):
+        manifest_from_json(raw)
 
 
 def test_manifest_from_json_platform_entry_missing_ext() -> None:
     raw: str = (
         '{"uv_version": "0.10.9", "litellm_cli_version": "1.102.0", '
-        '"python_version": "3.13.9", '
+        '"python_version": "3.13.9", "python_build_tag": "20251014", '
         '"platforms": [{"target": "x86_64-unknown-linux-gnu"}]}'
     )
     with pytest.raises(ValueError, match="archive_ext"):

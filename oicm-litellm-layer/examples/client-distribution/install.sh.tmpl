@@ -6,6 +6,8 @@ set -eu
 
 UV_VERSION="{{ uv_version }}"
 LITELLM_CLI_VERSION="{{ litellm_cli_version }}"
+PYTHON_VERSION="{{ python_version }}"
+PYTHON_BUILD_TAG="{{ python_build_tag }}"
 BASE_URL="{{ base_url }}"
 
 # ── colours ────────────────────────────────────────────────────────────────
@@ -100,9 +102,15 @@ else
   echo ""
   header "Installing litellm[cli] $LITELLM_CLI_VERSION..."
   echo ""
+  # Pin the exact managed Python the mirror carries. uv constructs the
+  # download URL as <mirror>/<build_tag>/<archive>, so we pin both the build
+  # tag and the version, and request the pinned interpreter rather than a
+  # range. --python-preference only-managed forces the mirror fetch (no system
+  # fallback), and --no-index keeps resolution off PyPI.
   export UV_PYTHON_INSTALL_MIRROR="$BASE_URL/install/python"
+  export UV_PYTHON_CPYTHON_BUILD="$PYTHON_BUILD_TAG"
   "$UV_BIN" tool install \
-    --python '>=3.10,<3.15' --python-preference system --force \
+    --python "$PYTHON_VERSION" --python-preference only-managed --force \
     --no-index --find-links "$BASE_URL/install/pypi" \
     "litellm[cli]==$LITELLM_CLI_VERSION" \
     || die "uv tool install failed. Check that the mirror has the wheelhouse."

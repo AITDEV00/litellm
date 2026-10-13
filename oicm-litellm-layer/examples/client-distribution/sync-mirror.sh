@@ -22,7 +22,9 @@ STAGE_DIR="${SCRIPT_DIR}/.staging"
 # Pinned versions — keep in sync with manifest.json and the gateway
 UV_VERSION="0.10.9"
 LITELLM_CLI_VERSION="1.102.0"
-PYTHON_VERSION="3.13.9"
+# 3.13.12 is the newest 3.13.x in uv 0.10.9's bundled download metadata
+# (crates/uv-python/download-metadata.json); 3.13.9 is not offered at all.
+PYTHON_VERSION="3.13.12"
 
 # Platform targets (from platform-matrix.md)
 UV_TARGETS=(
@@ -36,9 +38,9 @@ UV_TARGETS=(
   "aarch64-pc-windows-msvc"
 )
 
-# python-build-standalone tag that uv 0.10.9 pins
-# (from https://github.com/astral-sh/uv/blob/0.10.9/crates/uv-python/download-metadata.json)
-PYTHON_BUILD_STANDALONE_TAG="20251014"
+# python-build-standalone tag that carries cpython 3.13.12 per uv 0.10.9's
+# bundled metadata (crates/uv-python/download-metadata.json)
+PYTHON_BUILD_STANDALONE_TAG="20260303"
 PYTHON_BUILD_STANDALONE_RELEASE="cpython-${PYTHON_VERSION}+${PYTHON_BUILD_STANDALONE_TAG}"
 
 # uv installer script
@@ -177,10 +179,10 @@ if [ "$fetch" -eq 1 ]; then
   PBS_DIR="${STAGE_DIR}/python"
   mkdir -p "$PBS_DIR"
 
-  # For each platform target, download the install_only archive.
-  # All platforms use .tar.gz for install_only (verified against the release).
+  # For each platform target, download the install_only_stripped archive that
+  # uv's managed-Python downloader requests (per its download metadata).
   for target in "${UV_TARGETS[@]}"; do
-    pbs_file="cpython-${PYTHON_VERSION}+${PYTHON_BUILD_STANDALONE_TAG}-${target}-install_only.tar.gz"
+    pbs_file="cpython-${PYTHON_VERSION}+${PYTHON_BUILD_STANDALONE_TAG}-${target}-install_only_stripped.tar.gz"
     pbs_url="${GH_PBS_RELEASE}/${pbs_file}"
     download "$pbs_url" "${PBS_DIR}/${pbs_file}"
     log "  fetched: ${pbs_file}"
@@ -236,10 +238,11 @@ if [ "$push" -eq 1 ]; then
   # Push uv installer script
   push_artifact "uv/${UV_VERSION}/uv-installer.sh" "${STAGE_DIR}/uv/${UV_VERSION}/uv-installer.sh"
 
-  # Push python-build-standalone archives
+  # Push python-build-standalone archives under the build-tag prefix that
+  # uv's UV_PYTHON_INSTALL_MIRROR URL layout expects (<mirror>/<tag>/<file>).
   for f in "${PBS_DIR:-${STAGE_DIR}/python}"/*; do
     [ -f "$f" ] || continue
-    push_artifact "python/$(basename "$f")" "$f"
+    push_artifact "python/${PYTHON_BUILD_STANDALONE_TAG}/$(basename "$f")" "$f"
   done
 
   # Push wheelhouse

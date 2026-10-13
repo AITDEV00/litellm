@@ -48,6 +48,8 @@ set -eu
 
 UV_VERSION="{{ uv_version }}"
 LITELLM_CLI_VERSION="{{ litellm_cli_version }}"
+PYTHON_VERSION="{{ python_version }}"
+PYTHON_BUILD_TAG="{{ python_build_tag }}"
 BASE_URL="{{ base_url }}"
 
 # ── colours ────────────────────────────────────────────────────────────────
@@ -142,9 +144,15 @@ else
   echo ""
   header "Installing litellm[cli] $LITELLM_CLI_VERSION..."
   echo ""
+  # Pin the exact managed Python the mirror carries. uv constructs the
+  # download URL as <mirror>/<build_tag>/<archive>, so we pin both the build
+  # tag and the version, and request the pinned interpreter rather than a
+  # range. --python-preference only-managed forces the mirror fetch (no system
+  # fallback), and --no-index keeps resolution off PyPI.
   export UV_PYTHON_INSTALL_MIRROR="$BASE_URL/install/python"
+  export UV_PYTHON_CPYTHON_BUILD="$PYTHON_BUILD_TAG"
   "$UV_BIN" tool install \
-    --python '>=3.10,<3.15' --python-preference system --force \
+    --python "$PYTHON_VERSION" --python-preference only-managed --force \
     --no-index --find-links "$BASE_URL/install/pypi" \
     "litellm[cli]==$LITELLM_CLI_VERSION" \
     || die "uv tool install failed. Check that the mirror has the wheelhouse."
@@ -196,6 +204,7 @@ class MirrorManifest:
     uv_version: str
     litellm_cli_version: str
     python_version: str
+    python_build_tag: str
     platforms: tuple[PlatformTarget, ...] = field(default=())
 
     def to_context(self, base_url: str) -> dict[str, object]:
@@ -205,6 +214,7 @@ class MirrorManifest:
             "uv_version": self.uv_version,
             "litellm_cli_version": self.litellm_cli_version,
             "python_version": self.python_version,
+            "python_build_tag": self.python_build_tag,
             "platforms": self.platforms,
         }
 
@@ -249,6 +259,7 @@ def manifest_from_json(raw: str) -> MirrorManifest:
     uv_version: object = data.get("uv_version")
     cli_version: object = data.get("litellm_cli_version")
     python_version: object = data.get("python_version")
+    python_build_tag: object = data.get("python_build_tag")
 
     if not isinstance(uv_version, str) or not uv_version:
         raise ValueError("manifest missing 'uv_version'")
@@ -256,11 +267,14 @@ def manifest_from_json(raw: str) -> MirrorManifest:
         raise ValueError("manifest missing 'litellm_cli_version'")
     if not isinstance(python_version, str) or not python_version:
         raise ValueError("manifest missing 'python_version'")
+    if not isinstance(python_build_tag, str) or not python_build_tag:
+        raise ValueError("manifest missing 'python_build_tag'")
 
     return MirrorManifest(
         uv_version=uv_version,
         litellm_cli_version=cli_version,
         python_version=python_version,
+        python_build_tag=python_build_tag,
         platforms=_platforms_from_json(data.get("platforms")),
     )
 

@@ -162,6 +162,7 @@ class TestInstallScript:
                 "uv_version": "0.10.9",
                 "litellm_cli_version": "1.102.0",
                 "python_version": "3.13.9",
+                "python_build_tag": "20251014",
                 "platforms": [
                     {"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"}
                 ],
@@ -183,6 +184,7 @@ class TestInstallScript:
                 "uv_version": "0.10.9",
                 "litellm_cli_version": "1.102.0",
                 "python_version": "3.13.9",
+                "python_build_tag": "20251014",
             }
         ).encode()
         s3._store["templates/install.sh.tmpl"] = b"gateway={{ not_a_real_var }}"
