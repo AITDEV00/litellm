@@ -4,10 +4,16 @@ Status: Phase 1 done (RustFS deployed, per-environment). Phase 2 done (slice cod
 unit-tested). Phase 3 done (wired, deployed to dev, verified). Phase 4 done
 (store populated: 8 uv artifacts, 8 python archives, 77 wheels, manifest
 published; /install serves the generated script on dev). v5: the generator is
-now Jinja2-based with a structured render context and manifest schema 2 (see
-installer-script.md "Generator contract"); the harness-detection block and the
-`install_state.json` state machine were removed from the script.
-Next: Phase 5 (end-to-end validation).
+now Jinja2-based with an open render context (every manifest key is exposed to
+the template) and manifest schema 2 (see installer-script.md "Generator
+contract"); the harness-detection block and the `install_state.json` state
+machine were removed. Phase 5 done (dev e2e: clean egress-blocked container
+installs uv + lite from the mirror, logs in, and runs a real opencode turn
+through the dev gateway; re-run is a no-op; upstream hosts unreachable).
+Phase 5 surfaced and fixed two mirror bugs: the pinned Python is now 3.13.12 /
+build 20260303 / install_only_stripped (uv 0.10.9's actual metadata), and a
+PEP 503 wheelhouse index route backs `--find-links`.
+Next: Phase 6 (the one clean prod apply).
 Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),
 [rustfs.md](rustfs.md), [admin-sync.md](admin-sync.md)).
