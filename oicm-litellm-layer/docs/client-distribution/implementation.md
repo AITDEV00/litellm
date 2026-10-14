@@ -51,7 +51,8 @@ blocks above. The phase text below is the lite/uv history, retained for
 reference; the cc-switch work is tracked against the gate.
 Phase 5 surfaced and fixed two mirror bugs: the pinned Python is now 3.13.12 /
 build 20260303 / install_only_stripped (uv 0.10.9's actual metadata), and a
-PEP 503 wheelhouse index route backs `--find-links`.
+PEP 503 wheelhouse index route backed `--find-links` (since removed with the
+rest of the lite/uv tier).
 Next: Phase 6 (the one clean prod apply).
 Step-by-step build order for the v4 design
 ([PLAN.md](PLAN.md), [architecture.md](architecture.md),

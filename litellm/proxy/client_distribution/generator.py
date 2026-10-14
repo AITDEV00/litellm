@@ -4,21 +4,23 @@ Takes the mirror manifest and the gateway's public base URL, returns the
 POSIX shell script text. No FastAPI imports; this is a pure function so it
 can be unit-tested without an app instance.
 
-The template is a Jinja2 document rendered with a structured context
-(``RenderContext``), so the script can grow conditionals and loops without
-the renderer changing. Three origin modifications over upstream
-``scripts/install-cli.sh`` (see docs/client-distribution/installer-script.md):
+The template is a Jinja2 document rendered with a structured context, so the
+script can grow conditionals and loops without the renderer changing. It is
+a **generic orchestrator** (see docs/client-distribution/installer-script.md):
 
-1. uv bootstrap downloads from the gateway mirror, not astral.sh.
-2. ``uv tool install`` uses ``--no-index --find-links`` against the gateway
-   wheelhouse, never PyPI.
-3. After install, ``lite config set base_url`` pre-configures the gateway.
+1. fetch the manifest, detect the platform, install cc-switch from the
+   gateway mirror (sha256-verified against the manifest),
+2. prompt for the gateway key and validate it against ``/v1/models``,
+3. offer the manifest-declared harnesses for multi-select,
+4. per chosen harness: fetch the manifest-pinned preset, verify its sha256,
+   compose the final cc-switch config client-side with jq (never string
+   substitution), upsert the provider, and activate it.
 
 Rendering is sandboxed + strict + no-autoescape, with an **open context**:
 
-every key in the manifest is exposed to the template, plus ``base_url`` and a
-typed ``platforms`` list. Adding a manifest field makes it usable in the
-template with no code change or rebuild — only a RustFS sync.
+every key in the manifest is exposed to the template, plus ``base_url`` and
+the typed ``platforms`` / ``harnesses`` lists. Adding a manifest field makes
+it usable in the template with no code change or rebuild — only a RustFS sync.
 
 - ``StrictUndefined`` turns a reference to a key the manifest does not carry
   into a hard render error instead of a silently broken installer.

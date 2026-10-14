@@ -143,7 +143,8 @@ config file; harnesses not selected are left untouched.
 
 ## What stays untouched upstream
 
-- `litellm[cli]` package: byte-identical PyPI wheels (mirrored).
-- `uv`: byte-identical pinned release artifacts (mirrored).
+- `cc-switch`: byte-identical upstream release archives (mirrored), never rebuilt.
+- The coding harnesses themselves: installed by users through their own
+  channels; cc-switch writes their config.
 - The proxy's config, auth, model list, routing: unchanged apart from the one
   router include line the drop test pins.

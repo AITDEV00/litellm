@@ -42,14 +42,13 @@ from litellm.proxy.client_distribution.storage import (
 
 router = APIRouter(tags=["install"])
 
-# Max artifact upload size (python-build-standalone archives are ~70 MB).
+# Max artifact upload size (cc-switch archives are ~20 MB).
 _MAX_ARTIFACT_BYTES: Final = 200 * 1024 * 1024
 
 _CONTENT_TYPES: Final = {
     ".json": "application/json",
     ".tar.gz": "application/gzip",
     ".zip": "application/zip",
-    ".whl": "application/zip",
     ".sha256": "text/plain",
     ".sh": "application/x-sh",
 }
@@ -474,40 +473,6 @@ async def get_harness_preset(provider: str, harness: str, version: int) -> Respo
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="object store unreachable",
         ) from exc
-
-
-@router.get("/install/pypi")
-@router.get("/install/pypi/")
-async def get_wheelhouse_index() -> Response:
-    """Serve the wheelhouse as a PEP 503-style find-links index page.
-
-    uv's ``--find-links`` resolves the page and follows relative anchor hrefs
-    to the wheel files, so this lists the ``pypi/`` prefix and links each
-    wheel by its basename (which the catch-all ``GET /install/{path}`` then
-    serves). Registered before the catch-all so it matches first.
-    """
-    config, s3 = _get_storage()
-    try:
-        paginator: object = s3.get_paginator("list_objects_v2")  # type: ignore[union-attr]
-        wheels: list[str] = []
-        for page in paginator.paginate(Bucket=config.bucket, Prefix="pypi/"):  # type: ignore[union-attr]
-            for obj in page.get("Contents", []):  # type: ignore[union-attr]
-                name: str = obj["Key"].rsplit("/", 1)[-1]  # type: ignore[index]
-                if name.endswith(".whl"):
-                    wheels.append(name)
-    except Exception as exc:
-        verbose_proxy_logger.warning("client_distribution: wheelhouse index failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="object store unreachable",
-        ) from exc
-
-    anchors: str = "\n".join(f'    <a href="/install/pypi/{w}">{w}</a><br/>' for w in sorted(wheels))
-    html: str = (
-        "<!DOCTYPE html>\n<html>\n  <head><title>wheelhouse</title></head>\n"
-        f"  <body>\n{anchors}\n  </body>\n</html>\n"
-    )
-    return Response(content=html, media_type="text/html")
 
 
 @router.get("/install/{path:path}")

@@ -250,19 +250,14 @@ class TestGetManifest:
         assert response.status_code == 404
 
 
-class TestWheelhouseIndex:
-    def test_lists_wheels_as_find_links_page(self, app: FastAPI, s3: _FakeS3Client) -> None:
-        s3._store["pypi/litellm-1.102.0-py3-none-any.whl"] = b"wheel-a"
-        s3._store["pypi/click-8.1.7-py3-none-any.whl"] = b"wheel-b"
-        s3._store["pypi/not-a-wheel.txt"] = b"nope"
+class TestWheelhouseIndexRemoved:
+    def test_pypi_index_route_gone(self, app: FastAPI) -> None:
+        """The lite-era wheelhouse index no longer exists; the path now falls
+        through to the catch-all artifact proxy and 404s (no pypi/ objects)."""
         client: TestClient = TestClient(app)
         for path in ("/install/pypi", "/install/pypi/"):
             response = client.get(path)
-            assert response.status_code == 200
-            assert "text/html" in response.headers["content-type"]
-            assert '/install/pypi/litellm-1.102.0-py3-none-any.whl' in response.text
-            assert '/install/pypi/click-8.1.7-py3-none-any.whl' in response.text
-            assert "not-a-wheel" not in response.text
+            assert response.status_code == 404
 
 
 class TestHarnessPreset:
@@ -296,17 +291,19 @@ class TestHarnessPreset:
 
 
 class TestGetArtifact:
-    def test_serves_wheel(self, app: FastAPI, s3: _FakeS3Client) -> None:
-        wheel_content: bytes = b"PK\x03\x04fake-wheel-bytes"
-        s3._store["pypi/litellm-1.102.0-py3-none-any.whl"] = wheel_content
+    def test_serves_artifact(self, app: FastAPI, s3: _FakeS3Client) -> None:
+        artifact_content: bytes = b"PK\x03\x04fake-archive-bytes"
+        s3._store["cc-switch/5.11.1/cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz"] = artifact_content
         client: TestClient = TestClient(app)
-        response = client.get("/install/pypi/litellm-1.102.0-py3-none-any.whl")
+        response = client.get(
+            "/install/cc-switch/5.11.1/cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz"
+        )
         assert response.status_code == 200
-        assert response.content == wheel_content
+        assert response.content == artifact_content
 
     def test_404_for_missing(self, app: FastAPI) -> None:
         client: TestClient = TestClient(app)
-        response = client.get("/install/uv/0.10.9/nonexistent.tar.gz")
+        response = client.get("/install/cc-switch/5.11.1/nonexistent.tar.gz")
         assert response.status_code == 404
 
     def test_traversal_rejected(self, app: FastAPI) -> None:
@@ -327,9 +324,9 @@ class TestAdminPutArtifact:
     def test_upload_and_idempotent(self, admin_app: FastAPI) -> None:
         client: TestClient = TestClient(admin_app)
 
-        content: bytes = b"fake-wheel-content"
+        content: bytes = b"fake-preset-content"
         response = client.put(
-            "/install/admin/v1/artifact/pypi/test-1.0-py3-none-any.whl",
+            "/install/admin/v1/artifact/providers/oicm/open-code/v2.json",
             content=content,
             headers={"content-type": "application/octet-stream"},
         )
@@ -341,7 +338,7 @@ class TestAdminPutArtifact:
 
         # Second identical upload -> unchanged
         response2 = client.put(
-            "/install/admin/v1/artifact/pypi/test-1.0-py3-none-any.whl",
+            "/install/admin/v1/artifact/providers/oicm/open-code/v2.json",
             content=content,
             headers={"content-type": "application/octet-stream"},
         )
@@ -351,11 +348,11 @@ class TestAdminPutArtifact:
 
 class TestAdminDeleteArtifact:
     def test_delete_unreferenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
-        s3._store["pypi/old-wheel.whl"] = b"old"
+        s3._store["providers/oicm/open-code/v9.json"] = b"old"
         client: TestClient = TestClient(admin_app)
-        response = client.delete("/install/admin/v1/artifact/pypi/old-wheel.whl")
+        response = client.delete("/install/admin/v1/artifact/providers/oicm/open-code/v9.json")
         assert response.status_code == 200
-        assert "pypi/old-wheel.whl" not in s3._store
+        assert "providers/oicm/open-code/v9.json" not in s3._store
 
     def test_delete_rejects_manifest_referenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         key: str = "cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"
@@ -381,7 +378,7 @@ class TestAdminDeleteArtifact:
 class TestAdminInventory:
     def test_lists_objects(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = b"{}"
-        s3._store["pypi/a.whl"] = b"aaa"
+        s3._store["providers/oicm/open-code/v1.json"] = b"aaa"
         client: TestClient = TestClient(admin_app)
         response = client.get("/install/admin/v1/inventory")
         assert response.status_code == 200
@@ -389,7 +386,7 @@ class TestAdminInventory:
         assert data["count"] == 2
         keys: list[str] = [o["key"] for o in data["objects"]]
         assert "manifest.json" in keys
-        assert "pypi/a.whl" in keys
+        assert "providers/oicm/open-code/v1.json" in keys
 
 
 class TestAdminPutManifest:
