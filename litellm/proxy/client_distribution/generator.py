@@ -182,19 +182,54 @@ umask 077
 MODELS_JSON="$(jq -c '[.data[].id] | map(select(test("claude|gpt|qwen|glm";"i"))) | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
 DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0] // empty' 2>/dev/null || true)"
 
+# Write the provider's settings_config into cc-switch's store, add-or-update.
+# cc-switch's `provider delete` uses an inquire::Confirm prompt that reads the
+# TTY directly (never scriptable headless) and `provider edit` takes no config
+# flags, so there is no CLI update path for a changed config. We add fresh via
+# `provider add`; when the id already exists we UPDATE the settings_config row
+# in cc-switch's SQLite DB directly (PK is (id, app_type)). `use` then
+# re-points the harness and rewrites its native config from the store.
+upsert_provider() {
+  local harness="$1" config_file="$2"
+  local db="$HOME/.cc-switch/cc-switch.db"
+  # cc-switch stores app_type without the dash (open-code -> opencode).
+  local app="$(printf '%s' "$harness" | tr -d '-')"
+  if "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID "; then
+    command -v sqlite3 >/dev/null 2>&1 \
+      || die "$harness is already configured and updating it needs sqlite3; install sqlite3 or remove the provider in the cc-switch TUI"
+    # Build the SQL as a file to avoid argv quoting issues with the JSON body:
+    # compact single-line JSON, single quotes doubled for the SQL literal.
+    jq -c . "$config_file" | sed "s/'/''/g" > "$TMP/cfg.txt"
+    { printf "UPDATE providers SET settings_config='"; cat "$TMP/cfg.txt"; printf "' WHERE id='%s' AND app_type='%s';\n" "$PROVIDER_ID" "$app"; } > "$TMP/upd.sql"
+    sqlite3 "$db" < "$TMP/upd.sql" \
+      || die "failed to update $PROVIDER_ID for $harness"
+    rm -f "$TMP/cfg.txt" "$TMP/upd.sql"
+  else
+    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --config-file "$config_file" \
+      >/dev/null 2>&1 || die "provider add failed for $harness"
+  fi
+}
+
 configure_harness() {
   local harness="$1" mode="$2" preset_path="$3" preset_sha="$4"
   header "Configuring $harness..."
   "$CCS_BIN" config backup >/dev/null 2>&1 || true
-  "$CCS_BIN" provider delete "$PROVIDER_ID" --app "$harness" >/dev/null 2>&1 || true
 
   if [ "$mode" = "switch" ]; then
-    # Field-mode harnesses take scalar flags; no preset file needed.
-    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
-      --base-url "$BASE_URL" --api-key "$API_KEY" ${DEFAULT_MODEL:+--model "$DEFAULT_MODEL"} \
-      || die "provider add failed for $harness"
+    # Field-mode harnesses: build the settings_config cc-switch would store
+    # (env block with base URL + auth token + model) and upsert it.
+    jq -n \
+      --arg url "$BASE_URL" \
+      --arg key "$API_KEY" \
+      --arg model "$DEFAULT_MODEL" \
+      '{env:({ANTHROPIC_BASE_URL:$url, ANTHROPIC_AUTH_TOKEN:$key}
+         + (if $model != "" then {ANTHROPIC_MODEL:$model} else {} end))}' \
+      > "$TMP/provider.json" || die "failed to compose config for $harness"
+    upsert_provider "$harness" "$TMP/provider.json"
+    rm -f "$TMP/provider.json"
   else
-    # Additive harnesses take a --config-file built from the pinned preset.
+    # Additive harnesses take a config built from the pinned preset.
     curl -fsSL "$BASE_URL/install/$preset_path" -o "$TMP/preset.json" \
       || die "failed to fetch preset for $harness: $BASE_URL/install/$preset_path"
     echo "$preset_sha  $TMP/preset.json" | sha256sum -c - >/dev/null \
@@ -212,13 +247,13 @@ configure_harness() {
       "$TMP/preset.json" > "$TMP/provider.json" \
       || die "failed to compose config for $harness"
 
-    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
-      --config-file "$TMP/provider.json" \
-      || die "provider add failed for $harness"
+    upsert_provider "$harness" "$TMP/provider.json"
     rm -f "$TMP/preset.json" "$TMP/provider.json"
   fi
 
-  "$CCS_BIN" use "$PROVIDER_ID" --app "$harness" \
+  # use is the real reconcile gate: it points the harness at our provider and
+  # writes the harness's native config file. This is what must succeed.
+  "$CCS_BIN" use "$PROVIDER_ID" --app "$harness" </dev/null \
     || die "failed to activate $PROVIDER_ID for $harness"
   success "$harness configured"
 }
@@ -228,7 +263,9 @@ for HARNESS in $CHOSEN; do
   MODE="$(jq -r --arg h "$HARNESS" '.harnesses[$h].mode // "additive"' "$TMP/manifest.json")"
   PPATH="$(jq -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
   PSHA="$(jq -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
-  configure_harness "$HARNESS" "$MODE" "$PPATH" "$PSHA"
+  # Detach stdin: curl/jq/cc-switch in the configure step would otherwise
+  # consume the piped harness picks and stall waiting for input.
+  configure_harness "$HARNESS" "$MODE" "$PPATH" "$PSHA" </dev/null
 done
 
 # ── done ───────────────────────────────────────────────────────────────────
