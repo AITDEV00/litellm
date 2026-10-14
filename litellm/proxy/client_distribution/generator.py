@@ -59,7 +59,7 @@ _TEMPLATE: Final = r"""#!/usr/bin/env bash
 set -eu
 
 CC_SWITCH_VERSION="{{ cc_switch_version }}"
-BASE_URL="{{ base_url }}"
+BASE_URL="${ADEO_LITELLM_BASE_URL:-{{ base_url }}}"
 PROVIDER_NAME="ADEO LiteLLM"
 INSTALL_DIR="${CC_SWITCH_INSTALL_DIR:-$HOME/.local/bin}"
 
