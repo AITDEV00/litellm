@@ -29,6 +29,7 @@ def _make_mock_tts_response():
 
     inner = MagicMock()
     inner.aiter_bytes = _aiter_bytes
+    inner.aclose = AsyncMock()
     inner._hidden_params = {}
     inner.response = httpx.Response(status_code=200, headers={"content-type": "audio/mpeg"})
 

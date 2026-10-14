@@ -11970,6 +11970,7 @@ class BaseLLMHTTPHandler:
                     headers=headers,
                     json=request_data["dict_body"],
                     timeout=timeout,
+                    stream=request_data["dict_body"].get("stream") is True,
                 )
             elif "ssml_body" in request_data:
                 response = sync_httpx_client.post(
@@ -12075,6 +12076,7 @@ class BaseLLMHTTPHandler:
                     headers=headers,
                     json=request_data["dict_body"],
                     timeout=timeout,
+                    stream=request_data["dict_body"].get("stream") is True,
                 )
             elif "ssml_body" in request_data:
                 response = await async_httpx_client.post(

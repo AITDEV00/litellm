@@ -64,9 +64,10 @@ Returns **WAV audio** (16-bit mono 16 kHz PCM). Save the binary response to a fi
 | `model` | yes | | Must be `hamsa-tts-new` |
 | `input` | yes | | Text to synthesize (Arabic or English) |
 | `voice` | yes | | Speaker name — see voice list below |
-| `response_format` | no | `wav` | `wav` |
+| `response_format` | no | `wav` | `wav` or `pcm` (with `stream`) |
 | `speed` | no | `1.0` | `0.5` – `2.0` |
 | `expressiveness` | no | `1.0` | `0.0` – `2.0` |
+| `stream` | no | `false` | `true` returns raw headerless 16-bit 16 kHz mono PCM, delivered in chunks as synthesis proceeds (first chunk in ~300 ms). Send `response_format: "pcm"` so the gateway labels the body `audio/pcm` |
 
 ### Sample curl
 
@@ -96,6 +97,39 @@ Microsoft PCM, 16 bit, mono 16000 Hz
 > (streaming-style header from the backend). `ffprobe`, `file` and audio
 > players read it fine, but Python's built-in `wave` module misreports the
 > duration. If you need exact size, trust the file length, not the header.
+
+### Streaming (low-latency playback)
+
+`"stream": true` makes the backend synthesize and ship audio in chunks: the first
+bytes arrive in ~300 ms instead of at the end of synthesis, and the body is raw
+16-bit PCM, 16 kHz mono, with **no WAV header**. The gateway relays the chunks as
+they arrive (`Content-Type: audio/pcm` when you also send
+`"response_format": "pcm"`).
+
+```bash
+curl -sk -N -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hamsa-tts-new",
+    "input": "مرحبا بكم في مجلس أبوظبي",
+    "voice": "Zeina",
+    "response_format": "pcm",
+    "stream": true
+  }' \
+  -o speech.pcm
+```
+
+Measure the first-byte latency with `curl -w` (expect `time_starttransfer` well
+below `time_total`, roughly 0.3 s on a multi-second synthesis):
+
+```bash
+curl -sk -N -o /dev/null -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"hamsa-tts-new","input":"...","voice":"Zeina","response_format":"pcm","stream":true}' \
+  -w "TTFB=%{time_starttransfer}s TOTAL=%{time_total}s\n"
+```
 
 ### More examples
 

@@ -178,6 +178,7 @@ def test_audio_speech_happy_path(client, auth_as, patched_speech, path):
         ("audio/wav", "wav", "audio/wav"),
         ("audio/flac", "flac", "audio/flac"),
         ("audio/pcm", "pcm", "audio/pcm"),
+        ("audio/wav", "pcm", "audio/pcm"),
         ("audio/wav", "mp3", "audio/wav"),
         ("application/json", "flac", "audio/flac"),
         (None, "wav", "audio/wav"),

@@ -87,7 +87,6 @@ def test_hamsa_tts_request_body():
     assert body["mulaw"] is True
     assert body["speed"] == 1.0
 
-
 def test_hamsa_tts_router_level_params_filtered():
     config = HamsaTextToSpeechConfig()
     speaker, mapped = config.map_openai_params(
@@ -175,6 +174,53 @@ def test_hamsa_unknown_surface_raises():
 
     with pytest.raises(ValueError, match="Unknown Hamsa API surface"):
         surface_path("speech", {"api_surface": "grpc"})
+
+
+def test_hamsa_tts_request_body_stream_forwarded():
+    """'stream': true in the request must reach the pod body verbatim: it is what
+    switches the pod to headerless raw PCM and chunked delivery."""
+    config = HamsaTextToSpeechConfig()
+    speaker, mapped = config.map_openai_params(
+        model="hamsa-tts-new",
+        optional_params={},
+        voice="Ruba",
+        drop_params=False,
+        kwargs={"stream": True},
+    )
+    assert mapped["stream"] is True
+
+    request_data = config.transform_text_to_speech_request(
+        model="hamsa-tts-new",
+        input="hello",
+        voice="Ruba",
+        optional_params=dict(mapped),
+        litellm_params={},
+        headers={},
+    )
+    assert request_data["dict_body"]["stream"] is True
+
+
+def test_hamsa_tts_request_body_stream_defaults_false():
+    """Without 'stream' the pod must keep its buffered WAV behavior (existing clients)."""
+    config = HamsaTextToSpeechConfig()
+    speaker, mapped = config.map_openai_params(
+        model="hamsa-tts-new",
+        optional_params={},
+        voice="Ruba",
+        drop_params=False,
+        kwargs={},
+    )
+    assert "stream" not in mapped
+
+    request_data = config.transform_text_to_speech_request(
+        model="hamsa-tts-new",
+        input="hello",
+        voice="Ruba",
+        optional_params=dict(mapped),
+        litellm_params={},
+        headers={},
+    )
+    assert request_data["dict_body"]["stream"] is False
 
 
 def test_hamsa_tts_response_returns_binary():

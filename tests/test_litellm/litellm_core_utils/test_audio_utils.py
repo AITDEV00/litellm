@@ -358,6 +358,8 @@ class TestResolveSpeechMediaType:
             ("audio/flac; charset=binary", "mp3", "audio/flac"),
             ("application/json", "flac", "audio/flac"),
             ("application/octet-stream", "pcm", "audio/pcm"),
+            ("audio/wav", "pcm", "audio/pcm"),
+            ("AUDIO/WAV", "PCM", "audio/pcm"),
             (None, "wav", "audio/wav"),
             (None, "WAV", "audio/wav"),
             (None, "opus", "audio/opus"),

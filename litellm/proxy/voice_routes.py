@@ -103,8 +103,11 @@ async def _audio_speech_chunk_generator(
     _response: Any,
 ) -> AsyncGenerator[bytes, None]:
     _generator = _response.aiter_bytes(chunk_size=AUDIO_SPEECH_CHUNK_SIZE)
-    async for chunk in _generator:
-        yield chunk
+    try:
+        async for chunk in _generator:
+            yield chunk
+    finally:
+        await _response.aclose()
 
 
 @router.post("/v1/audio/speech/clone")
