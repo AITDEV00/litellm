@@ -194,10 +194,10 @@ async def admin_put_manifest(
         ) from exc
 
     schema_version: object = data.get("schema")
-    if schema_version != 4:
+    if schema_version != 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported schema version: {schema_version} (expected 4)",
+            detail=f"unsupported schema version: {schema_version} (expected 5)",
         )
 
     # Validate every referenced cc-switch artifact exists in the store
@@ -229,10 +229,8 @@ async def admin_put_manifest(
         for harness, preset in harnesses.items():
             if not isinstance(preset, dict):
                 continue
-            if preset.get("mode", "additive") == "switch":
-                continue  # field-mode harnesses carry no preset file
             path: object = preset.get("path")
-            if not isinstance(path, str):
+            if not isinstance(path, str) or not path:
                 continue
             try:
                 await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=path)  # type: ignore[union-attr]
@@ -444,7 +442,7 @@ async def get_harness_preset(provider: str, harness: str, version: int) -> Respo
     """Serve a versioned harness preset.
 
     Store-backed with a baked-in fallback: the manifest pins
-    ``providers/oicm/<harness>/v<N>.json``, and this route serves the store
+    ``providers/adeo/<harness>/v<N>.json``, and this route serves the store
     copy when present, else the baked skeleton for that harness. Registered
     before the catch-all so it matches first. Runtime values (base URL, API
     key, models) are NOT filled here — the installer composes them with jq,

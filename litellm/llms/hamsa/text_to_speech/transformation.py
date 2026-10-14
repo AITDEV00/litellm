@@ -16,7 +16,7 @@ from litellm.llms.hamsa.common_utils import (
 
 class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
     def get_supported_openai_params(self, model: str) -> list:
-        return ["voice", "response_format", "speed"]
+        return ["voice", "response_format", "speed", "stream"]
 
     def map_openai_params(
         self,
@@ -46,6 +46,12 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
         response_format = optional_params.pop("response_format", None)
         if isinstance(response_format, str):
             mapped_params["mulaw"] = response_format.lower() == "mulaw"
+
+        stream = optional_params.pop("stream", None)
+        if stream is None:
+            stream = (kwargs or {}).get("stream")
+        if stream is not None:
+            mapped_params["stream"] = stream
 
         speed = optional_params.pop("speed", None)
         if speed is not None:
@@ -105,7 +111,7 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
             "text": input,
             "speaker": voice,
             "language_id": optional_params.pop("language_id", "ar"),
-            "stream": False,
+            "stream": optional_params.pop("stream", False) is True,
         }
 
         if "mulaw" in optional_params:

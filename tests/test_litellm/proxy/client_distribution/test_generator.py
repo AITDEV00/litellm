@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from jinja2 import UndefinedError
@@ -28,17 +30,15 @@ _ARTIFACTS: dict[str, dict[str, str]] = {
 _HARNESSES: tuple[HarnessPreset, ...] = (
     HarnessPreset(
         harness="open-code",
-        version=3,
-        path="providers/oicm/open-code/v3.json",
+        version=1,
+        path="providers/adeo/open-code/v1.json",
         sha256="d" * 64,
-        mode="additive",
     ),
     HarnessPreset(
         harness="claude",
         version=1,
-        path="",
-        sha256="",
-        mode="switch",
+        path="providers/adeo/claude/v1.json",
+        sha256="e" * 64,
     ),
 )
 _MANIFEST: MirrorManifest = MirrorManifest(
@@ -99,24 +99,36 @@ def test_render_is_generic_orchestrator() -> None:
     # Fetches the pinned preset path and verifies its sha256
     assert "$BASE_URL/install/$preset_path" in script
     assert "preset checksum mismatch" in script
-    # Composes with jq, not sed/string substitution
-    assert ".options.baseURL = $url" in script
-    assert ".options.apiKey = $key" in script
+    # One generic sentinel compose; no per-harness key knowledge
+    assert "__BASE_URL__" in script
+    assert "__API_KEY__" in script
+    assert "walk(" in script
+    assert ".options.baseURL = $url" not in script
     # Harness list is manifest-driven
     assert ".harnesses | keys" in script
-    # No hardcoded harness list
+    # No hardcoded harness list, no mode branch
     assert 'HARNESSES="claude codex' not in script
-    # mode drives switch vs additive
-    assert '[ "$mode" = "switch" ]' in script
+    assert '"$mode" = "switch"' not in script
+    # No sqlite3 anywhere: reconcile is pure CLI (add + use)
+    assert "sqlite3" not in script
+    assert "provider delete" not in script
+    # Content-addressed provider id from the composed config
+    assert "adeo-litellm-$(sha256sum" in script
+    # use is the reconcile gate
+    assert 'use "$PROVIDER_ID" --app' in script
 
 
-def test_render_reconcile_is_delete_then_add() -> None:
-    """provider add is not idempotent, so the reconcile is delete-then-add."""
+def test_render_reconcile_is_add_then_use() -> None:
+    """No delete, no sqlite3: add (tolerating already-exists) + use is the reconcile."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
     assert "config backup" in script
-    assert "provider delete" in script
     assert "provider add" in script
-    assert 'use "$PROVIDER_ID"' in script
+    assert "provider delete" not in script
+    assert 'use "$PROVIDER_ID" --app' in script
+    # The id is content-addressed from the composed config, so a re-run with
+    # the same key+models maps to the same id (no-op) and a changed key maps
+    # to a new one (activated by use).
+    assert "adeo-litellm-$(sha256sum" in script
 
 
 def test_render_no_upstream_urls() -> None:
@@ -137,15 +149,15 @@ def test_render_different_base_url() -> None:
     assert "https://b.example.com" in b
 
 
-# ── manifest_from_json (schema 4) ───────────────────────────────────────────
+# ── manifest_from_json (schema 5) ───────────────────────────────────────────
 
 
 def test_manifest_from_json_valid() -> None:
     raw: str = (
         '{"cc_switch_version": "5.11.1", '
         '"cc_switch_artifacts": {"linux-x64-musl": {"file": "f.tgz", "sha256": "abc"}}, '
-        '"harnesses": {"open-code": {"version": 3, "path": "providers/oicm/open-code/v3.json", '
-        '"sha256": "def", "mode": "additive"}}, '
+        '"harnesses": {"open-code": {"version": 1, "path": "providers/adeo/open-code/v1.json", '
+        '"sha256": "def"}}, '
         '"platforms": [{"target": "linux-x64-musl", "archive_ext": "tar.gz"}]}'
     )
     m: MirrorManifest = manifest_from_json(raw)
@@ -155,10 +167,9 @@ def test_manifest_from_json_valid() -> None:
     assert m.harnesses == (
         HarnessPreset(
             harness="open-code",
-            version=3,
-            path="providers/oicm/open-code/v3.json",
+            version=1,
+            path="providers/adeo/open-code/v1.json",
             sha256="def",
-            mode="additive",
         ),
     )
 
@@ -176,16 +187,62 @@ def test_manifest_from_json_harness_missing_path() -> None:
     raw: str = (
         '{"cc_switch_version": "5.11.1", '
         '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}, '
-        '"harnesses": {"open-code": {"version": 3, "sha256": "x"}}}'
+        '"harnesses": {"open-code": {"version": 1, "sha256": "x"}}}'
     )
     with pytest.raises(ValueError, match="path"):
         manifest_from_json(raw)
 
 
+# ── baked presets: canonical per-harness shapes ──────────────────────────
+
+
 def test_baked_preset_known_and_unknown() -> None:
     assert get_baked_preset("open-code") is not None
-    assert "@ai-sdk/openai-compatible" in (get_baked_preset("open-code") or "")
     assert get_baked_preset("no-such-harness") is None
+
+
+def test_all_seven_harnesses_have_baked_presets() -> None:
+    for harness in ("claude", "codex", "gemini", "open-code", "pi", "hermes", "open-claw"):
+        assert get_baked_preset(harness) is not None, harness
+
+
+def test_baked_preset_claude_shape() -> None:
+    """claude: env block with the three role-model slots cc-switch itself sets."""
+    preset: dict[str, object] = json.loads(get_baked_preset("claude") or "{}")
+    env: dict[str, str] = preset["env"]
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "__API_KEY__"
+    assert env["ANTHROPIC_BASE_URL"] == "__BASE_URL__"
+    assert env["ANTHROPIC_MODEL"] == "__DEFAULT_MODEL__"
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "__DEFAULT_MODEL__"
+
+
+def test_baked_preset_codex_shape() -> None:
+    """codex: TOML config string + auth block, matching cc-switch's stored shape."""
+    preset: dict[str, object] = json.loads(get_baked_preset("codex") or "{}")
+    assert "model_provider" in str(preset["config"])
+    assert preset["auth"] == {"OPENAI_API_KEY": "__API_KEY__"}
+
+
+def test_baked_preset_gemini_shape() -> None:
+    """gemini: env block with GEMINI_* keys."""
+    preset: dict[str, object] = json.loads(get_baked_preset("gemini") or "{}")
+    assert set(preset["env"]) == {"GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"}
+
+
+def test_baked_preset_models_sentinels() -> None:
+    """opencode embeds the {id:{name}} sentinel; the array harnesses use [{id,name}]."""
+    oc: dict[str, object] = json.loads(get_baked_preset("open-code") or "{}")
+    assert list(oc["models"]) == ["__MODELS_OBJECT__"]
+    for harness in ("pi", "hermes", "open-claw"):
+        p: dict[str, object] = json.loads(get_baked_preset(harness) or "{}")
+        assert p["models"] == ["__MODELS_ARRAY__"], harness
+
+
+def test_baked_preset_pi_has_flat_base_url() -> None:
+    """pi reads flat baseUrl at the provider level, not options.baseURL."""
+    p: dict[str, object] = json.loads(get_baked_preset("pi") or "{}")
+    assert p["baseUrl"] == "__BASE_URL_V1__"
+    assert "options" not in p
 
 
 def test_manifest_from_json_platforms_optional() -> None:

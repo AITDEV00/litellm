@@ -159,7 +159,7 @@ class TestInstallScript:
     def test_serves_script_with_200(self, app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 4,
+                "schema": 5,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -188,7 +188,7 @@ class TestInstallScript:
         """An admin-synced template in the store takes precedence over the baked one."""
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 4,
+                "schema": 5,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -207,7 +207,7 @@ class TestInstallScript:
         """A store template referencing an unknown variable fails loudly, not silently."""
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 4,
+                "schema": 5,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -263,31 +263,32 @@ class TestWheelhouseIndexRemoved:
 class TestHarnessPreset:
     def test_serves_store_preset(self, app: FastAPI, s3: _FakeS3Client) -> None:
         preset: bytes = b'{"npm": "@ai-sdk/openai-compatible", "custom": true}'
-        s3._store["providers/oicm/open-code/v3.json"] = preset
+        s3._store["providers/adeo/open-code/v3.json"] = preset
         client: TestClient = TestClient(app)
-        response = client.get("/install/providers/oicm/open-code/v3.json")
+        response = client.get("/install/providers/adeo/open-code/v3.json")
         assert response.status_code == 200
         assert response.json()["custom"] is True
 
     def test_baked_fallback_when_store_missing(self, app: FastAPI) -> None:
         client: TestClient = TestClient(app)
-        response = client.get("/install/providers/oicm/open-code/v1.json")
+        response = client.get("/install/providers/adeo/open-code/v1.json")
         assert response.status_code == 200
         assert response.json()["npm"] == "@ai-sdk/openai-compatible"
 
     def test_404_for_unknown_harness(self, app: FastAPI) -> None:
         client: TestClient = TestClient(app)
-        response = client.get("/install/providers/oicm/no-such/v1.json")
+        response = client.get("/install/providers/adeo/no-such/v1.json")
         assert response.status_code == 404
 
     def test_preset_has_no_runtime_values(self, app: FastAPI) -> None:
-        """Presets are structural skeletons: no apiKey/baseURL filled server-side."""
+        """Presets carry sentinels, never real keys, base URLs, or models."""
         client: TestClient = TestClient(app)
-        response = client.get("/install/providers/oicm/open-code/v1.json")
+        response = client.get("/install/providers/adeo/open-code/v1.json")
         body = response.json()
-        assert body["options"]["apiKey"] == ""
-        assert body["options"]["baseURL"] == ""
-        assert body["models"] == {}
+        assert body["options"]["apiKey"] == "__API_KEY__"
+        assert body["options"]["baseURL"] == "__BASE_URL_V1__"
+        assert list(body["models"]) == ["__MODELS_OBJECT__"]
+        assert "sk-" not in response.text
 
 
 class TestGetArtifact:
@@ -326,7 +327,7 @@ class TestAdminPutArtifact:
 
         content: bytes = b"fake-preset-content"
         response = client.put(
-            "/install/admin/v1/artifact/providers/oicm/open-code/v2.json",
+            "/install/admin/v1/artifact/providers/adeo/open-code/v2.json",
             content=content,
             headers={"content-type": "application/octet-stream"},
         )
@@ -338,7 +339,7 @@ class TestAdminPutArtifact:
 
         # Second identical upload -> unchanged
         response2 = client.put(
-            "/install/admin/v1/artifact/providers/oicm/open-code/v2.json",
+            "/install/admin/v1/artifact/providers/adeo/open-code/v2.json",
             content=content,
             headers={"content-type": "application/octet-stream"},
         )
@@ -348,18 +349,18 @@ class TestAdminPutArtifact:
 
 class TestAdminDeleteArtifact:
     def test_delete_unreferenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
-        s3._store["providers/oicm/open-code/v9.json"] = b"old"
+        s3._store["providers/adeo/open-code/v9.json"] = b"old"
         client: TestClient = TestClient(admin_app)
-        response = client.delete("/install/admin/v1/artifact/providers/oicm/open-code/v9.json")
+        response = client.delete("/install/admin/v1/artifact/providers/adeo/open-code/v9.json")
         assert response.status_code == 200
-        assert "providers/oicm/open-code/v9.json" not in s3._store
+        assert "providers/adeo/open-code/v9.json" not in s3._store
 
     def test_delete_rejects_manifest_referenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         key: str = "cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"
         s3._store[key] = b"ccs-binary"
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 4,
+                "schema": 5,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {
@@ -378,7 +379,7 @@ class TestAdminDeleteArtifact:
 class TestAdminInventory:
     def test_lists_objects(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = b"{}"
-        s3._store["providers/oicm/open-code/v1.json"] = b"aaa"
+        s3._store["providers/adeo/open-code/v1.json"] = b"aaa"
         client: TestClient = TestClient(admin_app)
         response = client.get("/install/admin/v1/inventory")
         assert response.status_code == 200
@@ -386,14 +387,14 @@ class TestAdminInventory:
         assert data["count"] == 2
         keys: list[str] = [o["key"] for o in data["objects"]]
         assert "manifest.json" in keys
-        assert "providers/oicm/open-code/v1.json" in keys
+        assert "providers/adeo/open-code/v1.json" in keys
 
 
 class TestAdminPutManifest:
     def test_rejects_missing_objects(self, admin_app: FastAPI) -> None:
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 4,
+            "schema": 5,
             "cc_switch_version": "5.11.1",
             "cc_switch_artifacts": {
                 "linux-x64-musl": {
@@ -414,7 +415,7 @@ class TestAdminPutManifest:
         s3._store["cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"] = b"ccs-binary"
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 4,
+            "schema": 5,
             "cc_switch_version": "5.11.1",
             "cc_switch_artifacts": {
                 "linux-x64-musl": {

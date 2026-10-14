@@ -47,15 +47,14 @@ from jinja2.sandbox import SandboxedEnvironment
 _ENV: Final = SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)
 
 _TEMPLATE: Final = r"""#!/usr/bin/env bash
-# OICM coding-agent setup (cc-switch)
+# ADEO coding-agent setup (cc-switch)
 # Served by {{ base_url }} — installs cc-switch and points your coding
 # harnesses at the gateway. No external egress required.
 set -eu
 
 CC_SWITCH_VERSION="{{ cc_switch_version }}"
 BASE_URL="{{ base_url }}"
-PROVIDER_NAME="OICM LiteLLM"
-PROVIDER_ID="oicm-litellm"
+PROVIDER_NAME="ADEO LiteLLM"
 INSTALL_DIR="${CC_SWITCH_INSTALL_DIR:-$HOME/.local/bin}"
 
 # ── colours ────────────────────────────────────────────────────────────────
@@ -75,7 +74,7 @@ die()     { printf "\n  Error: %s\n\n" "$*" >&2; exit 1; }
 
 # ── banner ─────────────────────────────────────────────────────────────────
 echo ""
-printf "  ${BOLD}OICM coding-agent setup${RESET}  ${GREY}cc-switch -> your gateway${RESET}\n\n"
+printf "  ${BOLD}ADEO coding-agent setup${RESET}  ${GREY}cc-switch -> your gateway${RESET}\n\n"
 info "Gateway: $BASE_URL"
 info "cc-switch: $CC_SWITCH_VERSION"
 
@@ -141,7 +140,7 @@ fi
 # ── 2. prompt for the gateway key + diagnostic ────────────────────────────
 echo ""
 header "Gateway API key"
-printf "  Paste your OICM LiteLLM virtual key, then Enter: "
+printf "  Paste your ADEO LiteLLM virtual key, then Enter: "
 if [ -t 0 ]; then stty -echo 2>/dev/null || true; fi
 IFS= read -r API_KEY
 if [ -t 0 ]; then stty echo 2>/dev/null || true; fi
@@ -184,90 +183,70 @@ umask 077
 MODELS_JSON="$(jq -c '[.data[].id] | map(select(test("claude|gpt|qwen|glm";"i"))) | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
 DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0] // empty' 2>/dev/null || true)"
 
-# Write the provider's settings_config into cc-switch's store, add-or-update.
-# cc-switch's `provider delete` uses an inquire::Confirm prompt that reads the
-# TTY directly (never scriptable headless) and `provider edit` takes no config
-# flags, so there is no CLI update path for a changed config. We add fresh via
-# `provider add`; when the id already exists we UPDATE the settings_config row
-# in cc-switch's SQLite DB directly (PK is (id, app_type)). `use` then
-# re-points the harness and rewrites its native config from the store.
-upsert_provider() {
-  local harness="$1" config_file="$2"
-  local db="$HOME/.cc-switch/cc-switch.db"
-  # cc-switch stores app_type without the dash (open-code -> opencode).
-  local app="$(printf '%s' "$harness" | tr -d '-')"
-  if "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID "; then
-    command -v sqlite3 >/dev/null 2>&1 \
-      || die "$harness is already configured and updating it needs sqlite3; install sqlite3 or remove the provider in the cc-switch TUI"
-    # Build the SQL as a file to avoid argv quoting issues with the JSON body:
-    # compact single-line JSON, single quotes doubled for the SQL literal.
-    jq -c . "$config_file" | sed "s/'/''/g" > "$TMP/cfg.txt"
-    { printf "UPDATE providers SET settings_config='"; cat "$TMP/cfg.txt"; printf "' WHERE id='%s' AND app_type='%s';\n" "$PROVIDER_ID" "$app"; } > "$TMP/upd.sql"
-    sqlite3 "$db" < "$TMP/upd.sql" \
-      || die "failed to update $PROVIDER_ID for $harness"
-    rm -f "$TMP/cfg.txt" "$TMP/upd.sql"
-  else
-    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
-      --config-file "$config_file" \
-      >/dev/null 2>&1 || die "provider add failed for $harness"
-  fi
-}
-
 configure_harness() {
-  local harness="$1" mode="$2" preset_path="$3" preset_sha="$4"
+  local harness="$1" preset_path="$2" preset_sha="$3"
   header "Configuring $harness..."
   "$CCS_BIN" config backup >/dev/null 2>&1 || true
 
-  if [ "$mode" = "switch" ]; then
-    # Field-mode harnesses: build the settings_config cc-switch would store
-    # (env block with base URL + auth token + model) and upsert it.
-    jq -n \
-      --arg url "$BASE_URL" \
-      --arg key "$API_KEY" \
-      --arg model "$DEFAULT_MODEL" \
-      '{env:({ANTHROPIC_BASE_URL:$url, ANTHROPIC_AUTH_TOKEN:$key}
-         + (if $model != "" then {ANTHROPIC_MODEL:$model} else {} end))}' \
-      > "$TMP/provider.json" || die "failed to compose config for $harness"
-    upsert_provider "$harness" "$TMP/provider.json"
-    rm -f "$TMP/provider.json"
-  else
-    # Additive harnesses take a config built from the pinned preset.
-    curl -fsSL "$BASE_URL/install/$preset_path" -o "$TMP/preset.json" \
-      || die "failed to fetch preset for $harness: $BASE_URL/install/$preset_path"
-    echo "$preset_sha  $TMP/preset.json" | sha256sum -c - >/dev/null \
-      || die "preset checksum mismatch for $harness — the store may be corrupt"
+  # Fetch the pinned preset and verify it against the manifest.
+  curl -fsSL "$BASE_URL/install/$preset_path" -o "$TMP/preset.json" \
+    || die "failed to fetch preset for $harness: $BASE_URL/install/$preset_path"
+  echo "$preset_sha  $TMP/preset.json" | sha256sum -c - >/dev/null \
+    || die "preset checksum mismatch for $harness — the store may be corrupt"
 
-    jq \
-      --arg name "$PROVIDER_NAME" \
-      --arg url "$BASE_URL/v1" \
-      --arg key "$API_KEY" \
-      --argjson models "$MODELS_JSON" \
-      '.name = $name
-       | .options.baseURL = $url
-       | .options.apiKey = $key
-       | .models = ( $models | map({key:., value:{name:.}}) | from_entries )' \
-      "$TMP/preset.json" > "$TMP/provider.json" \
-      || die "failed to compose config for $harness"
+  # One generic compose: substitute sentinels anywhere in the preset. The
+  # preset alone owns the harness's config shape; this script knows none of
+  # it. MODELS_ARRAY is [{id,name}] (pi/open-claw/hermes); MODELS_OBJECT is
+  # {id:{name}} (opencode). Presets embed the sentinel whose shape they need.
+  MODELS_ARRAY="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id:., name:.})')"
+  MODELS_OBJECT="$(printf '%s' "$MODELS_JSON" | jq -c 'map({key:., value:{name:.}}) | from_entries')"
+  jq \
+    --arg url "$BASE_URL" \
+    --arg url_v1 "$BASE_URL/v1" \
+    --arg key "$API_KEY" \
+    --arg model "$DEFAULT_MODEL" \
+    --argjson models_array "$MODELS_ARRAY" \
+    --argjson models_object "$MODELS_OBJECT" \
+    'walk(if type == "string" then
+       gsub("__BASE_URL__"; $url)
+       | gsub("__BASE_URL_V1__"; $url_v1)
+       | gsub("__API_KEY__"; $key)
+       | gsub("__DEFAULT_MODEL__"; $model)
+     elif type == "array" and . == ["__MODELS_ARRAY__"] then $models_array
+     elif type == "object" and . == {"__MODELS_OBJECT__": null} then $models_object
+     else . end)' \
+    "$TMP/preset.json" > "$TMP/provider.json" \
+    || die "failed to compose config for $harness"
 
-    upsert_provider "$harness" "$TMP/provider.json"
-    rm -f "$TMP/preset.json" "$TMP/provider.json"
+  # Content-addressed id: re-running with the same key and models maps to the
+  # same id, so `add` reports "already exists" and we take that as the
+  # no-op success it is; a rotated key or changed model list maps to a new
+  # id, and `use` below activates the new values. No direct store access,
+  # no delete. The one prior provider version stays in cc-switch's catalog
+  # per change; remove it in the TUI if you care.
+  PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
+  if ! "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --config-file "$TMP/provider.json" >/dev/null 2>&1; then
+    "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID " \
+      || die "provider add failed for $harness"
   fi
 
-  # use is the real reconcile gate: it points the harness at our provider and
-  # writes the harness's native config file. This is what must succeed.
+  # use is the gate: it points the harness at our provider and writes its
+  # native config file. This is what must succeed.
   "$CCS_BIN" use "$PROVIDER_ID" --app "$harness" </dev/null \
     || die "failed to activate $PROVIDER_ID for $harness"
+  rm -f "$TMP/preset.json" "$TMP/provider.json"
   success "$harness configured"
 }
 
 for HARNESS in $CHOSEN; do
   echo ""
-  MODE="$(jq -r --arg h "$HARNESS" '.harnesses[$h].mode // "additive"' "$TMP/manifest.json")"
   PPATH="$(jq -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
   PSHA="$(jq -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
+  [ -n "$PPATH" ] || die "manifest pins no preset for $HARNESS"
   # Detach stdin: curl/jq/cc-switch in the configure step would otherwise
   # consume the piped harness picks and stall waiting for input.
-  configure_harness "$HARNESS" "$MODE" "$PPATH" "$PSHA" </dev/null
+  configure_harness "$HARNESS" "$PPATH" "$PSHA" </dev/null
 done
 
 # ── done ───────────────────────────────────────────────────────────────────
@@ -281,45 +260,101 @@ echo ""
 """
 
 
-# Baked-in fallback presets for additive harnesses, keyed by cc-switch --app
-# id. These are the structural skeleton only; the installer fills baseURL,
-# apiKey and models from runtime values. The store-backed versioned preset
-# (providers/oicm/<harness>/v<N>.json) overrides these when the manifest pins
+# Baked-in fallback presets for every harness, keyed by cc-switch --app id.
+# Each is the canonical settings_config shape cc-switch v5.11.1 itself stores
+# for that harness (verified against the binary), with sentinels where runtime
+# values go. The store-backed versioned preset
+# (providers/adeo/<harness>/v<N>.json) overrides these when the manifest pins
 # one — these exist so a harness works even before its first preset sync.
-ADDITIVE_PRESETS: Final[dict[str, str]] = {
+#
+# Sentinels: __BASE_URL__ / __BASE_URL_V1__ (gateway root / +v1),
+# __API_KEY__, __DEFAULT_MODEL__ (first model the key can call), and the
+# whole-value placeholders ["__MODELS_ARRAY__"] -> [{id,name}...] and
+# {"__MODELS_OBJECT__": null} -> {id:{name}...}.
+BAKED_PRESETS: Final[dict[str, str]] = {
+    # claude: env block; cc-switch's own field-mode add also mirrors the
+    # default model into the three role-model slots, so we do the same.
+    "claude": json.dumps(
+        {
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "__API_KEY__",
+                "ANTHROPIC_BASE_URL": "__BASE_URL__",
+                "ANTHROPIC_MODEL": "__DEFAULT_MODEL__",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "__DEFAULT_MODEL__",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "__DEFAULT_MODEL__",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "__DEFAULT_MODEL__",
+            }
+        },
+        indent=2,
+    ),
+    # codex: TOML config string + auth block (cc-switch's own stored shape).
+    "codex": json.dumps(
+        {
+            "config": (
+                "model_provider = \"adeo-litellm\"\n"
+                "model = \"__DEFAULT_MODEL__\"\n"
+                "model_reasoning_effort = \"high\"\n"
+                "disable_response_storage = true\n"
+                "\n"
+                "[model_providers.adeo-litellm]\n"
+                "name = \"ADEO LiteLLM\"\n"
+                "base_url = \"__BASE_URL__\"\n"
+                "wire_api = \"responses\"\n"
+                "requires_openai_auth = true"
+            ),
+            "auth": {"OPENAI_API_KEY": "__API_KEY__"},
+        },
+        indent=2,
+    ),
+    # gemini: env block with GEMINI_* keys (cc-switch's own stored shape).
+    "gemini": json.dumps(
+        {
+            "env": {
+                "GEMINI_API_KEY": "__API_KEY__",
+                "GOOGLE_GEMINI_BASE_URL": "__BASE_URL__",
+                "GEMINI_MODEL": "__DEFAULT_MODEL__",
+            }
+        },
+        indent=2,
+    ),
+    # open-code: provider entry for opencode.json; models as {id:{name}}.
     "open-code": json.dumps(
         {
             "npm": "@ai-sdk/openai-compatible",
-            "name": "OICM LiteLLM",
-            "options": {"baseURL": "", "apiKey": ""},
-            "models": {},
+            "name": "ADEO LiteLLM",
+            "options": {"baseURL": "__BASE_URL_V1__", "apiKey": "__API_KEY__"},
+            "models": {"__MODELS_OBJECT__": None},
         },
         indent=2,
     ),
-    "pi": json.dumps(
-        {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "OICM LiteLLM",
-            "options": {"baseURL": "", "apiKey": ""},
-            "models": {},
-        },
-        indent=2,
-    ),
+    # hermes: snake_case keys; models as [{id,name}] array (api_mode
+    # chat_completions = OpenAI-compatible).
     "hermes": json.dumps(
         {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "OICM LiteLLM",
-            "options": {"baseURL": "", "apiKey": ""},
-            "models": {},
+            "api_mode": "chat_completions",
+            "base_url": "__BASE_URL_V1__",
+            "api_key": "__API_KEY__",
+            "models": ["__MODELS_ARRAY__"],
         },
         indent=2,
     ),
+    # open-claw: flat camelCase; models as [{id,name}] array, >= 1 required.
     "open-claw": json.dumps(
         {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "OICM LiteLLM",
-            "options": {"baseURL": "", "apiKey": ""},
-            "models": {},
+            "baseUrl": "__BASE_URL_V1__",
+            "apiKey": "__API_KEY__",
+            "models": ["__MODELS_ARRAY__"],
+        },
+        indent=2,
+    ),
+    # pi: flat keys; models as [{id,name,baseUrl}] array (pi reads per-model
+    # baseUrl; the object-level baseUrl alone is not enough).
+    "pi": json.dumps(
+        {
+            "name": "ADEO LiteLLM",
+            "apiKey": "__API_KEY__",
+            "baseUrl": "__BASE_URL_V1__",
+            "models": ["__MODELS_ARRAY__"],
         },
         indent=2,
     ),
@@ -336,22 +371,23 @@ class PlatformTarget:
 
 @dataclass(frozen=True, slots=True)
 class HarnessPreset:
-    """One harness's versioned cc-switch configuration slice (schema 4).
+    """One harness's versioned cc-switch configuration slice (schema 5).
 
     The manifest pins each harness to an immutable, store-backed preset so a
-    harness's cc-switch JSON shape can be revised without a gateway rebuild.
+    harness's cc-switch settings_config shape can be revised without a
+    gateway rebuild. Every harness has a preset; the shape it encodes is the
+    harness's own business, so no mode split is needed.
     """
 
     harness: str  # cc-switch --app id, e.g. "open-code"
     version: int
-    path: str  # store key, e.g. "providers/oicm/open-code/v3.json"
+    path: str  # store key, e.g. "providers/adeo/open-code/v3.json"
     sha256: str
-    mode: str  # "switch" (field-mode add) | "additive" (--config-file add)
 
 
 @dataclass(frozen=True, slots=True)
 class MirrorManifest:
-    """The fields from manifest.json the generator needs (schema 4)."""
+    """The fields from manifest.json the generator needs (schema 5)."""
 
     cc_switch_version: str
     cc_switch_artifacts: dict[str, dict[str, str]]
@@ -402,18 +438,18 @@ def get_template() -> str:
 
 
 def get_baked_preset(harness: str) -> str | None:
-    """Return the baked-in fallback preset for an additive harness, or None."""
-    return ADDITIVE_PRESETS.get(harness)
+    """Return the baked-in fallback preset for a harness, or None."""
+    return BAKED_PRESETS.get(harness)
 
 
 def manifest_from_json(raw: str) -> MirrorManifest:
-    """Parse a manifest.json string into a MirrorManifest (schema 3).
+    """Parse a manifest.json string into a MirrorManifest (schema 5).
 
     Raises ``ValueError`` on missing or malformed fields. ``platforms`` is a
     list of ``{"target": ..., "archive_ext": ...}`` objects; when omitted the
     manifest carries no platform metadata and the template renders an empty
     platform set. ``harnesses`` maps a cc-switch ``--app`` id to a pinned
-    preset ``{"version", "path", "sha256", "mode"}`` (schema 4).
+    preset ``{"version", "path", "sha256"}`` (schema 5).
     """
     try:
         data: dict[str, object] = json.loads(raw)
@@ -459,25 +495,14 @@ def _harnesses_from_json(raw: object) -> tuple[HarnessPreset, ...]:
         version: object = entry.get("version")
         path: object = entry.get("path")
         sha256: object = entry.get("sha256")
-        mode: object = entry.get("mode", "additive")
         if not isinstance(version, int):
             raise ValueError(f"harness '{harness}' preset missing int 'version'")
-        if not isinstance(mode, str) or not mode:
-            raise ValueError(f"harness '{harness}' preset missing 'mode'")
-        # switch-mode harnesses carry no preset file; additive ones must
-        if mode == "additive":
-            if not isinstance(path, str) or not path:
-                raise ValueError(f"harness '{harness}' preset missing 'path'")
-            if not isinstance(sha256, str) or not sha256:
-                raise ValueError(f"harness '{harness}' preset missing 'sha256'")
+        if not isinstance(path, str) or not path:
+            raise ValueError(f"harness '{harness}' preset missing 'path'")
+        if not isinstance(sha256, str) or not sha256:
+            raise ValueError(f"harness '{harness}' preset missing 'sha256'")
         presets.append(
-            HarnessPreset(
-                harness=harness,
-                version=version,
-                path=path if isinstance(path, str) else "",
-                sha256=sha256 if isinstance(sha256, str) else "",
-                mode=mode,
-            )
+            HarnessPreset(harness=harness, version=version, path=path, sha256=sha256)
         )
     return tuple(presets)
 

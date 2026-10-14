@@ -5,10 +5,10 @@ Reads the staging directory, computes SHA-256 for every artifact and harness
 preset, and writes a manifest.json conforming to
 docs/client-distribution/mirror-content.md (schema 4).
 
-Schema 4 pins each harness to a versioned preset:
-  harnesses: { <app-id>: {version, path, sha256, mode} }
-  - mode "switch":   field-mode harness (claude/codex/gemini), no preset file.
-  - mode "additive": raw-config harness; path/sha256 point at the staged preset.
+Schema 5 pins each harness to a versioned preset:
+  harnesses: { <app-id>: {version, path, sha256} }
+Every harness carries one; the settings_config shape lives in the preset
+(canonical per-harness skeletons with sentinels), not in the installer.
 
 Usage: python3 build-manifest.py <staging-dir>
 """
@@ -30,21 +30,21 @@ CC_SWITCH_TARGETS = {
     "windows-x64": "zip",
 }
 
-# Harness preset slices. version bumps when the preset shape changes; the
-# manifest pins the new path so old installers keep working.
-# mode "switch"   -> field-mode provider add (no preset file needed)
-# mode "additive" -> --config-file provider add (preset file required)
+# Harness preset versions. A version bumps when that harness's preset shape
+# changes; the manifest pins the new path so old installers keep working.
+# Every harness carries a preset file — the shape it encodes is the
+# harness's own business, so there is no mode split.
 HARNESSES = {
-    "claude": {"version": 1, "mode": "switch"},
-    "codex": {"version": 1, "mode": "switch"},
-    "gemini": {"version": 1, "mode": "switch"},
-    "open-code": {"version": 1, "mode": "additive"},
-    "pi": {"version": 1, "mode": "additive"},
-    "hermes": {"version": 1, "mode": "additive"},
-    "open-claw": {"version": 1, "mode": "additive"},
+    "claude": 1,
+    "codex": 1,
+    "gemini": 1,
+    "open-code": 1,
+    "pi": 1,
+    "hermes": 1,
+    "open-claw": 1,
 }
 
-PROVIDER = "oicm"
+PROVIDER = "adeo"
 
 
 def sha256_file(path: Path) -> str:
@@ -69,7 +69,7 @@ def main() -> None:
         sys.exit(1)
 
     manifest: dict = {
-        "schema": 4,
+        "schema": 5,
         "cc_switch_version": CC_SWITCH_VERSION,
         "platforms": [
             {"target": t, "archive_ext": ext} for t, ext in CC_SWITCH_TARGETS.items()
@@ -92,14 +92,7 @@ def main() -> None:
         }
 
     # Harness presets
-    for harness, meta in HARNESSES.items():
-        if meta["mode"] == "switch":
-            manifest["harnesses"][harness] = {
-                "version": meta["version"],
-                "mode": "switch",
-            }
-            continue
-        version = meta["version"]
+    for harness, version in HARNESSES.items():
         preset_rel = f"providers/{PROVIDER}/{harness}/v{version}.json"
         preset_path = staging / preset_rel
         if not preset_path.exists():
@@ -109,7 +102,6 @@ def main() -> None:
             "version": version,
             "path": preset_rel,
             "sha256": sha256_file(preset_path),
-            "mode": "additive",
         }
 
     out = staging / "manifest.json"
@@ -119,8 +111,7 @@ def main() -> None:
     print(f"manifest written: {out}")
     print(f"  schema: {manifest['schema']}")
     print(f"  cc-switch artifacts: {len(manifest['cc_switch_artifacts'])}")
-    additive = sum(1 for h in manifest["harnesses"].values() if h["mode"] == "additive")
-    print(f"  harnesses: {len(manifest['harnesses'])} ({additive} additive presets)")
+    print(f"  harness presets: {len(manifest['harnesses'])}")
 
 
 if __name__ == "__main__":

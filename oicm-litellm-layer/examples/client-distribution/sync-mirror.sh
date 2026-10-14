@@ -32,10 +32,14 @@ CC_SWITCH_TARGETS=(
   "windows-x64:zip"
 )
 
-# Additive harnesses that carry a preset file (switch-mode ones don't).
-ADDITIVE_HARNESSES=(open-code pi hermes open-claw)
+# Every harness carries a versioned preset file. Preset content is
+# generated from the gateway's baked presets (single source of truth);
+# bump PRESET_VERSION in build-manifest.py and re-sync to change a shape.
 PRESET_VERSION="1"
-PROVIDER="oicm"
+PROVIDER="adeo"
+HARNESSES=(claude codex gemini open-code pi hermes open-claw)
+# litellm checkout that has the baked presets (litellm/proxy/client_distribution)
+LITELLM_ROOT="${LITELLM_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 
 fetch=1
 push=1
@@ -87,29 +91,23 @@ if [ "$fetch" -eq 1 ]; then
     log "  verified: ${artifact}"
   done
 
-  log "=== Phase 3: stage additive harness presets ==="
-  # Presets are structural skeletons; the installer fills baseURL, apiKey and
-  # models at runtime. Bump PRESET_VERSION and add a new file to change one.
-  for harness in "${ADDITIVE_HARNESSES[@]}"; do
+  log "=== Phase 3: stage harness presets (from the gateway's baked set) ==="
+  # Presets are canonical per-harness skeletons with sentinels; the installer
+  # fills the runtime values. Generated from BAKED_PRESETS so the store, the
+  # baked fallback, and the docs can never drift apart.
+  for harness in "${HARNESSES[@]}"; do
     preset_dir="${STAGE_DIR}/providers/${PROVIDER}/${harness}"
     preset_file="${preset_dir}/v${PRESET_VERSION}.json"
-    if [ ! -f "$preset_file" ]; then
-      mkdir -p "$preset_dir"
-      cat > "$preset_file" <<'JSON'
-{
-  "npm": "@ai-sdk/openai-compatible",
-  "name": "OICM LiteLLM",
-  "options": {
-    "baseURL": "",
-    "apiKey": ""
-  },
-  "models": {}
-}
-JSON
-      log "  created default preset: ${preset_file}"
-    else
-      log "  cached preset: ${preset_file}"
-    fi
+    mkdir -p "$preset_dir"
+    ( cd "$LITELLM_ROOT" && .venv/bin/python - "$harness" > "$preset_file" ) <<'PYEOF' || die "failed to generate preset for $harness"
+import sys
+from litellm.proxy.client_distribution.generator import get_baked_preset
+preset = get_baked_preset(sys.argv[1])
+if preset is None:
+    sys.exit(1)
+sys.stdout.write(preset + "\n")
+PYEOF
+    log "  staged preset: ${preset_file}"
   done
 
   log "=== Phase 4: build manifest ==="
@@ -153,8 +151,8 @@ if [ "$push" -eq 1 ]; then
       "${STAGE_DIR}/cc-switch/${CC_SWITCH_VERSION}/${artifact}"
   done
 
-  # Push additive harness presets
-  for harness in "${ADDITIVE_HARNESSES[@]}"; do
+  # Push all harness presets
+  for harness in "${HARNESSES[@]}"; do
     rel="providers/${PROVIDER}/${harness}/v${PRESET_VERSION}.json"
     push_artifact "$rel" "${STAGE_DIR}/${rel}"
   done
