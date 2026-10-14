@@ -45,16 +45,16 @@ from jinja2.sandbox import SandboxedEnvironment
 _ENV: Final = SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)
 
 _TEMPLATE: Final = r"""#!/usr/bin/env bash
-# LiteLLM CLI Installer (the thin `lite` client)
-# Served by {{ base_url }} — installs litellm[cli] entirely from the gateway
-# mirror. No external egress required.
+# OICM coding-agent setup (cc-switch)
+# Served by {{ base_url }} — installs cc-switch and points your coding
+# harnesses at the gateway. No external egress required.
 set -eu
 
-UV_VERSION="{{ uv_version }}"
-LITELLM_CLI_VERSION="{{ litellm_cli_version }}"
-PYTHON_VERSION="{{ python_version }}"
-PYTHON_BUILD_TAG="{{ python_build_tag }}"
+CC_SWITCH_VERSION="{{ cc_switch_version }}"
 BASE_URL="{{ base_url }}"
+PROVIDER_NAME="OICM LiteLLM"
+PROVIDER_ID="oicm-litellm"
+INSTALL_DIR="${CC_SWITCH_INSTALL_DIR:-$HOME/.local/bin}"
 
 # ── colours ────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -73,124 +73,218 @@ die()     { printf "\n  Error: %s\n\n" "$*" >&2; exit 1; }
 
 # ── banner ─────────────────────────────────────────────────────────────────
 echo ""
-cat << 'BANNER'
-  ██╗     ██║████████╗███████╗
-  ██║     ██║╚══██╔══╝██╔════╝
-  ██║     ██║   ██║   █████╗
-  ██║     ██║   ██║   ██╔══╝
-  ███████╗██║   ██║   ███████╗
-  ╚══════╝╚═╝   ╚═╝   ╚══════╝
-BANNER
-printf "  ${BOLD}LiteLLM CLI Installer${RESET}  ${GREY}the thin 'lite' client for your proxy${RESET}\n\n"
+printf "  ${BOLD}OICM coding-agent setup${RESET}  ${GREY}cc-switch -> your gateway${RESET}\n\n"
 info "Gateway: $BASE_URL"
-info "CLI version: $LITELLM_CLI_VERSION"
+info "cc-switch: $CC_SWITCH_VERSION"
 
-# ── fetch manifest ────────────────────────────────────────────────────────
-curl -fsSL "$BASE_URL/install/manifest.json" >/dev/null \
+command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
+command -v jq   >/dev/null 2>&1 || die "jq is required but not installed."
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# ── fetch manifest (the integrity source of truth) ────────────────────────
+curl -fsSL "$BASE_URL/install/manifest.json" -o "$TMP/manifest.json" \
   || die "Failed to fetch manifest from $BASE_URL/install/manifest.json"
 
 # ── platform detection ─────────────────────────────────────────────────────
-# Map this machine onto one of the targets the mirror carries. The platform
-# set is data-driven from the manifest (see generator.RenderContext.platforms),
-# so adding a target is a manifest change, not a script change.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
-# Map MINGW/MSYS (Git Bash) to Windows artifacts
+# Map MINGW/MSYS (Git Bash) to the Windows archive
 case "$OS" in
   MINGW*|MSYS*) OS="Windows" ;;
 esac
 
 case "$OS" in
-  Darwin)  PLATFORM="macOS ($ARCH)" ;;
-  Linux)   PLATFORM="Linux ($ARCH)" ;;
-  Windows) PLATFORM="Windows ($ARCH)" ;;
-  *)       die "Unsupported OS: $OS. LiteLLM supports macOS, Linux, and Windows (Git Bash/WSL)." ;;
+  Linux)
+    case "$ARCH" in
+      x86_64)  TARGET="linux-x64-musl" ;;
+      aarch64) TARGET="linux-arm64-musl" ;;
+      *)       die "Unsupported Linux arch: $ARCH" ;;
+    esac
+    ;;
+  Darwin)   TARGET="darwin-universal" ;;
+  Windows)  TARGET="windows-x64" ;;
+  *)        die "Unsupported OS: $OS" ;;
 esac
 
-info "Platform: $PLATFORM"
+info "Platform: $OS ($ARCH) -> $TARGET"
 
-# ── resolve existing binaries ──────────────────────────────────────────────
-UV_BIN=""
-for candidate in uv "$HOME/.local/bin/uv"; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    UV_BIN="$(command -v "$candidate")"
-    break
-  elif [ -x "$candidate" ]; then
-    UV_BIN="$candidate"
-    break
-  fi
+# ── 1. install cc-switch (skip if version matches) ────────────────────────
+CCS_BIN=""
+for candidate in cc-switch "$INSTALL_DIR/cc-switch"; do
+  if command -v "$candidate" >/dev/null 2>&1; then CCS_BIN="$(command -v "$candidate")"; break
+  elif [ -x "$candidate" ]; then CCS_BIN="$candidate"; break; fi
 done
 
-# ── A1: install/upgrade uv (skip if version already matches) ──────────────
-if [ -n "$UV_BIN" ] && [ "$("$UV_BIN" --version 2>/dev/null | awk '{print $2}' | head -1 || true)" = "$UV_VERSION" ]; then
-  info "uv $UV_VERSION already installed, skipping"
+if [ -n "$CCS_BIN" ] && [ "$("$CCS_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" = "$CC_SWITCH_VERSION" ]; then
+  info "cc-switch $CC_SWITCH_VERSION already installed, skipping"
 else
-  header "Installing uv $UV_VERSION..."
-  export INSTALLER_DOWNLOAD_URL="$BASE_URL/install/uv/$UV_VERSION"
-  curl -fsSL "$BASE_URL/install/uv/$UV_VERSION/uv-installer.sh" \
-    | env INSTALLER_DOWNLOAD_URL="$INSTALLER_DOWNLOAD_URL" UV_NO_MODIFY_PATH=1 sh \
-    || die "uv installation failed from mirror"
-  UV_BIN="$HOME/.local/bin/uv"
+  header "Installing cc-switch $CC_SWITCH_VERSION..."
+  FILE="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].file' "$TMP/manifest.json")"
+  WANT="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].sha256' "$TMP/manifest.json")"
+  [ "$FILE" != "null" ] && [ "$WANT" != "null" ] || die "no artifact in the manifest for $TARGET"
+  curl -fsSL "$BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE" -o "$TMP/ccs.tgz" \
+    || die "download failed: $BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE"
+  echo "$WANT  $TMP/ccs.tgz" | sha256sum -c - >/dev/null \
+    || die "checksum mismatch for $FILE — the store may be corrupt; contact the platform team"
+  mkdir -p "$INSTALL_DIR"
+  tar -xzf "$TMP/ccs.tgz" -C "$INSTALL_DIR"
+  chmod +x "$INSTALL_DIR/cc-switch" 2>/dev/null || true
+  CCS_BIN="$INSTALL_DIR/cc-switch"
 fi
+[ -x "$CCS_BIN" ] || die "cc-switch binary not found after install"
 
-# ── A2: install/upgrade lite (--force is idempotent) ─────────────────────
-SCRIPTS_DIR="$("$UV_BIN" tool dir --bin 2>/dev/null || true)"
-LITE_BIN="${SCRIPTS_DIR:+$SCRIPTS_DIR/lite}"
-CURRENT_LITE_VERSION=""
-if [ -n "$LITE_BIN" ] && [ -x "$LITE_BIN" ]; then
-  CURRENT_LITE_VERSION="$("$LITE_BIN" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-fi
+# ── 2. prompt for the gateway key + diagnostic ────────────────────────────
+echo ""
+header "Gateway API key"
+printf "  Paste your OICM LiteLLM virtual key, then Enter: "
+if [ -t 0 ]; then stty -echo 2>/dev/null || true; fi
+IFS= read -r API_KEY
+if [ -t 0 ]; then stty echo 2>/dev/null || true; fi
+echo ""
+[ -n "$API_KEY" ] || die "no key entered"
 
-if [ "$CURRENT_LITE_VERSION" = "$LITELLM_CLI_VERSION" ]; then
-  info "lite $LITELLM_CLI_VERSION already installed, skipping"
-else
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/models" -o "$TMP/models.json" \
+  || die "that key was rejected by $BASE_URL; check it with your platform admin"
+MODEL_COUNT="$(jq -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
+[ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
+info "key OK — $MODEL_COUNT model(s) available"
+
+# ── 3. harness selection ──────────────────────────────────────────────────
+# The harness list comes from the manifest, so adding a harness is a sync,
+# not a script change.
+HARNESSES="$(jq -r '.harnesses | keys | join(" ")' "$TMP/manifest.json")"
+[ -n "$HARNESSES" ] && [ "$HARNESSES" != "null" ] || die "manifest declares no harnesses"
+echo ""
+header "Which harnesses should route through the gateway?"
+i=1
+for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
+printf "  Enter numbers separated by spaces (e.g. 1 3): "
+IFS= read -r PICKS
+[ -n "$PICKS" ] || die "nothing selected"
+
+CHOSEN=""
+for n in $PICKS; do
+  h="$(echo "$HARNESSES" | cut -d' ' -f"$n" 2>/dev/null || true)"
+  [ -n "$h" ] || die "invalid selection: $n"
+  CHOSEN="$CHOSEN $h"
+done
+
+# ── 4. per-harness provider reconcile (backup + delete-then-add + use) ────
+# Generic orchestrator: the per-harness cc-switch JSON shape lives in the
+# versioned preset the manifest pins, not in this script. The script fetches
+# the preset, verifies it against the manifest sha256, then composes the
+# final config client-side with jq from runtime values (base URL, API key,
+# accessible models) — never string substitution.
+umask 077
+MODELS_JSON="$(jq -c '[.data[].id] | map(select(test("claude|gpt|qwen|glm";"i"))) | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
+DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0] // empty' 2>/dev/null || true)"
+
+configure_harness() {
+  local harness="$1" mode="$2" preset_path="$3" preset_sha="$4"
+  header "Configuring $harness..."
+  "$CCS_BIN" config backup >/dev/null 2>&1 || true
+  "$CCS_BIN" provider delete "$PROVIDER_ID" --app "$harness" >/dev/null 2>&1 || true
+
+  if [ "$mode" = "switch" ]; then
+    # Field-mode harnesses take scalar flags; no preset file needed.
+    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --base-url "$BASE_URL" --api-key "$API_KEY" ${DEFAULT_MODEL:+--model "$DEFAULT_MODEL"} \
+      || die "provider add failed for $harness"
+  else
+    # Additive harnesses take a --config-file built from the pinned preset.
+    curl -fsSL "$BASE_URL/install/$preset_path" -o "$TMP/preset.json" \
+      || die "failed to fetch preset for $harness: $BASE_URL/install/$preset_path"
+    echo "$preset_sha  $TMP/preset.json" | sha256sum -c - >/dev/null \
+      || die "preset checksum mismatch for $harness — the store may be corrupt"
+
+    jq \
+      --arg name "$PROVIDER_NAME" \
+      --arg url "$BASE_URL/v1" \
+      --arg key "$API_KEY" \
+      --argjson models "$MODELS_JSON" \
+      '.name = $name
+       | .options.baseURL = $url
+       | .options.apiKey = $key
+       | .models = ( $models | map({key:., value:{name:.}}) | from_entries )' \
+      "$TMP/preset.json" > "$TMP/provider.json" \
+      || die "failed to compose config for $harness"
+
+    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --config-file "$TMP/provider.json" \
+      || die "provider add failed for $harness"
+    rm -f "$TMP/preset.json" "$TMP/provider.json"
+  fi
+
+  "$CCS_BIN" use "$PROVIDER_ID" --app "$harness" \
+    || die "failed to activate $PROVIDER_ID for $harness"
+  success "$harness configured"
+}
+
+for HARNESS in $CHOSEN; do
   echo ""
-  header "Installing litellm[cli] $LITELLM_CLI_VERSION..."
-  echo ""
-  # Pin the exact managed Python the mirror carries. uv constructs the
-  # download URL as <mirror>/<build_tag>/<archive>, so we pin both the build
-  # tag and the version, and request the pinned interpreter rather than a
-  # range. --python-preference only-managed forces the mirror fetch (no system
-  # fallback), and --no-index keeps resolution off PyPI.
-  export UV_PYTHON_INSTALL_MIRROR="$BASE_URL/install/python"
-  export UV_PYTHON_CPYTHON_BUILD="$PYTHON_BUILD_TAG"
-  "$UV_BIN" tool install \
-    --python "$PYTHON_VERSION" --python-preference only-managed --force \
-    --no-index --find-links "$BASE_URL/install/pypi" \
-    "litellm[cli]==$LITELLM_CLI_VERSION" \
-    || die "uv tool install failed. Check that the mirror has the wheelhouse."
-fi
+  MODE="$(jq -r --arg h "$HARNESS" '.harnesses[$h].mode // "additive"' "$TMP/manifest.json")"
+  PPATH="$(jq -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
+  PSHA="$(jq -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
+  configure_harness "$HARNESS" "$MODE" "$PPATH" "$PSHA"
+done
 
-# Re-resolve lite binary
-SCRIPTS_DIR="$("$UV_BIN" tool dir --bin)"
-LITE_BIN="$SCRIPTS_DIR/lite"
-if [ ! -x "$LITE_BIN" ]; then
-  die "lite binary not found after install"
-fi
-
-# ── A3: configure base_url (idempotent) ──────────────────────────────────
-"$LITE_BIN" config set base_url "$BASE_URL"
-
-# ── success ────────────────────────────────────────────────────────────────
+# ── done ───────────────────────────────────────────────────────────────────
 echo ""
-success "LiteLLM CLI installed"
-info "Version: $LITELLM_CLI_VERSION"
-
-# ── PATH hint ──────────────────────────────────────────────────────────────
-if ! command -v lite >/dev/null 2>&1; then
-  info "Note: add lite to your PATH:  export PATH=\"\$PATH:$SCRIPTS_DIR\""
-fi
-
-# ── next steps ─────────────────────────────────────────────────────────────
+"$CCS_BIN" env check 2>/dev/null || true
 echo ""
-header "Next steps:"
-echo ""
-info "  lite login              # authenticate to $BASE_URL"
-info "  lite configure claude   # wire Claude Code"
-info "  lite claude             # run Claude Code through the proxy"
+success "Done. Restart each configured harness to pick up the gateway."
+info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
+info "Update cc-switch only via this script, not 'cc-switch update'."
 echo ""
 """
+
+
+# Baked-in fallback presets for additive harnesses, keyed by cc-switch --app
+# id. These are the structural skeleton only; the installer fills baseURL,
+# apiKey and models from runtime values. The store-backed versioned preset
+# (providers/oicm/<harness>/v<N>.json) overrides these when the manifest pins
+# one — these exist so a harness works even before its first preset sync.
+ADDITIVE_PRESETS: Final[dict[str, str]] = {
+    "open-code": json.dumps(
+        {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "OICM LiteLLM",
+            "options": {"baseURL": "", "apiKey": ""},
+            "models": {},
+        },
+        indent=2,
+    ),
+    "pi": json.dumps(
+        {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "OICM LiteLLM",
+            "options": {"baseURL": "", "apiKey": ""},
+            "models": {},
+        },
+        indent=2,
+    ),
+    "hermes": json.dumps(
+        {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "OICM LiteLLM",
+            "options": {"baseURL": "", "apiKey": ""},
+            "models": {},
+        },
+        indent=2,
+    ),
+    "open-claw": json.dumps(
+        {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "OICM LiteLLM",
+            "options": {"baseURL": "", "apiKey": ""},
+            "models": {},
+        },
+        indent=2,
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,13 +296,27 @@ class PlatformTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class MirrorManifest:
-    """The fields from manifest.json the generator needs (schema 2)."""
+class HarnessPreset:
+    """One harness's versioned cc-switch configuration slice (schema 4).
 
-    uv_version: str
-    litellm_cli_version: str
-    python_version: str
-    python_build_tag: str
+    The manifest pins each harness to an immutable, store-backed preset so a
+    harness's cc-switch JSON shape can be revised without a gateway rebuild.
+    """
+
+    harness: str  # cc-switch --app id, e.g. "open-code"
+    version: int
+    path: str  # store key, e.g. "providers/oicm/open-code/v3.json"
+    sha256: str
+    mode: str  # "switch" (field-mode add) | "additive" (--config-file add)
+
+
+@dataclass(frozen=True, slots=True)
+class MirrorManifest:
+    """The fields from manifest.json the generator needs (schema 4)."""
+
+    cc_switch_version: str
+    cc_switch_artifacts: dict[str, dict[str, str]]
+    harnesses: tuple[HarnessPreset, ...] = field(default=())
     platforms: tuple[PlatformTarget, ...] = field(default=())
     extra: dict[str, object] = field(default_factory=dict)
 
@@ -217,17 +325,15 @@ class MirrorManifest:
 
         Open context: every declared field plus any extra manifest keys are
         exposed by name, so a template can reference new manifest data without
-        a code change. ``platforms`` is exposed as typed PlatformTarget
-        objects (``p.target`` / ``p.archive_ext``); everything else is the raw
-        manifest value.
+        a code change. ``harnesses`` and ``platforms`` are exposed as typed
+        objects; everything else is the raw manifest value.
         """
         return {
             **self.extra,
             "base_url": base_url,
-            "uv_version": self.uv_version,
-            "litellm_cli_version": self.litellm_cli_version,
-            "python_version": self.python_version,
-            "python_build_tag": self.python_build_tag,
+            "cc_switch_version": self.cc_switch_version,
+            "cc_switch_artifacts": self.cc_switch_artifacts,
+            "harnesses": self.harnesses,
             "platforms": self.platforms,
         }
 
@@ -256,54 +362,103 @@ def get_template() -> str:
     return _TEMPLATE
 
 
+def get_baked_preset(harness: str) -> str | None:
+    """Return the baked-in fallback preset for an additive harness, or None."""
+    return ADDITIVE_PRESETS.get(harness)
+
+
 def manifest_from_json(raw: str) -> MirrorManifest:
-    """Parse a manifest.json string into a MirrorManifest (schema 2).
+    """Parse a manifest.json string into a MirrorManifest (schema 3).
 
     Raises ``ValueError`` on missing or malformed fields. ``platforms`` is a
     list of ``{"target": ..., "archive_ext": ...}`` objects; when omitted the
     manifest carries no platform metadata and the template renders an empty
-    platform set.
+    platform set. ``harnesses`` maps a cc-switch ``--app`` id to a pinned
+    preset ``{"version", "path", "sha256", "mode"}`` (schema 4).
     """
     try:
         data: dict[str, object] = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
         raise ValueError(f"invalid manifest JSON: {exc}") from exc
 
-    uv_version: object = data.get("uv_version")
-    cli_version: object = data.get("litellm_cli_version")
-    python_version: object = data.get("python_version")
-    python_build_tag: object = data.get("python_build_tag")
+    cc_switch_version: object = data.get("cc_switch_version")
+    cc_switch_artifacts: object = data.get("cc_switch_artifacts")
 
-    if not isinstance(uv_version, str) or not uv_version:
-        raise ValueError("manifest missing 'uv_version'")
-    if not isinstance(cli_version, str) or not cli_version:
-        raise ValueError("manifest missing 'litellm_cli_version'")
-    if not isinstance(python_version, str) or not python_version:
-        raise ValueError("manifest missing 'python_version'")
-    if not isinstance(python_build_tag, str) or not python_build_tag:
-        raise ValueError("manifest missing 'python_build_tag'")
+    if not isinstance(cc_switch_version, str) or not cc_switch_version:
+        raise ValueError("manifest missing 'cc_switch_version'")
+    if not isinstance(cc_switch_artifacts, dict) or not cc_switch_artifacts:
+        raise ValueError("manifest missing 'cc_switch_artifacts'")
 
     declared: Final = {
         "schema",
-        "uv_version",
-        "litellm_cli_version",
-        "python_version",
-        "python_build_tag",
+        "cc_switch_version",
+        "cc_switch_artifacts",
+        "harnesses",
         "platforms",
-        "uv_artifacts",
-        "python_artifacts",
-        "wheelhouse",
     }
     extra: dict[str, object] = {k: v for k, v in data.items() if k not in declared}
 
     return MirrorManifest(
-        uv_version=uv_version,
-        litellm_cli_version=cli_version,
-        python_version=python_version,
-        python_build_tag=python_build_tag,
+        cc_switch_version=cc_switch_version,
+        cc_switch_artifacts=_artifacts_from_json(cc_switch_artifacts),
+        harnesses=_harnesses_from_json(data.get("harnesses")),
         platforms=_platforms_from_json(data.get("platforms")),
         extra=extra,
     )
+
+
+def _harnesses_from_json(raw: object) -> tuple[HarnessPreset, ...]:
+    """Parse the optional ``harnesses`` map into HarnessPreset tuples."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict):
+        raise ValueError("manifest 'harnesses' must be an object")
+    presets: list[HarnessPreset] = []
+    for harness, entry in raw.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"harness '{harness}' preset must be an object")
+        version: object = entry.get("version")
+        path: object = entry.get("path")
+        sha256: object = entry.get("sha256")
+        mode: object = entry.get("mode", "additive")
+        if not isinstance(version, int):
+            raise ValueError(f"harness '{harness}' preset missing int 'version'")
+        if not isinstance(mode, str) or not mode:
+            raise ValueError(f"harness '{harness}' preset missing 'mode'")
+        # switch-mode harnesses carry no preset file; additive ones must
+        if mode == "additive":
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"harness '{harness}' preset missing 'path'")
+            if not isinstance(sha256, str) or not sha256:
+                raise ValueError(f"harness '{harness}' preset missing 'sha256'")
+        presets.append(
+            HarnessPreset(
+                harness=harness,
+                version=version,
+                path=path if isinstance(path, str) else "",
+                sha256=sha256 if isinstance(sha256, str) else "",
+                mode=mode,
+            )
+        )
+    return tuple(presets)
+
+
+def _artifacts_from_json(raw: object) -> dict[str, dict[str, str]]:
+    """Validate the cc_switch_artifacts map: target -> {file, sha256}."""
+    if not isinstance(raw, dict):
+        raise ValueError("manifest 'cc_switch_artifacts' must be an object")
+    out: dict[str, dict[str, str]] = {}
+    for target, entry in raw.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"artifact for '{target}' must be an object")
+        file: object = entry.get("file")
+        sha256: object = entry.get("sha256")
+        if not isinstance(file, str) or not file:
+            raise ValueError(f"artifact for '{target}' missing 'file'")
+        if not isinstance(sha256, str) or not sha256:
+            raise ValueError(f"artifact for '{target}' missing 'sha256'")
+        out[target] = {"file": file, "sha256": sha256}
+    return out
 
 
 def _platforms_from_json(raw: object) -> tuple[PlatformTarget, ...]:

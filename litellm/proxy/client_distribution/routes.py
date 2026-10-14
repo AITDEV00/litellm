@@ -29,6 +29,7 @@ from litellm.proxy._types import LitellmUserRoles
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.client_distribution.generator import (
     MirrorManifest,
+    get_baked_preset,
     manifest_from_json,
     render_install_script,
 )
@@ -125,6 +126,11 @@ def _fetch_manifest(config: RustFSConfig, s3: object) -> MirrorManifest:
         ) from exc
 
 
+# The install template is served from the store when present (admin-synced via
+# the PROXY_ADMIN-gated write API, so only an admin can change it), falling back
+# to the baked-in copy when the store copy is missing or unreadable. This keeps
+# the template iterable without an image rebuild; the store write path is the
+# same admin channel as every other artifact. See security.md "What lives where".
 _TEMPLATE_KEY: Final = "templates/install.sh.tmpl"
 
 
@@ -189,24 +195,24 @@ async def admin_put_manifest(
         ) from exc
 
     schema_version: object = data.get("schema")
-    if schema_version != 2:
+    if schema_version != 3:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported schema version: {schema_version} (expected 2)",
+            detail=f"unsupported schema version: {schema_version} (expected 3)",
         )
 
-    # Validate every referenced artifact exists in the store
-    uv_artifacts: object = data.get("uv_artifacts", {})
-    if isinstance(uv_artifacts, dict):
+    # Validate every referenced cc-switch artifact exists in the store
+    cc_artifacts: object = data.get("cc_switch_artifacts", {})
+    cc_version: object = data.get("cc_switch_version", "")
+    if isinstance(cc_artifacts, dict):
         missing: list[str] = []
-        for platform_key, artifact in uv_artifacts.items():
+        for _target, artifact in cc_artifacts.items():
             if not isinstance(artifact, dict):
                 continue
             filename: object = artifact.get("file")
             if not isinstance(filename, str):
                 continue
-            uv_version: object = data.get("uv_version", "")
-            key: str = f"uv/{uv_version}/{filename}"
+            key: str = f"cc-switch/{cc_version}/{filename}"
             try:
                 await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=key)  # type: ignore[union-attr]
             except Exception:
@@ -215,6 +221,28 @@ async def admin_put_manifest(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"manifest references missing objects: {missing}",
+            )
+
+    # Validate every referenced harness preset exists in the store
+    harnesses: object = data.get("harnesses", {})
+    if isinstance(harnesses, dict):
+        missing_presets: list[str] = []
+        for harness, preset in harnesses.items():
+            if not isinstance(preset, dict):
+                continue
+            if preset.get("mode", "additive") == "switch":
+                continue  # field-mode harnesses carry no preset file
+            path: object = preset.get("path")
+            if not isinstance(path, str):
+                continue
+            try:
+                await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=path)  # type: ignore[union-attr]
+            except Exception:
+                missing_presets.append(path)
+        if missing_presets:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"manifest references missing preset objects: {missing_presets}",
             )
 
     # Write the manifest
@@ -309,13 +337,13 @@ async def admin_delete_artifact(
         )
         body: object = response["Body"]
         manifest_data: dict[str, object] = json.loads(body.read())  # type: ignore[union-attr]
-        uv_artifacts: object = manifest_data.get("uv_artifacts", {})
-        if isinstance(uv_artifacts, dict):
-            uv_version: object = manifest_data.get("uv_version", "")
-            for artifact in uv_artifacts.values():
+        cc_artifacts: object = manifest_data.get("cc_switch_artifacts", {})
+        if isinstance(cc_artifacts, dict):
+            cc_version: object = manifest_data.get("cc_switch_version", "")
+            for artifact in cc_artifacts.values():
                 if isinstance(artifact, dict):
                     filename: object = artifact.get("file")
-                    if isinstance(filename, str) and f"uv/{uv_version}/{filename}" == key:
+                    if isinstance(filename, str) and f"cc-switch/{cc_version}/{filename}" == key:
                         raise HTTPException(
                             status_code=status.HTTP_409_CONFLICT,
                             detail=f"object is still referenced by the manifest: {key}",
@@ -406,6 +434,42 @@ async def get_manifest() -> Response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found")
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: manifest read failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="object store unreachable",
+        ) from exc
+
+
+@router.get("/install/providers/{provider}/{harness}/v{version}.json")
+async def get_harness_preset(provider: str, harness: str, version: int) -> Response:
+    """Serve a versioned harness preset.
+
+    Store-backed with a baked-in fallback: the manifest pins
+    ``providers/oicm/<harness>/v<N>.json``, and this route serves the store
+    copy when present, else the baked skeleton for that harness. Registered
+    before the catch-all so it matches first. Runtime values (base URL, API
+    key, models) are NOT filled here — the installer composes them with jq,
+    so this response is identical for every caller.
+    """
+    config, s3 = _get_storage()
+    key: str = f"providers/{provider}/{harness}/v{version}.json"
+    try:
+        response: dict[str, object] = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        )
+        body: object = response["Body"]
+        raw: bytes = body.read()  # type: ignore[union-attr]
+        return Response(content=raw, media_type="application/json")
+    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+        baked: str | None = get_baked_preset(harness)
+        if baked is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no preset for harness '{harness}'",
+            )
+        return Response(content=baked, media_type="application/json")
+    except Exception as exc:
+        verbose_proxy_logger.warning("client_distribution: preset read failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="object store unreachable",

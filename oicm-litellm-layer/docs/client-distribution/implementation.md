@@ -1,15 +1,54 @@
 # Implementation Plan
 
-Status: Phase 1 done (RustFS deployed, per-environment). Phase 2 done (slice code,
-unit-tested). Phase 3 done (wired, deployed to dev, verified). Phase 4 done
-(store populated: 8 uv artifacts, 8 python archives, 77 wheels, manifest
-published; /install serves the generated script on dev). v5: the generator is
-now Jinja2-based with an open render context (every manifest key is exposed to
-the template) and manifest schema 2 (see installer-script.md "Generator
-contract"); the harness-detection block and the `install_state.json` state
-machine were removed. Phase 5 done (dev e2e: clean egress-blocked container
-installs uv + lite from the mirror, logs in, and runs a real opencode turn
-through the dev gateway; re-run is a no-op; upstream hosts unreachable).
+> **v6 pivot (2026-10-14): cc-switch-cli replaces the `lite` CLI.** The served
+> client is now the cc-switch static binary, not the uv-installed `lite`
+> Python CLI. The uv / wheelhouse / managed-Python mirror tiers and the
+> `lite login` step are dropped. See [PLAN.md](PLAN.md) (single plan of
+> record) and [history/lite-cli-PLAN.md](history/lite-cli-PLAN.md) for the
+> superseded design.
+
+## Milestone boundaries
+
+```
+DONE (kept, reused by the cc-switch design)
+────────────────────────────────────────────
+RustFS deployment (per-environment)
+S3 storage wrapper (storage.py)
+/install read routing (public artifact GETs)
+/install/admin authenticated write surface
+Jinja2 open-context generator
+
+REVALIDATE / REPLACE (the lite-era results do not carry over)
+────────────────────────────────────────────
+artifact population   -> cc-switch archives, not uv/python/wheels
+manifest schema       -> schema 4 (cc_switch_version + cc_switch_artifacts + harnesses)
+installer template    -> generic orchestrator, store-served + baked fallback
+harness presets       -> versioned providers/oicm/<h>/v<N>.json slices
+platform matrix       -> 4 musl/universal targets
+security model        -> trust split, credential perms, no self-update
+end-to-end tests      -> redo against cc-switch
+
+NEW RELEASE GATE (cc-switch)
+────────────────────────────────────────────
+cc-switch v5.11.1 mirrored + manifest published
+clean-machine install (egress blocked)
+gateway-key validation diagnostic
+claude config verified
+codex config verified
+open-code config verified
+second /install run is a no-op (idempotent reconcile)
+gateway model add/remove + resync
+gateway key with restricted models
+rollback (config restore) test
+public internet fully blocked
+-> prod
+```
+
+The old lite/uv Phases 1-3 map to the DONE block. The old Phase 4/5 (uv
+artifact population, lite e2e) do **not** count as done for the cc-switch
+architecture — they are replaced by the REVALIDATE and NEW RELEASE GATE
+blocks above. The phase text below is the lite/uv history, retained for
+reference; the cc-switch work is tracked against the gate.
 Phase 5 surfaced and fixed two mirror bugs: the pinned Python is now 3.13.12 /
 build 20260303 / install_only_stripped (uv 0.10.9's actual metadata), and a
 PEP 503 wheelhouse index route backs `--find-links`.

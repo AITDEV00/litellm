@@ -1,46 +1,46 @@
 # Supported Platform Matrix
 
-`uv` is universal across normal developer operating systems, not literally
-every OS. We guarantee the matrix below and label everything else honestly.
+cc-switch ships static binaries, so the matrix is small. We guarantee the
+targets below and label everything else honestly.
 
-## Guaranteed (tier 1 support)
+## Guaranteed (the mirror ships these)
 
-| OS / arch | uv upstream status | Notes |
+| Target | Archive | Covers |
 |---|---|---|
-| Linux x86-64 (glibc) | Tier 1 | Primary target (the org's standard dev machines) |
-| Linux ARM64 (glibc) | Tier 2 + official binary | |
-| Linux x86-64 musl (Alpine) | Official static binary | Static musl build avoids host libc entirely |
-| macOS Apple Silicon | Tier 1 | |
-| macOS Intel | Tier 1 | |
+| Linux x86-64 musl | `cc-switch-cli-linux-x64-musl.tar.gz` | any Linux x86-64, glibc or musl (static) |
+| Linux ARM64 musl | `cc-switch-cli-linux-arm64-musl.tar.gz` | any Linux ARM64 |
+| macOS universal | `cc-switch-cli-darwin-universal.tar.gz` | Intel + Apple Silicon in one archive |
+| Windows x64 | `cc-switch-cli-windows-x64.zip` | via Git Bash / WSL |
 
-## Supported on request (tier 2)
+Static musl builds mean we do not need separate glibc/musl rows, and the macOS
+universal archive collapses the two Apple arches. Four artifacts cover the
+whole supported set.
 
-| OS / arch | uv upstream status | Notes |
+## Supported on request (add to the manifest when needed)
+
+| Target | Archive | Notes |
 |---|---|---|
-| Windows x64 | Tier 1 | Via Git Bash / WSL (the bash script runs there); native `/install.ps1` deferred |
-| Windows ARM64 | Tier 2 | Same |
-| Linux ARMv7 | Tier 2 + official binary | Only if real hardware shows up |
+| Linux x86-64 glibc | `cc-switch-cli-linux-x64.tar.gz` | only if a static-musl issue ever shows up |
+| Linux ARM64 glibc | `cc-switch-cli-linux-arm64.tar.gz` | same |
+| macOS arch-specific | `cc-switch-cli-darwin-{x64,arm64}.tar.gz` | smaller than universal; rarely needed |
 
 ## Explicitly not promised
 
 | Environment | Why |
 |---|---|
-| Android / Termux | `pkg install uv` exists in Termux, but Astral ships no `aarch64-linux-android` release artifact and Android host support has had real breakage (e.g. uv initially rejecting `sys.platform == "android"` after Termux's Python 3.13 move). Possible, not part of the enterprise matrix. |
-| iOS / iPadOS | Not a supported native uv host, and not a sensible local CLI host anyway. An iPad user SSHes into a Linux box, where this design works. uv's `--python-platform` iOS targets are about cross-building from a dev machine, not running on-device. |
-| FreeBSD | Tier 3 upstream. Don't promise. |
+| Windows ARM64 | no upstream cc-switch artifact |
+| Android / Termux | no upstream cc-switch artifact |
+| iOS / iPadOS | not a sensible local CLI host; SSH into a Linux box instead |
+| FreeBSD | no upstream cc-switch artifact |
 
 ## What the guarantee means operationally
 
-The mirror only ships artifacts for the guaranteed + tier-2 list
+The mirror only ships artifacts for the guaranteed list
 ([mirror-content.md](mirror-content.md)); the install script refuses with a
-clear message on anything else rather than half-working. The matrix is
-reviewed whenever the pinned `uv` version moves — Astral's platform tiers are
-re-checked at that point, and the manifest is the enforcement point (a platform
-not in the manifest is not installable).
+clear message on anything else rather than half-working. The manifest is the
+enforcement point: a platform not in `cc_switch_artifacts` is not installable.
+The matrix is re-checked whenever the pinned `cc_switch_version` moves.
 
-One nuance: Claude Code / Codex / OpenCode themselves have their own platform
-requirements (e.g. Codex stable >= 0.129.0 for `lite configure codex`). The
-`lite` matrix above is about getting the CLI onto the machine; the harness
-docs each state their own prerequisites, and the CLI checks them
-(`lite configure` verifies `codex --version` before touching settings —
-verified in the CLI source).
+The coding harnesses themselves (Claude Code, Codex, OpenCode, ...) are
+installed by the user through their own channels and have their own platform
+requirements; cc-switch only writes their config, it does not install them.

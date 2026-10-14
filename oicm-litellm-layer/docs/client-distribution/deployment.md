@@ -45,11 +45,12 @@ dependency instead of a volume.
 ## Filling the store: the admin sync API
 
 The admin runs the idempotent push loop from [admin-sync.md](admin-sync.md)
-on a machine with internet access: fetch the pinned uv artifacts, resolve the
-wheelhouse, fetch the Python builds, compute hashes, `PUT` each artifact, then
-`PUT` the manifest last. The gateway hashes on write and skips unchanged
-objects, so re-running is cheap and safe. The gateway writes to the
-`litellm-client-mirror` bucket; the admin never touches RustFS directly.
+on a machine with internet access: fetch the pinned cc-switch archives, verify
+each against upstream's `checksums.txt`, `PUT` each artifact under its
+versioned path, then `PUT` the manifest last. The gateway hashes on write and
+skips unchanged objects, so re-running is cheap and safe. The gateway writes
+to the `litellm-client-mirror` bucket; the admin never touches RustFS
+directly.
 
 The fetch script itself lives in `examples/` per the layer's doc conventions
 (runnable things are not docs), and follows the repo's CI supply-chain rules

@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Build manifest.json from the staged mirror content.
+"""Build manifest.json (schema 4) from the staged mirror content.
 
-Reads the staging directory, computes SHA-256 for every artifact, and writes
-a manifest.json conforming to the schema in docs/client-distribution/mirror-content.md.
+Reads the staging directory, computes SHA-256 for every artifact and harness
+preset, and writes a manifest.json conforming to
+docs/client-distribution/mirror-content.md (schema 4).
+
+Schema 4 pins each harness to a versioned preset:
+  harnesses: { <app-id>: {version, path, sha256, mode} }
+  - mode "switch":   field-mode harness (claude/codex/gemini), no preset file.
+  - mode "additive": raw-config harness; path/sha256 point at the staged preset.
 
 Usage: python3 build-manifest.py <staging-dir>
 """
@@ -14,21 +20,31 @@ import json
 import sys
 from pathlib import Path
 
-UV_VERSION = "0.10.9"
-LITELLM_CLI_VERSION = "1.102.0"
-PYTHON_VERSION = "3.13.12"
-PYTHON_BUILD_TAG = "20260303"
+CC_SWITCH_VERSION = "5.11.1"
 
-UV_TARGETS = [
-    "x86_64-unknown-linux-gnu",
-    "x86_64-unknown-linux-musl",
-    "aarch64-unknown-linux-gnu",
-    "aarch64-unknown-linux-musl",
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-    "x86_64-pc-windows-msvc",
-    "aarch64-pc-windows-msvc",
-]
+# cc-switch mirror targets -> archive extension
+CC_SWITCH_TARGETS = {
+    "linux-x64-musl": "tar.gz",
+    "linux-arm64-musl": "tar.gz",
+    "darwin-universal": "tar.gz",
+    "windows-x64": "zip",
+}
+
+# Harness preset slices. version bumps when the preset shape changes; the
+# manifest pins the new path so old installers keep working.
+# mode "switch"   -> field-mode provider add (no preset file needed)
+# mode "additive" -> --config-file provider add (preset file required)
+HARNESSES = {
+    "claude": {"version": 1, "mode": "switch"},
+    "codex": {"version": 1, "mode": "switch"},
+    "gemini": {"version": 1, "mode": "switch"},
+    "open-code": {"version": 1, "mode": "additive"},
+    "pi": {"version": 1, "mode": "additive"},
+    "hermes": {"version": 1, "mode": "additive"},
+    "open-claw": {"version": 1, "mode": "additive"},
+}
+
+PROVIDER = "oicm"
 
 
 def sha256_file(path: Path) -> str:
@@ -53,62 +69,48 @@ def main() -> None:
         sys.exit(1)
 
     manifest: dict = {
-        "schema": 2,
-        "litellm_cli_version": LITELLM_CLI_VERSION,
-        "uv_version": UV_VERSION,
-        "python_version": PYTHON_VERSION,
-        "python_build_tag": PYTHON_BUILD_TAG,
+        "schema": 4,
+        "cc_switch_version": CC_SWITCH_VERSION,
         "platforms": [
-            {
-                "target": t,
-                "archive_ext": "zip" if "windows" in t else "tar.gz",
-            }
-            for t in UV_TARGETS
+            {"target": t, "archive_ext": ext} for t, ext in CC_SWITCH_TARGETS.items()
         ],
-        "uv_artifacts": {},
-        "python_artifacts": {"sha256": {}},
-        "wheelhouse": {"sha256": ""},
+        "cc_switch_artifacts": {},
+        "harnesses": {},
     }
 
-    # uv artifacts
-    uv_dir = staging / "uv" / UV_VERSION
-    for target in UV_TARGETS:
-        ext = "zip" if "windows" in target else "tar.gz"
-        artifact = f"uv-{target}.{ext}"
-        artifact_path = uv_dir / artifact
+    # cc-switch binary artifacts
+    ccs_dir = staging / "cc-switch" / CC_SWITCH_VERSION
+    for target, ext in CC_SWITCH_TARGETS.items():
+        artifact = f"cc-switch-cli-v{CC_SWITCH_VERSION}-{target}.{ext}"
+        artifact_path = ccs_dir / artifact
         if not artifact_path.exists():
             print(f"error: missing {artifact_path}", file=sys.stderr)
             sys.exit(1)
-        manifest["uv_artifacts"][target] = {
+        manifest["cc_switch_artifacts"][target] = {
             "file": artifact,
             "sha256": sha256_file(artifact_path),
         }
 
-    # python-build-standalone archives (all .tar.gz)
-    pbs_dir = staging / "python"
-    pbs_hashes: dict[str, str] = {}
-    for target in UV_TARGETS:
-        pbs_file = None
-        for f in pbs_dir.iterdir():
-            if target in f.name and f.name.endswith(".tar.gz"):
-                pbs_file = f
-                break
-        if pbs_file is None:
-            print(f"warning: no python archive found for {target}", file=sys.stderr)
+    # Harness presets
+    for harness, meta in HARNESSES.items():
+        if meta["mode"] == "switch":
+            manifest["harnesses"][harness] = {
+                "version": meta["version"],
+                "mode": "switch",
+            }
             continue
-        pbs_hashes[target] = sha256_file(pbs_file)
-    manifest["python_artifacts"]["sha256"] = pbs_hashes
-
-    # Wheelhouse: single hash over sorted wheel hashes
-    pypi_dir = staging / "pypi"
-    wheel_hashes: list[str] = []
-    for whl in sorted(pypi_dir.glob("*.whl")):
-        wheel_hashes.append(sha256_file(whl))
-    if wheel_hashes:
-        combined = hashlib.sha256("\n".join(wheel_hashes).encode()).hexdigest()
-        manifest["wheelhouse"]["sha256"] = combined
-    else:
-        print("warning: no wheels found in pypi/", file=sys.stderr)
+        version = meta["version"]
+        preset_rel = f"providers/{PROVIDER}/{harness}/v{version}.json"
+        preset_path = staging / preset_rel
+        if not preset_path.exists():
+            print(f"error: missing preset {preset_path}", file=sys.stderr)
+            sys.exit(1)
+        manifest["harnesses"][harness] = {
+            "version": version,
+            "path": preset_rel,
+            "sha256": sha256_file(preset_path),
+            "mode": "additive",
+        }
 
     out = staging / "manifest.json"
     with open(out, "w") as f:
@@ -116,10 +118,9 @@ def main() -> None:
         f.write("\n")
     print(f"manifest written: {out}")
     print(f"  schema: {manifest['schema']}")
-    print(f"  platforms: {len(manifest['platforms'])}")
-    print(f"  uv artifacts: {len(manifest['uv_artifacts'])}")
-    print(f"  python archives: {len(pbs_hashes)}")
-    print(f"  wheels: {len(wheel_hashes)}")
+    print(f"  cc-switch artifacts: {len(manifest['cc_switch_artifacts'])}")
+    additive = sum(1 for h in manifest["harnesses"].values() if h["mode"] == "additive")
+    print(f"  harnesses: {len(manifest['harnesses'])} ({additive} additive presets)")
 
 
 if __name__ == "__main__":

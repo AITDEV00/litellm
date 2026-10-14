@@ -1,109 +1,140 @@
 # The Served Install Script (`/install`)
 
-Design rule: copy upstream, change origins, add nothing. The script is a
-lightly-modified fork of upstream `scripts/install-cli.sh` (2139-line uv
-installer aside, the LiteLLM part is ~120 lines). Keeping the diff tiny keeps
-the maintenance burden proportional: when upstream changes its installer, we
-re-apply three modifications, not re-invent.
+Design rule: download one static binary, configure the user's harnesses with
+it, add nothing. The script installs **cc-switch-cli** (a single static Rust
+binary) from the gateway mirror and uses it to register our gateway as a
+provider and write the user's chosen harness config files. There is no uv,
+no Python, no wheelhouse, and no `lite` CLI.
+
+The end user already holds an admin-issued gateway key, so there is no login
+step. cc-switch supports 7 harnesses (claude, codex, gemini, open-code,
+hermes, open-claw, pi) and writes each one's native config file — including a
+real `~/.config/opencode/opencode.json`, which the retired `lite` CLI never
+did.
 
 The script is not a static file: the gateway slice renders it at request time
 from a Jinja2 template and a structured context (base URL, adopted versions,
 platform list) built from `manifest.json` (see
-[architecture.md](architecture.md), "Why `/install` is generated", and the
-generator contract below). The template below is what the generator emits.
+[architecture.md](architecture.md) and the generator contract below).
 
-The script is served at `GET /install` and is **unauthenticated** (decision 9):
-installing the CLI and wiring a harness needs no credential. The user supplies
-their LiteLLM key later, at `lite login` / `lite configure`, which is where it
-belongs. See [security.md](security.md).
+The script is served at `GET /install` and is **unauthenticated**: downloading
+the binary and reading the manifest need no credential. The user's key is
+prompted for interactively and used only for the `/v1/models` diagnostic and
+the provider's `apiKey` field. See [security.md](security.md).
 
-## The three modifications
+The four steps below double as **first install** and **reconciliation**: the
+same `/install` run installs the binary if absent, then re-validates the key
+and re-syncs the provider + model list. One command, both jobs.
 
-### 1. uv bootstrap -> gateway mirror
+### 1. cc-switch binary -> gateway mirror (versioned path)
 
-Upstream (verified, `scripts/install-cli.sh` at the pinned uv):
-
-```sh
-curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | env UV_NO_MODIFY_PATH=1 sh
-```
-
-Ours:
-
-```sh
-export INSTALLER_DOWNLOAD_URL="https://litellm.ecouncil.ae/install/uv/${UV_VERSION}"
-curl -fsSL "https://litellm.ecouncil.ae/install/uv/${UV_VERSION}/uv-installer.sh" \
-  | env INSTALLER_DOWNLOAD_URL="${INSTALLER_DOWNLOAD_URL}" UV_NO_MODIFY_PATH=1 sh
-```
-
-Two details verified in the pinned installer source: the installer script
-itself is static content (we mirror it like any other artifact), and
-`INSTALLER_DOWNLOAD_URL` makes the installer take artifact URLs from our
-mirror prefix instead of `github.com/astral-sh/uv/releases/download/...`. The
-musl/gnu/libc detection, archive extraction, PATH handling, and receipt logic
-all stay Astral's, unmodified — that is the mature platform logic we do not
-want to rewrite.
-
-### 2. `uv tool install` -> offline wheelhouse
-
-Upstream:
+The script detects OS/arch/libc and downloads the matching archive from the
+**immutable versioned** path `/install/cc-switch/<version>/`. The client-side
+source of truth for integrity is the **manifest's own SHA-256**, not a
+separately-downloaded checksums file (admin sync verifies upstream's
+`checksums.txt` at ingest time and records the verified hash in the manifest;
+see [admin-sync.md](admin-sync.md)):
 
 ```sh
-"$UV_BIN" tool install --python '>=3.10,<3.15' --python-preference system --force 'litellm[cli]'
+VER="$(jq -r .cc_switch_version "$TMP/manifest.json")"
+FILE="$(jq -r '.cc_switch_artifacts["'$TARGET'"].file' "$TMP/manifest.json")"
+WANT="$(jq -r '.cc_switch_artifacts["'$TARGET'"].sha256' "$TMP/manifest.json")"
+curl -fsSL "$BASE_URL/install/cc-switch/$VER/$FILE" -o "$TMP/ccs.tgz"
+echo "$WANT  $TMP/ccs.tgz" | sha256sum -c -
+tar -xzf "$TMP/ccs.tgz" -C "$INSTALL_DIR"
 ```
 
-Ours:
+Musl builds (`linux-x64-musl`, `linux-arm64-musl`) are statically linked, so
+the binary runs on any libc. That is why there is no Python or uv tier at
+all. If `cc-switch --version` already matches `cc_switch_version`, the
+download is skipped.
+
+### 2. Prompt for the gateway key + diagnostic
+
+The script prompts for the user's **gateway virtual key** (hidden input) and
+validates it before touching any config. This is a per-developer virtual key,
+never the proxy master/admin key:
 
 ```sh
-export UV_PYTHON_INSTALL_MIRROR="https://litellm.ecouncil.ae/install/python"
-"$UV_BIN" tool install \
-  --python '>=3.10,<3.15' --python-preference system --force \
-  --no-index --find-links "https://litellm.ecouncil.ae/install/pypi" \
-  'litellm[cli]'
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/models" > "$TMP/models.json" \
+  || die "that key was rejected by $BASE_URL; check it with your platform admin"
 ```
 
-Verified: `uv tool install` accepts `--no-index` and `--find-links` (and
-`UV_INDEX_URL`/`UV_EXTRA_INDEX_URL` env equivalents). `--no-index` is the
-guarantee that no resolution step can escape to PyPI even if the wheelhouse
-is missing something — it fails loudly instead of silently phoning home.
-`UV_PYTHON_INSTALL_MIRROR` covers the managed-Python fetch on hosts with no
-compatible interpreter.
+A wrong key fails here, before any harness file is written. The fetched model
+list also feeds step 4, so each provider carries the models this key can
+actually call.
 
-### 3. Gateway pre-configuration
+### 3. Harness selection
 
-After a successful install, the script appends the one thing that makes the
-CLI usable out of the box (and nothing else):
+The script lists the harnesses cc-switch can configure and asks the user
+which to wire (numbered multi-select). Harnesses not picked are left alone —
+the user may already have a non-gateway config for one of them.
+
+### 4. Per-harness provider reconcile
+
+The script is a **generic orchestrator**: it embeds no per-harness JSON shape.
+For each chosen harness it reads the `mode` and the pinned preset
+(`path`, `sha256`) from the manifest's `harnesses` map:
+
+- **switch** (`claude / codex / gemini`) — field-mode flags, no preset file.
+- **additive** (`open-code / pi / hermes / open-claw`) — fetches the pinned
+  preset `/install/providers/oicm/<h>/v<N>.json`, verifies its sha256 against
+  the manifest, then composes the final config client-side with `jq` (filling
+  `baseURL`, `apiKey`, and the key's model list) into a `--config-file`.
+
+Each harness's config shape is its own versioned slice, so revising one
+harness touches nothing else. The key is passed via a **`--config-file` under
+`umask 077`**, never on the command line (argv is world-readable via `/proc`),
+and runtime values are merged with `jq`, never `sed` string substitution:
 
 ```sh
-"$LITE_BIN" config set base_url https://litellm.ecouncil.ae
+umask 077
+printf '%s' "$CONFIG_JSON" > "$TMP/provider.json"
+
+# add is NOT idempotent (same id errors), and edit is interactive-only, so the
+# reconcile is delete-then-add, wrapped by a backup first:
+cc-switch config backup >/dev/null 2>&1 || true
+cc-switch provider delete "$PROVIDER_ID" --app "$HARNESS" >/dev/null 2>&1 || true
+
+if [ "$MODE" = field ]; then
+  cc-switch provider add --app "$HARNESS" --name "$PROVIDER_NAME" \
+    --base-url "$BASE_URL" --api-key "$API_KEY" --model "$MODEL"
+else
+  cc-switch provider add --app "$HARNESS" --name "$PROVIDER_NAME" \
+    --config-file "$TMP/provider.json"
+fi
+cc-switch use "$PROVIDER_ID" --app "$HARNESS"
+rm -f "$TMP/provider.json"
 ```
 
-Verified: `lite config set base_url <url>` persists to `~/.litellm/config.json`
-(`normalize_base_url` rejects credentials, whitespace, fragments — so the
-script cannot be tricked into writing a hostile base_url), and every later
-command reads it as the default. The user's API key is NOT in the script; it
-is supplied at first `lite login` / `--api-key` / `LITELLM_PROXY_API_KEY`, and
-the stock flow takes over (key check against `/v1/models`, harness config,
-model sync).
+`cc-switch use` writes the harness's native config file
+(`~/.config/opencode/opencode.json` for open-code, `~/.claude/settings.json`
+for claude, `~/.codex/config.toml` for codex), preserving unrelated keys.
+Verified against cc-switch-cli v5.11.1. After the loop the script runs
+`cc-switch env check` to surface any conflicting environment variables.
 
-Not added, deliberately: no version checks beyond the manifest, no harness
-installation (Claude Code / OpenCode are installed by their own channels),
-no auto-run of `lite login` (it is interactive on first use; the script must
-stay non-interactive so `curl | sh` cannot hang).
+## Generator contract (Jinja2, store-backed template)
 
-## Generator contract (v5: Jinja2, structured context)
+The template is served from the object store (`templates/install.sh.tmpl`)
+when a copy exists, falling back to the copy baked into the gateway image
+(`generator._TEMPLATE`) when the store copy is missing or unreadable. The
+store copy is pushed through the admin-gated write API
+(`PUT /install/admin/v1/artifact/templates/install.sh.tmpl`, `PROXY_ADMIN`
+only), so iterating on the install flow is an admin sync, not an image
+rebuild. See [security.md](security.md) "What lives where".
 
 The slice's `/install` handler renders the template with **Jinja2**. The
 template is a Jinja2 document, not a find-replace string, so it can grow
 conditionals and loops without the renderer changing.
 
-The render context is structured (`generator.RenderContext`):
+The render context is open: every key in `manifest.json` is exposed to the
+template, plus `base_url` and a typed `platforms` list. The keys the template
+actually references:
 
 | Variable | Type | Source |
 |---|---|---|
 | `base_url` | str | `LITELLM_PUBLIC_BASE_URL` env/config, request host as fallback |
-| `uv_version` | str | `manifest.json` `uv_version` |
-| `litellm_cli_version` | str | `manifest.json` `litellm_cli_version` |
-| `python_version` | str | `manifest.json` `python_version` |
+| `cc_switch_version` | str | `manifest.json` `cc_switch_version` |
 | `platforms` | list of `{target, archive_ext}` | `manifest.json` `platforms` |
 
 Rendering is sandboxed, strict, and not autoescaped
@@ -112,110 +143,77 @@ Rendering is sandboxed, strict, and not autoescaped
 - **`StrictUndefined`** — a template that references a variable we did not
   pass raises at render time. `/install` returns 500 with the error rather
   than serving a half-rendered installer to every client.
-- **`SandboxedEnvironment`** — bounds what a store-pushed template can reach
-  (the store copy at `templates/install.sh.tmpl` is content we execute).
 - **`autoescape=False`** — shell metacharacters (`&`, `<`, `>`) are not turned
   into HTML entities.
 
 The generator is pure (manifest + base URL in, script text out) and unit
-tested in the slice's co-located module: the three origin overrides, the
-no-HTML-escape rule, the undefined-variable error, and a `{% for %}` loop over
-`platforms` all have regression tests.
+tested in the slice's co-located module: the cc-switch download, the
+manifest-hash verification, the harness-selection prompt, and the per-harness
+backup + delete-then-add + `use` sequence all have regression tests.
 
-A store-pushed template must be valid Jinja2 and reference only context
-variables. A bad push breaks `/install` loudly on the next request (500 in the
-gateway logs / a curl), so template pushes must be validated before going
-live — `sync-mirror.sh --push-only` after editing `install.sh.tmpl`.
+A template change is a gateway code change and ships with the image (code
+review + redeploy), so it is validated by the generator's unit tests before it
+ever reaches a developer.
 
-## Harness detection — removed (v5)
+## Harness configuration lives in cc-switch
 
-Earlier versions had the script scan for coding harnesses (`claude`, `codex`,
-`opencode`, `pi`) and print a "Detected harnesses" summary. This was removed.
+The script does not write harness config files itself and does not scan for
+harnesses. It offers the list cc-switch supports, the user picks, and
+cc-switch writes each chosen harness's native config. This replaces both the
+retired report-only "Detected harnesses" summary and the `lite configure`
+commands, which only ever covered claude and codex.
 
-The scan was report-only UX: it did no wiring, and the authoritative detection
-already lives in the `lite` CLI (`shutil.which` at runtime, `_TARGETS` in
-`configure.py`, and the per-agent `lite <agent>` commands). Keeping a second
-hardcoded list in the served script duplicated that state. The "Next steps"
-footer still tells the user to run `lite login` / `lite configure claude`,
-which is where selection and detection actually happen.
+## Resume behaviour
 
-## Resume behaviour (v5: simplified)
+Re-running is safe and cheap:
 
-A wrong API key at the auth step must never cost a re-download. Re-running is
-safe and cheap, with no client-side state file.
+- The cc-switch binary install is a version-check short-circuit; a matching
+  `cc-switch --version` skips the download.
+- The provider reconcile is delete-then-add under a `config backup`, because
+  `provider add` rejects a duplicate id and `provider edit` is interactive-only.
+  cc-switch preserves unrelated keys in the harness config file across the
+  `use`.
+- A wrong key is caught by the `/v1/models` diagnostic before any harness file
+  is written, so a bad key never leaves a half-configured harness.
 
-The earlier design kept a `~/.litellm/install_state.json` state machine
-(`NEED_UV` / `NEED_LITE` / `NEED_CONFIG`) and parsed it with `grep`. That was
-over-engineered: the two expensive steps are already idempotent on their own,
-so the script now short-circuits on a plain version check and lets the tools
-do the rest.
-
-```
-A1 uv:        skip if `uv --version` already matches the manifest
-A2 lite:      skip if `lite --version` already matches, else
-              `uv tool install --force` (idempotent, replaces a half-install)
-A3 base_url:  always `lite config set base_url` (idempotent)
-```
-
-Properties:
-
-- Re-running after a bad key re-runs only the cheap auth/configure steps; the
-  version checks make A1/A2 no-ops, so nothing is downloaded again.
-- No `install_state.json`, no JSON parsing in bash. `lite`'s own state
-  (`~/.litellm/config.json`, keyring) survives reinstalls because it lives
-  outside the tool venv.
-- The script stays non-interactive; `lite login` is a separate, later step.
-
-## Idempotency and update path
-
-Re-running `/install` must be safe and must be the update mechanism:
+## Idempotency and model resync
 
 1. Script fetches `/install/manifest.json` first.
-2. If `lite` exists and reports the manifest's `litellm_cli_version`, exit 0
-   with a "already up to date" line (no reinstall).
-3. Otherwise proceed; `uv tool install --force` replaces the tool in place.
-   `lite`'s own state (`~/.litellm/config.json`, keyring tokens) survives
-   reinstalls — verified: those live under `~/.litellm/` and the OS keyring,
-   not inside the tool venv.
+2. If `cc-switch` exists and matches the manifest's `cc_switch_version`, skip
+   the download.
+3. Otherwise download + manifest-hash-verify + extract in place.
 
-CLI version != model access: adding/removing a model on the gateway never
-requires a reinstall — `/v1/models` is read live by the CLI at
-launch/configure time. This preserves the clean separation (distribution vs
-entitlement).
+**Model resync is explicit, not live.** The harness does not continuously read
+`/v1/models`. When the gateway's model set changes, the user re-runs
+`/install` (or `/install | sh -s -- --sync`): the script re-fetches
+`/v1/models` with the key and re-writes each configured provider's model list
+via the same delete-then-add reconcile. cc-switch's own `provider
+fetch-models` is the underlying mechanism; the script wraps it so one command
+covers both first install and resync.
 
-Version policy (decision 7): the mirror pins exactly one `litellm[cli]`
-version, always equal to the gateway's version. A gateway bump re-pins the CLI
-and the admin publishes the new set; the outgoing set is retained only until
-the new manifest is live, to cover a client mid-download during the swap.
+Version policy: the mirror pins exactly one cc-switch version
+(`cc_switch_version` in the manifest). A bump re-pins it and the admin
+publishes the new archives; the outgoing set is retained until the new
+manifest is live, to cover a client mid-download.
 
 ## Windows (Git Bash / WSL)
 
-A bash script cannot run natively in PowerShell, so native `/install.ps1` is
-deferred (decision 4). Windows is supported today through the shells that
-already ship bash:
+Native PowerShell `/install.ps1` is deferred. Windows is supported through the
+shells that already ship bash:
 
 - **Git Bash** (ships with Git for Windows) and **WSL** both run the script
   unchanged.
-- One detection detail: under Git Bash / MSYS, `uname -s` returns
-  `MINGW64_NT-...` (or `MSYS_NT-...`), not `Linux`. The script maps a
-  `MINGW*` / `MSYS*` result to the Windows artifacts
-  (`x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`) so the platform
-  detection still lands on the right tarball.
-- Harness detection uses `where <name>` under these shells, as in the table
-  above.
+- Under Git Bash / MSYS, `uname -s` returns `MINGW64_NT-...` (or
+  `MSYS_NT-...`), not `Linux`. The script maps `MINGW*` / `MSYS*` to the
+  Windows cc-switch archive (`windows-x64.zip`).
 
 ## Failure modes the script must handle
 
-- Mirror missing a platform artifact -> clear message naming the exact URL
-  that 404'd (the manifest lists what should exist; the script trusts nothing
-  not in the manifest).
-- Checksum mismatch -> abort before extraction/installation, message says
-  "artifact store may be corrupt, contact platform team".
-- `lite` present but broken (half-installed tool) -> `--force` re-install
-  handles it; no special-casing.
-- No `curl` -> the script cannot bootstrap; error says so (acceptable: every
-  target OS in the matrix ships curl or wget; wget fallback is a two-line
-  mapping of the same URLs and can be added if a real user needs it).
-- RustFS unreachable (the gateway proxies reads from it) -> the artifact fetch
-  returns 503 from the slice; the script aborts with the URL, never falls back
-  to the internet.
+- Mirror missing a platform archive -> clear message naming the exact URL that
+  404'd.
+- Checksum mismatch -> abort before extraction, "artifact store may be
+  corrupt, contact platform team".
+- Key rejected -> abort at the diagnostic, before any harness file is written.
+- No `curl` -> the script cannot bootstrap; error says so.
+- RustFS unreachable -> the artifact fetch returns 503 from the slice; the
+  script aborts with the URL, never falls back to the internet.

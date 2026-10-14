@@ -159,33 +159,59 @@ class TestInstallScript:
     def test_serves_script_with_200(self, app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 2,
-                "uv_version": "0.10.9",
-                "litellm_cli_version": "1.102.0",
-                "python_version": "3.13.9",
-                "python_build_tag": "20251014",
-                "platforms": [
-                    {"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"}
-                ],
+                "schema": 3,
+                "cc_switch_version": "5.11.1",
+                "cc_switch_artifacts": {
+                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
+                },
+                "platforms": [{"target": "linux-x64-musl", "archive_ext": "tar.gz"}],
             }
         ).encode()
         client: TestClient = TestClient(app)
         response = client.get("/install")
         assert response.status_code == 200
         assert "application/x-sh" in response.headers["content-type"]
-        assert 'UV_VERSION="0.10.9"' in response.text
+        assert 'CC_SWITCH_VERSION="5.11.1"' in response.text
 
-    def test_500_when_template_references_undefined(
+    def test_500_when_manifest_missing_field(
         self, app: FastAPI, s3: _FakeS3Client
     ) -> None:
-        """A store template referencing an unknown variable fails loudly."""
+        """A manifest that fails to parse surfaces as a render/fetch error."""
+        s3._store["manifest.json"] = json.dumps({"schema": 3}).encode()
+        client: TestClient = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/install")
+        assert response.status_code == 502
+
+    def test_store_template_overrides_baked(
+        self, app: FastAPI, s3: _FakeS3Client
+    ) -> None:
+        """An admin-synced template in the store takes precedence over the baked one."""
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 2,
-                "uv_version": "0.10.9",
-                "litellm_cli_version": "1.102.0",
-                "python_version": "3.13.9",
-                "python_build_tag": "20251014",
+                "schema": 3,
+                "cc_switch_version": "5.11.1",
+                "cc_switch_artifacts": {
+                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
+                },
+            }
+        ).encode()
+        s3._store["templates/install.sh.tmpl"] = b"# custom admin template\nBASE={{ base_url }}\n"
+        client: TestClient = TestClient(app)
+        response = client.get("/install")
+        assert response.status_code == 200
+        assert "# custom admin template" in response.text
+
+    def test_store_template_render_failure_falls_back_to_baked(
+        self, app: FastAPI, s3: _FakeS3Client
+    ) -> None:
+        """A store template referencing an unknown variable fails loudly, not silently."""
+        s3._store["manifest.json"] = json.dumps(
+            {
+                "schema": 3,
+                "cc_switch_version": "5.11.1",
+                "cc_switch_artifacts": {
+                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
+                },
             }
         ).encode()
         s3._store["templates/install.sh.tmpl"] = b"gateway={{ not_a_real_var }}"
@@ -237,6 +263,36 @@ class TestWheelhouseIndex:
             assert '/install/pypi/litellm-1.102.0-py3-none-any.whl' in response.text
             assert '/install/pypi/click-8.1.7-py3-none-any.whl' in response.text
             assert "not-a-wheel" not in response.text
+
+
+class TestHarnessPreset:
+    def test_serves_store_preset(self, app: FastAPI, s3: _FakeS3Client) -> None:
+        preset: bytes = b'{"npm": "@ai-sdk/openai-compatible", "custom": true}'
+        s3._store["providers/oicm/open-code/v3.json"] = preset
+        client: TestClient = TestClient(app)
+        response = client.get("/install/providers/oicm/open-code/v3.json")
+        assert response.status_code == 200
+        assert response.json()["custom"] is True
+
+    def test_baked_fallback_when_store_missing(self, app: FastAPI) -> None:
+        client: TestClient = TestClient(app)
+        response = client.get("/install/providers/oicm/open-code/v1.json")
+        assert response.status_code == 200
+        assert response.json()["npm"] == "@ai-sdk/openai-compatible"
+
+    def test_404_for_unknown_harness(self, app: FastAPI) -> None:
+        client: TestClient = TestClient(app)
+        response = client.get("/install/providers/oicm/no-such/v1.json")
+        assert response.status_code == 404
+
+    def test_preset_has_no_runtime_values(self, app: FastAPI) -> None:
+        """Presets are structural skeletons: no apiKey/baseURL filled server-side."""
+        client: TestClient = TestClient(app)
+        response = client.get("/install/providers/oicm/open-code/v1.json")
+        body = response.json()
+        assert body["options"]["apiKey"] == ""
+        assert body["options"]["baseURL"] == ""
+        assert body["models"] == {}
 
 
 class TestGetArtifact:
@@ -302,17 +358,15 @@ class TestAdminDeleteArtifact:
         assert "pypi/old-wheel.whl" not in s3._store
 
     def test_delete_rejects_manifest_referenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
-        key: str = "uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz"
-        s3._store[key] = b"uv-binary"
+        key: str = "cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"
+        s3._store[key] = b"ccs-binary"
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 1,
-                "uv_version": "0.10.9",
-                "litellm_cli_version": "1.102.0",
-                "python_version": "3.13.9",
-                "uv_artifacts": {
-                    "x86_64-unknown-linux-gnu": {
-                        "file": "uv-x86_64-unknown-linux-gnu.tar.gz",
+                "schema": 3,
+                "cc_switch_version": "5.11.1",
+                "cc_switch_artifacts": {
+                    "linux-x64-musl": {
+                        "file": "cc-switch-cli-linux-x64-musl.tar.gz",
                         "sha256": "abc",
                     }
                 },
@@ -342,13 +396,11 @@ class TestAdminPutManifest:
     def test_rejects_missing_objects(self, admin_app: FastAPI) -> None:
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 2,
-            "uv_version": "0.10.9",
-            "litellm_cli_version": "1.102.0",
-            "python_version": "3.13.9",
-            "uv_artifacts": {
-                "x86_64-unknown-linux-gnu": {
-                    "file": "uv-x86_64-unknown-linux-gnu.tar.gz",
+            "schema": 3,
+            "cc_switch_version": "5.11.1",
+            "cc_switch_artifacts": {
+                "linux-x64-musl": {
+                    "file": "cc-switch-cli-linux-x64-musl.tar.gz",
                     "sha256": "abc",
                 }
             },
@@ -362,16 +414,14 @@ class TestAdminPutManifest:
 
     def test_accepts_valid_manifest(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         # Pre-populate the artifact the manifest references
-        s3._store["uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz"] = b"uv-binary"
+        s3._store["cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"] = b"ccs-binary"
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 2,
-            "uv_version": "0.10.9",
-            "litellm_cli_version": "1.102.0",
-            "python_version": "3.13.9",
-            "uv_artifacts": {
-                "x86_64-unknown-linux-gnu": {
-                    "file": "uv-x86_64-unknown-linux-gnu.tar.gz",
+            "schema": 3,
+            "cc_switch_version": "5.11.1",
+            "cc_switch_artifacts": {
+                "linux-x64-musl": {
+                    "file": "cc-switch-cli-linux-x64-musl.tar.gz",
                     "sha256": "abc",
                 }
             },

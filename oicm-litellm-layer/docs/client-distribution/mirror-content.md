@@ -14,161 +14,134 @@ instance. RustFS replaces the originally sketched MinIO because MinIO
 Community Edition reached end of life (repository archived, images deleted
 from Docker Hub). See [rustfs.md](rustfs.md).
 
-**One current version of everything.** Per decision 2, the mirror holds exactly
-one `uv` version and one `litellm[cli]` version — the ones matching the current
-gateway. There is no multi-version selection and no PEP 503 index. One previous
-version set is retained only as a race guard: a client that started a download
-moments before a version swap should still be able to finish, so the swap keeps
-the outgoing set until the incoming one is fully published.
+**One current version of everything.** The mirror holds exactly one
+cc-switch version. One previous version set is retained only as a race guard:
+a client that started a download moments before a version swap should still be
+able to finish, so the swap keeps the outgoing set until the incoming one is
+fully published.
 
 ## Object layout in the bucket
 
 ```
 litellm-client-mirror/
 ├── manifest.json
-├── uv/<version>/uv-<target>.tar.gz (+ .sha256)
-├── pypi/<wheel files>            (flat, no index metadata)
-└── python/<archive files>
+├── cc-switch/<version>/cc-switch-cli-<target>.<ext>
+├── providers/oicm/<harness>/v<N>.json     # additive harness presets
+└── templates/install.sh.tmpl               # optional store override
 ```
 
-Served to clients as `/install/manifest.json`, `/install/uv/...`,
-`/install/pypi/...`, `/install/python/...`.
+Served to clients as `/install/manifest.json`, `/install/cc-switch/...`,
+`/install/providers/oicm/<harness>/v<N>.json`.
 
 ## `manifest.json`
 
 Single source of truth for versions and hashes, served at
-`/install/manifest.json`. Fetched by the install script first; every later
-download is cross-checked against it. The gateway also reads it to build the
+`/install/manifest.json`. It is fetched by the install script first, and **its
+SHA-256 values are the client-side integrity source of truth**: the install
+script verifies each downloaded archive against the manifest, not against a
+separately-downloaded checksums file. The gateway also reads it to build the
 install-script render context.
 
-Schema 2 adds a `platforms` array so the install template can iterate the
-target matrix as data instead of hardcoding it in bash. There is no
-backwards compatibility with schema 1: the gateway accepts only `schema: 2`.
+Schema 4 carries a `platforms` array so the install template can iterate the
+target matrix as data, a `cc_switch_artifacts` map of target -> file + sha256,
+and a `harnesses` map pinning each harness to a versioned preset. There is no
+backwards compatibility with schema 3: the gateway accepts only `schema: 4`.
 
 ```json
 {
-  "schema": 2,
-  "litellm_cli_version": "1.102.0",
-  "uv_version": "0.10.9",
-  "python_version": "3.13.9",
+  "schema": 4,
+  "cc_switch_version": "5.11.1",
   "platforms": [
-    {"target": "x86_64-unknown-linux-gnu", "archive_ext": "tar.gz"},
-    {"target": "x86_64-unknown-linux-musl", "archive_ext": "tar.gz"},
-    {"target": "aarch64-unknown-linux-gnu", "archive_ext": "tar.gz"},
-    {"target": "aarch64-unknown-linux-musl", "archive_ext": "tar.gz"},
-    {"target": "x86_64-apple-darwin", "archive_ext": "tar.gz"},
-    {"target": "aarch64-apple-darwin", "archive_ext": "tar.gz"},
-    {"target": "x86_64-pc-windows-msvc", "archive_ext": "zip"},
-    {"target": "aarch64-pc-windows-msvc", "archive_ext": "zip"}
+    {"target": "linux-x64-musl", "archive_ext": "tar.gz"},
+    {"target": "linux-arm64-musl", "archive_ext": "tar.gz"},
+    {"target": "darwin-universal", "archive_ext": "tar.gz"},
+    {"target": "windows-x64", "archive_ext": "zip"}
   ],
-  "uv_artifacts": {
-    "x86_64-unknown-linux-gnu": {"file": "uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "..."},
-    "x86_64-unknown-linux-musl": {"file": "uv-x86_64-unknown-linux-musl.tar.gz", "sha256": "..."},
-    "aarch64-unknown-linux-gnu": {"file": "uv-aarch64-unknown-linux-gnu.tar.gz", "sha256": "..."},
-    "aarch64-unknown-linux-musl": {"file": "uv-aarch64-unknown-linux-musl.tar.gz", "sha256": "..."},
-    "x86_64-apple-darwin": {"file": "uv-x86_64-apple-darwin.tar.gz", "sha256": "..."},
-    "aarch64-apple-darwin": {"file": "uv-aarch64-apple-darwin.tar.gz", "sha256": "..."},
-    "x86_64-pc-windows-msvc": {"file": "uv-x86_64-pc-windows-msvc.zip", "sha256": "..."},
-    "aarch64-pc-windows-msvc": {"file": "uv-aarch64-pc-windows-msvc.zip", "sha256": "..."}
+  "cc_switch_artifacts": {
+    "linux-x64-musl":  {"file": "cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz",  "sha256": "..."},
+    "linux-arm64-musl":{"file": "cc-switch-cli-v5.11.1-linux-arm64-musl.tar.gz","sha256": "..."},
+    "darwin-universal":{"file": "cc-switch-cli-v5.11.1-darwin-universal.tar.gz","sha256": "..."},
+    "windows-x64":     {"file": "cc-switch-cli-v5.11.1-windows-x64.zip",        "sha256": "..."}
   },
-  "python_artifacts": {
-    "sha256": "..."
-  },
-  "wheelhouse": {
-    "sha256": "..."
+  "harnesses": {
+    "claude":    {"version": 1, "mode": "switch"},
+    "codex":     {"version": 1, "mode": "switch"},
+    "gemini":    {"version": 1, "mode": "switch"},
+    "open-code": {"version": 1, "path": "providers/oicm/open-code/v1.json", "sha256": "...", "mode": "additive"},
+    "pi":        {"version": 1, "path": "providers/oicm/pi/v1.json",        "sha256": "...", "mode": "additive"},
+    "hermes":    {"version": 1, "path": "providers/oicm/hermes/v1.json",    "sha256": "...", "mode": "additive"},
+    "open-claw": {"version": 1, "path": "providers/oicm/open-claw/v1.json", "sha256": "...", "mode": "additive"}
   }
 }
 ```
 
 Only the artifacts for the [supported matrix](platform-matrix.md) are listed;
-the admin sync refuses to publish a manifest referencing a missing object.
+the admin sync refuses to publish a manifest referencing a missing object
+(binary or additive-harness preset).
 
-## uv release artifacts
+The starting matrix is deliberately small: **Linux x86-64 musl, Linux ARM64
+musl, macOS universal, Windows x64**. Musl builds are statically linked, so
+they run on any libc and we do not need separate glibc/musl rows; macOS
+universal covers both Intel and Apple Silicon. More targets can be added by
+appending to `platforms` + `cc_switch_artifacts`.
 
-Source: the `astral-sh/uv` GitHub release for the pinned version — exactly the
-version upstream's own `scripts/install-cli.sh` pins (`UV_VERSION="0.10.9"`
-today), so the CLI and the mirror stay in lockstep with upstream's tested
-combination.
+## cc-switch release artifacts
 
-Naming follows Astral's release scheme verbatim (verified against the pinned
-installer's `select_archive_for_arch`):
-
-```
-/install/uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz
-/install/uv/0.10.9/uv-x86_64-unknown-linux-musl.tar.gz
-/install/uv/0.10.9/uv-aarch64-unknown-linux-gnu.tar.gz
-/install/uv/0.10.9/uv-aarch64-unknown-linux-musl.tar.gz
-/install/uv/0.10.9/uv-x86_64-apple-darwin.tar.gz
-/install/uv/0.10.9/uv-aarch64-apple-darwin.tar.gz
-/install/uv/0.10.9/uv-x86_64-pc-windows-msvc.zip
-/install/uv/0.10.9/uv-aarch64-pc-windows-msvc.zip
-```
-
-Each `.tar.gz` is served next to its checksum sidecar (Astral publishes
-`.sha256` files in the release) at `/install/uv/0.10.9/<file>.sha256`, plus the
-same hash in `manifest.json`.
-
-The installer's own override hooks (verified in the pinned `install.sh`):
-`INSTALLER_DOWNLOAD_URL` replaces the entire artifact download URL list, and
-`UV_INSTALLER_GITHUB_BASE_URL` re-points it at a self-hosted mirror of the
-release layout. We use `INSTALLER_DOWNLOAD_URL` because we serve a flat
-per-file layout rather than a GitHub-release-shaped tree.
-
-## Wheelhouse: `litellm[cli]` + closure
-
-**One form: flat `--find-links`.** Per decision 2 (one current version of
-everything), there is no PEP 503 index and no multi-version selection. The
-bucket holds one flat directory of `.whl` files with no index metadata:
+Source: the `SaladDay/cc-switch-cli` GitHub release for the pinned version
+(`5.11.1` today). Naming follows the release scheme verbatim:
 
 ```
-uv tool install --no-index --find-links https://.../install/pypi 'litellm[cli]'
+/install/cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz
+/install/cc-switch/5.11.1/cc-switch-cli-linux-arm64-musl.tar.gz
+/install/cc-switch/5.11.1/cc-switch-cli-darwin-universal.tar.gz
+/install/cc-switch/5.11.1/cc-switch-cli-windows-x64.zip
 ```
 
-`--no-index` makes it impossible for uv to quietly reach PyPI; if the
-wheelhouse is missing something it fails loudly instead of phoning home. That
-is the whole point, so this is settled, not a choice.
+The musl builds are statically linked, so the binary runs on any libc — that
+is why there is no Python/uv/wheelhouse tier at all.
 
-Content: the exact version-resolved closure that
-`uv tool install 'litellm[cli]'` produces on the sync machine — `litellm`
-itself, the `cli` extra's direct dependencies, and every transitive wheel.
-Recording the exact closure (not "latest of everything") means the mirror is
-byte-for-byte the combination upstream ships for that release. The sync script
-runs `uv pip compile` (or `uv tool install` into a scratch venv, then copies
-the wheels out of uv's cache) against the target Python version and writes the
-resulting file list plus hashes into the manifest.
+**Integrity chain.** Upstream publishes a `checksums.txt` covering every
+asset. At ingest time the admin sync downloads each archive **and** verifies
+it against upstream's `checksums.txt`; only the verified SHA-256 then goes
+into our `manifest.json`. The client never sees upstream's checksums file —
+it trusts only the manifest, which is written over the authenticated admin
+channel.
 
-Requires-python note: upstream pins `requires-python = ">=3.10, <3.15"` and the
-installer passes `--python '>=3.10,<3.15' --python-preference system`, so the
-wheelhouse must cover the interpreter range, and wheels that publish
-multiple ABI variants (e.g. orjson, pydantic-core, tokenizers wheels for
-cp310-cp313) must include every variant the sync job resolves for.
+**Immutability.** A `cc-switch/<version>/<file>` object, once published with a
+given sha256, is never overwritten with different bytes; a new build gets a
+new version path. The manifest is published with a generation/ETag so two
+concurrent admin syncs cannot silently clobber each other (see
+[admin-sync.md](admin-sync.md)).
 
-Update cadence (decision 7): the pinned `litellm[cli]` version always equals
-the gateway's version, so every gateway bump re-pins the CLI. The admin sync
-publishes the new set, then removes the outgoing set once the new manifest is
-live (the one-previous retention from the race guard above).
+## Harness presets — `providers/oicm/<harness>/v<N>.json`
 
-## Managed Python mirror
+Each additive harness owns a **versioned preset slice**: the structural
+cc-switch JSON skeleton for that harness, identical for every user. The preset
+holds structure only; the installer fills runtime values (base URL, API key,
+accessible models) client-side with `jq`, so no per-user data is ever written
+to the store. Served at `/install/providers/oicm/<harness>/v<N>.json` (store
+copy when present, baked fallback otherwise).
 
-`uv` fetches managed CPython from python-build-standalone releases when the
-host has no suitable interpreter. Redirect with:
+The manifest pins each harness to a specific version + sha256, so revising a
+harness's config shape is an independent publish: bump the version, push a new
+`v<N>.json`, and repoint the manifest — without touching the installer script,
+the cc-switch binary, or any other harness.
 
+```json
+{
+  "npm": "@ai-sdk/openai-compatible",
+  "name": "OICM LiteLLM",
+  "options": {"baseURL": "", "apiKey": ""},
+  "models": {}
+}
 ```
-UV_PYTHON_INSTALL_MIRROR=https://litellm.ecouncil.ae/install/python
-```
 
-This is an official uv mechanism (the URL replaces the upstream
-`python-build-standalone` download prefix; `file://` also works but our target
-machines consume over HTTPS from the same origin). The sync job mirrors the
-exact archives for the pinned `python_version` (e.g. `3.13.9`) across the
-supported platforms — the same archives the pinned `uv` would fetch, taken
-from the python-build-standalone release that `uv` 0.10.9 pins in its own
-metadata.
+claude/codex/gemini use cc-switch's field-mode flags (`mode: "switch"`) and
+carry no preset file; the additive harnesses use `--config-file`
+(`mode: "additive"`). See [installer-script.md](installer-script.md) step 4.
 
-Sizing note: python-build-standalone archives are ~30-70 MB each; the whole
-matrix is a few hundred MB. The wheelhouse is ~50-150 MB. The uv artifacts are
-~20 MB each. Total well under a few GB — comfortable in a RustFS bucket (see
-[rustfs.md](rustfs.md)).
+Sizing note: each cc-switch archive is ~8-9 MB; the four-target matrix is
+~35 MB. Far smaller than the retired uv + wheelhouse + python tiers.
 
 ## What we deliberately do NOT mirror
 
@@ -177,6 +150,6 @@ matrix is a few hundred MB. The wheelhouse is ~50-150 MB. The uv artifacts are
   external fetches.
 - npm, cargo, or any other toolchain — out of scope; the coding harnesses
   themselves (Claude Code, OpenCode, ...) are installed by the user through
-  their own channels, and `lite configure` wires them up. Mirroring those
+  their own channels, and cc-switch writes their config. Mirroring those
   installers is a possible later extension, explicitly deferred
   ([open-questions.md](open-questions.md)).

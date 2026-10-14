@@ -1,9 +1,16 @@
-# Architecture (v4 — gateway slice, RustFS backend)
+# Architecture (v5 — gateway slice, cc-switch configurator)
 
+> Revision 5. The installed client is **cc-switch-cli** (a single static Rust
+> binary), not the `lite` Python CLI. The end user already holds an
+> admin-issued gateway key, so there is no `lite login` step and no uv/Python/
+> wheelhouse mirror tier. The mirror carries only the cc-switch binaries, the
+> installer, and a provider preset. Harness configuration (including a real
+> `~/.config/opencode/opencode.json`) is written by cc-switch, which supports
+> 7 harnesses; `lite` only configured claude and codex.
+>
 > Revision 4. Storage moved from a PVC to a cluster-internal RustFS instance
 > (see [rustfs.md](rustfs.md)), which removes the multi-replica problem. All
-> routes now nest under `/install`. `/install` is unauthenticated; the user
-> supplies their key at `lite login` / `lite configure`.
+> routes nest under `/install`. `/install` is unauthenticated.
 
 ## Host model
 
@@ -49,9 +56,8 @@ RustFS has no ingress and is reached only over the cluster network.
 |-------|------|-----------|---------|
 | `GET /install` | none | router handler, generated | POSIX bootstrap script |
 | `GET /install/manifest.json` | none | router handler -> RustFS | version/hash manifest |
-| `GET /install/uv/<file>` | none | router handler -> RustFS | uv release artifact |
-| `GET /install/pypi/<file>` | none | router handler -> RustFS | wheelhouse wheel |
-| `GET /install/python/<file>` | none | router handler -> RustFS | python-build-standalone archive |
+| `GET /install/cc-switch/<file>` | none | router handler -> RustFS | cc-switch release archive / `install.sh` / checksums |
+| `GET /install/providers/oicm/<harness>/v<N>.json` | none | router handler -> RustFS (baked fallback) | versioned per-harness cc-switch preset (structure only) |
 | `* /install/admin/*` | `PROXY_ADMIN` | router handlers -> RustFS | write surface (see [admin-sync.md](admin-sync.md)) |
 
 The whole surface is one prefix, so the firewall allows `litellm.ecouncil.ae`
@@ -91,31 +97,40 @@ curl -fsSL https://litellm.ecouncil.ae/install | sh
         │
         ▼
   [install script]                    (runs on the dev machine)
-        │  uname -s, uname -m, libc detect (MINGW/MSYS -> windows artifacts)
+        │  uname -s, uname -m, libc detect (MINGW/MSYS -> windows archive)
         │  GET /install/manifest.json
         ▼
-  install/upgrade uv  ──── GET /install/uv/<pinned>/uv-<target>.tar.gz
+  install cc-switch  ──── GET /install/cc-switch/cc-switch-cli-<target>.tar.gz
+        │   (mirror of the upstream per-platform release archive + checksums)
         ▼
-  uv tool install 'litellm[cli]'
-        │   --no-index --find-links https://.../install/pypi
-        │   UV_PYTHON_INSTALL_MIRROR = https://.../install/python
+  cc-switch -> ~/.local/bin/cc-switch
         ▼
-  lite -> ~/.local/bin/lite
+  prompt for the user's admin-issued API key
         ▼
-  detect harnesses (report only)  ->  print found/not-found summary
+  diagnostic: GET <base>/v1/models with that key   (abort if it fails)
         ▼
-  lite config set base_url https://litellm.ecouncil.ae
+  list the harnesses cc-switch supports; user picks which to configure
+  (multi-select, NOT all-by-default — the user may keep a non-gateway config
+   for a harness they do not pick)
         ▼
-  [Phase B] lite login   <- user supplies their LiteLLM key here
-        │   -> lite configure claude / lite codex / lite opencode / lite pi
-        │      each fetches GET /v1/models with that key
+  for each chosen harness:
+        read mode + pinned preset (path, sha256) from the manifest
+        if additive: GET /install/providers/oicm/<h>/v<N>.json, verify sha256,
+                     compose with jq (base URL + key + models) -> --config-file
+        if switch:   field-mode provider add (base-url / api-key / model flags)
+        cc-switch use litellm --app <h>     -> writes that harness's config file
         ▼
   done
 ```
 
-No authentication anywhere before Phase B. The install and harness-detection
-steps need no credential; the key enters only when the user authenticates the
-CLI to the gateway.
+The installer is a generic orchestrator: it knows no per-harness JSON shape.
+Each harness's cc-switch config structure lives in its own versioned preset
+slice, pinned by the manifest, so revising one harness touches nothing else.
+
+No authentication is needed to download the binary or read the manifest. The
+user's key is only used for the `/v1/models` diagnostic and to fill the
+provider's `apiKey` field. cc-switch writes each selected harness's native
+config file; harnesses not selected are left untouched.
 
 ## Sizing and isolation
 

@@ -57,7 +57,7 @@ buffering the whole artifact in memory (the Python artifacts are tens of MB).
 
 ```json
 // 200 response
-{"path": "uv/0.10.9/uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "...", "size": 20341000, "unchanged": false}
+{"path": "cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz", "sha256": "...", "size": 8960000, "unchanged": false}
 ```
 
 The manifest `PUT` validates the JSON against the schema in
@@ -65,6 +65,19 @@ The manifest `PUT` validates the JSON against the schema in
 exists in the bucket with a matching hash. A manifest that points at a missing
 or mismatched object is rejected `409`. This keeps the invariant that the
 manifest never lies about the store.
+
+## Immutability + manifest compare-and-swap
+
+- **Immutable artifacts.** A `cc-switch/<version>/<file>` object, once
+  published with a given sha256, is never overwritten with different bytes.
+  The slice enforces this: a `PUT` whose bytes hash differently from the
+  existing object at that path is rejected `409`. A new build gets a new
+  version path, so "same path, different content" cannot happen.
+- **Manifest compare-and-swap.** The manifest `PUT` takes the current
+  manifest's ETag as an `If-Match` precondition. Two concurrent admin syncs
+  cannot silently clobber each other: the second `PUT` fails `412` and must
+  re-read, re-merge, and retry. This replaces "last write wins" for the
+  manifest, which could drop a concurrently-published artifact reference.
 
 ## Idempotent sync flow for the admin
 
@@ -109,12 +122,14 @@ Properties:
 
 ## Concurrency
 
-Two admins syncing at once is safe for artifacts (last write wins, same bytes
-either way) and safe for the manifest (the `PUT` is a single atomic write).
-The one interleaving worth guarding is "A publishes a manifest, B deletes an
-object A's manifest references" — the delete route re-checks the current
-manifest and rejects the delete with `409` if it is still referenced. Resolve
-by publishing a manifest that drops the object, then deleting.
+Artifacts are immutable and content-addressed by version+path, so two admins
+pushing the same version push the same bytes — no conflict. The manifest is
+guarded by the compare-and-swap precondition above, so a concurrent publish
+cannot silently drop another sync's references. The one interleaving still
+worth guarding is "A publishes a manifest, B deletes an object A's manifest
+references" — the delete route re-checks the current manifest and rejects the
+delete with `409` if it is still referenced. Resolve by publishing a manifest
+that drops the object, then deleting.
 
 ## Security notes
 
