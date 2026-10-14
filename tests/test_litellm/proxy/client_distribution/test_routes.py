@@ -159,7 +159,7 @@ class TestInstallScript:
     def test_serves_script_with_200(self, app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 3,
+                "schema": 4,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -188,7 +188,7 @@ class TestInstallScript:
         """An admin-synced template in the store takes precedence over the baked one."""
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 3,
+                "schema": 4,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -207,7 +207,7 @@ class TestInstallScript:
         """A store template referencing an unknown variable fails loudly, not silently."""
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 3,
+                "schema": 4,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
@@ -362,7 +362,7 @@ class TestAdminDeleteArtifact:
         s3._store[key] = b"ccs-binary"
         s3._store["manifest.json"] = json.dumps(
             {
-                "schema": 3,
+                "schema": 4,
                 "cc_switch_version": "5.11.1",
                 "cc_switch_artifacts": {
                     "linux-x64-musl": {
@@ -396,7 +396,7 @@ class TestAdminPutManifest:
     def test_rejects_missing_objects(self, admin_app: FastAPI) -> None:
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 3,
+            "schema": 4,
             "cc_switch_version": "5.11.1",
             "cc_switch_artifacts": {
                 "linux-x64-musl": {
@@ -417,7 +417,7 @@ class TestAdminPutManifest:
         s3._store["cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"] = b"ccs-binary"
         client: TestClient = TestClient(admin_app)
         manifest: dict[str, Any] = {
-            "schema": 3,
+            "schema": 4,
             "cc_switch_version": "5.11.1",
             "cc_switch_artifacts": {
                 "linux-x64-musl": {

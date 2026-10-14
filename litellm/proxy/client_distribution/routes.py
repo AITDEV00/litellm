@@ -195,10 +195,10 @@ async def admin_put_manifest(
         ) from exc
 
     schema_version: object = data.get("schema")
-    if schema_version != 3:
+    if schema_version != 4:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"unsupported schema version: {schema_version} (expected 3)",
+            detail=f"unsupported schema version: {schema_version} (expected 4)",
         )
 
     # Validate every referenced cc-switch artifact exists in the store
