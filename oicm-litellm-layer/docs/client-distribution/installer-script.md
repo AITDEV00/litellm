@@ -73,45 +73,53 @@ the user may already have a non-gateway config for one of them.
 ### 4. Per-harness provider reconcile
 
 The script is a **generic orchestrator**: it embeds no per-harness JSON shape.
-For each chosen harness it reads the `mode` and the pinned preset
-(`path`, `sha256`) from the manifest's `harnesses` map:
+For each chosen harness it reads the pinned preset (`path`, `sha256`) from
+the manifest's `harnesses` map, fetches `/install/providers/adeo/<h>/v<N>.json`,
+verifies its sha256 against the manifest, then composes the final config with
+one generic `jq walk()`: sentinels in the preset
+(`__BASE_URL__`, `__BASE_URL_V1__`, `__API_KEY__`, `__DEFAULT_MODEL__`,
+`["__MODELS_ARRAY__"]`, `{"__MODELS_OBJECT__": null}`) are replaced with the
+gateway URL, the key, and the key's model list. Every harness — claude,
+codex, gemini included — goes through the same `provider add --config-file`
+path; the config shape is entirely the preset's business, so revising one
+harness touches nothing else.
 
-- **switch** (`claude / codex / gemini`) — field-mode flags, no preset file.
-- **additive** (`open-code / pi / hermes / open-claw`) — fetches the pinned
-  preset `/install/providers/oicm/<h>/v<N>.json`, verifies its sha256 against
-  the manifest, then composes the final config client-side with `jq` (filling
-  `baseURL`, `apiKey`, and the key's model list) into a `--config-file`.
-
-Each harness's config shape is its own versioned slice, so revising one
-harness touches nothing else. The key is passed via a **`--config-file` under
-`umask 077`**, never on the command line (argv is world-readable via `/proc`),
-and runtime values are merged with `jq`, never `sed` string substitution:
+The key is passed via a **`--config-file` under `umask 077`**, never on the
+command line (argv is world-readable via `/proc`), and runtime values are
+merged with `jq`, never `sed` string substitution:
 
 ```sh
 umask 077
-printf '%s' "$CONFIG_JSON" > "$TMP/provider.json"
+# compose: jq walk() over the preset, sentinel substitution
+jq 'walk(...) $PRESET > "$TMP/provider.json"
 
-# add is NOT idempotent (same id errors), and edit is interactive-only, so the
-# reconcile is delete-then-add, wrapped by a backup first:
-cc-switch config backup >/dev/null 2>&1 || true
-cc-switch provider delete "$PROVIDER_ID" --app "$HARNESS" >/dev/null 2>&1 || true
-
-if [ "$MODE" = field ]; then
-  cc-switch provider add --app "$HARNESS" --name "$PROVIDER_NAME" \
-    --base-url "$BASE_URL" --api-key "$API_KEY" --model "$MODEL"
-else
-  cc-switch provider add --app "$HARNESS" --name "$PROVIDER_NAME" \
-    --config-file "$TMP/provider.json"
-fi
-cc-switch use "$PROVIDER_ID" --app "$HARNESS"
+# The provider id is content-addressed: adeo-litellm-<hash8>, the hash
+# covering the composed config. cc-switch has no headless update path
+# (edit is interactive-only, delete reads the TTY), so:
+#   same key + same models  -> same id -> add reports "already exists",
+#                             treated as the no-op it is; use re-points.
+#   rotated key / new models -> new id -> add succeeds; use activates it.
+PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
+cc-switch provider add --app "$HARNESS" --id "$PROVIDER_ID" \
+  --name "ADEO LiteLLM" --config-file "$TMP/provider.json" || true
+cc-switch use "$PROVIDER_ID" --app "$HARNESS"    # the success gate
 rm -f "$TMP/provider.json"
 ```
 
 `cc-switch use` writes the harness's native config file
 (`~/.config/opencode/opencode.json` for open-code, `~/.claude/settings.json`
-for claude, `~/.codex/config.toml` for codex), preserving unrelated keys.
-Verified against cc-switch-cli v5.11.1. After the loop the script runs
-`cc-switch env check` to surface any conflicting environment variables.
+for claude — only once `~/.claude/` exists, `~/.codex/config.toml` likewise:
+cc-switch writes lazily when the app's config dir is present, which is stock
+behavior identical with its own field-mode add). Verified against
+cc-switch-cli v5.11.1. After the loop the script runs `cc-switch env check`
+to surface any conflicting environment variables.
+
+**Accepted trade:** each actual credential/model change leaves the prior
+provider version in cc-switch's catalog (one row per change, not per run;
+for additive harnesses also one stale entry in the live config). The script
+never deletes — `provider delete` reads the TTY directly and cannot run
+headless. Remove old versions in the TUI whenever you like; `use` always
+points the harness at the newest composed config.
 
 ## Generator contract (Jinja2, store-backed template)
 

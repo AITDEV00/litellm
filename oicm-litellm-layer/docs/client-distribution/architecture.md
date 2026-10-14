@@ -57,7 +57,7 @@ RustFS has no ingress and is reached only over the cluster network.
 | `GET /install` | none | router handler, generated | POSIX bootstrap script |
 | `GET /install/manifest.json` | none | router handler -> RustFS | version/hash manifest |
 | `GET /install/cc-switch/<file>` | none | router handler -> RustFS | cc-switch release archive / `install.sh` / checksums |
-| `GET /install/providers/oicm/<harness>/v<N>.json` | none | router handler -> RustFS (baked fallback) | versioned per-harness cc-switch preset (structure only) |
+| `GET /install/providers/adeo/<harness>/v<N>.json` | none | router handler -> RustFS (baked fallback) | versioned per-harness cc-switch preset (canonical shape, sentinels only) |
 | `* /install/admin/*` | `PROXY_ADMIN` | router handlers -> RustFS | write surface (see [admin-sync.md](admin-sync.md)) |
 
 The whole surface is one prefix, so the firewall allows `litellm.ecouncil.ae`
@@ -114,18 +114,22 @@ curl -fsSL https://litellm.ecouncil.ae/install | sh
    for a harness they do not pick)
         ▼
   for each chosen harness:
-        read mode + pinned preset (path, sha256) from the manifest
-        if additive: GET /install/providers/oicm/<h>/v<N>.json, verify sha256,
-                     compose with jq (base URL + key + models) -> --config-file
-        if switch:   field-mode provider add (base-url / api-key / model flags)
-        cc-switch use litellm --app <h>     -> writes that harness's config file
+        read the pinned preset (path, sha256) from the manifest
+        GET /install/providers/adeo/<h>/v<N>.json, verify sha256,
+        compose with jq (sentinel substitution: base URL + key + models)
+        provider add --config-file (id = adeo-litellm-<hash8> of the
+            composed config: same key+models -> same id -> no-op;
+            rotated key -> new id -> use activates the new values)
+        cc-switch use <id> --app <h>    -> writes that harness's config file
         ▼
   done
 ```
 
-The installer is a generic orchestrator: it knows no per-harness JSON shape.
-Each harness's cc-switch config structure lives in its own versioned preset
-slice, pinned by the manifest, so revising one harness touches nothing else.
+The installer is a generic orchestrator: it knows no per-harness JSON shape,
+and every harness (claude, codex, gemini included) goes through the same
+preset + compose + `--config-file` path. Each harness's cc-switch config
+structure lives in its own versioned preset slice, pinned by the manifest,
+so revising one harness touches nothing else.
 
 No authentication is needed to download the binary or read the manifest. The
 user's key is only used for the `/v1/models` diagnostic and to fill the

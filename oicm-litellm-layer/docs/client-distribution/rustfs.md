@@ -38,7 +38,7 @@ sha256:38fcb422c93174dada595d1aedec0e942a16a2a01a0ecca896c4a563e1f463b5
 
 | Bucket | Tenant | Contents |
 |--------|--------|----------|
-| `litellm-client-mirror` | the client-distribution slice | cc-switch archives, `manifest.json`, `providers/oicm/*/v<N>.json` presets, `templates/install.sh.tmpl` |
+| `litellm-client-mirror` | the client-distribution slice | cc-switch archives, `manifest.json`, `providers/adeo/*/v<N>.json` presets, `templates/install.sh.tmpl` |
 | `litellm-logs` | LiteLLM's S3 logging callback (later) | spend logs / audit logs, via `s3_callback_params` |
 
 Two buckets, not two RustFS instances. A separate `mc alias` or a separate

@@ -21,9 +21,9 @@ Jinja2 open-context generator
 REVALIDATE / REPLACE (the lite-era results do not carry over)
 ────────────────────────────────────────────
 artifact population   -> cc-switch archives, not uv/python/wheels
-manifest schema       -> schema 4 (cc_switch_version + cc_switch_artifacts + harnesses)
+manifest schema       -> schema 5 (cc_switch_version + cc_switch_artifacts + harnesses)
 installer template    -> generic orchestrator, store-served + baked fallback
-harness presets       -> versioned providers/oicm/<h>/v<N>.json slices
+harness presets       -> versioned providers/adeo/<h>/v<N>.json slices (all 7 harnesses, schema 5)
 platform matrix       -> 4 musl/universal targets
 security model        -> trust split, credential perms, no self-update
 end-to-end tests      -> redo against cc-switch

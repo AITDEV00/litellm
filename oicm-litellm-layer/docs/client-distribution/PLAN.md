@@ -80,7 +80,7 @@ same-origin.
 - [architecture.md](architecture.md) — the slice, the route map, the flow
 - [installer-script.md](installer-script.md) — the four steps + the generator
   contract
-- [mirror-content.md](mirror-content.md) — bucket layout + manifest schema 4
+- [mirror-content.md](mirror-content.md) — bucket layout + manifest schema 5
 - [security.md](security.md) — threat model, trust split, credential state
 - [admin-sync.md](admin-sync.md) — the operator's sync loop
 - [platform-matrix.md](platform-matrix.md) — the four supported targets

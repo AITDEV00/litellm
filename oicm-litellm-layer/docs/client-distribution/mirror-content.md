@@ -26,12 +26,12 @@ fully published.
 litellm-client-mirror/
 ├── manifest.json
 ├── cc-switch/<version>/cc-switch-cli-<target>.<ext>
-├── providers/oicm/<harness>/v<N>.json     # additive harness presets
-└── templates/install.sh.tmpl               # optional store override
+├── providers/adeo/<harness>/v<N>.json       # per-harness presets (all 7)
+└── templates/install.sh.tmpl                 # optional store override
 ```
 
 Served to clients as `/install/manifest.json`, `/install/cc-switch/...`,
-`/install/providers/oicm/<harness>/v<N>.json`.
+`/install/providers/adeo/<harness>/v<N>.json`.
 
 ## `manifest.json`
 
@@ -42,14 +42,15 @@ script verifies each downloaded archive against the manifest, not against a
 separately-downloaded checksums file. The gateway also reads it to build the
 install-script render context.
 
-Schema 4 carries a `platforms` array so the install template can iterate the
+Schema 5 carries a `platforms` array so the install template can iterate the
 target matrix as data, a `cc_switch_artifacts` map of target -> file + sha256,
-and a `harnesses` map pinning each harness to a versioned preset. There is no
-backwards compatibility with schema 3: the gateway accepts only `schema: 4`.
+and a `harnesses` map pinning **every** harness to a versioned preset (no mode
+field: all harnesses compose the same way). There is no backwards
+compatibility with schema 4: the gateway accepts only `schema: 5`.
 
 ```json
 {
-  "schema": 4,
+  "schema": 5,
   "cc_switch_version": "5.11.1",
   "platforms": [
     {"target": "linux-x64-musl", "archive_ext": "tar.gz"},
@@ -64,20 +65,20 @@ backwards compatibility with schema 3: the gateway accepts only `schema: 4`.
     "windows-x64":     {"file": "cc-switch-cli-v5.11.1-windows-x64.zip",        "sha256": "..."}
   },
   "harnesses": {
-    "claude":    {"version": 1, "mode": "switch"},
-    "codex":     {"version": 1, "mode": "switch"},
-    "gemini":    {"version": 1, "mode": "switch"},
-    "open-code": {"version": 1, "path": "providers/oicm/open-code/v1.json", "sha256": "...", "mode": "additive"},
-    "pi":        {"version": 1, "path": "providers/oicm/pi/v1.json",        "sha256": "...", "mode": "additive"},
-    "hermes":    {"version": 1, "path": "providers/oicm/hermes/v1.json",    "sha256": "...", "mode": "additive"},
-    "open-claw": {"version": 1, "path": "providers/oicm/open-claw/v1.json", "sha256": "...", "mode": "additive"}
+    "claude":    {"version": 1, "path": "providers/adeo/claude/v1.json",    "sha256": "..."},
+    "codex":     {"version": 1, "path": "providers/adeo/codex/v1.json",     "sha256": "..."},
+    "gemini":    {"version": 1, "path": "providers/adeo/gemini/v1.json",    "sha256": "..."},
+    "open-code": {"version": 1, "path": "providers/adeo/open-code/v1.json", "sha256": "..."},
+    "pi":        {"version": 1, "path": "providers/adeo/pi/v1.json",        "sha256": "..."},
+    "hermes":    {"version": 1, "path": "providers/adeo/hermes/v1.json",    "sha256": "..."},
+    "open-claw": {"version": 1, "path": "providers/adeo/open-claw/v1.json", "sha256": "..."}
   }
 }
 ```
 
 Only the artifacts for the [supported matrix](platform-matrix.md) are listed;
 the admin sync refuses to publish a manifest referencing a missing object
-(binary or additive-harness preset).
+(binary or preset).
 
 The starting matrix is deliberately small: **Linux x86-64 musl, Linux ARM64
 musl, macOS universal, Windows x64**. Musl builds are statically linked, so
@@ -113,32 +114,33 @@ new version path. The manifest is published with a generation/ETag so two
 concurrent admin syncs cannot silently clobber each other (see
 [admin-sync.md](admin-sync.md)).
 
-## Harness presets — `providers/oicm/<harness>/v<N>.json`
+## Harness presets — `providers/adeo/<harness>/v<N>.json`
 
-Each additive harness owns a **versioned preset slice**: the structural
-cc-switch JSON skeleton for that harness, identical for every user. The preset
-holds structure only; the installer fills runtime values (base URL, API key,
-accessible models) client-side with `jq`, so no per-user data is ever written
-to the store. Served at `/install/providers/oicm/<harness>/v<N>.json` (store
-copy when present, baked fallback otherwise).
+Every harness owns a **versioned preset slice**: the canonical cc-switch
+`settings_config` skeleton for that harness — the exact shape cc-switch v5.11.1
+itself stores — with **sentinels** where runtime values go. Identical for every
+user; no per-user data is ever written to the store. Served at
+`/install/providers/adeo/<harness>/v<N>.json` (store copy when present, baked
+fallback otherwise — `sync-mirror.sh` generates the staged presets from the
+gateway's baked set, so the two cannot drift).
 
 The manifest pins each harness to a specific version + sha256, so revising a
 harness's config shape is an independent publish: bump the version, push a new
 `v<N>.json`, and repoint the manifest — without touching the installer script,
 the cc-switch binary, or any other harness.
 
-```json
-{
-  "npm": "@ai-sdk/openai-compatible",
-  "name": "OICM LiteLLM",
-  "options": {"baseURL": "", "apiKey": ""},
-  "models": {}
-}
-```
+The per-harness shapes (all verified against the v5.11.1 binary — see
+[installer-script.md](installer-script.md) step 4 for the compose):
 
-claude/codex/gemini use cc-switch's field-mode flags (`mode: "switch"`) and
-carry no preset file; the additive harnesses use `--config-file`
-(`mode: "additive"`). See [installer-script.md](installer-script.md) step 4.
+| Harness | Sentinels in preset | Notes |
+|---|---|---|
+| claude | `env` with `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` + the three role-model slots | what cc-switch's own field-mode add stores |
+| codex | TOML `config` string + `auth.OPENAI_API_KEY` | cc-switch stores a TOML doc, not env keys |
+| gemini | `env` with `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_MODEL` | |
+| open-code | `npm`, `options.baseURL/apiKey`, `{"__MODELS_OBJECT__": null}` | models as `{id:{name}}` |
+| hermes | snake_case `base_url`/`api_key`/`api_mode`, `["__MODELS_ARRAY__"]` | models as `[{id,name}]` |
+| open-claw | flat `baseUrl`/`apiKey`, `["__MODELS_ARRAY__"]` | rejects `npm`/`options` as legacy keys; ≥1 model required |
+| pi | flat `baseUrl` (per-provider), `["__MODELS_ARRAY__"]` | pi reads per-model `baseUrl` |
 
 Sizing note: each cc-switch archive is ~8-9 MB; the four-target matrix is
 ~35 MB. Far smaller than the retired uv + wheelhouse + python tiers.
