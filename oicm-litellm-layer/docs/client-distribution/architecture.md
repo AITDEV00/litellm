@@ -119,9 +119,9 @@ curl -fsSL https://litellm.ecouncil.ae/install | sh
         GET /install/providers/adeo/<h>/v<N>.json, verify sha256,
         compose with jq (sentinel substitution: base URL + key + models,
         per-model context windows, the manifest's max_output_tokens cap)
-        provider add --config-file (id = adeo-litellm-<hash8> of the
-            composed config: same key+models -> same id -> no-op;
-            rotated key -> new id -> use activates the new values)
+        provider add --config-file --overwrite
+            (id = adeo-litellm-<last4 of the key>: one stable id per key,
+             re-runs overwrite it in place via the fork's upsert flag)
         cc-switch use <id> --app <h>    -> writes that harness's config file
         ▼
   done

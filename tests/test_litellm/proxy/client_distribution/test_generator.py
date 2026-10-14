@@ -123,23 +123,27 @@ def test_render_is_generic_orchestrator() -> None:
     # No sqlite3 anywhere: reconcile is pure CLI (add + use)
     assert "sqlite3" not in script
     assert "provider delete" not in script
-    # Content-addressed provider id from the composed config
-    assert "adeo-litellm-$(sha256sum" in script
+    # Stable key-derived provider id: last 4 chars of the key, sanitized to
+    # cc-switch's id charset (lowercase alnum + single dashes)
+    assert 'adeo-litellm-$(printf' in script
+    assert "sha256sum \"$TMP/provider.json\"" not in script
     # use is the reconcile gate
     assert 'use "$PROVIDER_ID" --app' in script
 
 
 def test_render_reconcile_is_add_then_use() -> None:
-    """No delete, no sqlite3: add (tolerating already-exists) + use is the reconcile."""
+    """No delete, no sqlite3: overwrite-add (fork flag) + use is the reconcile."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
     assert "config backup" in script
     assert "provider add" in script
+    assert "--overwrite" in script
     assert "provider delete" not in script
     assert 'use "$PROVIDER_ID" --app' in script
-    # The id is content-addressed from the composed config, so a re-run with
-    # the same key+models maps to the same id (no-op) and a changed key maps
-    # to a new one (activated by use).
-    assert "adeo-litellm-$(sha256sum" in script
+    # The id is derived from the key's last 4 chars, so a re-run with the
+    # same key refreshes the same provider in place (true overwrite), and a
+    # rotated key maps to a different id.
+    assert 'adeo-litellm-$(printf' in script
+    assert "sha256sum \"$TMP/provider.json\"" not in script
 
 
 def test_render_no_upstream_urls() -> None:

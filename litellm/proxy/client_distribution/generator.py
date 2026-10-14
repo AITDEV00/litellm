@@ -266,16 +266,21 @@ configure_harness() {
     "$TMP/preset.json" > "$TMP/provider.json" \
     || die "failed to compose config for $harness"
 
-  # Content-addressed id: re-running with the same key, models, and limits
-  # maps to the same id, so `add` reports "already exists" and we take that
-  # as the no-op success it is; a rotated key, changed model list, or changed
-  # limits map to a new id, and `use` below activates the new values. No
-  # direct store access, no delete. The one prior provider version stays in
-  # cc-switch's catalog per change; remove it in the TUI if you care.
-  PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
-  if ! "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
-      --config-file "$TMP/provider.json" >/dev/null 2>&1; then
-    "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID " \
+  # One stable id per gateway key: the key's last 4 chars (lowercased,
+  # dash-stripped to satisfy cc-switch's id charset). Re-running the script
+  # refreshes the same provider in place via --overwrite (our cc-switch fork),
+  # so a rotated key or changed model list replaces the stored config instead
+  # of piling up revisions.
+  PROVIDER_ID="adeo-litellm-$(printf '%s' "$API_KEY" | tail -c 4 | tr '[:upper:]' '[:lower:]' | tr -d '-')"
+  "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --config-file "$TMP/provider.json" --overwrite >/dev/null 2>&1 \
+    || die "provider add --overwrite failed for $harness"
+  # Compat: stock upstream cc-switch (no --overwrite) treats an existing id
+  # as a duplicate add error; that is a successful refresh of identical
+  # content, so only fail when the provider is genuinely absent.
+  if ! "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID "; then
+    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+        --config-file "$TMP/provider.json" >/dev/null 2>&1 \
       || die "provider add failed for $harness"
   fi
 

@@ -130,19 +130,27 @@ umask 077
 # compose: jq walk() over the preset, sentinel substitution
 jq 'walk(...) $PRESET > "$TMP/provider.json"
 
-# The provider id is content-addressed: adeo-litellm-<hash8>, the hash
-# covering the composed config (key, models, limits and all). cc-switch has
-# no headless update path (edit is interactive-only, delete reads the TTY),
-# so:
-#   same key + models + limits -> same id -> add reports "already exists",
-#                             treated as the no-op it is; use re-points.
-#   rotated key / new models / changed limits -> new id; use activates it.
-PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
+# One stable id per gateway key: its last 4 chars, lowercased and
+# dash-stripped to satisfy cc-switch's id charset. Re-running the script
+# refreshes the same provider in place via --overwrite (our cc-switch
+# fork's upsert flag), so a rotated key or changed model list replaces
+# the stored config; nothing piles up.
+PROVIDER_ID="adeo-litellm-$(printf '%s' "$API_KEY" | tail -c 4 \
+  | tr '[:upper:]' '[:lower:]' | tr -d '-')"
 cc-switch provider add --app "$HARNESS" --id "$PROVIDER_ID" \
-  --name "ADEO LiteLLM" --config-file "$TMP/provider.json" || true
+  --name "ADEO LiteLLM" --config-file "$TMP/provider.json" --overwrite
 cc-switch use "$PROVIDER_ID" --app "$HARNESS"    # the success gate
 rm -f "$TMP/provider.json"
 ```
+
+The `--overwrite` flag is the one fork-carried change in cc-switch
+(branch `jya0-v5.11.1`): stock `provider add` is insert-only and its
+only update path is the interactive edit prompt. With the flag, an
+existing id is updated in place through the same ProviderService::update
+the edit prompt uses; a nonexistent id fails loudly. The script also
+keeps a compat path: on a stock binary the duplicate-add error for an
+existing id is treated as the no-op it is (identical content), so the
+script still works un-patched, minus true refresh.
 
 `cc-switch use` writes the harness's native config file
 (`~/.config/opencode/opencode.json` for open-code, `~/.claude/settings.json`
@@ -152,12 +160,11 @@ behavior identical with its own field-mode add). Verified against
 cc-switch-cli v5.11.1. After the loop the script runs `cc-switch env check`
 to surface any conflicting environment variables.
 
-**Accepted trade:** each actual credential/model change leaves the prior
-provider version in cc-switch's catalog (one row per change, not per run;
-for additive harnesses also one stale entry in the live config). The script
-never deletes — `provider delete` reads the TTY directly and cannot run
-headless. Remove old versions in the TUI whenever you like; `use` always
-points the harness at the newest composed config.
+**Revisions do not accumulate:** one provider per harness per key,
+identified by the key's last 4 chars. Re-runs overwrite it in place
+(the fork's `--overwrite`), so there is no stale catalog row to clean up
+and no TUI housekeeping. A different key creates a different provider,
+which is the intended multi-key story.
 
 ## Generator contract (Jinja2, store-backed template)
 
@@ -234,7 +241,7 @@ Re-running is safe and cheap:
 `/api/v1/models`. When the gateway's model set changes, the user re-runs
 `/install` (or `/install | sh -s -- --sync`): the script re-fetches
 `/api/v1/models` with the key and re-writes each configured provider's model
-list and per-model context windows via the same content-addressed reconcile,
+list and per-model context windows via the same overwrite reconcile,
 so one command covers both first install and resync.
 
 Version policy: the mirror pins exactly one cc-switch version
