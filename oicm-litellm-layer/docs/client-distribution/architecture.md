@@ -107,7 +107,8 @@ curl -fsSL https://litellm.ecouncil.ae/install | sh
         ▼
   prompt for the user's admin-issued API key
         ▼
-  diagnostic: GET <base>/v1/models with that key   (abort if it fails)
+  diagnostic: GET <base>/api/v1/models with that key   (abort if it fails)
+  -> key-scoped model list, each entry with its real context_length
         ▼
   list the harnesses cc-switch supports; user picks which to configure
   (multi-select, NOT all-by-default — the user may keep a non-gateway config
@@ -116,7 +117,8 @@ curl -fsSL https://litellm.ecouncil.ae/install | sh
   for each chosen harness:
         read the pinned preset (path, sha256) from the manifest
         GET /install/providers/adeo/<h>/v<N>.json, verify sha256,
-        compose with jq (sentinel substitution: base URL + key + models)
+        compose with jq (sentinel substitution: base URL + key + models,
+        per-model context windows, the manifest's max_output_tokens cap)
         provider add --config-file (id = adeo-litellm-<hash8> of the
             composed config: same key+models -> same id -> no-op;
             rotated key -> new id -> use activates the new values)
@@ -132,7 +134,7 @@ structure lives in its own versioned preset slice, pinned by the manifest,
 so revising one harness touches nothing else.
 
 No authentication is needed to download the binary or read the manifest. The
-user's key is only used for the `/v1/models` diagnostic and to fill the
+user's key is only used for the `/api/v1/models` diagnostic and to fill the
 provider's `apiKey` field. cc-switch writes each selected harness's native
 config file; harnesses not selected are left untouched.
 

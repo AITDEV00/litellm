@@ -287,7 +287,7 @@ class TestHarnessPreset:
         body = response.json()
         assert body["options"]["apiKey"] == "__API_KEY__"
         assert body["options"]["baseURL"] == "__BASE_URL_V1__"
-        assert list(body["models"]) == ["__MODELS_OBJECT__"]
+        assert list(body["models"]) == ["__MODELS_OBJECT_LIMIT__"]
         assert "sk-" not in response.text
 
 
@@ -417,6 +417,51 @@ class TestAdminPutManifest:
         manifest: dict[str, Any] = {
             "schema": 5,
             "cc_switch_version": "5.11.1",
+            "cc_switch_artifacts": {
+                "linux-x64-musl": {
+                    "file": "cc-switch-cli-linux-x64-musl.tar.gz",
+                    "sha256": "abc",
+                }
+            },
+        }
+        response = client.put(
+            "/install/admin/v1/manifest",
+            content=json.dumps(manifest).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_rejects_bad_max_output_tokens(self, admin_app: FastAPI) -> None:
+        """An invalid output cap is rejected at publish time, not at render time."""
+        client: TestClient = TestClient(admin_app)
+        base: dict[str, Any] = {
+            "schema": 5,
+            "cc_switch_version": "5.11.1",
+            "cc_switch_artifacts": {
+                "linux-x64-musl": {
+                    "file": "cc-switch-cli-linux-x64-musl.tar.gz",
+                    "sha256": "abc",
+                }
+            },
+        }
+        for bad in (0, -5, "big", 1.5, True):
+            manifest: dict[str, Any] = {**base, "max_output_tokens": bad}
+            response = client.put(
+                "/install/admin/v1/manifest",
+                content=json.dumps(manifest).encode(),
+                headers={"content-type": "application/json"},
+            )
+            assert response.status_code == 400, bad
+            assert "max_output_tokens" in response.json()["detail"]
+
+    def test_accepts_valid_max_output_tokens(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
+        s3._store["cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz"] = b"ccs-binary"
+        client: TestClient = TestClient(admin_app)
+        manifest: dict[str, Any] = {
+            "schema": 5,
+            "cc_switch_version": "5.11.1",
+            "max_output_tokens": 32768,
             "cc_switch_artifacts": {
                 "linux-x64-musl": {
                     "file": "cc-switch-cli-linux-x64-musl.tar.gz",

@@ -200,6 +200,19 @@ async def admin_put_manifest(
             detail=f"unsupported schema version: {schema_version} (expected 5)",
         )
 
+    # Validate the optional output cap early: an invalid value would surface
+    # later as a 502 render failure on every /install request.
+    max_output_tokens: object = data.get("max_output_tokens")
+    if max_output_tokens is not None and (
+        isinstance(max_output_tokens, bool)
+        or not isinstance(max_output_tokens, int)
+        or max_output_tokens <= 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'max_output_tokens' must be a positive integer",
+        )
+
     # Validate every referenced cc-switch artifact exists in the store
     cc_artifacts: object = data.get("cc_switch_artifacts", {})
     cc_version: object = data.get("cc_switch_version", "")

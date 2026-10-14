@@ -44,14 +44,19 @@ install-script render context.
 
 Schema 5 carries a `platforms` array so the install template can iterate the
 target matrix as data, a `cc_switch_artifacts` map of target -> file + sha256,
-and a `harnesses` map pinning **every** harness to a versioned preset (no mode
-field: all harnesses compose the same way). There is no backwards
+a `harnesses` map pinning **every** harness to a versioned preset (no mode
+field: all harnesses compose the same way), and an optional
+`max_output_tokens` integer (default 65536): the per-request output cap the
+installer writes into harness configs that have a real output knob (claude
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS`, opencode `limit.output`). Changing it is a
+manifest edit + re-sync, no gateway rebuild. There is no backwards
 compatibility with schema 4: the gateway accepts only `schema: 5`.
 
 ```json
 {
   "schema": 5,
   "cc_switch_version": "5.11.1",
+  "max_output_tokens": 65536,
   "platforms": [
     {"target": "linux-x64-musl", "archive_ext": "tar.gz"},
     {"target": "linux-arm64-musl", "archive_ext": "tar.gz"},
@@ -65,13 +70,13 @@ compatibility with schema 4: the gateway accepts only `schema: 5`.
     "windows-x64":     {"file": "cc-switch-cli-v5.11.1-windows-x64.zip",        "sha256": "..."}
   },
   "harnesses": {
-    "claude":    {"version": 1, "path": "providers/adeo/claude/v1.json",    "sha256": "..."},
-    "codex":     {"version": 1, "path": "providers/adeo/codex/v1.json",     "sha256": "..."},
-    "gemini":    {"version": 1, "path": "providers/adeo/gemini/v1.json",    "sha256": "..."},
-    "open-code": {"version": 1, "path": "providers/adeo/open-code/v1.json", "sha256": "..."},
-    "pi":        {"version": 1, "path": "providers/adeo/pi/v1.json",        "sha256": "..."},
-    "hermes":    {"version": 1, "path": "providers/adeo/hermes/v1.json",    "sha256": "..."},
-    "open-claw": {"version": 1, "path": "providers/adeo/open-claw/v1.json", "sha256": "..."}
+    "claude":    {"version": 2, "path": "providers/adeo/claude/v2.json",    "sha256": "..."},
+    "codex":     {"version": 2, "path": "providers/adeo/codex/v2.json",     "sha256": "..."},
+    "gemini":    {"version": 2, "path": "providers/adeo/gemini/v2.json",    "sha256": "..."},
+    "open-code": {"version": 2, "path": "providers/adeo/open-code/v2.json", "sha256": "..."},
+    "pi":        {"version": 2, "path": "providers/adeo/pi/v2.json",        "sha256": "..."},
+    "hermes":    {"version": 2, "path": "providers/adeo/hermes/v2.json",    "sha256": "..."},
+    "open-claw": {"version": 2, "path": "providers/adeo/open-claw/v2.json", "sha256": "..."}
   }
 }
 ```
@@ -130,17 +135,20 @@ harness's config shape is an independent publish: bump the version, push a new
 the cc-switch binary, or any other harness.
 
 The per-harness shapes (all verified against the v5.11.1 binary — see
-[installer-script.md](installer-script.md) step 4 for the compose):
+[installer-script.md](installer-script.md) step 4 for the compose). Preset
+v2 adds per-model context windows (`context_length` from the key-scoped
+`/api/v1/models`) wherever the harness has a real knob, plus the manifest's
+`max_output_tokens` default for the two harnesses with an output knob:
 
 | Harness | Sentinels in preset | Notes |
 |---|---|---|
-| claude | `env` with `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` + the three role-model slots | what cc-switch's own field-mode add stores |
-| codex | TOML `config` string + `auth.OPENAI_API_KEY` | cc-switch stores a TOML doc, not env keys |
-| gemini | `env` with `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_MODEL` | |
-| open-code | `npm`, `options.baseURL/apiKey`, `{"__MODELS_OBJECT__": null}` | models as `{id:{name}}` |
-| hermes | snake_case `base_url`/`api_key`/`api_mode`, `["__MODELS_ARRAY__"]` | models as `[{id,name}]` |
-| open-claw | flat `baseUrl`/`apiKey`, `["__MODELS_ARRAY__"]` | rejects `npm`/`options` as legacy keys; ≥1 model required |
-| pi | flat `baseUrl` (per-provider), `["__MODELS_ARRAY__"]` | pi reads per-model `baseUrl` |
+| claude | `env` with `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` + the three role-model slots, `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (`__DEFAULT_MODEL_CONTEXT__`), `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (`__MAX_OUTPUT_TOKENS__`) | what cc-switch's own field-mode add stores, plus the two managed limit env keys |
+| codex | TOML `config` string (with `model_context_window = __DEFAULT_MODEL_CONTEXT__`) + `auth.OPENAI_API_KEY` | cc-switch stores a TOML doc, not env keys; no output knob exists |
+| gemini | `env` with `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_MODEL` | writer drops env keys outside its allow-list, so no limit fields |
+| open-code | `npm`, `options.baseURL/apiKey`, `{"__MODELS_OBJECT_LIMIT__": null}` | models as `{id:{name,limit:{context,output}}}` |
+| hermes | snake_case `base_url`/`api_key`/`api_mode`, `["__MODELS_ARRAY_CTX_SNAKE__"]` | models as `[{id,name,context_length}]` |
+| open-claw | flat `baseUrl`/`apiKey`, `["__MODELS_ARRAY_CTX__"]` | rejects `npm`/`options` as legacy keys; ≥1 model required; per-model `contextWindow` |
+| pi | flat `baseUrl` (per-provider), `["__MODELS_ARRAY_CTX__"]` | pi reads the provider-level flat baseUrl; per-model `contextWindow` |
 
 Sizing note: each cc-switch archive is ~8-9 MB; the four-target matrix is
 ~35 MB. Far smaller than the retired uv + wheelhouse + python tiers.

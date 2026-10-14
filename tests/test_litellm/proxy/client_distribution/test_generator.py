@@ -80,10 +80,12 @@ def test_render_verifies_against_manifest_hash() -> None:
 
 
 def test_render_has_key_diagnostic() -> None:
-    """The key is validated against /v1/models before any harness is touched."""
+    """The key is validated against /api/v1/models before any harness is touched."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
     assert "Authorization: Bearer $API_KEY" in script
-    assert "$BASE_URL/v1/models" in script
+    assert "$BASE_URL/api/v1/models" in script
+    # /v1/models carries no context_length; using it would break the limits
+    assert "$BASE_URL/v1/models" not in script
 
 
 def test_render_key_via_config_file_umask() -> None:
@@ -104,6 +106,15 @@ def test_render_is_generic_orchestrator() -> None:
     assert "__API_KEY__" in script
     assert "walk(" in script
     assert ".options.baseURL = $url" not in script
+    # Per-model context windows from the key-scoped endpoint
+    assert "context_length" in script
+    assert "__DEFAULT_MODEL_CONTEXT__" in script
+    assert "__MAX_OUTPUT_TOKENS__" in script
+    assert '__MODELS_ARRAY_CTX__"' in script
+    assert '"__MODELS_ARRAY_CTX_SNAKE__"' in script
+    assert '__MODELS_OBJECT_LIMIT__"' in script
+    # Manifest-sourced default output cap
+    assert 'MAX_OUTPUT_TOKENS="65536"' in script
     # Harness list is manifest-driven
     assert ".harnesses | keys" in script
     # No hardcoded harness list, no mode branch
@@ -207,19 +218,23 @@ def test_all_seven_harnesses_have_baked_presets() -> None:
 
 
 def test_baked_preset_claude_shape() -> None:
-    """claude: env block with the three role-model slots cc-switch itself sets."""
+    """claude: env block with the role-model slots + the two limit keys."""
     preset: dict[str, object] = json.loads(get_baked_preset("claude") or "{}")
     env: dict[str, str] = preset["env"]
     assert env["ANTHROPIC_AUTH_TOKEN"] == "__API_KEY__"
     assert env["ANTHROPIC_BASE_URL"] == "__BASE_URL__"
     assert env["ANTHROPIC_MODEL"] == "__DEFAULT_MODEL__"
     assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "__DEFAULT_MODEL__"
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "__DEFAULT_MODEL_CONTEXT__"
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "__MAX_OUTPUT_TOKENS__"
 
 
 def test_baked_preset_codex_shape() -> None:
     """codex: TOML config string + auth block, matching cc-switch's stored shape."""
     preset: dict[str, object] = json.loads(get_baked_preset("codex") or "{}")
     assert "model_provider" in str(preset["config"])
+    # Bare sentinel: composed as a TOML integer, not a quoted string
+    assert "model_context_window = __DEFAULT_MODEL_CONTEXT__\n" in str(preset["config"])
     assert preset["auth"] == {"OPENAI_API_KEY": "__API_KEY__"}
 
 
@@ -230,12 +245,14 @@ def test_baked_preset_gemini_shape() -> None:
 
 
 def test_baked_preset_models_sentinels() -> None:
-    """opencode embeds the {id:{name}} sentinel; the array harnesses use [{id,name}]."""
+    """Each preset embeds the models placeholder matching its harness's shape."""
     oc: dict[str, object] = json.loads(get_baked_preset("open-code") or "{}")
-    assert list(oc["models"]) == ["__MODELS_OBJECT__"]
-    for harness in ("pi", "hermes", "open-claw"):
+    assert list(oc["models"]) == ["__MODELS_OBJECT_LIMIT__"]
+    for harness in ("pi", "open-claw"):
         p: dict[str, object] = json.loads(get_baked_preset(harness) or "{}")
-        assert p["models"] == ["__MODELS_ARRAY__"], harness
+        assert p["models"] == ["__MODELS_ARRAY_CTX__"], harness
+    hermes: dict[str, object] = json.loads(get_baked_preset("hermes") or "{}")
+    assert hermes["models"] == ["__MODELS_ARRAY_CTX_SNAKE__"]
 
 
 def test_baked_preset_pi_has_flat_base_url() -> None:
@@ -273,6 +290,42 @@ def test_manifest_from_json_artifact_missing_sha() -> None:
 def test_manifest_from_json_invalid_json() -> None:
     with pytest.raises(ValueError, match="invalid manifest JSON"):
         manifest_from_json("not json")
+
+
+def test_manifest_max_output_tokens_default() -> None:
+    """Omitting max_output_tokens falls back to the 64K default."""
+    raw: str = (
+        '{"cc_switch_version": "5.11.1", '
+        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
+    )
+    m: MirrorManifest = manifest_from_json(raw)
+    assert m.max_output_tokens == 65536
+    script: str = render_install_script(m, _BASE_URL)
+    assert 'MAX_OUTPUT_TOKENS="65536"' in script
+
+
+def test_manifest_max_output_tokens_override() -> None:
+    """An explicit max_output_tokens flows into the rendered script."""
+    raw: str = (
+        '{"cc_switch_version": "5.11.1", '
+        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}, '
+        '"max_output_tokens": 32768}'
+    )
+    m: MirrorManifest = manifest_from_json(raw)
+    assert m.max_output_tokens == 32768
+    script: str = render_install_script(m, _BASE_URL)
+    assert 'MAX_OUTPUT_TOKENS="32768"' in script
+
+
+@pytest.mark.parametrize("bad", [0, -1, "x", 1.5, True])
+def test_manifest_max_output_tokens_rejected(bad: object) -> None:
+    raw: str = (
+        '{"cc_switch_version": "5.11.1", '
+        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}, '
+        '"max_output_tokens": ' + json.dumps(bad) + "}"
+    )
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        manifest_from_json(raw)
 
 
 # ── Jinja2 rendering contract ───────────────────────────────────────────────

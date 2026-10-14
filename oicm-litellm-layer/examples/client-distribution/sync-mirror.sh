@@ -35,7 +35,8 @@ CC_SWITCH_TARGETS=(
 # Every harness carries a versioned preset file. Preset content is
 # generated from the gateway's baked presets (single source of truth);
 # bump PRESET_VERSION in build-manifest.py and re-sync to change a shape.
-PRESET_VERSION="1"
+# v2 adds per-model context windows + the default output cap.
+PRESET_VERSION="2"
 PROVIDER="adeo"
 HARNESSES=(claude codex gemini open-code pi hermes open-claw)
 # litellm checkout that has the baked presets (litellm/proxy/client_distribution)

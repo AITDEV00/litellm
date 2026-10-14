@@ -19,8 +19,8 @@ platform list) built from `manifest.json` (see
 
 The script is served at `GET /install` and is **unauthenticated**: downloading
 the binary and reading the manifest need no credential. The user's key is
-prompted for interactively and used only for the `/v1/models` diagnostic and
-the provider's `apiKey` field. See [security.md](security.md).
+prompted for interactively and used only for the `/api/v1/models` diagnostic
+and the provider's `apiKey` field. See [security.md](security.md).
 
 The four steps below double as **first install** and **reconciliation**: the
 same `/install` run installs the binary if absent, then re-validates the key
@@ -56,13 +56,23 @@ validates it before touching any config. This is a per-developer virtual key,
 never the proxy master/admin key:
 
 ```sh
-curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/models" > "$TMP/models.json" \
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" \
+  > "$TMP/models.json" \
   || die "that key was rejected by $BASE_URL; check it with your platform admin"
 ```
 
-A wrong key fails here, before any harness file is written. The fetched model
-list also feeds step 4, so each provider carries the models this key can
-actually call.
+A wrong key fails here, before any harness file is written. The endpoint is
+the OpenRouter-compatible models API: it is **key-scoped** (each user sees
+exactly their accessible models) and every entry carries its real
+`context_length` from live backend discovery, which feeds step 4.
+
+The script filters the fetched list down to text-generation models by
+excluding utility families by name (embeddings, speech/STT/TTS/voice, OCR,
+transcribe, image generation, rerank, doc-layout, whisper) and UUID-named
+document-processing models. The payload carries no capability signal, so a
+name-based exclusion is the only available filter; it keeps every real
+coding model (GLM, Qwen, Kimi, DeepSeek, ...) rather than the old
+include-list, which silently dropped whole families.
 
 ### 3. Harness selection
 
@@ -78,11 +88,38 @@ the manifest's `harnesses` map, fetches `/install/providers/adeo/<h>/v<N>.json`,
 verifies its sha256 against the manifest, then composes the final config with
 one generic `jq walk()`: sentinels in the preset
 (`__BASE_URL__`, `__BASE_URL_V1__`, `__API_KEY__`, `__DEFAULT_MODEL__`,
-`["__MODELS_ARRAY__"]`, `{"__MODELS_OBJECT__": null}`) are replaced with the
-gateway URL, the key, and the key's model list. Every harness — claude,
-codex, gemini included — goes through the same `provider add --config-file`
-path; the config shape is entirely the preset's business, so revising one
-harness touches nothing else.
+`__DEFAULT_MODEL_CONTEXT__`, `__MAX_OUTPUT_TOKENS`, the models placeholders
+below) are replaced with the gateway URL, the key, the key's model list,
+**each model's real context window** from step 2, and the manifest's default
+output cap. Every harness — claude, codex, gemini included — goes through the
+same `provider add --config-file` path; the config shape is entirely the
+preset's business, so revising one harness touches nothing else.
+
+Per-model context lands wherever the harness has a real, verified knob; the
+preset picks the placeholder matching its shape:
+
+| Placeholder | Composes to | Used by |
+|---|---|---|
+| `["__MODELS_ARRAY__"]` | `[{id,name}]` (v1 presets) | — |
+| `["__MODELS_ARRAY_CTX__"]` | `[{id,name,contextWindow?}]` | pi, open-claw |
+| `["__MODELS_ARRAY_CTX_SNAKE__"]` | `[{id,name,context_length?}]` | hermes |
+| `{"__MODELS_OBJECT__": null}` | `{id:{name}}` (v1 presets) | — |
+| `{"__MODELS_OBJECT_LIMIT__": null}` | `{id:{name,limit:{context?,output}}}` | open-code |
+
+A model whose context the gateway does not report simply omits the context
+key; for the single-model harnesses the compose drops the whole field: claude
+loses `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, codex loses the entire
+`model_context_window` TOML line (a first-class supported state — cc-switch
+itself defaults the window to 128000 when the key is absent).
+
+**Output cap.** The manifest carries `max_output_tokens` (default 65536, i.e.
+64K). It is written into every harness that has a real output knob: claude's
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS` env key and opencode's per-model
+`limit.output`. codex, gemini, pi, hermes and open-claw have no verified
+output-limit key (gemini's writer drops any env key outside its hardcoded
+allow-list, codex's config surface has no such TOML key), so their presets
+carry only the context. Changing the default is a manifest edit + re-sync,
+no gateway rebuild.
 
 The key is passed via a **`--config-file` under `umask 077`**, never on the
 command line (argv is world-readable via `/proc`), and runtime values are
@@ -94,11 +131,12 @@ umask 077
 jq 'walk(...) $PRESET > "$TMP/provider.json"
 
 # The provider id is content-addressed: adeo-litellm-<hash8>, the hash
-# covering the composed config. cc-switch has no headless update path
-# (edit is interactive-only, delete reads the TTY), so:
-#   same key + same models  -> same id -> add reports "already exists",
+# covering the composed config (key, models, limits and all). cc-switch has
+# no headless update path (edit is interactive-only, delete reads the TTY),
+# so:
+#   same key + models + limits -> same id -> add reports "already exists",
 #                             treated as the no-op it is; use re-points.
-#   rotated key / new models -> new id -> add succeeds; use activates it.
+#   rotated key / new models / changed limits -> new id; use activates it.
 PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
 cc-switch provider add --app "$HARNESS" --id "$PROVIDER_ID" \
   --name "ADEO LiteLLM" --config-file "$TMP/provider.json" || true
@@ -143,6 +181,7 @@ actually references:
 |---|---|---|
 | `base_url` | str | `LITELLM_PUBLIC_BASE_URL` env/config, request host as fallback |
 | `cc_switch_version` | str | `manifest.json` `cc_switch_version` |
+| `max_output_tokens` | int (default 65536) | `manifest.json` `max_output_tokens` |
 | `platforms` | list of `{target, archive_ext}` | `manifest.json` `platforms` |
 
 Rendering is sandboxed, strict, and not autoescaped
@@ -181,8 +220,8 @@ Re-running is safe and cheap:
   `provider add` rejects a duplicate id and `provider edit` is interactive-only.
   cc-switch preserves unrelated keys in the harness config file across the
   `use`.
-- A wrong key is caught by the `/v1/models` diagnostic before any harness file
-  is written, so a bad key never leaves a half-configured harness.
+- A wrong key is caught by the `/api/v1/models` diagnostic before any harness
+  file is written, so a bad key never leaves a half-configured harness.
 
 ## Idempotency and model resync
 
@@ -192,12 +231,11 @@ Re-running is safe and cheap:
 3. Otherwise download + manifest-hash-verify + extract in place.
 
 **Model resync is explicit, not live.** The harness does not continuously read
-`/v1/models`. When the gateway's model set changes, the user re-runs
+`/api/v1/models`. When the gateway's model set changes, the user re-runs
 `/install` (or `/install | sh -s -- --sync`): the script re-fetches
-`/v1/models` with the key and re-writes each configured provider's model list
-via the same delete-then-add reconcile. cc-switch's own `provider
-fetch-models` is the underlying mechanism; the script wraps it so one command
-covers both first install and resync.
+`/api/v1/models` with the key and re-writes each configured provider's model
+list and per-model context windows via the same content-addressed reconcile,
+so one command covers both first install and resync.
 
 Version policy: the mirror pins exactly one cc-switch version
 (`cc_switch_version` in the manifest). A bump re-pins it and the admin

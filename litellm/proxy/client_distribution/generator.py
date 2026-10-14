@@ -10,11 +10,13 @@ a **generic orchestrator** (see docs/client-distribution/installer-script.md):
 
 1. fetch the manifest, detect the platform, install cc-switch from the
    gateway mirror (sha256-verified against the manifest),
-2. prompt for the gateway key and validate it against ``/v1/models``,
+2. prompt for the gateway key and validate it against ``/api/v1/models``
+   (key-scoped: every model entry carries its real context window),
 3. offer the manifest-declared harnesses for multi-select,
 4. per chosen harness: fetch the manifest-pinned preset, verify its sha256,
    compose the final cc-switch config client-side with jq (never string
-   substitution), upsert the provider, and activate it.
+   substitution) from runtime values, per-model context windows, and the
+   manifest's default output cap; upsert the provider, and activate it.
 
 Rendering is sandboxed + strict + no-autoescape, with an **open context**:
 
@@ -45,6 +47,10 @@ from jinja2.sandbox import SandboxedEnvironment
 # not HTML), undefined variables are a hard error, and the sandbox bounds
 # attribute access from store-pushed templates.
 _ENV: Final = SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)
+
+# Manifest default for the per-request output cap written into harness
+# configs that have a real output knob (claude env key, opencode limit.output).
+_DEFAULT_MAX_OUTPUT_TOKENS: Final = 65536
 
 _TEMPLATE: Final = r"""#!/usr/bin/env bash
 # ADEO coding-agent setup (cc-switch)
@@ -147,11 +153,11 @@ if [ -t 0 ]; then stty echo 2>/dev/null || true; fi
 echo ""
 [ -n "$API_KEY" ] || die "no key entered"
 
-curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/v1/models" -o "$TMP/models.json" \
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
   || die "that key was rejected by $BASE_URL; check it with your platform admin"
 MODEL_COUNT="$(jq -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
 [ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
-info "key OK — $MODEL_COUNT model(s) available"
+info "key OK — $MODEL_COUNT model(s) visible to this key"
 
 # ── 3. harness selection ──────────────────────────────────────────────────
 # The harness list comes from the manifest, so adding a harness is a sync,
@@ -173,15 +179,32 @@ for n in $PICKS; do
   CHOSEN="$CHOSEN $h"
 done
 
-# ── 4. per-harness provider reconcile (backup + delete-then-add + use) ────
+# ── 4. per-harness provider reconcile (backup + add + use) ────────────────
 # Generic orchestrator: the per-harness cc-switch JSON shape lives in the
 # versioned preset the manifest pins, not in this script. The script fetches
 # the preset, verifies it against the manifest sha256, then composes the
 # final config client-side with jq from runtime values (base URL, API key,
-# accessible models) — never string substitution.
+# accessible models with their context windows, the manifest's output cap) —
+# never string substitution.
 umask 077
-MODELS_JSON="$(jq -c '[.data[].id] | map(select(test("claude|gpt|qwen|glm";"i"))) | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
-DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0] // empty' 2>/dev/null || true)"
+MAX_OUTPUT_TOKENS="{{ max_output_tokens }}"
+# Text-generation models this key can call, each with its real context
+# window from /api/v1/models. Utility families (speech, OCR, embeddings,
+# image generation, document processing) are excluded by name because the
+# payload carries no capability signal; UUID-named models likewise.
+MODELS_JSON="$(jq -c '
+  [.data[]
+   | select((.id | test("embed|tts|stt|asr|ocr|transcri|voice|speech|image|rerank|layout|whisper"; "i")) | not)
+   | select((.id | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-")) | not)
+   | {id: .id, context: (if (.context_length // 0) > 0 then .context_length else null end)}]
+  | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
+[ "$(printf '%s' "$MODELS_JSON" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ] \
+  || die "no text-generation models are accessible to this key; ask your admin"
+DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].id')"
+DEFAULT_CTX_JSON="$(printf '%s' "$MODELS_JSON" | jq -c '.[0].context | if . != null then tostring else null end')"
+DEFAULT_CTX_STR="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].context // "" | tostring')"
+info "default model: $DEFAULT_MODEL (context window: ${DEFAULT_CTX_STR:-unknown})"
+info "max output tokens per request: $MAX_OUTPUT_TOKENS (gateway default)"
 
 configure_harness() {
   local harness="$1" preset_path="$2" preset_sha="$3"
@@ -196,34 +219,59 @@ configure_harness() {
 
   # One generic compose: substitute sentinels anywhere in the preset. The
   # preset alone owns the harness's config shape; this script knows none of
-  # it. MODELS_ARRAY is [{id,name}] (pi/open-claw/hermes); MODELS_OBJECT is
-  # {id:{name}} (opencode). Presets embed the sentinel whose shape they need.
-  MODELS_ARRAY="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id:., name:.})')"
-  MODELS_OBJECT="$(printf '%s' "$MODELS_JSON" | jq -c 'map({key:., value:{name:.}}) | from_entries')"
+  # it. Each preset embeds the models placeholder whose shape it needs:
+  #   ["__MODELS_ARRAY__"]            -> [{id,name}]                       (v1)
+  #   ["__MODELS_ARRAY_CTX__"]        -> [{id,name,contextWindow?}]   (pi, open-claw)
+  #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
+  #   {"__MODELS_OBJECT__": null}      -> {id:{name}}                       (v1)
+  #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
+  # A model with no reported context simply omits the context key.
+  MODELS_ARRAY="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id})')"
+  MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
+  MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
+  MODELS_OBJECT="$(printf '%s' "$MODELS_JSON" | jq -c 'map({key: .id, value: {name: .id}}) | from_entries')"
+  MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | jq -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
+    'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
   jq \
     --arg url "$BASE_URL" \
     --arg url_v1 "$BASE_URL/v1" \
     --arg key "$API_KEY" \
     --arg model "$DEFAULT_MODEL" \
+    --arg ctx "$DEFAULT_CTX_STR" \
+    --argjson max_output "$MAX_OUTPUT_TOKENS" \
+    --argjson default_ctx "$DEFAULT_CTX_JSON" \
     --argjson models_array "$MODELS_ARRAY" \
+    --argjson models_array_ctx "$MODELS_ARRAY_CTX" \
+    --argjson models_array_ctx_snake "$MODELS_ARRAY_CTX_SNAKE" \
     --argjson models_object "$MODELS_OBJECT" \
-    'walk(if type == "string" then
-       gsub("__BASE_URL__"; $url)
-       | gsub("__BASE_URL_V1__"; $url_v1)
-       | gsub("__API_KEY__"; $key)
-       | gsub("__DEFAULT_MODEL__"; $model)
-     elif type == "array" and . == ["__MODELS_ARRAY__"] then $models_array
-     elif type == "object" and . == {"__MODELS_OBJECT__": null} then $models_object
-     else . end)' \
+    --argjson models_object_limit "$MODELS_OBJECT_LIMIT" \
+    'walk(
+       if type == "string" and . == "__DEFAULT_MODEL_CONTEXT__" then $default_ctx
+       elif type == "string" then
+         (if $ctx == ""
+          then gsub("model_context_window = __DEFAULT_MODEL_CONTEXT__\n"; "")
+          else gsub("__DEFAULT_MODEL_CONTEXT__"; $ctx) end)
+         | gsub("__BASE_URL__"; $url)
+         | gsub("__BASE_URL_V1__"; $url_v1)
+         | gsub("__API_KEY__"; $key)
+         | gsub("__DEFAULT_MODEL__"; $model)
+         | gsub("__MAX_OUTPUT_TOKENS__"; ($max_output | tostring))
+       elif type == "array" and . == ["__MODELS_ARRAY__"] then $models_array
+       elif type == "array" and . == ["__MODELS_ARRAY_CTX__"] then $models_array_ctx
+       elif type == "array" and . == ["__MODELS_ARRAY_CTX_SNAKE__"] then $models_array_ctx_snake
+       elif type == "object" and . == {"__MODELS_OBJECT__": null} then $models_object
+       elif type == "object" and . == {"__MODELS_OBJECT_LIMIT__": null} then $models_object_limit
+       else . end)
+     | walk(if type == "object" then with_entries(select(.value != null)) else . end)' \
     "$TMP/preset.json" > "$TMP/provider.json" \
     || die "failed to compose config for $harness"
 
-  # Content-addressed id: re-running with the same key and models maps to the
-  # same id, so `add` reports "already exists" and we take that as the
-  # no-op success it is; a rotated key or changed model list maps to a new
-  # id, and `use` below activates the new values. No direct store access,
-  # no delete. The one prior provider version stays in cc-switch's catalog
-  # per change; remove it in the TUI if you care.
+  # Content-addressed id: re-running with the same key, models, and limits
+  # maps to the same id, so `add` reports "already exists" and we take that
+  # as the no-op success it is; a rotated key, changed model list, or changed
+  # limits map to a new id, and `use` below activates the new values. No
+  # direct store access, no delete. The one prior provider version stays in
+  # cc-switch's catalog per change; remove it in the TUI if you care.
   PROVIDER_ID="adeo-litellm-$(sha256sum "$TMP/provider.json" | cut -c1-8)"
   if ! "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
       --config-file "$TMP/provider.json" >/dev/null 2>&1; then
@@ -268,12 +316,26 @@ echo ""
 # one — these exist so a harness works even before its first preset sync.
 #
 # Sentinels: __BASE_URL__ / __BASE_URL_V1__ (gateway root / +v1),
-# __API_KEY__, __DEFAULT_MODEL__ (first model the key can call), and the
-# whole-value placeholders ["__MODELS_ARRAY__"] -> [{id,name}...] and
-# {"__MODELS_OBJECT__": null} -> {id:{name}...}.
+# __API_KEY__, __DEFAULT_MODEL__ (first text-generation model the key can
+# call), __DEFAULT_MODEL_CONTEXT__ (its context window; the compose drops the
+# field entirely when the gateway reports none), __MAX_OUTPUT_TOKENS__ (the
+# manifest's default per-request output cap), and the whole-value models
+# placeholders ["__MODELS_ARRAY__"] -> [{id,name}...],
+# ["__MODELS_ARRAY_CTX__"] -> [{id,name,contextWindow?}...],
+# ["__MODELS_ARRAY_CTX_SNAKE__"] -> [{id,name,context_length?}...],
+# {"__MODELS_OBJECT__": null} -> {id:{name}...} and
+# {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}...}.
+#
+# Context/output land only where the harness has a real, verified knob:
+# claude env keys, codex TOML key, opencode limit block, pi/open-claw
+# contextWindow, hermes context_length. gemini's writer drops any env key
+# outside its hardcoded allow-list, so its preset carries no limit fields.
 BAKED_PRESETS: Final[dict[str, str]] = {
     # claude: env block; cc-switch's own field-mode add also mirrors the
     # default model into the three role-model slots, so we do the same.
+    # Both CLAUDE_CODE_* keys are cc-switch-managed exclusive env vars
+    # written on `use`: MAX_CONTEXT_TOKENS is the model's real context
+    # window, MAX_OUTPUT_TOKENS the per-request output cap.
     "claude": json.dumps(
         {
             "env": {
@@ -283,17 +345,23 @@ BAKED_PRESETS: Final[dict[str, str]] = {
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "__DEFAULT_MODEL__",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "__DEFAULT_MODEL__",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "__DEFAULT_MODEL__",
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "__DEFAULT_MODEL_CONTEXT__",
+                "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "__MAX_OUTPUT_TOKENS__",
             }
         },
         indent=2,
     ),
     # codex: TOML config string + auth block (cc-switch's own stored shape).
+    # model_context_window is a provider-exclusive TOML key cc-switch
+    # respects (its own fallback when the key is absent is 128000); Codex
+    # itself has no max-output config knob, so only the context is set.
     "codex": json.dumps(
         {
             "config": (
                 "model_provider = \"adeo-litellm\"\n"
                 "model = \"__DEFAULT_MODEL__\"\n"
                 "model_reasoning_effort = \"high\"\n"
+                "model_context_window = __DEFAULT_MODEL_CONTEXT__\n"
                 "disable_response_storage = true\n"
                 "\n"
                 "[model_providers.adeo-litellm]\n"
@@ -317,44 +385,48 @@ BAKED_PRESETS: Final[dict[str, str]] = {
         },
         indent=2,
     ),
-    # open-code: provider entry for opencode.json; models as {id:{name}}.
+    # open-code: provider entry for opencode.json; models as
+    # {id:{name,limit:{context,output}}} — opencode's own per-model limit
+    # block, context from the gateway, output from the manifest cap.
     "open-code": json.dumps(
         {
             "npm": "@ai-sdk/openai-compatible",
             "name": "ADEO LiteLLM",
             "options": {"baseURL": "__BASE_URL_V1__", "apiKey": "__API_KEY__"},
-            "models": {"__MODELS_OBJECT__": None},
+            "models": {"__MODELS_OBJECT_LIMIT__": None},
         },
         indent=2,
     ),
-    # hermes: snake_case keys; models as [{id,name}] array (api_mode
-    # chat_completions = OpenAI-compatible).
+    # hermes: snake_case keys; models as [{id,name,context_length}] array
+    # (api_mode chat_completions = OpenAI-compatible; context_length is
+    # hermes's own per-model key).
     "hermes": json.dumps(
         {
             "api_mode": "chat_completions",
             "base_url": "__BASE_URL_V1__",
             "api_key": "__API_KEY__",
-            "models": ["__MODELS_ARRAY__"],
+            "models": ["__MODELS_ARRAY_CTX_SNAKE__"],
         },
         indent=2,
     ),
-    # open-claw: flat camelCase; models as [{id,name}] array, >= 1 required.
+    # open-claw: flat camelCase; models as [{id,name,contextWindow}] array,
+    # >= 1 required (contextWindow is openclaw's own per-model key).
     "open-claw": json.dumps(
         {
             "baseUrl": "__BASE_URL_V1__",
             "apiKey": "__API_KEY__",
-            "models": ["__MODELS_ARRAY__"],
+            "models": ["__MODELS_ARRAY_CTX__"],
         },
         indent=2,
     ),
-    # pi: flat keys; models as [{id,name,baseUrl}] array (pi reads per-model
-    # baseUrl; the object-level baseUrl alone is not enough).
+    # pi: flat keys; models as [{id,name,contextWindow}] array (pi reads the
+    # provider-level flat baseUrl; contextWindow is pi's own per-model key).
     "pi": json.dumps(
         {
             "name": "ADEO LiteLLM",
             "apiKey": "__API_KEY__",
             "baseUrl": "__BASE_URL_V1__",
-            "models": ["__MODELS_ARRAY__"],
+            "models": ["__MODELS_ARRAY_CTX__"],
         },
         indent=2,
     ),
@@ -391,6 +463,7 @@ class MirrorManifest:
 
     cc_switch_version: str
     cc_switch_artifacts: dict[str, dict[str, str]]
+    max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS
     harnesses: tuple[HarnessPreset, ...] = field(default=())
     platforms: tuple[PlatformTarget, ...] = field(default=())
     extra: dict[str, object] = field(default_factory=dict)
@@ -408,6 +481,7 @@ class MirrorManifest:
             "base_url": base_url,
             "cc_switch_version": self.cc_switch_version,
             "cc_switch_artifacts": self.cc_switch_artifacts,
+            "max_output_tokens": self.max_output_tokens,
             "harnesses": self.harnesses,
             "platforms": self.platforms,
         }
@@ -468,14 +542,22 @@ def manifest_from_json(raw: str) -> MirrorManifest:
         "schema",
         "cc_switch_version",
         "cc_switch_artifacts",
+        "max_output_tokens",
         "harnesses",
         "platforms",
     }
     extra: dict[str, object] = {k: v for k, v in data.items() if k not in declared}
 
+    max_output_tokens: object = data.get("max_output_tokens", _DEFAULT_MAX_OUTPUT_TOKENS)
+    if isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int):
+        raise ValueError("manifest 'max_output_tokens' must be an integer")
+    if max_output_tokens <= 0:
+        raise ValueError("manifest 'max_output_tokens' must be positive")
+
     return MirrorManifest(
         cc_switch_version=cc_switch_version,
         cc_switch_artifacts=_artifacts_from_json(cc_switch_artifacts),
+        max_output_tokens=max_output_tokens,
         harnesses=_harnesses_from_json(data.get("harnesses")),
         platforms=_platforms_from_json(data.get("platforms")),
         extra=extra,
