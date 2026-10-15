@@ -65,6 +65,15 @@ def test_render_substitutes_cc_switch_version() -> None:
     assert "{{ cc_switch_version }}" not in script
 
 
+def test_render_version_probe_matches_full_version_token() -> None:
+    """The skip probe compares the full version token, so fork version strings
+    like jya0-5.11.1 match the manifest pin; a numeric grep would truncate them
+    to 5.11.1 and skip the upgrade to the fork build."""
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert "awk '{print $2}'" in script
+    assert "grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+'" not in script
+
+
 def test_render_downloads_from_versioned_mirror_path() -> None:
     """The binary comes from the immutable versioned mirror path, not upstream."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)

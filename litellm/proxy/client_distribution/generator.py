@@ -125,7 +125,7 @@ for candidate in cc-switch "$INSTALL_DIR/cc-switch"; do
   elif [ -x "$candidate" ]; then CCS_BIN="$candidate"; break; fi
 done
 
-if [ -n "$CCS_BIN" ] && [ "$("$CCS_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" = "$CC_SWITCH_VERSION" ]; then
+if [ -n "$CCS_BIN" ] && [ "$("$CCS_BIN" --version 2>/dev/null | awk '{print $2}')" = "$CC_SWITCH_VERSION" ]; then
   info "cc-switch $CC_SWITCH_VERSION already installed, skipping"
 else
   header "Installing cc-switch $CC_SWITCH_VERSION..."
