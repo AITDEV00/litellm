@@ -55,7 +55,7 @@ compatibility with schema 4: the gateway accepts only `schema: 5`.
 ```json
 {
   "schema": 5,
-  "cc_switch_version": "5.11.1",
+  "cc_switch_version": "jya0-5.11.1",
   "max_output_tokens": 65536,
   "platforms": [
     {"target": "linux-x64-musl", "archive_ext": "tar.gz"},
@@ -64,10 +64,10 @@ compatibility with schema 4: the gateway accepts only `schema: 5`.
     {"target": "windows-x64", "archive_ext": "zip"}
   ],
   "cc_switch_artifacts": {
-    "linux-x64-musl":  {"file": "cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz",  "sha256": "..."},
-    "linux-arm64-musl":{"file": "cc-switch-cli-v5.11.1-linux-arm64-musl.tar.gz","sha256": "..."},
-    "darwin-universal":{"file": "cc-switch-cli-v5.11.1-darwin-universal.tar.gz","sha256": "..."},
-    "windows-x64":     {"file": "cc-switch-cli-v5.11.1-windows-x64.zip",        "sha256": "..."}
+    "linux-x64-musl":  {"file": "cc-switch-cli-jya0-5.11.1-linux-x64-musl.tar.gz",  "sha256": "..."},
+    "linux-arm64-musl":{"file": "cc-switch-cli-jya0-5.11.1-linux-arm64-musl.tar.gz","sha256": "..."},
+    "darwin-universal":{"file": "cc-switch-cli-jya0-5.11.1-darwin-universal.tar.gz","sha256": "..."},
+    "windows-x64":     {"file": "cc-switch-cli-jya0-5.11.1-windows-x64.zip",        "sha256": "..."}
   },
   "harnesses": {
     "claude":    {"version": 2, "path": "providers/adeo/claude/v2.json",    "sha256": "..."},
@@ -93,22 +93,25 @@ appending to `platforms` + `cc_switch_artifacts`.
 
 ## cc-switch release artifacts
 
-Source: the `SaladDay/cc-switch-cli` GitHub release for the pinned version
-(`5.11.1` today). Naming follows the release scheme verbatim:
+Source: the ADEO fork's GitHub release (github.com/AITDEV00/cc-switch-cli) for
+the pinned version (`jya0-5.11.1` today). The fork carries the
+`provider add --overwrite` upsert the installer's same-id refresh depends on;
+upstream builds do not have it. Naming follows the release scheme verbatim
+(fork tags carry no leading `v`, so neither do the asset names):
 
 ```
-/install/cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz
-/install/cc-switch/5.11.1/cc-switch-cli-linux-arm64-musl.tar.gz
-/install/cc-switch/5.11.1/cc-switch-cli-darwin-universal.tar.gz
-/install/cc-switch/5.11.1/cc-switch-cli-windows-x64.zip
+/install/cc-switch/jya0-5.11.1/cc-switch-cli-jya0-5.11.1-linux-x64-musl.tar.gz
+/install/cc-switch/jya0-5.11.1/cc-switch-cli-jya0-5.11.1-linux-arm64-musl.tar.gz
+/install/cc-switch/jya0-5.11.1/cc-switch-cli-jya0-5.11.1-darwin-universal.tar.gz
+/install/cc-switch/jya0-5.11.1/cc-switch-cli-jya0-5.11.1-windows-x64.zip
 ```
 
 The musl builds are statically linked, so the binary runs on any libc — that
 is why there is no Python/uv/wheelhouse tier at all.
 
-**Integrity chain.** Upstream publishes a `checksums.txt` covering every
+**Integrity chain.** The fork release publishes a `checksums.txt` covering every
 asset. At ingest time the admin sync downloads each archive **and** verifies
-it against upstream's `checksums.txt`; only the verified SHA-256 then goes
+it against the release's `checksums.txt`; only the verified SHA-256 then goes
 into our `manifest.json`. The client never sees upstream's checksums file —
 it trusts only the manifest, which is written over the authenticated admin
 channel.

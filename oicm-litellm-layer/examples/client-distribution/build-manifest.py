@@ -23,7 +23,10 @@ import json
 import sys
 from pathlib import Path
 
-CC_SWITCH_VERSION = "5.11.1"
+# Fork release (github.com/AITDEV00/cc-switch-cli). Version strings must be
+# lowercase alnum + dashes for the versioned mirror path; jya0- prefix marks a
+# fork build carrying the --overwrite upsert. Keep in sync with sync-mirror.sh
+CC_SWITCH_VERSION = "jya0-5.11.1"
 
 # cc-switch mirror targets -> archive extension
 CC_SWITCH_TARGETS = {
@@ -92,7 +95,7 @@ def main() -> None:
     # cc-switch binary artifacts
     ccs_dir = staging / "cc-switch" / CC_SWITCH_VERSION
     for target, ext in CC_SWITCH_TARGETS.items():
-        artifact = f"cc-switch-cli-v{CC_SWITCH_VERSION}-{target}.{ext}"
+        artifact = f"cc-switch-cli-{CC_SWITCH_VERSION}-{target}.{ext}"
         artifact_path = ccs_dir / artifact
         if not artifact_path.exists():
             print(f"error: missing {artifact_path}", file=sys.stderr)

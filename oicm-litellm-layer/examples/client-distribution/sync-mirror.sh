@@ -20,9 +20,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STAGE_DIR="${SCRIPT_DIR}/.staging"
 
-# Pinned cc-switch release — keep in sync with build-manifest.py
-CC_SWITCH_VERSION="5.11.1"
-GH_RELEASE="https://github.com/SaladDay/cc-switch-cli/releases/download/v${CC_SWITCH_VERSION}"
+# Pinned cc-switch release — the ADEO fork, not upstream. Keep in sync with
+# build-manifest.py. Artifact names embed the tag verbatim (no leading v on
+# fork tags), and checksums.txt is what the fork release always publishes.
+CC_SWITCH_VERSION="jya0-5.11.1"
+GH_RELEASE="https://github.com/AITDEV00/cc-switch-cli/releases/download/${CC_SWITCH_VERSION}"
 
 # cc-switch mirror targets -> archive extension
 CC_SWITCH_TARGETS=(
@@ -72,7 +74,7 @@ sha256_of() { sha256sum "$1" | awk '{print $1}'; }
 # ── fetch ───────────────────────────────────────────────────────────────────
 
 if [ "$fetch" -eq 1 ]; then
-  log "=== Phase 1: fetch cc-switch v${CC_SWITCH_VERSION} checksums ==="
+  log "=== Phase 1: fetch cc-switch ${CC_SWITCH_VERSION} checksums ==="
   CCS_DIR="${STAGE_DIR}/cc-switch/${CC_SWITCH_VERSION}"
   download "${GH_RELEASE}/checksums.txt" "${CCS_DIR}/checksums.txt"
 
@@ -80,7 +82,7 @@ if [ "$fetch" -eq 1 ]; then
   for spec in "${CC_SWITCH_TARGETS[@]}"; do
     target="${spec%%:*}"
     ext="${spec##*:}"
-    artifact="cc-switch-cli-v${CC_SWITCH_VERSION}-${target}.${ext}"
+    artifact="cc-switch-cli-${CC_SWITCH_VERSION}-${target}.${ext}"
     download "${GH_RELEASE}/${artifact}" "${CCS_DIR}/${artifact}"
 
     # Verify against the release's published checksums.txt
@@ -147,7 +149,7 @@ if [ "$push" -eq 1 ]; then
   for spec in "${CC_SWITCH_TARGETS[@]}"; do
     target="${spec%%:*}"
     ext="${spec##*:}"
-    artifact="cc-switch-cli-v${CC_SWITCH_VERSION}-${target}.${ext}"
+    artifact="cc-switch-cli-${CC_SWITCH_VERSION}-${target}.${ext}"
     push_artifact "cc-switch/${CC_SWITCH_VERSION}/${artifact}" \
       "${STAGE_DIR}/cc-switch/${CC_SWITCH_VERSION}/${artifact}"
   done
