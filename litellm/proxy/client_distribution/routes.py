@@ -19,8 +19,9 @@ import hashlib
 import io
 import json
 import os
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 
@@ -33,12 +34,23 @@ from litellm.proxy.client_distribution.generator import (
     manifest_from_json,
     render_install_script,
 )
+from litellm.proxy.client_distribution.generator import get_template
 from litellm.proxy.client_distribution.storage import (
     RustFSConfig,
     create_s3_client,
     load_config_from_env,
     normalize_key,
 )
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
+
+
+def _is_not_found(exc: ClientError) -> bool:
+    """RustFS returns a generic ClientError with a 404 code, not boto3's typed
+    NoSuchKey subclass, so the typed catch alone misses it."""
+    code: str = exc.response.get("Error", {}).get("Code", "")
+    return code in ("NoSuchKey", "404", "NotFound")
 
 router = APIRouter(tags=["install"])
 
@@ -49,8 +61,6 @@ _CONTENT_TYPES: Final = {
     ".json": "application/json",
     ".tar.gz": "application/gzip",
     ".zip": "application/zip",
-    ".sha256": "text/plain",
-    ".sh": "application/x-sh",
 }
 
 _DEFAULT_CONTENT_TYPE: Final = "application/octet-stream"
@@ -71,7 +81,7 @@ def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
         )
 
 
-def _get_storage() -> tuple[RustFSConfig, object]:
+def _get_storage() -> tuple[RustFSConfig, S3Client]:
     """Build the S3 client from env. Returns (config, client).
 
     Raises 503 if the store is not configured.
@@ -100,23 +110,27 @@ def _get_base_url(request: Request) -> str:
     return f"{forwarded_proto}://{host}"
 
 
-def _fetch_manifest(config: RustFSConfig, s3: object) -> MirrorManifest:
+def _fetch_manifest(config: RustFSConfig, s3: S3Client) -> MirrorManifest:
     """Fetch and parse the manifest from the store."""
     try:
-        response: dict[str, object] = s3.get_object(Bucket=config.bucket, Key="manifest.json")  # type: ignore[union-attr]
-        body: object = response["Body"]
-        raw: bytes = body.read()  # type: ignore[union-attr]
+        response = s3.get_object(Bucket=config.bucket, Key="manifest.json")
+        raw: bytes = response["Body"].read()
         return manifest_from_json(raw.decode("utf-8"))
-    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="manifest.json not found in the store",
-        )
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"corrupt manifest in store: {exc}",
-        )
+        ) from exc
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: manifest fetch failed: %s", exc)
         raise HTTPException(
@@ -133,25 +147,80 @@ def _fetch_manifest(config: RustFSConfig, s3: object) -> MirrorManifest:
 _TEMPLATE_KEY: Final = "templates/install.sh.tmpl"
 
 
-def _fetch_template(config: RustFSConfig, s3: object) -> str:
+def _fetch_template(config: RustFSConfig, s3: S3Client) -> str:
     """Fetch the install-script template from the store.
 
     Falls back to the baked-in template if the store copy is missing or
     unreadable, so a broken store never breaks /install.
     """
     try:
-        response: dict[str, object] = s3.get_object(Bucket=config.bucket, Key=_TEMPLATE_KEY)  # type: ignore[union-attr]
-        body: object = response["Body"]
-        template: str = body.read().decode("utf-8")  # type: ignore[union-attr]
+        response = s3.get_object(Bucket=config.bucket, Key=_TEMPLATE_KEY)
+        template: str = response["Body"].read().decode("utf-8")
         if not template.strip():
             raise ValueError("template is empty")
         verbose_proxy_logger.info("client_distribution: using template from store (%s)", _TEMPLATE_KEY)
         return template
     except Exception:
         verbose_proxy_logger.info("client_distribution: using baked-in template (store copy not found)")
-        from litellm.proxy.client_distribution.generator import get_template
-
         return get_template()
+
+
+async def _validate_store_references(
+    config: RustFSConfig,
+    s3: S3Client,
+    data: dict[str, object],
+) -> None:
+    """Check that every object the manifest references exists in the store.
+
+    Raises 409 listing every missing key.
+    """
+    cc_artifacts: object = data.get("cc_switch_artifacts", {})
+    cc_version: object = data.get("cc_switch_version", "")
+    if isinstance(cc_artifacts, dict):
+        artifact_keys: tuple[str, ...] = tuple(
+            f"cc-switch/{cc_version}/{artifact['file']}"
+            for artifact in cc_artifacts.values()
+            if isinstance(artifact, dict) and isinstance(artifact.get("file"), str)
+        )
+        missing: list[str] = []
+        for key in artifact_keys:
+            if not await _key_exists(s3, config.bucket, key):
+                missing.append(key)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"manifest references missing objects: {missing}",
+            )
+
+    harnesses: object = data.get("harnesses", {})
+    if isinstance(harnesses, dict):
+        preset_paths: tuple[str, ...] = tuple(
+            preset["path"]
+            for preset in harnesses.values()
+            if isinstance(preset, dict)
+            and isinstance(preset.get("path"), str)
+            and preset["path"]
+        )
+        missing_presets: list[str] = []
+        for path in preset_paths:
+            if not await _key_exists(s3, config.bucket, path):
+                missing_presets.append(path)
+        if missing_presets:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"manifest references missing preset objects: {missing_presets}",
+            )
+
+
+async def _key_exists(s3: S3Client, bucket: str, key: str) -> bool:
+    """Return True if the key exists in the bucket."""
+    try:
+        await asyncio.to_thread(s3.head_object, Bucket=bucket, Key=key)
+        return True
+    except ClientError as exc:
+        if _is_not_found(exc):
+            return False
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -213,51 +282,10 @@ async def admin_put_manifest(
             detail="'max_output_tokens' must be a positive integer",
         )
 
-    # Validate every referenced cc-switch artifact exists in the store
-    cc_artifacts: object = data.get("cc_switch_artifacts", {})
-    cc_version: object = data.get("cc_switch_version", "")
-    if isinstance(cc_artifacts, dict):
-        missing: list[str] = []
-        for _target, artifact in cc_artifacts.items():
-            if not isinstance(artifact, dict):
-                continue
-            filename: object = artifact.get("file")
-            if not isinstance(filename, str):
-                continue
-            key: str = f"cc-switch/{cc_version}/{filename}"
-            try:
-                await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=key)  # type: ignore[union-attr]
-            except Exception:
-                missing.append(key)
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"manifest references missing objects: {missing}",
-            )
+    await _validate_store_references(config, s3, data)
 
-    # Validate every referenced harness preset exists in the store
-    harnesses: object = data.get("harnesses", {})
-    if isinstance(harnesses, dict):
-        missing_presets: list[str] = []
-        for harness, preset in harnesses.items():
-            if not isinstance(preset, dict):
-                continue
-            path: object = preset.get("path")
-            if not isinstance(path, str) or not path:
-                continue
-            try:
-                await asyncio.to_thread(s3.head_object, Bucket=config.bucket, Key=path)  # type: ignore[union-attr]
-            except Exception:
-                missing_presets.append(path)
-        if missing_presets:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"manifest references missing preset objects: {missing_presets}",
-            )
-
-    # Write the manifest
     await asyncio.to_thread(
-        s3.put_object,  # type: ignore[union-attr]
+        s3.put_object,
         Bucket=config.bucket,
         Key="manifest.json",
         Body=body,
@@ -289,7 +317,7 @@ async def admin_put_artifact(
     try:
         key: str = normalize_key(path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     body: bytes = await request.body()
     sha256: str = hashlib.sha256(body).hexdigest()
@@ -297,18 +325,23 @@ async def admin_put_artifact(
     # Check if the object already exists with the same hash
     unchanged: bool = False
     try:
-        head: dict[str, object] = await asyncio.to_thread(
-            s3.head_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        head = await asyncio.to_thread(
+            s3.head_object, Bucket=config.bucket, Key=key
         )
-        existing_etag: str = head.get("ETag", "").strip('"')  # type: ignore[union-attr]
+        existing_etag: str = head.get("ETag", "").strip('"')
         if existing_etag == sha256:
             unchanged = True
-    except Exception:
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
         pass  # Object doesn't exist yet; proceed to upload
 
     if not unchanged:
         await asyncio.to_thread(
-            s3.put_object,  # type: ignore[union-attr]
+            s3.put_object,
             Bucket=config.bucket,
             Key=key,
             Body=io.BytesIO(body),
@@ -338,15 +371,14 @@ async def admin_delete_artifact(
     try:
         key: str = normalize_key(path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # Check manifest references
     try:
-        response: dict[str, object] = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key="manifest.json"  # type: ignore[union-attr]
+        response = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key="manifest.json"
         )
-        body: object = response["Body"]
-        manifest_data: dict[str, object] = json.loads(body.read())  # type: ignore[union-attr]
+        manifest_data: dict[str, object] = json.loads(response["Body"].read())
         cc_artifacts: object = manifest_data.get("cc_switch_artifacts", {})
         if isinstance(cc_artifacts, dict):
             cc_version: object = manifest_data.get("cc_switch_version", "")
@@ -360,10 +392,15 @@ async def admin_delete_artifact(
                         )
     except HTTPException:
         raise
-    except Exception:
-        pass  # No manifest or unreadable; allow the delete
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
+        pass  # No manifest yet; nothing references the object
 
-    await asyncio.to_thread(s3.delete_object, Bucket=config.bucket, Key=key)  # type: ignore[union-attr]
+    await asyncio.to_thread(s3.delete_object, Bucket=config.bucket, Key=key)
     return {"ok": True, "path": key}
 
 
@@ -380,9 +417,9 @@ async def admin_inventory(
 
     objects: list[dict[str, object]] = []
     try:
-        paginator: object = s3.get_paginator("list_objects_v2")  # type: ignore[union-attr]
-        for page in paginator.paginate(Bucket=config.bucket):  # type: ignore[union-attr]
-            for obj in page.get("Contents", []):  # type: ignore[union-attr]
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=config.bucket):
+            for obj in page.get("Contents", []):
                 objects.append(
                     {
                         "key": obj["Key"],
@@ -434,14 +471,20 @@ async def get_manifest() -> Response:
     """Serve the mirror manifest."""
     config, s3 = _get_storage()
     try:
-        response: dict[str, object] = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key="manifest.json"  # type: ignore[union-attr]
+        response = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key="manifest.json"
         )
-        body: object = response["Body"]
-        raw: bytes = body.read()  # type: ignore[union-attr]
+        raw: bytes = response["Body"].read()
         return Response(content=raw, media_type="application/json")
-    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found")
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found"
+        ) from exc
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: manifest read failed: %s", exc)
         raise HTTPException(
@@ -464,19 +507,23 @@ async def get_harness_preset(provider: str, harness: str, version: int) -> Respo
     config, s3 = _get_storage()
     key: str = f"providers/{provider}/{harness}/v{version}.json"
     try:
-        response: dict[str, object] = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        response = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key=key
         )
-        body: object = response["Body"]
-        raw: bytes = body.read()  # type: ignore[union-attr]
+        raw: bytes = response["Body"].read()
         return Response(content=raw, media_type="application/json")
-    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
         baked: str | None = get_baked_preset(harness)
         if baked is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"no preset for harness '{harness}'",
-            )
+            ) from exc
         return Response(content=baked, media_type="application/json")
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: preset read failed: %s", exc)
@@ -493,39 +540,44 @@ async def get_artifact(path: str) -> StreamingResponse:
     try:
         key: str = normalize_key(path)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        response: dict[str, object] = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key=key  # type: ignore[union-attr]
+        response = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key=key
         )
-        body: object = response["Body"]
-        content_length: int = response.get("ContentLength", 0)  # type: ignore[union-attr]
+        body = response["Body"]
+        content_length: int = response.get("ContentLength", 0)
         content_type: str = _content_type_for(key)
 
         async def _stream() -> object:
             try:
                 while True:
-                    chunk: bytes = await asyncio.to_thread(body.read, 65536)  # type: ignore[union-attr]
+                    chunk: bytes = await asyncio.to_thread(body.read, 65536)
                     if not chunk:
                         break
                     yield chunk
             finally:
-                body.close()  # type: ignore[union-attr]
+                body.close()
 
         headers: dict[str, str] = {}
         if content_length:
             headers["content-length"] = str(content_length)
         return StreamingResponse(
-            _stream(),  # type: ignore[arg-type]
+            _stream(),
             media_type=content_type,
             headers=headers,
         )
-    except s3.exceptions.NoSuchKey:  # type: ignore[union-attr]
+    except ClientError as exc:
+        if not _is_not_found(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="object store error",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"object not found: {key}",
-        )
+        ) from exc
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: artifact read failed: %s", exc)
         raise HTTPException(

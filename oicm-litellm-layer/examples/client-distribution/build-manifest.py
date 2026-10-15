@@ -3,7 +3,7 @@
 
 Reads the staging directory, computes SHA-256 for every artifact and harness
 preset, and writes a manifest.json conforming to
-docs/client-distribution/mirror-content.md (schema 4).
+docs/client-distribution/mirror-content.md (schema 5).
 
 Schema 5 pins each harness to a versioned preset:
   harnesses: { <app-id>: {version, path, sha256} }

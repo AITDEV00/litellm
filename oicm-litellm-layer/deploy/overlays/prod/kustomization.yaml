@@ -12,3 +12,6 @@ resources:
   - ../../base/shared
   - ../../base/gateway
   - ../../base/rustfs
+
+patches:
+  - path: gateway/deployment.yaml

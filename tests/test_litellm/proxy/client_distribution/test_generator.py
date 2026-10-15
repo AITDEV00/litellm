@@ -122,6 +122,8 @@ def test_render_is_generic_orchestrator() -> None:
     assert '__MODELS_ARRAY_CTX__"' in script
     assert '"__MODELS_ARRAY_CTX_SNAKE__"' in script
     assert '__MODELS_OBJECT_LIMIT__"' in script
+    assert '__MODELS_ARRAY__' not in script
+    assert '__MODELS_OBJECT__' not in script
     # Manifest-sourced default output cap
     assert 'MAX_OUTPUT_TOKENS="65536"' in script
     # Harness list is manifest-driven
@@ -365,12 +367,12 @@ def test_render_loop_over_platforms() -> None:
     assert "windows-x64=zip" in script
 
 
-def test_render_open_context_exposes_extra_manifest_keys() -> None:
+def test_render_undeclared_manifest_key_not_in_context() -> None:
     raw: str = (
         '{"cc_switch_version": "5.11.1", '
         '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}, '
         '"support_url": "https://help.example.com"}'
     )
     m: MirrorManifest = manifest_from_json(raw)
-    script: str = render_install_script(m, _BASE_URL, template="help={{ support_url }}")
-    assert script == "help=https://help.example.com"
+    with pytest.raises(UndefinedError):
+        render_install_script(m, _BASE_URL, template="help={{ support_url }}")

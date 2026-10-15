@@ -11,14 +11,12 @@ via the env var.
 
 from __future__ import annotations
 
-import hashlib
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
-    from mypy_boto3_s3.type_defs import GetObjectOutputTypeDef
 
 _MIRROR_PREFIX: Final = "litellm-client-mirror"
 
@@ -56,16 +54,16 @@ def load_config_from_env() -> RustFSConfig:
         )
 
     return RustFSConfig(
-        endpoint_url=endpoint_url,  # type: ignore[arg-type]  # narrowed above
-        access_key=access_key,  # type: ignore[arg-type]
-        secret_key=secret_key,  # type: ignore[arg-type]
+        endpoint_url=endpoint_url,
+        access_key=access_key,
+        secret_key=secret_key,
         bucket=bucket,
     )
 
 
 def create_s3_client(config: RustFSConfig) -> S3Client:
     """Build a boto3 S3 client pointed at RustFS."""
-    import boto3
+    import boto3  # noqa: PLC0415  # lazy import to keep boto3 optional at module load
 
     return boto3.client(
         "s3",
@@ -97,12 +95,4 @@ def normalize_key(path: str) -> str:
     return "/".join(parts)
 
 
-def sha256_stream(stream: object, chunk_size: int = 65536) -> str:
-    """Compute the SHA-256 hex digest of a readable stream."""
-    h: hashlib._Hash = hashlib.sha256()  # type: ignore[attr-defined]
-    while True:
-        chunk: bytes = stream.read(chunk_size)  # type: ignore[union-attr]
-        if not chunk:
-            break
-        h.update(chunk)
-    return h.hexdigest()
+

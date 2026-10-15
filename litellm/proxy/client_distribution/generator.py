@@ -220,16 +220,12 @@ configure_harness() {
   # One generic compose: substitute sentinels anywhere in the preset. The
   # preset alone owns the harness's config shape; this script knows none of
   # it. Each preset embeds the models placeholder whose shape it needs:
-  #   ["__MODELS_ARRAY__"]            -> [{id,name}]                       (v1)
   #   ["__MODELS_ARRAY_CTX__"]        -> [{id,name,contextWindow?}]   (pi, open-claw)
   #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
-  #   {"__MODELS_OBJECT__": null}      -> {id:{name}}                       (v1)
   #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
   # A model with no reported context simply omits the context key.
-  MODELS_ARRAY="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id})')"
   MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
   MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
-  MODELS_OBJECT="$(printf '%s' "$MODELS_JSON" | jq -c 'map({key: .id, value: {name: .id}}) | from_entries')"
   MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | jq -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
     'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
   jq \
@@ -240,10 +236,8 @@ configure_harness() {
     --arg ctx "$DEFAULT_CTX_STR" \
     --argjson max_output "$MAX_OUTPUT_TOKENS" \
     --argjson default_ctx "$DEFAULT_CTX_JSON" \
-    --argjson models_array "$MODELS_ARRAY" \
     --argjson models_array_ctx "$MODELS_ARRAY_CTX" \
     --argjson models_array_ctx_snake "$MODELS_ARRAY_CTX_SNAKE" \
-    --argjson models_object "$MODELS_OBJECT" \
     --argjson models_object_limit "$MODELS_OBJECT_LIMIT" \
     'walk(
        if type == "string" and . == "__DEFAULT_MODEL_CONTEXT__" then $default_ctx
@@ -256,10 +250,8 @@ configure_harness() {
          | gsub("__API_KEY__"; $key)
          | gsub("__DEFAULT_MODEL__"; $model)
          | gsub("__MAX_OUTPUT_TOKENS__"; ($max_output | tostring))
-       elif type == "array" and . == ["__MODELS_ARRAY__"] then $models_array
        elif type == "array" and . == ["__MODELS_ARRAY_CTX__"] then $models_array_ctx
        elif type == "array" and . == ["__MODELS_ARRAY_CTX_SNAKE__"] then $models_array_ctx_snake
-       elif type == "object" and . == {"__MODELS_OBJECT__": null} then $models_object
        elif type == "object" and . == {"__MODELS_OBJECT_LIMIT__": null} then $models_object_limit
        else . end)
      | walk(if type == "object" then with_entries(select(.value != null)) else . end)' \
@@ -275,14 +267,6 @@ configure_harness() {
   "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
       --config-file "$TMP/provider.json" --overwrite >/dev/null 2>&1 \
     || die "provider add --overwrite failed for $harness"
-  # Compat: stock upstream cc-switch (no --overwrite) treats an existing id
-  # as a duplicate add error; that is a successful refresh of identical
-  # content, so only fail when the provider is genuinely absent.
-  if ! "$CCS_BIN" provider list --app "$harness" </dev/null 2>/dev/null | grep -q " $PROVIDER_ID "; then
-    "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
-        --config-file "$TMP/provider.json" >/dev/null 2>&1 \
-      || die "provider add failed for $harness"
-  fi
 
   # use is the gate: it points the harness at our provider and writes its
   # native config file. This is what must succeed.
@@ -325,10 +309,8 @@ echo ""
 # call), __DEFAULT_MODEL_CONTEXT__ (its context window; the compose drops the
 # field entirely when the gateway reports none), __MAX_OUTPUT_TOKENS__ (the
 # manifest's default per-request output cap), and the whole-value models
-# placeholders ["__MODELS_ARRAY__"] -> [{id,name}...],
-# ["__MODELS_ARRAY_CTX__"] -> [{id,name,contextWindow?}...],
-# ["__MODELS_ARRAY_CTX_SNAKE__"] -> [{id,name,context_length?}...],
-# {"__MODELS_OBJECT__": null} -> {id:{name}...} and
+# placeholders ["__MODELS_ARRAY_CTX__"] -> [{id,name,contextWindow?}...],
+# ["__MODELS_ARRAY_CTX_SNAKE__"] -> [{id,name,context_length?}...], and
 # {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}...}.
 #
 # Context/output land only where the harness has a real, verified knob:
@@ -471,18 +453,9 @@ class MirrorManifest:
     max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS
     harnesses: tuple[HarnessPreset, ...] = field(default=())
     platforms: tuple[PlatformTarget, ...] = field(default=())
-    extra: dict[str, object] = field(default_factory=dict)
-
     def to_context(self, base_url: str) -> dict[str, object]:
-        """Build the Jinja2 render context for this manifest + gateway.
-
-        Open context: every declared field plus any extra manifest keys are
-        exposed by name, so a template can reference new manifest data without
-        a code change. ``harnesses`` and ``platforms`` are exposed as typed
-        objects; everything else is the raw manifest value.
-        """
+        """Build the Jinja2 render context for this manifest + gateway."""
         return {
-            **self.extra,
             "base_url": base_url,
             "cc_switch_version": self.cc_switch_version,
             "cc_switch_artifacts": self.cc_switch_artifacts,
@@ -543,16 +516,6 @@ def manifest_from_json(raw: str) -> MirrorManifest:
     if not isinstance(cc_switch_artifacts, dict) or not cc_switch_artifacts:
         raise ValueError("manifest missing 'cc_switch_artifacts'")
 
-    declared: Final = {
-        "schema",
-        "cc_switch_version",
-        "cc_switch_artifacts",
-        "max_output_tokens",
-        "harnesses",
-        "platforms",
-    }
-    extra: dict[str, object] = {k: v for k, v in data.items() if k not in declared}
-
     max_output_tokens: object = data.get("max_output_tokens", _DEFAULT_MAX_OUTPUT_TOKENS)
     if isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int):
         raise ValueError("manifest 'max_output_tokens' must be an integer")
@@ -565,7 +528,6 @@ def manifest_from_json(raw: str) -> MirrorManifest:
         max_output_tokens=max_output_tokens,
         harnesses=_harnesses_from_json(data.get("harnesses")),
         platforms=_platforms_from_json(data.get("platforms")),
-        extra=extra,
     )
 
 
@@ -575,41 +537,47 @@ def _harnesses_from_json(raw: object) -> tuple[HarnessPreset, ...]:
         return ()
     if not isinstance(raw, dict):
         raise ValueError("manifest 'harnesses' must be an object")
-    presets: list[HarnessPreset] = []
-    for harness, entry in raw.items():
-        if not isinstance(entry, dict):
-            raise ValueError(f"harness '{harness}' preset must be an object")
-        version: object = entry.get("version")
-        path: object = entry.get("path")
-        sha256: object = entry.get("sha256")
-        if not isinstance(version, int):
-            raise ValueError(f"harness '{harness}' preset missing int 'version'")
-        if not isinstance(path, str) or not path:
-            raise ValueError(f"harness '{harness}' preset missing 'path'")
-        if not isinstance(sha256, str) or not sha256:
-            raise ValueError(f"harness '{harness}' preset missing 'sha256'")
-        presets.append(
-            HarnessPreset(harness=harness, version=version, path=path, sha256=sha256)
-        )
-    return tuple(presets)
+    return tuple(
+        _parse_harness_preset(harness, entry) for harness, entry in raw.items()
+    )
+
+
+def _parse_harness_preset(harness: str, entry: object) -> HarnessPreset:
+    """Validate one harness preset entry and return the typed dataclass."""
+    if not isinstance(entry, dict):
+        raise ValueError(f"harness '{harness}' preset must be an object")
+    version: object = entry.get("version")
+    path: object = entry.get("path")
+    sha256: object = entry.get("sha256")
+    if not isinstance(version, int):
+        raise ValueError(f"harness '{harness}' preset missing int 'version'")
+    if not isinstance(path, str) or not path:
+        raise ValueError(f"harness '{harness}' preset missing 'path'")
+    if not isinstance(sha256, str) or not sha256:
+        raise ValueError(f"harness '{harness}' preset missing 'sha256'")
+    return HarnessPreset(harness=harness, version=version, path=path, sha256=sha256)
 
 
 def _artifacts_from_json(raw: object) -> dict[str, dict[str, str]]:
     """Validate the cc_switch_artifacts map: target -> {file, sha256}."""
     if not isinstance(raw, dict):
         raise ValueError("manifest 'cc_switch_artifacts' must be an object")
-    out: dict[str, dict[str, str]] = {}
-    for target, entry in raw.items():
-        if not isinstance(entry, dict):
-            raise ValueError(f"artifact for '{target}' must be an object")
-        file: object = entry.get("file")
-        sha256: object = entry.get("sha256")
-        if not isinstance(file, str) or not file:
-            raise ValueError(f"artifact for '{target}' missing 'file'")
-        if not isinstance(sha256, str) or not sha256:
-            raise ValueError(f"artifact for '{target}' missing 'sha256'")
-        out[target] = {"file": file, "sha256": sha256}
-    return out
+    return {
+        target: _parse_artifact(target, entry) for target, entry in raw.items()
+    }
+
+
+def _parse_artifact(target: str, entry: object) -> dict[str, str]:
+    """Validate one artifact entry and return the normalized dict."""
+    if not isinstance(entry, dict):
+        raise ValueError(f"artifact for '{target}' must be an object")
+    file: object = entry.get("file")
+    sha256: object = entry.get("sha256")
+    if not isinstance(file, str) or not file:
+        raise ValueError(f"artifact for '{target}' missing 'file'")
+    if not isinstance(sha256, str) or not sha256:
+        raise ValueError(f"artifact for '{target}' missing 'sha256'")
+    return {"file": file, "sha256": sha256}
 
 
 def _platforms_from_json(raw: object) -> tuple[PlatformTarget, ...]:
@@ -618,15 +586,17 @@ def _platforms_from_json(raw: object) -> tuple[PlatformTarget, ...]:
         return ()
     if not isinstance(raw, list):
         raise ValueError("manifest 'platforms' must be a list")
-    platforms: list[PlatformTarget] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            raise ValueError("manifest 'platforms' entries must be objects")
-        target: object = entry.get("target")
-        archive_ext: object = entry.get("archive_ext")
-        if not isinstance(target, str) or not target:
-            raise ValueError("platform entry missing 'target'")
-        if not isinstance(archive_ext, str) or not archive_ext:
-            raise ValueError(f"platform '{target}' missing 'archive_ext'")
-        platforms.append(PlatformTarget(target=target, archive_ext=archive_ext))
-    return tuple(platforms)
+    return tuple(_parse_platform(entry) for entry in raw)
+
+
+def _parse_platform(entry: object) -> PlatformTarget:
+    """Validate one platform entry and return the typed dataclass."""
+    if not isinstance(entry, dict):
+        raise ValueError("manifest 'platforms' entries must be objects")
+    target: object = entry.get("target")
+    archive_ext: object = entry.get("archive_ext")
+    if not isinstance(target, str) or not target:
+        raise ValueError("platform entry missing 'target'")
+    if not isinstance(archive_ext, str) or not archive_ext:
+        raise ValueError(f"platform '{target}' missing 'archive_ext'")
+    return PlatformTarget(target=target, archive_ext=archive_ext)

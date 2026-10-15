@@ -1,0 +1,19 @@
+# Prod-only additions to the base gateway Deployment.
+#
+# The base already carries everything prod needs; this patch adds the one
+# value that only makes sense with a public ingress: the URL the install
+# script embeds as the gateway base for lite config set. Dev sets its own
+# port-forward value; prod uses the ingress host.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+spec:
+  template:
+    spec:
+      containers:
+        - name: litellm
+          env:
+            - name: LITELLM_PUBLIC_BASE_URL
+              value: "https://litellm.ecouncil.ae"

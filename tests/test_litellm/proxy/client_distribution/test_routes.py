@@ -12,6 +12,8 @@ import json
 from typing import Any, Generator
 from unittest.mock import MagicMock, patch
 
+from botocore.exceptions import ClientError
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -30,17 +32,22 @@ _FAKE_CONFIG: RustFSConfig = RustFSConfig(
 )
 
 
+def _no_such_key(key: str) -> ClientError:
+    return ClientError(
+        {"Error": {"Code": "NoSuchKey", "Message": f"NoSuchKey: {key}"}},
+        "GetObject",
+    )
+
+
 class _FakeS3Client:
     """In-memory S3 stub that mimics the boto3 client surface we use."""
 
     def __init__(self) -> None:
         self._store: dict[str, bytes] = {}
-        self.exceptions: MagicMock = MagicMock()
-        self.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
 
     def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
         if Key not in self._store:
-            raise self.exceptions.NoSuchKey(f"NoSuchKey: {Key}")
+            raise _no_such_key(Key)
         data: bytes = self._store[Key]
         return {
             "Body": io.BytesIO(data),
@@ -55,7 +62,7 @@ class _FakeS3Client:
 
     def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:
         if Key not in self._store:
-            raise self.exceptions.NoSuchKey(f"NoSuchKey: {Key}")
+            raise _no_such_key(Key)
         etag: str = hashlib.sha256(self._store[Key]).hexdigest()
         return {"ETag": f'"{etag}"'}
 

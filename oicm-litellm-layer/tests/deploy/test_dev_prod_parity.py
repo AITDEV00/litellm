@@ -57,6 +57,7 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
         "RUSTFS_ACCESS_KEY",  # dev: litellm-rustfs-credentials-dev
         "RUSTFS_SECRET_KEY",  # dev: litellm-rustfs-credentials-dev
         "RUSTFS_BUCKET",  # dev: litellm-client-mirror-dev
+        "LITELLM_PUBLIC_BASE_URL",  # dev: localhost:14001, prod: litellm.ecouncil.ae
     }
 )
 
@@ -70,9 +71,6 @@ _DEV_ONLY_ENV_VARS: Final = frozenset(
         "DATABASE_USERNAME",
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
-        # Dev-only until Phase 6 adds the prod value. The install script
-        # embeds this as the base_url for lite config set.
-        "LITELLM_PUBLIC_BASE_URL",
     }
 )
 
