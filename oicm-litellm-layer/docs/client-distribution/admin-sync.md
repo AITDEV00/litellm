@@ -55,6 +55,13 @@ idempotent.
 `curl --data-binary @file` works and the slice streams to RustFS without
 buffering the whole artifact in memory (the Python artifacts are tens of MB).
 
+**Always send the explicit header.** curl defaults a `--data-binary` body to
+`Content-Type: application/x-www-form-urlencoded`, which sends auth down
+Starlette's form parser (`request.form()`); the form parser consumes the ASGI
+stream, and the handler's `request.body()` then fails with `RuntimeError:
+Stream consumed` (an opaque 500). With `application/octet-stream`, auth
+pre-reads and caches the body and the handler reads it from cache.
+
 ```json
 // 200 response
 {"path": "cc-switch/5.11.1/cc-switch-cli-linux-x64-musl.tar.gz", "sha256": "...", "size": 8960000, "unchanged": false}

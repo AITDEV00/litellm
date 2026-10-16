@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# ADEO coding-agent setup (cc-switch)
+# Served by {{ base_url }} — installs cc-switch and points your coding
+# harnesses at the gateway. No external egress required.
+set -eu
+
+CC_SWITCH_VERSION="{{ cc_switch_version }}"
+BASE_URL="${ADEO_LITELLM_BASE_URL:-{{ base_url }}}"
+PROVIDER_NAME="ADEO LiteLLM"
+INSTALL_DIR="${CC_SWITCH_INSTALL_DIR:-$HOME/.local/bin}"
+
+# ── colours ────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+  BOLD='\033[1m'
+  GREEN='\033[38;2;78;186;101m'
+  GREY='\033[38;2;153;153;153m'
+  RESET='\033[0m'
+else
+  BOLD='' GREEN='' GREY='' RESET=''
+fi
+
+info()    { printf "${GREY}  %s${RESET}\n" "$*"; }
+success() { printf "${GREEN}  ✔ %s${RESET}\n" "$*"; }
+header()  { printf "${BOLD}  %s${RESET}\n" "$*"; }
+die()     { printf "\n  Error: %s\n\n" "$*" >&2; exit 1; }
+
+# ── banner ─────────────────────────────────────────────────────────────────
+echo ""
+printf "  ${BOLD}ADEO coding-agent setup${RESET}  ${GREY}cc-switch -> your gateway${RESET}\n\n"
+info "Gateway: $BASE_URL"
+info "cc-switch: $CC_SWITCH_VERSION"
+
+command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
+command -v jq   >/dev/null 2>&1 || die "jq is required but not installed."
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# ── fetch manifest (the integrity source of truth) ────────────────────────
+curl -fsSL "$BASE_URL/install/manifest.json" -o "$TMP/manifest.json" \
+  || die "Failed to fetch manifest from $BASE_URL/install/manifest.json"
+
+# ── platform detection ─────────────────────────────────────────────────────
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+# Map MINGW/MSYS (Git Bash) to the Windows archive
+case "$OS" in
+  MINGW*|MSYS*) OS="Windows" ;;
+esac
+
+case "$OS" in
+  Linux)
+    case "$ARCH" in
+      x86_64)  TARGET="linux-x64-musl" ;;
+      aarch64) TARGET="linux-arm64-musl" ;;
+      *)       die "Unsupported Linux arch: $ARCH" ;;
+    esac
+    ;;
+  Darwin)   TARGET="darwin-universal" ;;
+  Windows)  TARGET="windows-x64" ;;
+  *)        die "Unsupported OS: $OS" ;;
+esac
+
+info "Platform: $OS ($ARCH) -> $TARGET"
+
+# ── 1. install cc-switch (skip if version matches) ────────────────────────
+CCS_BIN=""
+for candidate in cc-switch "$INSTALL_DIR/cc-switch"; do
+  if command -v "$candidate" >/dev/null 2>&1; then CCS_BIN="$(command -v "$candidate")"; break
+  elif [ -x "$candidate" ]; then CCS_BIN="$candidate"; break; fi
+done
+
+if [ -n "$CCS_BIN" ] && [ "$("$CCS_BIN" --version 2>/dev/null | awk '{print $2}')" = "$CC_SWITCH_VERSION" ]; then
+  info "cc-switch $CC_SWITCH_VERSION already installed, skipping"
+else
+  header "Installing cc-switch $CC_SWITCH_VERSION..."
+  FILE="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].file' "$TMP/manifest.json")"
+  WANT="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].sha256' "$TMP/manifest.json")"
+  [ "$FILE" != "null" ] && [ "$WANT" != "null" ] || die "no artifact in the manifest for $TARGET"
+  curl -fsSL "$BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE" -o "$TMP/ccs.tgz" \
+    || die "download failed: $BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE"
+  echo "$WANT  $TMP/ccs.tgz" | sha256sum -c - >/dev/null \
+    || die "checksum mismatch for $FILE — the store may be corrupt; contact the platform team"
+  mkdir -p "$INSTALL_DIR"
+  tar -xzf "$TMP/ccs.tgz" -C "$INSTALL_DIR"
+  chmod +x "$INSTALL_DIR/cc-switch" 2>/dev/null || true
+  CCS_BIN="$INSTALL_DIR/cc-switch"
+fi
+[ -x "$CCS_BIN" ] || die "cc-switch binary not found after install"
+
+# ── 0. interactive input ──────────────────────────────────────────────────
+# When the script runs as `curl ... | sh`, stdin IS the script itself, so a
+# plain `read` would consume the next script line as the answer instead of
+# waiting for the keyboard. All prompts therefore read from /dev/tty.
+# The probe must be an `exec` open, never a `{ : < /dev/tty; }` redirect:
+# a redirect on a piped stdin shell consumes the next script line from the
+# pipe as input. In a headless context /dev/tty exists as a node but cannot
+# be opened (ENXIO), and only the open fails.
+TTY_INPUT="/dev/tty"
+if ! (exec 3< "$TTY_INPUT") 2>/dev/null; then
+  die "this installer asks for your gateway key interactively; run it from a terminal (or: curl -fsSL URL -o install.sh && ./install.sh)"
+fi
+
+# ── 2. prompt for the gateway key + diagnostic ────────────────────────────
+echo ""
+header "Gateway API key"
+printf "  Paste your ADEO LiteLLM virtual key, then Enter: " > "$TTY_INPUT"
+stty -echo < "$TTY_INPUT" 2>/dev/null || true
+if ! IFS= read -r API_KEY < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
+stty echo < "$TTY_INPUT" 2>/dev/null || true
+echo "" > "$TTY_INPUT"
+[ -n "$API_KEY" ] || die "no key entered"
+
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
+  || die "that key was rejected by $BASE_URL; check it with your platform admin"
+MODEL_COUNT="$(jq -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
+[ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
+info "key OK — $MODEL_COUNT model(s) visible to this key"
+
+# ── 3. harness selection ──────────────────────────────────────────────────
+# The harness list comes from the manifest, so adding a harness is a sync,
+# not a script change.
+HARNESSES="$(jq -r '.harnesses | keys | join(" ")' "$TMP/manifest.json")"
+[ -n "$HARNESSES" ] && [ "$HARNESSES" != "null" ] || die "manifest declares no harnesses"
+echo ""
+header "Which harnesses should route through the gateway?"
+i=1
+for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
+printf "  Enter numbers separated by spaces (e.g. 1 3): " > "$TTY_INPUT"
+if ! IFS= read -r PICKS < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
+[ -n "$PICKS" ] || die "nothing selected"
+
+CHOSEN=""
+for n in $PICKS; do
+  h="$(echo "$HARNESSES" | cut -d' ' -f"$n" 2>/dev/null || true)"
+  [ -n "$h" ] || die "invalid selection: $n"
+  CHOSEN="$CHOSEN $h"
+done
+
+# ── 4. per-harness provider reconcile (backup + add + use) ────────────────
+# Generic orchestrator: the per-harness cc-switch JSON shape lives in the
+# versioned preset the manifest pins, not in this script. The script fetches
+# the preset, verifies it against the manifest sha256, then composes the
+# final config client-side with jq from runtime values (base URL, API key,
+# accessible models with their context windows, the manifest's output cap) —
+# never string substitution.
+umask 077
+MAX_OUTPUT_TOKENS="{{ max_output_tokens }}"
+# Text-generation models this key can call, each with its real context
+# window from /api/v1/models. Utility families (speech, OCR, embeddings,
+# image generation, document processing) are excluded by name because the
+# payload carries no capability signal; UUID-named models likewise.
+MODELS_JSON="$(jq -c '
+  [.data[]
+   | select((.id | test("embed|tts|stt|asr|ocr|transcri|voice|speech|image|rerank|layout|whisper"; "i")) | not)
+   | select((.id | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-")) | not)
+   | {id: .id, context: (if (.context_length // 0) > 0 then .context_length else null end)}]
+  | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
+[ "$(printf '%s' "$MODELS_JSON" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ] \
+  || die "no text-generation models are accessible to this key; ask your admin"
+DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].id')"
+DEFAULT_CTX_JSON="$(printf '%s' "$MODELS_JSON" | jq -c '.[0].context | if . != null then tostring else null end')"
+DEFAULT_CTX_STR="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].context // "" | tostring')"
+info "default model: $DEFAULT_MODEL (context window: ${DEFAULT_CTX_STR:-unknown})"
+info "max output tokens per request: $MAX_OUTPUT_TOKENS (gateway default)"
+
+configure_harness() {
+  local harness="$1" preset_path="$2" preset_sha="$3"
+  header "Configuring $harness..."
+  "$CCS_BIN" config backup >/dev/null 2>&1 || true
+
+  # Fetch the pinned preset and verify it against the manifest.
+  curl -fsSL "$BASE_URL/install/$preset_path" -o "$TMP/preset.json" \
+    || die "failed to fetch preset for $harness: $BASE_URL/install/$preset_path"
+  echo "$preset_sha  $TMP/preset.json" | sha256sum -c - >/dev/null \
+    || die "preset checksum mismatch for $harness — the store may be corrupt"
+
+  # One generic compose: substitute sentinels anywhere in the preset. The
+  # preset alone owns the harness's config shape; this script knows none of
+  # it. Each preset embeds the models placeholder whose shape it needs:
+  #   ["__MODELS_ARRAY_CTX__"]        -> [{id,name,contextWindow?}]   (pi, open-claw)
+  #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
+  #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
+  # A model with no reported context simply omits the context key.
+  MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
+  MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
+  MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | jq -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
+    'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
+  jq \
+    --arg url "$BASE_URL" \
+    --arg url_v1 "$BASE_URL/v1" \
+    --arg key "$API_KEY" \
+    --arg model "$DEFAULT_MODEL" \
+    --arg ctx "$DEFAULT_CTX_STR" \
+    --argjson max_output "$MAX_OUTPUT_TOKENS" \
+    --argjson default_ctx "$DEFAULT_CTX_JSON" \
+    --argjson models_array_ctx "$MODELS_ARRAY_CTX" \
+    --argjson models_array_ctx_snake "$MODELS_ARRAY_CTX_SNAKE" \
+    --argjson models_object_limit "$MODELS_OBJECT_LIMIT" \
+    'walk(
+       if type == "string" and . == "__DEFAULT_MODEL_CONTEXT__" then $default_ctx
+       elif type == "string" then
+         (if $ctx == ""
+          then gsub("model_context_window = __DEFAULT_MODEL_CONTEXT__\n"; "")
+          else gsub("__DEFAULT_MODEL_CONTEXT__"; $ctx) end)
+         | gsub("__BASE_URL__"; $url)
+         | gsub("__BASE_URL_V1__"; $url_v1)
+         | gsub("__API_KEY__"; $key)
+         | gsub("__DEFAULT_MODEL__"; $model)
+         | gsub("__MAX_OUTPUT_TOKENS__"; ($max_output | tostring))
+       elif type == "array" and . == ["__MODELS_ARRAY_CTX__"] then $models_array_ctx
+       elif type == "array" and . == ["__MODELS_ARRAY_CTX_SNAKE__"] then $models_array_ctx_snake
+       elif type == "object" and . == {"__MODELS_OBJECT_LIMIT__": null} then $models_object_limit
+       else . end)
+     | walk(if type == "object" then with_entries(select(.value != null)) else . end)' \
+    "$TMP/preset.json" > "$TMP/provider.json" \
+    || die "failed to compose config for $harness"
+
+  # One stable id per gateway key: the key's last 4 chars (lowercased,
+  # dash-stripped to satisfy cc-switch's id charset). Re-running the script
+  # refreshes the same provider in place via --overwrite (our cc-switch fork),
+  # so a rotated key or changed model list replaces the stored config instead
+  # of piling up revisions.
+  PROVIDER_ID="adeo-litellm-$(printf '%s' "$API_KEY" | tail -c 4 | tr '[:upper:]' '[:lower:]' | tr -d '-')"
+  "$CCS_BIN" provider add --app "$harness" --id "$PROVIDER_ID" --name "$PROVIDER_NAME" \
+      --config-file "$TMP/provider.json" --overwrite >/dev/null 2>&1 \
+    || die "provider add --overwrite failed for $harness"
+
+  # use is the gate: it points the harness at our provider and writes its
+  # native config file. This is what must succeed.
+  "$CCS_BIN" use "$PROVIDER_ID" --app "$harness" </dev/null \
+    || die "failed to activate $PROVIDER_ID for $harness"
+  rm -f "$TMP/preset.json" "$TMP/provider.json"
+  success "$harness configured"
+}
+
+for HARNESS in $CHOSEN; do
+  echo ""
+  PPATH="$(jq -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
+  PSHA="$(jq -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
+  [ -n "$PPATH" ] || die "manifest pins no preset for $HARNESS"
+  # Detach stdin: curl/jq/cc-switch in the configure step would otherwise
+  # consume the piped harness picks and stall waiting for input.
+  configure_harness "$HARNESS" "$PPATH" "$PSHA" </dev/null
+done
+
+# ── done ───────────────────────────────────────────────────────────────────
+echo ""
+"$CCS_BIN" env check 2>/dev/null || true
+echo ""
+success "Done. Restart each configured harness to pick up the gateway."
+info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
+info "Update cc-switch only via this script, not 'cc-switch update'."
+echo ""
