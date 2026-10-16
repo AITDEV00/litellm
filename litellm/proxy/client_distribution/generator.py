@@ -143,14 +143,27 @@ else
 fi
 [ -x "$CCS_BIN" ] || die "cc-switch binary not found after install"
 
+# ── 0. interactive input ──────────────────────────────────────────────────
+# When the script runs as `curl ... | sh`, stdin IS the script itself, so a
+# plain `read` would consume the next script line as the answer instead of
+# waiting for the keyboard. All prompts therefore read from /dev/tty.
+# The probe must be an `exec` open, never a `{ : < /dev/tty; }` redirect:
+# a redirect on a piped stdin shell consumes the next script line from the
+# pipe as input. In a headless context /dev/tty exists as a node but cannot
+# be opened (ENXIO), and only the open fails.
+TTY_INPUT="/dev/tty"
+if ! (exec 3< "$TTY_INPUT") 2>/dev/null; then
+  die "this installer asks for your gateway key interactively; run it from a terminal (or: curl -fsSL URL -o install.sh && ./install.sh)"
+fi
+
 # ── 2. prompt for the gateway key + diagnostic ────────────────────────────
 echo ""
 header "Gateway API key"
-printf "  Paste your ADEO LiteLLM virtual key, then Enter: "
-if [ -t 0 ]; then stty -echo 2>/dev/null || true; fi
-IFS= read -r API_KEY
-if [ -t 0 ]; then stty echo 2>/dev/null || true; fi
-echo ""
+printf "  Paste your ADEO LiteLLM virtual key, then Enter: " > "$TTY_INPUT"
+stty -echo < "$TTY_INPUT" 2>/dev/null || true
+if ! IFS= read -r API_KEY < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
+stty echo < "$TTY_INPUT" 2>/dev/null || true
+echo "" > "$TTY_INPUT"
 [ -n "$API_KEY" ] || die "no key entered"
 
 curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
@@ -168,8 +181,8 @@ echo ""
 header "Which harnesses should route through the gateway?"
 i=1
 for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
-printf "  Enter numbers separated by spaces (e.g. 1 3): "
-IFS= read -r PICKS
+printf "  Enter numbers separated by spaces (e.g. 1 3): " > "$TTY_INPUT"
+if ! IFS= read -r PICKS < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
 [ -n "$PICKS" ] || die "nothing selected"
 
 CHOSEN=""

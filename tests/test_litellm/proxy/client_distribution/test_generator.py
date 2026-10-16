@@ -104,6 +104,24 @@ def test_render_key_via_config_file_umask() -> None:
     assert "--config-file" in script
 
 
+def test_render_prompts_read_from_tty_not_stdin() -> None:
+    """Both interactive prompts read /dev/tty, never stdin.
+
+    Under `curl ... | sh` stdin IS the script itself, so a plain `read` would
+    silently consume the next script line as the answer (observed live: the
+    key prompt consumed script text, sent it as a Bearer token, and every
+    install from the pipe failed with 401 before the user could type).
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert 'read -r API_KEY < "$TTY_INPUT"' in script
+    assert 'read -r PICKS < "$TTY_INPUT"' in script
+    # No prompt may read bare stdin
+    assert "IFS= read -r API_KEY\n" not in script
+    assert "IFS= read -r PICKS\n" not in script
+    # Piped-mode users without a terminal get a clear error up front
+    assert "run it from a terminal" in script
+
+
 def test_render_is_generic_orchestrator() -> None:
     """The script embeds no per-harness JSON shape; it fetches presets and composes with jq."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
