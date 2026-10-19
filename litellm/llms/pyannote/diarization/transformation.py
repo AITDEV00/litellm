@@ -8,6 +8,13 @@ so nothing here validates or translates request semantics. The serving model
 id on ADEO deployments is ``pyannote/community-1``
 (``CORO_PYANNOTE_DIARIZE_MODEL_ID``), and the pod rejects the spec enum
 default ``community-1`` there, so the ``model`` field must always be sent.
+
+Model-id handling: the router merges the deployment's ``litellm_params.model``
+into the call, which is the controller-registered double-prefixed string
+(``pyannote/pyannote/community-1``). The pod only accepts the serving id
+(``pyannote/community-1``), so the leading provider prefix is stripped here,
+at the last point before the wire. This is the only place model-string
+shape is touched; everything upstream sees the registered string.
 """
 
 from typing import Any, Dict, Optional, Tuple
@@ -23,6 +30,7 @@ from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLogging
 
 class PyannoteDiarizationConfig(BaseDiarizationConfig):
     DIARIZE_ENDPOINT_PATH: str = "/v1/diarize"
+    PROVIDER_PREFIX: str = "pyannote/"
 
     def validate_environment(
         self,
@@ -46,6 +54,11 @@ class PyannoteDiarizationConfig(BaseDiarizationConfig):
             )
         return f"{api_base.rstrip('/')}{self.DIARIZE_ENDPOINT_PATH}"
 
+    def _serving_model_id(self, model: str) -> str:
+        while model.startswith(self.PROVIDER_PREFIX):
+            model = model[len(self.PROVIDER_PREFIX):]
+        return f"{self.PROVIDER_PREFIX}{model}"
+
     def transform_diarization_request(
         self,
         model: str,
@@ -55,7 +68,7 @@ class PyannoteDiarizationConfig(BaseDiarizationConfig):
         litellm_params: Dict,
     ) -> DiarizationRequestData:
         form_data = dict(form_fields)
-        form_data["model"] = model
+        form_data["model"] = self._serving_model_id(model)
         return DiarizationRequestData(
             form_data=form_data,
             files={"file": audio_file},

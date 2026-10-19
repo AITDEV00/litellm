@@ -83,6 +83,19 @@ class TestTransformRequest:
         )
         assert request_data["form_data"]["model"] == "pyannote/community-1"
 
+    def test_strips_controller_double_prefix_to_serving_id(self, config):
+        """The router merges the deployment's registered model string
+        (pyannote/pyannote/community-1) into the call; the pod only accepts
+        the serving id, so the extra provider prefix is stripped here."""
+        request_data = config.transform_diarization_request(
+            model="pyannote/pyannote/community-1",
+            form_fields={},
+            audio_file=("m.wav", b"x", "audio/wav"),
+            optional_params={},
+            litellm_params={},
+        )
+        assert request_data["form_data"]["model"] == "pyannote/community-1"
+
     def test_file_attached_under_file_key(self, config):
         audio_file = ("meeting.wav", b"RIFF-bytes", "audio/wav")
         request_data = config.transform_diarization_request(

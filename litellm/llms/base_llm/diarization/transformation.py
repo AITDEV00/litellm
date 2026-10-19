@@ -1,8 +1,9 @@
 import types
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict, Union
 
 import httpx
+from httpx import Headers
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
@@ -78,3 +79,14 @@ class BaseDiarizationConfig(ABC):
         logging_obj: LiteLLMLoggingObj,
     ) -> Dict[str, Any]:
         pass
+
+    def get_error_class(
+        self, error_message: str, status_code: int, headers: dict | httpx.Headers
+    ) -> "BaseLLMException":
+        from litellm.llms.base_llm.chat.transformation import BaseLLMException
+
+        raise BaseLLMException(
+            status_code=status_code,
+            message=error_message,
+            headers=headers,
+        )

@@ -168,9 +168,12 @@ async def diarize(
 
         asyncio.create_task(
             proxy_server_mod.proxy_logging_obj.update_request_status(
-                litellm_call_id=data.get("litellm_call_id", ""), status="success"
-            )
+            litellm_call_id=data.get("litellm_call_id", ""), status="success"
         )
+        )
+
+        if isinstance(response, dict):
+            response.pop("_hidden_params", None)
 
         return JSONResponse(content=response, headers=custom_headers)
 
