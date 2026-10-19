@@ -62,12 +62,10 @@ Multipart form data, pyannoteAI `DiarizeRequest` field names. Supported fields:
 | `file` | yes | The audio file part (WAV/FLAC/OGG/MP3) |
 | `model` | no* | Must be `pyannote/community-1` |
 | `exclusive` | no | `true` -> also fill `output.exclusiveDiarization` (non-overlapping turns only) |
-| `webhook` / `webhookStatusOnly` | no | Accepted but jobs are synchronous; ignored in practice |
-| `vadSensitivity` / `crosstalkSensitivity` | no | Passed through to the engine |
 
 \* omitting `model` works only when the gateway has exactly one diarization deployment registered; the gateway then defaults it. Unknown spec fields are silently dropped by the gateway route (they never reach the pod), so check field names carefully.
 
-Fields that look supported but are rejected by the engine with a 400 (spec-shaped `ValidationErrorResponse` fragment) include `numSpeakers`, `minSpeakers`, `maxSpeakers`, `confidence`, `turnLevelConfidence`, `transcription`, `transcriptionConfig`, `speechProbability`, `crosstalkProbability`, and `speakerProbability`. The engine detects speaker count itself.
+All other pyannoteAI request fields are REJECTED by the pod with a 400 spec-shaped `ValidationErrorResponse` (never silently honored): `numSpeakers`, `minSpeakers`, `maxSpeakers`, `confidence`, `turnLevelConfidence`, `transcription`, `transcriptionConfig`, `vadSensitivity`, `crosstalkSensitivity`, `speechProbability`, `crosstalkProbability`, `speakerProbability`, `webhook`, `webhookStatusOnly`. The engine detects the speaker count itself (threshold-based clustering) and jobs are synchronous, so webhooks cannot fire.
 
 ### Sample curl
 
@@ -134,9 +132,46 @@ The gateway never invents validation errors for this route: 400/422 bodies are t
 
 ---
 
-## 3. Performance (stress-tested 2026-10-19, dev gateway)
+## 3. Performance (benchmark evidence 2026-10-19, H200 MIG-2g.35gb slice)
 
-Verified with `oicm-litellm-layer/scripts/stress_diarize.py` (stdlib-only harness, phases: gate -> contract -> single -> concurrency -> long clip), against the dev gateway port-forward with the coro pod on `adeo-gpu-01` (4 CPU / 16 Gi / MIG-2g.35gb).
+Two measurement contexts matter and are kept separate:
+
+1. **Engine RTFx (no network overhead)** — measured in-cluster on loopback (`127.0.0.1:8080` inside the coro pod), so the multipart upload runs at memory speed. This is the engine's true processing speed and the number for capacity planning.
+2. **Through-gateway RTFx** — measured from outside via the gateway; includes client->gateway->pod transfer of the audio bytes plus HTTP overhead. Large-file uploads dominate this number on slow transports.
+
+### 3.1 Engine-only RTF (network excluded) — the diarization engine's real speed
+
+Measured with the coro repo's `tests/local/bench_diarize_k8s.py` (phase-decomposed: upload / server / download), executed **inside the pod** against `http://127.0.0.1:8080`; audio = 60-minute 16 kHz speech clip (110 MiB, 1440 segments), `model=pyannote/community-1`, `exclusive=true`:
+
+| Load (in-flight) | Upload (loopback) | Server time / req | **Engine RTFx (audio/server)** | e2e RTFx (audio/total) |
+| --------------- | ----------------- | ----------------- | ------------------------------ | ---------------------- |
+| 1 stream | 0.28 s | 4.95 s | **727x** | 688x |
+| 4 concurrent | ~1.1 s | ~13.9 s | 259x mean per req | **928x aggregate** |
+| 8 concurrent | ~2.1 s | ~21.8 s | 165x mean per req | **969x aggregate** |
+| 16 concurrent | ~7.3 s | ~40.9 s | 88x mean per req | 899x aggregate (plateau) |
+
+- **RTFx = audio-seconds processed per wall-second; RTF = 1/RTFx.**
+- **Single request: RTF ≈ 1/727 ≈ 0.0014** — one hour of meeting audio diarizes in **~5 seconds** of engine time.
+- **Aggregate ceiling on one MIG-2g.35gb slice: ~970x real time** (~16 audio-hours per wall-minute); saturation starts at 8-16 in-flight requests. Beyond that the 4-vCPU decode path (per-request ffmpeg) and the slice's GPU share are the bottleneck.
+- Engine config behind the numbers: `cuda-fast` tier (2 s hop), 4 pooled CUDA streams (one per worker).
+- 0 errors across all runs (1+4+8+16 requests; every run returned all 1440 segments).
+
+Reproduce in-cluster (engine truth):
+
+```bash
+POD=$(kubectl -n adeo get pods -l oip/app=j-d4398150-0202-4e1c-ae9a-41be01288fd3 \
+      -o jsonpath='{.items[0].metadata.name}')
+kubectl cp tests/local/bench_diarize_k8s.py -n adeo $POD:/tmp/bench.py
+kubectl cp 60min.wav -n adeo $POD:/tmp/bench.wav
+kubectl exec -n adeo $POD -- sh -c \
+  'CORO_BASE=http://127.0.0.1:8080 CORO_AUDIO=/tmp/bench.wav CORO_CONCURRENCY=8 \
+   /home/runner/venv/bin/python /tmp/bench.py'
+# columns: upload_s  MB/s  server_s  dl_s  total_s  e2e_RTFx  engine_RTFx  segs
+```
+
+### 3.2 Through-gateway stress (60s clips; includes network + gateway overhead)
+
+Verified with `oicm-litellm-layer/scripts/stress_diarize.py` (phases: gate -> contract -> single -> concurrency -> long clip) against the dev gateway port-forward, coro pod on `adeo-gpu-01` (4 CPU / 16 Gi / MIG-2g.35gb):
 
 | Scenario | Result |
 | -------- | ------ |
@@ -146,13 +181,15 @@ Verified with `oicm-litellm-layer/scripts/stress_diarize.py` (stdlib-only harnes
 | 17.5 min AMI meeting (ES2004a, 1049s) | 19.6-29.9s wall, 35-54x RTFx, 5 speakers, 232 segments |
 | Pod temp hygiene | 0 leftover upload temp files in pod `/tmp` after 42 requests |
 
+Gateway-level numbers are transport-bounded: a `kubectl port-forward` tunnel moves audio at only ~2-6 MB/s (~0.6 MB/s under 4-way upload contention), so a 60-minute clip spends 15-60+ s uploading through the tunnel before the engine starts. In-cluster clients (the gateway included) upload the same 110 MiB body at loopback/pod-network speed: 0.3-2 s.
+
 Key facts:
 
 - Jobs are synchronous through the gateway: the HTTP response IS the completed job. There is no polling step.
 - Throughput scales with the pod's diarization workers (4 workers, `cuda-fast`); aggregate concurrency beyond worker count queues rather than errors.
-- `RTFx` above = audio seconds / wall seconds. Single-stream on the 4090-class slice historically reaches ~2000x+ for the diarization backend alone; end-to-end through the gateway includes HTTP + multipart overhead.
+- For the same workload the engine alone reaches **727x single / 969x aggregate** (3.1); through-gateway RTFx is lower because it includes the audio transfer, which dominates on slow transports.
 
-Reproduce:
+Reproduce through-gateway:
 
 ```bash
 kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14000:4000   # dev
