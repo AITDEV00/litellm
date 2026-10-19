@@ -306,6 +306,13 @@ echo ""
 success "Done. Restart each configured harness to pick up the gateway."
 info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
 info "Update cc-switch only via this script, not 'cc-switch update'."
+if ! command -v cc-switch >/dev/null 2>&1 && [ -x "$INSTALL_DIR/cc-switch" ]; then
+  echo ""
+  info "cc-switch is installed at $INSTALL_DIR/cc-switch but that directory is not on PATH."
+  info "Fix it for this shell:"
+  info "    export PATH=\"$INSTALL_DIR:\$PATH\""
+  info "and for future shells, add that line to your ~/.profile or ~/.bashrc."
+fi
 echo ""
 """
 
