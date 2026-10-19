@@ -122,6 +122,38 @@ def test_render_prompts_read_from_tty_not_stdin() -> None:
     assert "run it from a terminal" in script
 
 
+def test_render_key_input_is_visible() -> None:
+    """The key prompt echoes what the user types.
+
+    Hidden input (stty -echo) made it impossible to verify a pasted key
+    before submitting it; a wrong paste only surfaced later as a 401.
+    The prompt is a plain visible read now.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert "stty -echo" not in script
+    assert "stty echo" not in script
+
+
+def test_render_prompts_precede_all_downloads() -> None:
+    """Both prompts appear before any installer download begins.
+
+    The original order (install jq + cc-switch, then ask) made the user
+    stare at a multi-minute download before being asked anything; a wrong
+    key was only discovered after the full install. Prompts come first,
+    everything downloadable is deferred.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    key_prompt: int = script.index("Gateway API key")
+    harness_menu: int = script.index("Which harnesses")
+    jq_install: int = script.index("Installing jq")
+    ccs_install: int = script.index("Installing cc-switch")
+    assert key_prompt < harness_menu < jq_install < ccs_install
+    # The key is validated (curl) at prompt time, before any download
+    assert script.index("that key was rejected") < jq_install
+    # The jq-based model count check runs after the jq bootstrap
+    assert script.index("Installing jq") < script.index("can call no models")
+
+
 def test_render_is_generic_orchestrator() -> None:
     """The script embeds no per-harness JSON shape; it fetches presets and composes with jq."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
@@ -140,22 +172,24 @@ def test_render_is_generic_orchestrator() -> None:
     assert '__MODELS_ARRAY_CTX__"' in script
     assert '"__MODELS_ARRAY_CTX_SNAKE__"' in script
     assert '__MODELS_OBJECT_LIMIT__"' in script
-    assert '__MODELS_ARRAY__' not in script
-    assert '__MODELS_OBJECT__' not in script
+    assert "__MODELS_ARRAY__" not in script
+    assert "__MODELS_OBJECT__" not in script
     # Manifest-sourced default output cap
     assert 'MAX_OUTPUT_TOKENS="65536"' in script
-    # Harness list is manifest-driven
-    assert ".harnesses | keys" in script
-    # No hardcoded harness list, no mode branch
-    assert 'HARNESSES="claude codex' not in script
+    # Harness list is manifest-driven: rendered from the context at render
+    # time (the menu must appear before jq is bootstrapped, so it cannot
+    # parse the fetched manifest). Adding a harness is still a store sync.
+    # Sorted alphabetically so menu numbers stay stable across syncs.
+    assert 'HARNESSES="claude open-code "' in script
+    # No mode branch
     assert '"$mode" = "switch"' not in script
     # No sqlite3 anywhere: reconcile is pure CLI (add + use)
     assert "sqlite3" not in script
     assert "provider delete" not in script
     # Stable key-derived provider id: last 4 chars of the key, sanitized to
     # cc-switch's id charset (lowercase alnum + single dashes)
-    assert 'adeo-litellm-$(printf' in script
-    assert "sha256sum \"$TMP/provider.json\"" not in script
+    assert "adeo-litellm-$(printf" in script
+    assert 'sha256sum "$TMP/provider.json"' not in script
     # use is the reconcile gate
     assert 'use "$PROVIDER_ID" --app' in script
 
@@ -171,8 +205,8 @@ def test_render_reconcile_is_add_then_use() -> None:
     # The id is derived from the key's last 4 chars, so a re-run with the
     # same key refreshes the same provider in place (true overwrite), and a
     # rotated key maps to a different id.
-    assert 'adeo-litellm-$(printf' in script
-    assert "sha256sum \"$TMP/provider.json\"" not in script
+    assert "adeo-litellm-$(printf" in script
+    assert 'sha256sum "$TMP/provider.json"' not in script
 
 
 def test_render_no_upstream_urls() -> None:
@@ -191,7 +225,7 @@ def test_render_bootstraps_jq_from_store() -> None:
     """
     script: str = render_install_script(_MANIFEST, _BASE_URL)
     # The old unconditional die is gone
-    assert 'command -v jq   >/dev/null 2>&1 || die' not in script
+    assert "command -v jq   >/dev/null 2>&1 || die" not in script
     # Bootstrap path: versioned store URL + checksum verification
     assert 'JQ_VERSION="1.8.2"' in script
     assert '"$BASE_URL/install/jq/$JQ_VERSION/$JQ_FILE"' in script
@@ -276,10 +310,7 @@ def test_manifest_from_json_valid() -> None:
 
 
 def test_manifest_from_json_harnesses_optional() -> None:
-    raw: str = (
-        '{"cc_switch_version": "5.11.1", '
-        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
-    )
+    raw: str = '{"cc_switch_version": "5.11.1", "cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
     m: MirrorManifest = manifest_from_json(raw)
     assert m.harnesses == ()
 
@@ -353,10 +384,7 @@ def test_baked_preset_pi_has_flat_base_url() -> None:
 
 
 def test_manifest_from_json_platforms_optional() -> None:
-    raw: str = (
-        '{"cc_switch_version": "5.11.1", '
-        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
-    )
+    raw: str = '{"cc_switch_version": "5.11.1", "cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
     m: MirrorManifest = manifest_from_json(raw)
     assert m.platforms == ()
 
@@ -384,10 +412,7 @@ def test_manifest_from_json_invalid_json() -> None:
 
 def test_manifest_max_output_tokens_default() -> None:
     """Omitting max_output_tokens falls back to the 64K default."""
-    raw: str = (
-        '{"cc_switch_version": "5.11.1", '
-        '"cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
-    )
+    raw: str = '{"cc_switch_version": "5.11.1", "cc_switch_artifacts": {"t": {"file": "f", "sha256": "s"}}}'
     m: MirrorManifest = manifest_from_json(raw)
     assert m.max_output_tokens == 65536
     script: str = render_install_script(m, _BASE_URL)
@@ -427,9 +452,7 @@ def test_render_undefined_variable_raises() -> None:
 
 
 def test_render_does_not_html_escape_shell() -> None:
-    script: str = render_install_script(
-        _MANIFEST, _BASE_URL, template="run if a > b && c < d; {{ base_url }}"
-    )
+    script: str = render_install_script(_MANIFEST, _BASE_URL, template="run if a > b && c < d; {{ base_url }}")
     assert "a > b && c < d" in script
     assert "&gt;" not in script
     assert "&amp;" not in script

@@ -49,6 +49,56 @@ if [ "$RC" -ne 0 ]; then
   esac
 fi
 
+# ── 0. interactive input ──────────────────────────────────────────────────
+# When the script runs as `curl ... | sh`, stdin IS the script itself, so a
+# plain `read` would consume the next script line as the answer instead of
+# waiting for the keyboard. All prompts therefore read from /dev/tty.
+# The probe must be an `exec` open, never a `{ : < /dev/tty; }` redirect:
+# a redirect on a piped stdin shell consumes the next script line from the
+# pipe as input. In a headless context /dev/tty exists as a node but cannot
+# be opened (ENXIO), and only the open fails.
+TTY_INPUT="/dev/tty"
+if ! (exec 3< "$TTY_INPUT") 2>/dev/null; then
+  die "this installer asks for your gateway key interactively; run it from a terminal (or: curl -fsSL URL -o install.sh && ./install.sh)"
+fi
+
+# ── 1. prompt for the gateway key (visible input) ─────────────────────────
+echo ""
+header "Gateway API key"
+printf "  Paste your ADEO LiteLLM virtual key, then Enter: " > "$TTY_INPUT"
+if ! IFS= read -r API_KEY < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
+echo "" > "$TTY_INPUT"
+[ -n "$API_KEY" ] || die "no key entered"
+
+curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
+  || die "that key was rejected by $BASE_URL; check it with your platform admin"
+info "key accepted"
+
+# ── 2. harness selection (list baked at render time, no jq needed) ───────
+# The harness names are rendered from the manifest into this script, so the
+# menu can appear before jq is bootstrapped. Adding a harness stays a store
+# sync, not a script change: a new manifest re-renders the list.
+HARNESSES="{% for h in harnesses | sort(attribute='harness') %}{{ h.harness }} {% endfor %}"
+[ -n "$HARNESSES" ] || die "manifest declares no harnesses"
+echo ""
+header "Which harnesses should route through the gateway?"
+i=1
+for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
+printf "  Enter numbers separated by spaces (e.g. 1 3): " > "$TTY_INPUT"
+if ! IFS= read -r PICKS < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
+[ -n "$PICKS" ] || die "nothing selected"
+
+CHOSEN=""
+for n in $PICKS; do
+  h="$(echo "$HARNESSES" | cut -d' ' -f"$n" 2>/dev/null || true)"
+  [ -n "$h" ] || die "invalid selection: $n"
+  CHOSEN="$CHOSEN $h"
+done
+
+# ── 3. install: platform, jq, cc-switch ────────────────────────────────────
+# Everything downloadable is deferred to here so the user answers all
+# prompts before the first byte is fetched beyond the manifest.
+
 # ── platform detection ─────────────────────────────────────────────────────
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -117,8 +167,11 @@ else
   die "jq is required but not installed, and the gateway stores no jq build for $OS ($ARCH). Install it with your package manager, e.g. 'apt-get install jq', then re-run"
 fi
 "$JQ_BIN" --version >/dev/null 2>&1 || die "the jq binary at $JQ_BIN does not run on this system"
+MODEL_COUNT="$("$JQ_BIN" -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
+[ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
+info "key OK — $MODEL_COUNT model(s) visible to this key"
 
-# ── 1. install cc-switch (skip if version matches) ────────────────────────
+# ── 3b. install cc-switch (skip if version matches) ─────────────────────
 CCS_BIN=""
 for candidate in cc-switch "$INSTALL_DIR/cc-switch"; do
   if command -v "$candidate" >/dev/null 2>&1; then CCS_BIN="$(command -v "$candidate")"; break
@@ -142,55 +195,6 @@ else
   CCS_BIN="$INSTALL_DIR/cc-switch"
 fi
 [ -x "$CCS_BIN" ] || die "cc-switch binary not found after install"
-
-# ── 0. interactive input ──────────────────────────────────────────────────
-# When the script runs as `curl ... | sh`, stdin IS the script itself, so a
-# plain `read` would consume the next script line as the answer instead of
-# waiting for the keyboard. All prompts therefore read from /dev/tty.
-# The probe must be an `exec` open, never a `{ : < /dev/tty; }` redirect:
-# a redirect on a piped stdin shell consumes the next script line from the
-# pipe as input. In a headless context /dev/tty exists as a node but cannot
-# be opened (ENXIO), and only the open fails.
-TTY_INPUT="/dev/tty"
-if ! (exec 3< "$TTY_INPUT") 2>/dev/null; then
-  die "this installer asks for your gateway key interactively; run it from a terminal (or: curl -fsSL URL -o install.sh && ./install.sh)"
-fi
-
-# ── 2. prompt for the gateway key + diagnostic ────────────────────────────
-echo ""
-header "Gateway API key"
-printf "  Paste your ADEO LiteLLM virtual key, then Enter: " > "$TTY_INPUT"
-stty -echo < "$TTY_INPUT" 2>/dev/null || true
-if ! IFS= read -r API_KEY < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
-stty echo < "$TTY_INPUT" 2>/dev/null || true
-echo "" > "$TTY_INPUT"
-[ -n "$API_KEY" ] || die "no key entered"
-
-curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
-  || die "that key was rejected by $BASE_URL; check it with your platform admin"
-MODEL_COUNT="$("$JQ_BIN" -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
-[ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
-info "key OK — $MODEL_COUNT model(s) visible to this key"
-
-# ── 3. harness selection ──────────────────────────────────────────────────
-# The harness list comes from the manifest, so adding a harness is a sync,
-# not a script change.
-HARNESSES="$("$JQ_BIN" -r '.harnesses | keys | join(" ")' "$TMP/manifest.json")"
-[ -n "$HARNESSES" ] && [ "$HARNESSES" != "null" ] || die "manifest declares no harnesses"
-echo ""
-header "Which harnesses should route through the gateway?"
-i=1
-for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
-printf "  Enter numbers separated by spaces (e.g. 1 3): " > "$TTY_INPUT"
-if ! IFS= read -r PICKS < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
-[ -n "$PICKS" ] || die "nothing selected"
-
-CHOSEN=""
-for n in $PICKS; do
-  h="$(echo "$HARNESSES" | cut -d' ' -f"$n" 2>/dev/null || true)"
-  [ -n "$h" ] || die "invalid selection: $n"
-  CHOSEN="$CHOSEN $h"
-done
 
 # ── 4. per-harness provider reconcile (backup + add + use) ────────────────
 # Generic orchestrator: the per-harness cc-switch JSON shape lives in the

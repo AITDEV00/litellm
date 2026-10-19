@@ -22,38 +22,20 @@ the binary and reading the manifest need no credential. The user's key is
 prompted for interactively and used only for the `/api/v1/models` diagnostic
 and the provider's `apiKey` field. See [security.md](security.md).
 
-The four steps below double as **first install** and **reconciliation**: the
+The steps below double as **first install** and **reconciliation**: the
 same `/install` run installs the binary if absent, then re-validates the key
 and re-syncs the provider + model list. One command, both jobs.
 
-### 1. cc-switch binary -> gateway mirror (versioned path)
+UX order: the key and harness prompts run **first**, so a bad key or a wrong
+pick fails fast before any download starts; the jq bootstrap, cc-switch
+install, and per-harness configure all run after the user has answered.
 
-The script detects OS/arch/libc and downloads the matching archive from the
-**immutable versioned** path `/install/cc-switch/<version>/`. The client-side
-source of truth for integrity is the **manifest's own SHA-256**, not a
-separately-downloaded checksums file (admin sync verifies upstream's
-`checksums.txt` at ingest time and records the verified hash in the manifest;
-see [admin-sync.md](admin-sync.md)):
+### 1. Prompt for the gateway key + diagnostic
 
-```sh
-VER="$(jq -r .cc_switch_version "$TMP/manifest.json")"
-FILE="$(jq -r '.cc_switch_artifacts["'$TARGET'"].file' "$TMP/manifest.json")"
-WANT="$(jq -r '.cc_switch_artifacts["'$TARGET'"].sha256' "$TMP/manifest.json")"
-curl -fsSL "$BASE_URL/install/cc-switch/$VER/$FILE" -o "$TMP/ccs.tgz"
-echo "$WANT  $TMP/ccs.tgz" | sha256sum -c -
-tar -xzf "$TMP/ccs.tgz" -C "$INSTALL_DIR"
-```
-
-Musl builds (`linux-x64-musl`, `linux-arm64-musl`) are statically linked, so
-the binary runs on any libc. That is why there is no Python or uv tier at
-all. If `cc-switch --version` already matches `cc_switch_version`, the
-download is skipped.
-
-### 2. Prompt for the gateway key + diagnostic
-
-The script prompts for the user's **gateway virtual key** (hidden input) and
-validates it before touching any config. This is a per-developer virtual key,
-never the proxy master/admin key:
+The script prompts for the user's **gateway virtual key** (visible input, so
+a pasted key can be checked before Enter) and validates it before anything is
+installed. This is a per-developer virtual key, never the proxy master/admin
+key:
 
 ```sh
 curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" \
@@ -61,7 +43,8 @@ curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=20
   || die "that key was rejected by $BASE_URL; check it with your platform admin"
 ```
 
-A wrong key fails here, before any harness file is written. The endpoint is
+A wrong key fails here, before any download begins and before any harness
+file is written. The endpoint is
 the OpenRouter-compatible models API: it is **key-scoped** (each user sees
 exactly their accessible models) and every entry carries its real
 `context_length` from live backend discovery, which feeds step 4.
@@ -74,11 +57,42 @@ name-based exclusion is the only available filter; it keeps every real
 coding model (GLM, Qwen, Kimi, DeepSeek, ...) rather than the old
 include-list, which silently dropped whole families.
 
-### 3. Harness selection
+### 2. Harness selection
 
 The script lists the harnesses cc-switch can configure and asks the user
 which to wire (numbered multi-select). Harnesses not picked are left alone —
-the user may already have a non-gateway config for one of them.
+the user may already have a non-gateway config for one of them. The list is
+baked into the script at render time (the menu must appear before jq is
+bootstrapped, so it cannot parse the fetched manifest); it is sorted
+alphabetically so menu numbers stay stable across syncs, and adding a
+harness remains a store sync, not a script change.
+
+### 3. Install: jq bootstrap, cc-switch
+
+jq and cc-switch are installed from the gateway mirror only after the prompts
+are answered, so there is no download wait before the user has said anything.
+Both are sha256-verified against the manifest, the client-side source of
+truth for integrity (admin sync verifies upstream's `checksums.txt` at ingest
+time and records the verified hash in the manifest; see
+[admin-sync.md](admin-sync.md)):
+
+```sh
+VER="$CC_SWITCH_VERSION"   # rendered from the manifest
+FILE="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].file' "$TMP/manifest.json")"
+WANT="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].sha256' "$TMP/manifest.json")"
+curl -fsSL "$BASE_URL/install/cc-switch/$VER/$FILE" -o "$TMP/ccs.tgz"
+echo "$WANT  $TMP/ccs.tgz" | sha256sum -c -
+tar -xzf "$TMP/ccs.tgz" -C "$INSTALL_DIR"
+```
+
+The script detects OS/arch/libc and downloads the matching archive from the
+**immutable versioned** path `/install/cc-switch/<version>/`. Musl builds
+(`linux-x64-musl`, `linux-arm64-musl`) are statically linked, so the binary
+runs on any libc. That is why there is no Python or uv tier at all. If
+`cc-switch --version` already matches `cc_switch_version`, the download is
+skipped. jq follows the same versioned-mirror flow under
+`/install/jq/<version>/` (pins live in the script itself: reading them from
+the manifest would already require jq).
 
 ### 4. Per-harness provider reconcile
 
@@ -181,8 +195,8 @@ template is a Jinja2 document, not a find-replace string, so it can grow
 conditionals and loops without the renderer changing.
 
 The render context is open: every key in `manifest.json` is exposed to the
-template, plus `base_url` and a typed `platforms` list. The keys the template
-actually references:
+template, plus `base_url` and the typed `platforms` / `harnesses` lists. The
+keys the template actually references:
 
 | Variable | Type | Source |
 |---|---|---|
@@ -190,6 +204,7 @@ actually references:
 | `cc_switch_version` | str | `manifest.json` `cc_switch_version` |
 | `max_output_tokens` | int (default 65536) | `manifest.json` `max_output_tokens` |
 | `platforms` | list of `{target, archive_ext}` | `manifest.json` `platforms` |
+| `harnesses` | list of `{harness, version, path, sha256}` | `manifest.json` `harnesses`; the menu list is baked from it at render time |
 
 Rendering is sandboxed, strict, and not autoescaped
 (`SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)`):
