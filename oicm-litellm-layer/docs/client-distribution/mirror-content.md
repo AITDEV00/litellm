@@ -26,12 +26,13 @@ fully published.
 litellm-client-mirror/
 ├── manifest.json
 ├── cc-switch/<version>/cc-switch-cli-<target>.<ext>
+├── jq/<version>/jq-<platform>        # official jqlang static binaries
 ├── providers/adeo/<harness>/v<N>.json       # per-harness presets (all 7)
 └── templates/install.sh.tmpl                 # optional store override
 ```
 
 Served to clients as `/install/manifest.json`, `/install/cc-switch/...`,
-`/install/providers/adeo/<harness>/v<N>.json`.
+`/install/jq/...`, `/install/providers/adeo/<harness>/v<N>.json`.
 
 ## `manifest.json`
 
@@ -51,6 +52,14 @@ installer writes into harness configs that have a real output knob (claude
 `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, opencode `limit.output`). Changing it is a
 manifest edit + re-sync, no gateway rebuild. There is no backwards
 compatibility with schema 4: the gateway accepts only `schema: 5`.
+
+**jq lives outside the manifest, pinned in the script itself.** The install
+script needs jq to parse the manifest, so the jq version + per-platform
+SHA-256 digests cannot be read from the manifest (chicken and egg). They are
+literal pins in the template, mirrored by `sync-mirror.sh` from the official
+jqlang release (verified against the release's `sha256sum.txt` sidecar), and
+served at `/install/jq/<version>/<file>`. The script bootstraps jq from there
+when the host has none.
 
 ```json
 {

@@ -31,14 +31,23 @@ info "Gateway: $BASE_URL"
 info "cc-switch: $CC_SWITCH_VERSION"
 
 command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
-command -v jq   >/dev/null 2>&1 || die "jq is required but not installed."
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 # ── fetch manifest (the integrity source of truth) ────────────────────────
-curl -fsSL "$BASE_URL/install/manifest.json" -o "$TMP/manifest.json" \
-  || die "Failed to fetch manifest from $BASE_URL/install/manifest.json"
+# TLS failures get a named fix: curl exit 60 (cert rejected) and 77 (no CA
+# bundle on the system) both mean the OS lacks trusted roots. That cannot be
+# bootstrapped over TLS itself (circular), so name the package to install.
+# NOTE: an `if ! curl ...` condition would invert $?, so capture via `|| RC=$?`.
+RC=0
+curl -fsSL "$BASE_URL/install/manifest.json" -o "$TMP/manifest.json" || RC=$?
+if [ "$RC" -ne 0 ]; then
+  case "$RC" in
+    60|77) die "TLS failed (curl exit $RC): this system has no trusted CA certificates. Install them, e.g. 'apt-get install ca-certificates' (Ubuntu/Debian) or 'apk add ca-certificates' (Alpine), then re-run" ;;
+    *)     die "Failed to fetch manifest from $BASE_URL/install/manifest.json (curl exit $RC)" ;;
+  esac
+fi
 
 # ── platform detection ─────────────────────────────────────────────────────
 OS="$(uname -s)"
@@ -64,6 +73,51 @@ esac
 
 info "Platform: $OS ($ARCH) -> $TARGET"
 
+# ── jq bootstrap (pinned in the script: parsing the manifest needs jq) ────
+# The pins cannot live in the manifest — reading them would already require
+# jq. jq 1.8.2 official binaries are standalone static executables, mirrored
+# in the gateway store under jq/<version>/, same flow as cc-switch.
+JQ_VERSION="1.8.2"
+JQ_FILE=""
+JQ_SHA256=""
+case "$OS-$ARCH" in
+  Linux-x86_64)   JQ_FILE="jq-linux-amd64";     JQ_SHA256="b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f" ;;
+  Linux-aarch64)  JQ_FILE="jq-linux-arm64";     JQ_SHA256="8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309" ;;
+  Darwin-x86_64)  JQ_FILE="jq-macos-amd64";    JQ_SHA256="e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0" ;;
+  Darwin-arm64)   JQ_FILE="jq-macos-arm64";    JQ_SHA256="2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e" ;;
+  Windows-x86_64) JQ_FILE="jq-windows-amd64.exe"; JQ_SHA256="a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627" ;;
+  *)              ;;
+esac
+
+JQ_BIN=""
+if command -v jq >/dev/null 2>&1; then JQ_BIN="jq"; fi
+if [ -z "$JQ_BIN" ] && [ -x "$INSTALL_DIR/jq" ]; then JQ_BIN="$INSTALL_DIR/jq"; fi
+if [ -z "$JQ_BIN" ] && [ -x "$INSTALL_DIR/jq.exe" ]; then JQ_BIN="$INSTALL_DIR/jq.exe"; fi
+
+if [ -n "$JQ_BIN" ]; then
+  info "jq: $JQ_BIN ($("$JQ_BIN" --version 2>/dev/null || echo 'unknown version'))"
+elif [ -n "$JQ_FILE" ]; then
+  header "Installing jq $JQ_VERSION..."
+  curl -fsSL "$BASE_URL/install/jq/$JQ_VERSION/$JQ_FILE" -o "$TMP/jq-download" \
+    || die "download failed: $BASE_URL/install/jq/$JQ_VERSION/$JQ_FILE"
+  echo "$JQ_SHA256  $TMP/jq-download" | sha256sum -c - >/dev/null \
+    || die "checksum mismatch for jq — the store may be corrupt; contact the platform team"
+  mkdir -p "$INSTALL_DIR"
+  if [ "$OS" = "Windows" ]; then
+    mv "$TMP/jq-download" "$INSTALL_DIR/jq.exe"
+    chmod +x "$INSTALL_DIR/jq.exe"
+    JQ_BIN="$INSTALL_DIR/jq.exe"
+  else
+    mv "$TMP/jq-download" "$INSTALL_DIR/jq"
+    chmod +x "$INSTALL_DIR/jq"
+    JQ_BIN="$INSTALL_DIR/jq"
+  fi
+  info "jq installed at: $JQ_BIN"
+else
+  die "jq is required but not installed, and the gateway stores no jq build for $OS ($ARCH). Install it with your package manager, e.g. 'apt-get install jq', then re-run"
+fi
+"$JQ_BIN" --version >/dev/null 2>&1 || die "the jq binary at $JQ_BIN does not run on this system"
+
 # ── 1. install cc-switch (skip if version matches) ────────────────────────
 CCS_BIN=""
 for candidate in cc-switch "$INSTALL_DIR/cc-switch"; do
@@ -75,8 +129,8 @@ if [ -n "$CCS_BIN" ] && [ "$("$CCS_BIN" --version 2>/dev/null | awk '{print $2}'
   info "cc-switch $CC_SWITCH_VERSION already installed, skipping"
 else
   header "Installing cc-switch $CC_SWITCH_VERSION..."
-  FILE="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].file' "$TMP/manifest.json")"
-  WANT="$(jq -r --arg t "$TARGET" '.cc_switch_artifacts[$t].sha256' "$TMP/manifest.json")"
+  FILE="$("$JQ_BIN" -r --arg t "$TARGET" '.cc_switch_artifacts[$t].file' "$TMP/manifest.json")"
+  WANT="$("$JQ_BIN" -r --arg t "$TARGET" '.cc_switch_artifacts[$t].sha256' "$TMP/manifest.json")"
   [ "$FILE" != "null" ] && [ "$WANT" != "null" ] || die "no artifact in the manifest for $TARGET"
   curl -fsSL "$BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE" -o "$TMP/ccs.tgz" \
     || die "download failed: $BASE_URL/install/cc-switch/$CC_SWITCH_VERSION/$FILE"
@@ -114,14 +168,14 @@ echo "" > "$TTY_INPUT"
 
 curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
   || die "that key was rejected by $BASE_URL; check it with your platform admin"
-MODEL_COUNT="$(jq -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
+MODEL_COUNT="$("$JQ_BIN" -r '.data | length' "$TMP/models.json" 2>/dev/null || echo 0)"
 [ "$MODEL_COUNT" -gt 0 ] || die "the key works but can call no models; ask your admin for model access"
 info "key OK — $MODEL_COUNT model(s) visible to this key"
 
 # ── 3. harness selection ──────────────────────────────────────────────────
 # The harness list comes from the manifest, so adding a harness is a sync,
 # not a script change.
-HARNESSES="$(jq -r '.harnesses | keys | join(" ")' "$TMP/manifest.json")"
+HARNESSES="$("$JQ_BIN" -r '.harnesses | keys | join(" ")' "$TMP/manifest.json")"
 [ -n "$HARNESSES" ] && [ "$HARNESSES" != "null" ] || die "manifest declares no harnesses"
 echo ""
 header "Which harnesses should route through the gateway?"
@@ -151,17 +205,17 @@ MAX_OUTPUT_TOKENS="{{ max_output_tokens }}"
 # window from /api/v1/models. Utility families (speech, OCR, embeddings,
 # image generation, document processing) are excluded by name because the
 # payload carries no capability signal; UUID-named models likewise.
-MODELS_JSON="$(jq -c '
+MODELS_JSON="$("$JQ_BIN" -c '
   [.data[]
    | select((.id | test("embed|tts|stt|asr|ocr|transcri|voice|speech|image|rerank|layout|whisper"; "i")) | not)
    | select((.id | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-")) | not)
    | {id: .id, context: (if (.context_length // 0) > 0 then .context_length else null end)}]
   | .[0:20]' "$TMP/models.json" 2>/dev/null || echo '[]')"
-[ "$(printf '%s' "$MODELS_JSON" | jq 'length' 2>/dev/null || echo 0)" -gt 0 ] \
+[ "$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" 'length' 2>/dev/null || echo 0)" -gt 0 ] \
   || die "no text-generation models are accessible to this key; ask your admin"
-DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].id')"
-DEFAULT_CTX_JSON="$(printf '%s' "$MODELS_JSON" | jq -c '.[0].context | if . != null then tostring else null end')"
-DEFAULT_CTX_STR="$(printf '%s' "$MODELS_JSON" | jq -r '.[0].context // "" | tostring')"
+DEFAULT_MODEL="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -r '.[0].id')"
+DEFAULT_CTX_JSON="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c '.[0].context | if . != null then tostring else null end')"
+DEFAULT_CTX_STR="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -r '.[0].context // "" | tostring')"
 info "default model: $DEFAULT_MODEL (context window: ${DEFAULT_CTX_STR:-unknown})"
 info "max output tokens per request: $MAX_OUTPUT_TOKENS (gateway default)"
 
@@ -183,11 +237,11 @@ configure_harness() {
   #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
   #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
   # A model with no reported context simply omits the context key.
-  MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
-  MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | jq -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
-  MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | jq -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
+  MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
+  MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
+  MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
     'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
-  jq \
+  "$JQ_BIN" \
     --arg url "$BASE_URL" \
     --arg url_v1 "$BASE_URL/v1" \
     --arg key "$API_KEY" \
@@ -237,8 +291,8 @@ configure_harness() {
 
 for HARNESS in $CHOSEN; do
   echo ""
-  PPATH="$(jq -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
-  PSHA="$(jq -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
+  PPATH="$("$JQ_BIN" -r --arg h "$HARNESS" '.harnesses[$h].path // empty' "$TMP/manifest.json")"
+  PSHA="$("$JQ_BIN" -r --arg h "$HARNESS" '.harnesses[$h].sha256 // empty' "$TMP/manifest.json")"
   [ -n "$PPATH" ] || die "manifest pins no preset for $HARNESS"
   # Detach stdin: curl/jq/cc-switch in the configure step would otherwise
   # consume the piped harness picks and stall waiting for input.
@@ -258,5 +312,6 @@ if ! command -v cc-switch >/dev/null 2>&1 && [ -x "$INSTALL_DIR/cc-switch" ]; th
   info "Fix it for this shell:"
   info "    export PATH=\"$INSTALL_DIR:\$PATH\""
   info "and for future shells, add that line to your ~/.profile or ~/.bashrc."
+  info "(jq, if bootstrapped, lives in the same directory.)"
 fi
 echo ""

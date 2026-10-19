@@ -26,6 +26,22 @@ STAGE_DIR="${SCRIPT_DIR}/.staging"
 CC_SWITCH_VERSION="jya0-5.11.1"
 GH_RELEASE="https://github.com/AITDEV00/cc-switch-cli/releases/download/${CC_SWITCH_VERSION}"
 
+# Pinned jq release (official jqlang). Standalone static binaries; the
+# installer embeds the same version + sha256 pins (it cannot read them from
+# the manifest because parsing the manifest already needs jq — chicken and
+# egg). sha256sum.txt is the release's published checksum sidecar. When
+# bumping: update this version, the pins inside the installer template
+# (litellm/proxy/client_distribution/generator.py), and re-push the template.
+JQ_VERSION="1.8.2"
+JQ_RELEASE="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}"
+JQ_TARGETS=(
+  "jq-linux-amd64"
+  "jq-linux-arm64"
+  "jq-macos-amd64"
+  "jq-macos-arm64"
+  "jq-windows-amd64.exe"
+)
+
 # cc-switch mirror targets -> archive extension
 CC_SWITCH_TARGETS=(
   "linux-x64-musl:tar.gz"
@@ -94,6 +110,19 @@ if [ "$fetch" -eq 1 ]; then
     log "  verified: ${artifact}"
   done
 
+  log "=== Phase 2b: fetch + verify jq ${JQ_VERSION} (static binaries) ==="
+  JQ_DIR="${STAGE_DIR}/jq/${JQ_VERSION}"
+  download "${JQ_RELEASE}/sha256sum.txt" "${JQ_DIR}/sha256sum.txt"
+  for target in "${JQ_TARGETS[@]}"; do
+    download "${JQ_RELEASE}/${target}" "${JQ_DIR}/${target}"
+    expected="$(grep "  ${target}\$" "${JQ_DIR}/sha256sum.txt" | awk '{print $1}')"
+    [ -n "$expected" ] || die "no checksum for ${target} in sha256sum.txt"
+    actual="$(sha256_of "${JQ_DIR}/${target}")"
+    [ "$actual" = "$expected" ] \
+      || die "SHA-256 mismatch for ${target}: expected $expected, got $actual"
+    log "  verified: ${target}"
+  done
+
   log "=== Phase 3: stage harness presets (from the gateway's baked set) ==="
   # Presets are canonical per-harness skeletons with sentinels; the installer
   # fills the runtime values. Generated from BAKED_PRESETS so the store, the
@@ -152,6 +181,11 @@ if [ "$push" -eq 1 ]; then
     artifact="cc-switch-cli-${CC_SWITCH_VERSION}-${target}.${ext}"
     push_artifact "cc-switch/${CC_SWITCH_VERSION}/${artifact}" \
       "${STAGE_DIR}/cc-switch/${CC_SWITCH_VERSION}/${artifact}"
+  done
+
+  # Push jq static binaries under the versioned prefix
+  for target in "${JQ_TARGETS[@]}"; do
+    push_artifact "jq/${JQ_VERSION}/${target}" "${STAGE_DIR}/jq/${JQ_VERSION}/${target}"
   done
 
   # Push all harness presets

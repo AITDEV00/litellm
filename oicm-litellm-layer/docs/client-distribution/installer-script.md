@@ -268,5 +268,12 @@ shells that already ship bash:
   corrupt, contact platform team".
 - Key rejected -> abort at the diagnostic, before any harness file is written.
 - No `curl` -> the script cannot bootstrap; error says so.
+- No `jq` -> bootstrapped from the mirror (`/install/jq/<version>/...`,
+  official jqlang static binaries, SHA-256 pinned in the script because
+  reading the pin from the manifest would already need jq). Only dies if the
+  mirror has no build for the platform.
+- No trusted CA roots (curl exit 60 or 77) -> the script names the OS package
+  to install (`apt-get install ca-certificates` / `apk add ca-certificates`);
+  a CA bundle cannot be fetched over TLS that itself needs the bundle.
 - RustFS unreachable -> the artifact fetch returns 503 from the slice; the
   script aborts with the URL, never falls back to the internet.

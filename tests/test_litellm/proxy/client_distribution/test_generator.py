@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
-
 from jinja2 import UndefinedError
 
 from litellm.proxy.client_distribution.generator import (
@@ -179,6 +179,63 @@ def test_render_no_upstream_urls() -> None:
     script: str = render_install_script(_MANIFEST, _BASE_URL)
     for upstream in ("github.com", "pypi.org", "astral.sh"):
         assert upstream not in script, f"upstream URL leaked: {upstream}"
+
+
+def test_render_bootstraps_jq_from_store() -> None:
+    """Missing jq is bootstrapped from the gateway store, not a hard die.
+
+    A fresh ubuntu container ships neither jq nor the desire to install it
+    by hand; the installer must work with only curl present. The jq pins
+    (version, per-platform file, sha256) live as literals in the script:
+    reading them from the manifest would already require jq.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    # The old unconditional die is gone
+    assert 'command -v jq   >/dev/null 2>&1 || die' not in script
+    # Bootstrap path: versioned store URL + checksum verification
+    assert 'JQ_VERSION="1.8.2"' in script
+    assert '"$BASE_URL/install/jq/$JQ_VERSION/$JQ_FILE"' in script
+    assert "checksum mismatch for jq" in script
+    # The binary lands next to cc-switch and every later call routes through it
+    assert 'JQ_BIN="$INSTALL_DIR/jq"' in script
+    # x86_64 Linux pin (the platform we test on) is the official 1.8.2 digest
+    assert (
+        'Linux-x86_64)   JQ_FILE="jq-linux-amd64";     JQ_SHA256='
+        '"b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f"'
+    ) in script
+    # Unsupported platforms still get a human fix, not a raw failure
+    assert "'apt-get install jq'" in script
+
+
+def test_render_jq_callsites_use_bootstrapped_binary() -> None:
+    """Every jq invocation routes through $JQ_BIN, never a bare `jq`.
+
+    A bare call would resolve via PATH and die on the exact fresh system the
+    bootstrap exists for. Quoted display strings (header/info messages) are
+    blanked first so `header "Installing jq ..."` is not counted as a call.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    for raw_line in script.splitlines():
+        line: str = re.sub(r'"[^"]*"', '""', raw_line)  # blank out quoted strings
+        stripped: str = line.strip()
+        if stripped.startswith("#") or "command -v jq" in line:
+            continue
+        tokens: list[str] = stripped.split()
+        if "jq" in tokens or stripped.startswith("jq ") or stripped.startswith("jq \\"):
+            assert "$JQ_BIN" in line, f"bare jq call: {raw_line}"
+
+
+def test_render_tls_failure_names_ca_fix() -> None:
+    """curl exits 60/77 mean no trusted CA roots; the script names the package.
+
+    A CA bundle cannot be fetched over TLS that itself needs the bundle, so
+    the only honest remediation is telling the user what to install.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert "60|77)" in script
+    assert "ca-certificates" in script
+    # The exit code must be captured with `|| RC=$?`; `if ! curl` inverts $?
+    assert "if ! curl -fsSL" not in script
 
 
 def test_render_deterministic() -> None:
