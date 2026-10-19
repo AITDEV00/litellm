@@ -91,6 +91,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Inception TTS/STT guide | `docs/usage-guides/INCEPTION_TTS_STT_GUIDE.md` |
 | OmniVoice TTS guide | `docs/usage-guides/OMNIVOICE_TTS_GUIDE.md` |
 | VibeVoice ASR guide | `docs/usage-guides/VIBEVOICE_ASR_GUIDE.md` |
+| Pyannote diarization guide | `docs/usage-guides/PYANNOTE_DIARIZATION_GUIDE.md` |
 | Qwen image generation & editing guide | `examples/usage/image-generation/README.md` (included into `docs/usage-guides/QWEN_IMAGE_GUIDE.md`) |
 | Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
 
