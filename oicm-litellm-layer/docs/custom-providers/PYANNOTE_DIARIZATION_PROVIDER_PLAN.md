@@ -4,6 +4,13 @@
 > coro-served `POST /v1/diarize` through the OICM LiteLLM gateway as a
 > `pyannote` provider, and the vertical-slice implementation plan across the
 > litellm tree and the discovery controller.
+>
+> **Revision (same day)**: corrected the model id to the API enum value
+> `community-1` (the `DiarizeRequest.model` enum is `precision-2`,
+> `community-1`, `precision-3`). The earlier draft used coro's Hugging Face
+> pipeline id `pyannote/speaker-diarization-community-1`, which is an
+> engine-internal model-selection id, not an API model id. Provider detection
+> moved to the OpenAPI path probe as a consequence.
 
 ## Context
 
@@ -21,7 +28,7 @@ selectable by model id". Diarization is the same requirement one surface over.
 
 ## Recorded choices
 
-### C1. Provider name: `pyannote`, not `coro`
+### C1. Provider name: `pyannote`, not `coro`; model id `community-1`
 
 Coro is a tool wrapper: the contract the gateway forwards to is pyannoteAI's
 `DiarizeRequest`/`DiarizationJob`/`DiarizationJobOutput`/`ValidationErrorResponse`
@@ -29,25 +36,31 @@ shapes, and any future non-coro engine that serves the same contract (including
 pyannoteAI's own cloud) must be interchangeable behind the same provider. The
 provider is the contract; the engine is an implementation detail.
 
+The model id is the API enum value, not coro's Hugging Face pipeline id: the
+pinned spec's `DiarizeRequest.model` enum is `precision-2`, `community-1`,
+`precision-3`, and the engine serves `community-1` (coro's
+`_SUPPORTED_MODELS`). `pyannote/speaker-diarization-community-1` is coro's
+internal HF model-selection id, one layer below the API contract; it does not
+appear anywhere in the gateway.
+
 Consequences:
 
 - `LlmProviders.PYANNOTE = "pyannote"` in `litellm/types/utils.py`
 - Provider dir `litellm/llms/pyannote/`
-- Controller `KNOWN_PROVIDERS` gains `"pyannote"`, so a deployment whose
-  `owned_by` or model id contains `pyannote` resolves to it (substring match,
-  so `pyannote-community-1` also resolves)
-- Registered `litellm_params.model` is
-  `pyannote/pyannote/speaker-diarization-community-1`
-- `model_name` stays `pyannote/speaker-diarization-community-1`: the bare
-  community-1 id, no engine in the name, per coro ADR 0025's "one model id
-  across engines" rule. A future cloud or second engine registers the same
-  `model_name` and the router load-balances or fails over between them.
-
-`get_llm_provider` splits on the **first** slash only, so the namespaced id
-resolves to `custom_llm_provider="pyannote"` with
-`model="pyannote/speaker-diarization-community-1"` intact. The transform layer
-passes the sub-namespaced id through verbatim to the pod (the coro route
-ignores the `model` form field's namespace; the engine is community-1).
+- Registered `litellm_params.model` is `pyannote/community-1`
+- `model_name` is `community-1` (from the deployment ConfigMap
+  `MODEL_ID=community-1`): the API model id, no engine in the name, per coro
+  ADR 0025's "one model id across engines" rule. Multiple coro deployments
+  register the same `model_name` and the router load-balances or fails over
+  between them, exactly as the two `openai/whisper-large-v3` deployments
+  already do. A future cloud or second-engine deployment joins the same group
+- `get_llm_provider` splits on the **first** slash, so `pyannote/community-1`
+  resolves to `custom_llm_provider="pyannote"` with `model="community-1"` -
+  which is verbatim the enum value the pod's `model` form field accepts. The
+  split is the whole mapping; no prefix-stripping exists anywhere
+- Because the model id carries no "pyannote" substring, provider detection
+  cannot rely on `KNOWN_PROVIDERS` matching the id (see Slice G): the reliable
+  signal is the probed OpenAPI path `/v1/diarize`
 
 ### C2. Full 7-layer vertical slice, not pass-through
 
@@ -190,10 +203,11 @@ litellm/llms/pyannote/
     └── transformation.py   ← PyannoteDiarizationConfig
 ```
 
-`PyannoteModelInfo`: `get_models` returns
-`("pyannote/speaker-diarization-community-1",)`; `get_api_base` reads
-`PYANNOTE_API_BASE` (dev convenience only; prod comes from the controller's
-`litellm_params`). `get_provider_info` returns
+`PyannoteModelInfo`: `get_models` returns `("community-1",)`, the API model
+enum value the engine serves (`precision-2`/`precision-3` are cloud-only and
+the pod rejects them, so the gateway does not advertise them);
+`get_api_base` reads `PYANNOTE_API_BASE` (dev convenience only; prod comes
+from the controller's `litellm_params`). `get_provider_info` returns
 `ProviderSpecificModelInfo(endpoint="/v1/diarize", mode="diarization")`.
 
 `PyannoteDiarizationConfig(BaseDiarizationConfig)` - new base class, see
@@ -281,24 +295,49 @@ Literal and `"adiarize": "/v1/diarize"` to `ROUTE_ENDPOINT_MAPPING`.
 
 ### Slice G: discovery controller
 
+Facts that drive the changes (verified against coro's served surface):
+
+- coro publishes `/openapi.json` (ADR 0013) whose paths include
+  `/v1/diarize`, `/v1/audio/transcriptions`, `/v1/listen`, `/v1/jobs/{jobId}`
+  and `/health` - so the controller's `_probe_openapi_paths` works unchanged
+- coro serves **no** `/v1/models`, so `_discover_model_ids` has no
+  `owned_by` source: the deployment ConfigMap `MODEL_ID` is the model-id
+  source. The coro workload's ConfigMap must set `MODEL_ID=community-1`
+- the model id (`community-1`) contains no "pyannote" substring, so
+  `detect_provider` needs a path-based branch, not just a `KNOWN_PROVIDERS`
+  entry
+
 `oicm-litellm-layer/controller/models.py`:
 
-1. `KNOWN_PROVIDERS`: add `"pyannote"` (substring match on owned_by/model id;
-   coro deployments are expected to carry `pyannote` in their id or owner)
+1. `detect_provider`: add a path-based branch after the `KNOWN_PROVIDERS`
+   loop, mirroring the paddlex branch: `if "/v1/diarize" in paths and
+   CHAT_PATH not in paths: return "pyannote"`. (`KNOWN_PROVIDERS` may still
+   gain `"pyannote"` to catch a future deployment whose `owned_by` carries
+   it, but it is not the operative signal for coro)
 2. `NATIVE_BASE_PROVIDERS`: add `"pyannote"` (C8/B decision above)
-3. `_PATH_MODES`: add `("/v1/diarize", "diarization")` ahead of the chat guard
+3. `_PATH_MODES`: add `("/v1/diarize", "diarization")` **before**
+   `TRANSCRIPTION_PATH`. Order matters here as nowhere else: a coro pod
+   serves both transcriptions and diarize, and the table returns its first
+   hit, so diarize-first classifies coro pods as `diarization`. Pods serving
+   transcriptions without diarize (vLLM ASR, vibevoice) are unaffected, and
+   chat-capable servers never reach the table (chat guard)
 4. `_NAME_MODES` name fallback: add `("diariz", "diarization")` token match
    for probe-failure fallback
+5. A coro deployment also serves `/v1/audio/transcriptions`; exposing that
+   surface through the gateway is a separate slice (the OpenAI-compatible
+   route, not this one) and is deliberately out of scope here
 
-`oicl-litellm-layer/controller/litellm_client.py` `_register_payload` needs no
-change: it already stamps `provider/model_id` and `mode` through. Verify the
-payload's `model_info.mode="diarization"` passes the Deployment validation
-(Slice A widening makes it legal).
+`oicm-litellm-layer/controller/litellm_client.py` `_register_payload` needs no
+change: it already stamps `provider/model_id` (`pyannote/community-1`) and
+`mode` through. Verify the payload's `model_info.mode="diarization"` passes
+the Deployment validation (Slice A widening makes it legal).
 
-Controller tests: extend `tests/controller/test_models.py` for the new
-provider/mode detection rows, and `test_local_deployments.py` for a coro-shaped
-openapi.json probe fixture (paths including `/v1/diarize`, `/health`,
-`/v1/audio/transcriptions`).
+Controller tests: extend `tests/controller/test_models.py` with the new
+detection rows (path-based pyannote detection from a coro-shaped path set;
+diarize-before-transcription ordering; the `("diariz", ...)` name fallback;
+`pyannote/community-1` register payload), and `test_local_deployments.py`
+with a coro-shaped openapi.json probe fixture (paths including `/v1/diarize`,
+`/v1/audio/transcriptions`, `/health`; no `/v1/models`).
 
 ### Slice H: docs + usage guide
 
@@ -318,11 +357,10 @@ openapi.json probe fixture (paths including `/v1/diarize`, `/health`,
 3. **Slice D+E** (SDK + router) - unit tests asserting dispatch to the
    handler for `pyannote/...` models
 4. **Slice F** (dispatch + route + mount) - drop-detection tests green; curl
-   the live proxy with `dev_config.yaml` + a manual
-   `pyannote/pyannote/speaker-diarization-community-1` deployment entry
-   pointing at a running coro pod, showing the pod's `DiarizationJob` body
-   round-tripped verbatim (both command and output recorded per the repo's
-   proof-of-fix convention)
+   the live proxy with `dev_config.yaml` + a manual `pyannote/community-1`
+   deployment entry pointing at a running coro pod, showing the pod's
+   `DiarizationJob` body round-tripped verbatim (both command and output
+   recorded per the repo's proof-of-fix convention)
 5. **Slice G** (controller) - controller test suite; on-cluster: coro
    deployment registered automatically, `model_name` and `mode` verified in
    `/v1/model/info`
@@ -335,12 +373,14 @@ tests must fail when the router mount or lazy re-export is deleted.
 
 ## Risks / open questions
 
-- **`model` form field vs deployment model id**: the client's `model` form
-  value names the gateway deployment (`pyannote/speaker-diarization-community-1`),
-  but the pod route expects `community-1` or nothing (defaults). The route
-  strips the `pyannote/` prefix before forwarding, or the config's
-  `transform_diarization_request` does; recorded here so the implementation
-  picks one place (the config, keeping the route dumb)
+- **`model` form field**: resolved by construction, recorded for the
+  implementer. The client's `model` form value (`community-1`) both routes
+  the gateway call and, after `get_llm_provider`'s first-slash split, is the
+  exact enum value the pod accepts; the config forwards it verbatim. The
+  field is optional at the gateway (deployment fallback resolves the single
+  `diarization`-mode model), and the pod defaults it to `community-1` anyway.
+  A client sending `model=precision-2` gets the pod's own per-field 400
+  naming the supported model, which is the vendor contract behaving
 - **Timeout**: coro diarizes at hundreds-x real time; a 2h meeting is ~3-5s,
   but gateway timeout should default generously (e.g. 600s) and be
   per-deployment overridable via `litellm_params.timeout`

@@ -39,7 +39,7 @@ Key implementation files:
 
 ### pyannote (planned)
 
-Diarization-only provider behind the `POST /v1/diarize` route, served by coro deployments and named for the pyannoteAI cloud contract it implements (coro is a tool wrapper; the provider is the contract). See [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) for the recorded choices and slice plan: multipart in / `DiarizationJob` JSON out, full 7-layer slice (controller-discovered `api_base` rules out pass-through), new `diarization` mode, per-field 400s passed through verbatim, no auth header injection, `pyannote/speaker-diarization-community-1` as the single model id across engines.
+Diarization-only provider behind the `POST /v1/diarize` route, served by coro deployments and named for the pyannoteAI cloud contract it implements (coro is a tool wrapper; the provider is the contract). See [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) for the recorded choices and slice plan: multipart in / `DiarizationJob` JSON out, full 7-layer slice (controller-discovered `api_base` rules out pass-through), new `diarization` mode, per-field 400s passed through verbatim, no auth header injection, `community-1` (the `DiarizeRequest.model` enum value, not the HF pipeline id) as the single model id across engines, registered as `pyannote/community-1`.
 
 ## Documents
 
