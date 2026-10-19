@@ -154,6 +154,27 @@ def test_render_prompts_precede_all_downloads() -> None:
     assert script.index("Installing jq") < script.index("can call no models")
 
 
+def test_render_appends_path_export_to_rc_files() -> None:
+    """The script auto-configures PATH for future shells.
+
+    A child process cannot export into the parent shell, so the current
+    shell keeps one manual export. But the script must append an
+    idempotent, marker-guarded PATH export to the user's rc files so every
+    future shell works with no manual setup.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert "adeo-litellm installer: cc-switch + jq on PATH" in script
+    # Idempotent: guarded by a marker, appended with >>, never clobbered
+    assert "grep -qF" in script
+    assert ">> " in script
+    # Covers future shells automatically; current shell gets the one manual line
+    assert "takes effect in new shells" in script
+    assert "For THIS shell" in script
+    # Writes to rc files, not just advice
+    assert ".bashrc" in script
+    assert ".profile" in script
+
+
 def test_render_is_generic_orchestrator() -> None:
     """The script embeds no per-harness JSON shape; it fetches presets and composes with jq."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)

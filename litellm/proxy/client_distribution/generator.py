@@ -366,13 +366,31 @@ echo ""
 success "Done. Restart each configured harness to pick up the gateway."
 info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
 info "Update cc-switch only via this script, not 'cc-switch update'."
+# A child process (this script) cannot modify the parent shell's PATH, so
+# the current shell always needs the one manual export. Future shells are
+# fixed automatically: an idempotent rc line is appended once per file.
 if ! command -v cc-switch >/dev/null 2>&1 && [ -x "$INSTALL_DIR/cc-switch" ]; then
   echo ""
-  info "cc-switch is installed at $INSTALL_DIR/cc-switch but that directory is not on PATH."
-  info "Fix it for this shell:"
+  MARKER="# adeo-litellm installer: cc-switch + jq on PATH"
+  for rcfile in "$HOME/.bashrc" "$HOME/.profile" "$HOME/.zshrc"; do
+    # Only create bash rc files; a .zshrc appears only if the user has one
+    # (never create a zsh rc for a bash user).
+    case "$rcfile" in
+      */.zshrc) [ -e "$rcfile" ] || continue ;;
+    esac
+    if ! touch "$rcfile" 2>/dev/null; then info "could not write $rcfile (skipped)"; continue; fi
+    if ! grep -qF "$MARKER" "$rcfile" 2>/dev/null; then
+      {
+        printf '\n%s\n' "$MARKER"
+        printf 'export PATH="%s:$PATH"\n' "$INSTALL_DIR"
+      } >> "$rcfile"
+      info "added PATH export to $rcfile (takes effect in new shells)"
+    fi
+  done
+  info "cc-switch is at $INSTALL_DIR, which is not on PATH yet."
+  info "For THIS shell, run:"
   info "    export PATH=\"$INSTALL_DIR:\$PATH\""
-  info "and for future shells, add that line to your ~/.profile or ~/.bashrc."
-  info "(jq, if bootstrapped, lives in the same directory.)"
+  info "New shells are already covered by the rc files above."
 fi
 echo ""
 """
