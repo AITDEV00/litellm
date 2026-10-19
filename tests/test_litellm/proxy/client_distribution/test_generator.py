@@ -158,7 +158,7 @@ def test_render_appends_path_export_to_rc_files() -> None:
     """The script auto-configures PATH for future shells.
 
     A child process cannot export into the parent shell, so the current
-    shell keeps one manual export. But the script must append an
+    shell keeps one manual command. But the script must append an
     idempotent, marker-guarded PATH export to the user's rc files so every
     future shell works with no manual setup.
     """
@@ -169,10 +169,30 @@ def test_render_appends_path_export_to_rc_files() -> None:
     assert ">> " in script
     # Covers future shells automatically; current shell gets the one manual line
     assert "takes effect in new shells" in script
-    assert "For THIS shell" in script
+    assert "this shell" in script.lower()
     # Writes to rc files, not just advice
     assert ".bashrc" in script
     assert ".profile" in script
+
+
+def test_render_shell_aware_copyable_path_command() -> None:
+    """The PATH fix command adapts to the parent shell and prints copyably.
+
+    The single-command fix must use the right syntax per shell (fish has
+    no `export`), be derived from $SHELL with a sane fallback, and be
+    printed as a bare, spaced code line (no wrapping info prefix) so it
+    can be triple-click / mouse-selected and pasted directly.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    # Auto-detects the parent shell from $SHELL with a fallback
+    assert 'PARENT_SHELL="$(basename "${SHELL:-/bin/bash}")"' in script
+    # Per-shell command variants
+    assert 'PATH_CMD="fish_add_path' in script
+    assert 'PATH_CMD="set path =' in script
+    # The command is printed bare on its own indented line, not via info()
+    assert "printf '      %s\\n' \"$PATH_CMD\"" in script
+    # The prompt names the detected shell so the user knows what they run
+    assert "for THIS $PARENT_SHELL shell" in script
 
 
 def test_render_is_generic_orchestrator() -> None:

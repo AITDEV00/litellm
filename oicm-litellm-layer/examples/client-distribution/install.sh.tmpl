@@ -311,7 +311,7 @@ success "Done. Restart each configured harness to pick up the gateway."
 info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
 info "Update cc-switch only via this script, not 'cc-switch update'."
 # A child process (this script) cannot modify the parent shell's PATH, so
-# the current shell always needs the one manual export. Future shells are
+# the current shell always needs one manual command. Future shells are
 # fixed automatically: an idempotent rc line is appended once per file.
 if ! command -v cc-switch >/dev/null 2>&1 && [ -x "$INSTALL_DIR/cc-switch" ]; then
   echo ""
@@ -331,9 +331,30 @@ if ! command -v cc-switch >/dev/null 2>&1 && [ -x "$INSTALL_DIR/cc-switch" ]; th
       info "added PATH export to $rcfile (takes effect in new shells)"
     fi
   done
-  info "cc-switch is at $INSTALL_DIR, which is not on PATH yet."
-  info "For THIS shell, run:"
-  info "    export PATH=\"$INSTALL_DIR:\$PATH\""
-  info "New shells are already covered by the rc files above."
+  # Detect the parent shell (the one the user is typing in): $SHELL is the
+  # login shell; zsh additionally exports ZSH_VERSION, bash BASH_VERSION.
+  # Fish uses `fish_add_path`, not `export`, so name the right command.
+  PARENT_SHELL="$(basename "${SHELL:-/bin/bash}")"
+  case "$PARENT_SHELL" in
+    fish)
+      PATH_CMD="fish_add_path \"$INSTALL_DIR\""
+      ;;
+    csh|tcsh)
+      PATH_CMD="set path = (\"$INSTALL_DIR\" \$path)"
+      ;;
+    zsh)
+      PATH_CMD="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+    *)
+      PATH_CMD="export PATH=\"$INSTALL_DIR:\$PATH\""
+      ;;
+  esac
+  echo ""
+  info "cc-switch is at $INSTALL_DIR, which is not on PATH in this shell."
+  info "A quick fix for THIS $PARENT_SHELL shell, copy and run:"
+  echo ""
+  printf '      %s\n' "$PATH_CMD"
+  echo ""
+  info "Or open a new shell: the PATH was already added to your rc files."
 fi
 echo ""
