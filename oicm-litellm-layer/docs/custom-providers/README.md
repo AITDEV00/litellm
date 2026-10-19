@@ -37,10 +37,15 @@ Key implementation files:
 - `litellm/proxy/voice_routes.py` — `audio_speech_clone` route for `/v1/audio/speech/clone`
 - `oicm-litellm-layer/controller/models.py` — `detect_provider()` detects `k2-fsa`/`k2fsa` as omnivoice
 
+### pyannote (planned)
+
+Diarization-only provider behind the `POST /v1/diarize` route, served by coro deployments and named for the pyannoteAI cloud contract it implements (coro is a tool wrapper; the provider is the contract). See [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) for the recorded choices and slice plan: multipart in / `DiarizationJob` JSON out, full 7-layer slice (controller-discovered `api_base` rules out pass-through), new `diarization` mode, per-field 400s passed through verbatim, no auth header injection, `pyannote/speaker-diarization-community-1` as the single model id across engines.
+
 ## Documents
 
 | Document | Description |
 |---|---|
+| [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) | Recorded design choices and vertical-slice implementation plan for the pyannote diarization provider (gateway route + discovery controller) |
 | [LITELLM_ENDPOINT_ARCHITECTURE.md](LITELLM_ENDPOINT_ARCHITECTURE.md) | Full 7-layer trace of how LiteLLM implements endpoints and the pattern for adding a new custom provider endpoint |
 | [HAMSA_RESEARCH.md](HAMSA_RESEARCH.md) | Hamsa STT source code crawl, protocol analysis, and OpenAI compatibility assessment |
 | [HAMSA_TTS_BEHAVIOR.md](HAMSA_TTS_BEHAVIOR.md) | Hamsa TTS pod source code analysis covering model loading, inference flow, and API endpoints |

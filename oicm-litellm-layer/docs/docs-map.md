@@ -73,6 +73,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Custom providers README | `docs/custom-providers/README.md` |
+| pyannote diarization provider plan | `docs/custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md` |
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
 | HAMSA research / TTS behavior | `docs/custom-providers/HAMSA_RESEARCH.md`, `HAMSA_TTS_BEHAVIOR.md` |
 | OmniVoice logic maps + audit + test methods | `docs/custom-providers/OMNIVOICE_LOGIC_MAPPING.md`, `OMNIVOICE_LOGIC_MAP_v2.md`, `OMNIVOICE_POST_BUILD_LOGIC_MAP.md`, `OMNIVOICE_EXTENSIBILITY_AUDIT.md`, `EXAMPLE_OMNIVOICE_TEST_METHODS.md` |
