@@ -18906,6 +18906,12 @@ from litellm.proxy.client_distribution.routes import router as client_distributi
 
 app.include_router(client_distribution_router)
 
+# OICM pyannoteAI-compatible diarization route (POST /v1/diarize). Co-located
+# vertical slice served by coro deployments.
+from litellm.proxy.diarization_routes import router as oicm_diarization_router
+
+app.include_router(oicm_diarization_router)
+
 attach_lazy_features(app)
 app.router.routes = hot_routes_first(app.router.routes)
 app.add_middleware(

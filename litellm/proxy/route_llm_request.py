@@ -81,6 +81,7 @@ ROUTE_ENDPOINT_MAPPING: Final = {
     "aspeech": "/audio/speech",
     "acreate_voice": "/audio/voices",
     "ascript": "/audio/script",
+    "adiarize": "/v1/diarize",
     "atranscription": "/audio/transcriptions",
     "amoderation": "/moderations",
     "arerank": "/rerank",
@@ -168,7 +169,7 @@ REQUIRED_BODY_PARAMS_BY_ROUTE: Final[Mapping[str, tuple[str, ...]]] = {
 # these arrives without a model (and no user_model fallback exists), fail fast
 # with a 400 instead of a KeyError.
 _AUDIO_MODEL_REQUIRED_ROUTES: Final[frozenset[str]] = frozenset(
-    {"aspeech", "acreate_voice", "ascript"}
+    {"aspeech", "acreate_voice", "ascript", "adiarize"}
 )
 
 
@@ -340,6 +341,7 @@ RouteType = Literal[
     "aspeech",
     "acreate_voice",
     "ascript",
+    "adiarize",
     "atranscription",
     "amoderation",
     "arerank",

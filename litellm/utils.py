@@ -370,6 +370,9 @@ if TYPE_CHECKING:
     # Type stubs for lazy-loaded config classes and types
     from litellm.llms.base_llm.batches.transformation import BaseBatchesConfig
     from litellm.llms.base_llm.containers.transformation import BaseContainerConfig
+    from litellm.llms.base_llm.diarization.transformation import (
+        BaseDiarizationConfig,
+    )
     from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
     from litellm.llms.base_llm.files.transformation import BaseFilesConfig
     from litellm.llms.base_llm.google_genai.transformation import (
@@ -9700,6 +9703,18 @@ class ProviderConfigManager:
         )
 
         return _oicm_get_provider_script_config(provider)
+
+    @staticmethod
+    def get_provider_diarization_config(
+        provider: LlmProviders,
+    ) -> Optional[BaseDiarizationConfig]:
+        # OICM-custom provider (pyannote) is handled in the co-located
+        # oicm_providers registry.
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_diarization_config as _oicm_get_provider_diarization_config,
+        )
+
+        return _oicm_get_provider_diarization_config(provider)
 
 
 def get_end_user_id_for_cost_tracking(

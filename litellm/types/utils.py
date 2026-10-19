@@ -345,6 +345,7 @@ class ModelInfoBase(ProviderSpecificModelInfo, total=False):
             "responses",
             "ocr",
             "realtime",
+            "diarization",
         ]
     ]
     supported_endpoints: list[str] | None
@@ -397,6 +398,8 @@ class CallTypes(str, Enum):
     speech = "speech"
     acreate_voice = "acreate_voice"
     create_voice = "create_voice"
+    adiarize = "adiarize"
+    diarize = "diarize"
     rerank = "rerank"
     arerank = "arerank"
     search = "search"
@@ -583,6 +586,8 @@ CallTypesLiteral = Literal[
     "speech",
     "acreate_voice",
     "create_voice",
+    "adiarize",
+    "diarize",
     "rerank",
     "arerank",
     "search",
@@ -685,6 +690,9 @@ API_ROUTE_TO_CALL_TYPES: Final[Mapping[str, Sequence[CallTypes]]] = {
     # Audio Voices
     "/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
     "/v1/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    # Audio Diarization
+    "/diarize": [CallTypes.adiarize, CallTypes.diarize],
+    "/v1/diarize": [CallTypes.adiarize, CallTypes.diarize],
     # Moderations
     "/moderations": [CallTypes.amoderation, CallTypes.moderation],
     "/v1/moderations": [CallTypes.amoderation, CallTypes.moderation],
@@ -4073,6 +4081,7 @@ class LlmProviders(str, Enum):
     GDC = "gdc"
     HAMSA = "hamsa"
     OMNIVOICE = "omnivoice"
+    PYANNOTE = "pyannote"
     PADDLEX = "paddlex"
 
 

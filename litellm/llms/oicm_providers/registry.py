@@ -22,6 +22,9 @@ from litellm.types.utils import LlmProviders
 from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
+from litellm.llms.base_llm.diarization.transformation import (
+    BaseDiarizationConfig,
+)
 from litellm.llms.base_llm.text_to_speech.transformation import (
     BaseTextToSpeechConfig,
 )
@@ -114,4 +117,17 @@ def get_provider_audio_transcription_config(
         )
 
         return InceptionAudioTranscriptionConfig()
+    return None
+
+
+def get_provider_diarization_config(
+    provider: LlmProviders,
+) -> BaseDiarizationConfig | None:
+    """Diarization config for OICM-custom providers (pyannote)."""
+    if litellm.LlmProviders.PYANNOTE == provider:
+        from litellm.llms.pyannote.diarization.transformation import (
+            PyannoteDiarizationConfig,
+        )
+
+        return PyannoteDiarizationConfig()
     return None

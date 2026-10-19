@@ -78,6 +78,9 @@ from litellm.llms.base_llm.rerank.transformation import BaseRerankConfig
 from litellm.llms.base_llm.responses.transformation import BaseResponsesAPIConfig
 from litellm.llms.base_llm.search.transformation import BaseSearchConfig, SearchResponse
 from litellm.llms.base_llm.skills.transformation import BaseSkillsAPIConfig
+from litellm.llms.base_llm.diarization.transformation import (
+    BaseDiarizationConfig,
+)
 from litellm.llms.base_llm.text_to_speech.transformation import BaseTextToSpeechConfig
 from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
 from litellm.llms.base_llm.vector_store.transformation import (
@@ -6142,6 +6145,7 @@ class BaseLLMHTTPHandler:
             BaseTextToSpeechConfig,
             BaseVoiceConfig,
             BaseSkillsAPIConfig,
+            BaseDiarizationConfig,
             "BasePassthroughConfig",
             "BaseContainerConfig",
             BaseEvalsAPIConfig,
@@ -12268,6 +12272,172 @@ class BaseLLMHTTPHandler:
             )
 
         return voice_provider_config.transform_create_voice_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    #########################################################
+    ########## DIARIZATION API HANDLERS #####################
+    #########################################################
+
+    def diarization_handler(
+        self,
+        model: str,
+        form_fields: Dict[str, Any],
+        audio_file: tuple,
+        diarization_provider_config: BaseDiarizationConfig,
+        optional_params: Any,
+        litellm_params: Dict,
+        logging_obj: LiteLLMLoggingObj,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        _is_async: bool = False,
+    ) -> dict[str, Any] | Coroutine[Any, Any, dict[str, Any]]:
+        if _is_async:
+            return self.async_diarization_handler(
+                model=model,
+                form_fields=form_fields,
+                audio_file=audio_file,
+                diarization_provider_config=diarization_provider_config,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logging_obj=logging_obj,
+                extra_headers=extra_headers,
+                timeout=timeout,
+                client=client if isinstance(client, AsyncHTTPHandler) else None,
+            )
+
+        if client is None or not isinstance(client, HTTPHandler):
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+        else:
+            sync_httpx_client = client
+
+        headers = diarization_provider_config.validate_environment(
+            api_key=litellm_params.get("api_key"),
+            headers=extra_headers or {},
+            model=model,
+            api_base=litellm_params.get("api_base"),
+        )
+
+        if extra_headers:
+            headers.update(extra_headers)
+
+        api_base = diarization_provider_config.get_complete_url(
+            model=model,
+            api_base=litellm_params.get("api_base"),
+            litellm_params=litellm_params,
+        )
+
+        request_data = diarization_provider_config.transform_diarization_request(
+            model=model,
+            form_fields=form_fields,
+            audio_file=audio_file,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        logging_obj.pre_call(
+            input=form_fields,
+            api_key="",
+            additional_args={
+                "complete_input_dict": request_data,
+                "api_base": api_base,
+                "headers": headers,
+            },
+        )
+
+        try:
+            response = _send_voice_request_sync(
+                client=sync_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(
+                e=e,
+                provider_config=diarization_provider_config,
+            )
+
+        return diarization_provider_config.transform_diarization_response(
+            model=model,
+            raw_response=response,
+            logging_obj=logging_obj,
+        )
+
+    async def async_diarization_handler(
+        self,
+        model: str,
+        form_fields: Dict[str, Any],
+        audio_file: tuple,
+        diarization_provider_config: BaseDiarizationConfig,
+        optional_params: Any,
+        litellm_params: Dict,
+        logging_obj: LiteLLMLoggingObj,
+        timeout: float | httpx.Timeout,
+        extra_headers: dict[str, Any] | None = None,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+    ) -> dict[str, Any]:
+        if client is None or not isinstance(client, AsyncHTTPHandler):
+            async_httpx_client = get_async_httpx_client(
+                llm_provider=litellm.LlmProviders(litellm_params.get("custom_llm_provider", "")),
+                params={"ssl_verify": litellm_params.get("ssl_verify", None)},
+            )
+        else:
+            async_httpx_client = client
+
+        headers = diarization_provider_config.validate_environment(
+            api_key=litellm_params.get("api_key"),
+            headers=extra_headers or {},
+            model=model,
+            api_base=litellm_params.get("api_base"),
+        )
+
+        if extra_headers:
+            headers.update(extra_headers)
+
+        api_base = diarization_provider_config.get_complete_url(
+            model=model,
+            api_base=litellm_params.get("api_base"),
+            litellm_params=litellm_params,
+        )
+
+        request_data = diarization_provider_config.transform_diarization_request(
+            model=model,
+            form_fields=form_fields,
+            audio_file=audio_file,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        logging_obj.pre_call(
+            input=form_fields,
+            api_key="",
+            additional_args={
+                "complete_input_dict": request_data,
+                "api_base": api_base,
+                "headers": headers,
+            },
+        )
+
+        try:
+            response = await _send_voice_request_async(
+                client=async_httpx_client,
+                url=api_base,
+                headers=headers,
+                request_data=request_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(
+                e=e,
+                provider_config=diarization_provider_config,
+            )
+
+        return diarization_provider_config.transform_diarization_response(
             model=model,
             raw_response=response,
             logging_obj=logging_obj,

@@ -3,6 +3,7 @@
 from controller.models import (
     OicmModel,
     build_model,
+    build_oicm_model,
     detect_api_surface,
     detect_mode,
     detect_mode_from_paths,
@@ -95,6 +96,60 @@ class TestDoclingDetection:
         # Guard the substring match: ids merely containing similar letters must
         # not flip providers.
         assert detect_provider("", "openchat-3.5") == "hosted_vllm"
+
+    def test_detect_provider_pyannote_from_diarize_path(self):
+        # A coro pod serves /v1/diarize (plus transcriptions) and has no chat
+        # path, so the OpenAPI probe is the provider signal.
+        paths = frozenset(
+            {"/health", "/v1/audio/transcriptions", "/v1/diarize", "/v1/listen"}
+        )
+        assert detect_provider("", "pyannote/speaker-diarization-community-1", paths) == "pyannote"
+
+    def test_detect_provider_pyannote_not_triggered_with_chat(self):
+        # A chat-capable server also exposing /v1/diarize stays on its id-based
+        # provider (the paddlex branch has the same guard).
+        paths = frozenset({"/v1/chat/completions", "/v1/diarize"})
+        assert detect_provider("", "some-llm", paths) == "hosted_vllm"
+
+    def test_detect_provider_pyannote_from_id_substring(self):
+        # The serving id contains the pyannote prefix, so KNOWN_PROVIDERS
+        # matching fires even without the path probe.
+        assert detect_provider("", "pyannote/community-1", frozenset()) == "pyannote"
+
+    def test_detect_mode_diarize_beats_transcription(self):
+        # A coro pod serves both surfaces; diarize-first classification is the
+        # ordering contract in _PATH_MODES.
+        paths = frozenset(
+            {"/health", "/v1/audio/transcriptions", "/v1/diarize", "/v1/listen"}
+        )
+        assert (
+            detect_mode_from_paths(paths, "pyannote/speaker-diarization-community-1", "")
+            == "diarization"
+        )
+
+    def test_detect_mode_plain_asr_pod_stays_transcription(self):
+        # Pods serving transcriptions without diarize keep their mode.
+        paths = frozenset({"/health", "/v1/audio/transcriptions"})
+        assert detect_mode_from_paths(paths, "whisper-large-v3", "") == "audio_transcription"
+
+    def test_detect_mode_diariz_name_fallback(self):
+        # Probe failed: the name-fallback token classifies diarization pods.
+        assert detect_mode_from_paths(frozenset(), "pyannote-diarize-1", "") == "diarization"
+
+    def test_pyannote_api_base_is_bare_clusterip(self):
+        # NATIVE_BASE_PROVIDERS: no /v1 suffix; the gateway config appends
+        # /v1/diarize itself.
+        model = build_oicm_model(
+            uuid="d4398150-0202-4e1c-ae9a-41be01288fd3",
+            model_id="pyannote/community-1",
+            model_name="pyannote/community-1",
+            namespace="adeo",
+            serving=True,
+            provider="pyannote",
+        )
+        assert model.api_base == (
+            "http://s-d4398150-0202-4e1c-ae9a-41be01288fd3.adeo.svc.cluster.local:8080"
+        )
 
 
 class TestDetectApiSurface:

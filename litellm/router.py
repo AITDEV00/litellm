@@ -4944,6 +4944,83 @@ class Router:
                 self.fail_calls[model_name] += 1
             raise e
 
+    async def adiarize(self, model: str, form_fields: dict, audio_file: tuple, **kwargs):
+        try:
+            kwargs["model"] = model
+            kwargs["form_fields"] = form_fields
+            kwargs["audio_file"] = audio_file
+            kwargs["original_function"] = self._adiarize
+            self._update_kwargs_before_fallbacks(model=model, kwargs=kwargs)
+            response = await self.async_function_with_fallbacks(**kwargs)
+            return response
+        except Exception as e:
+            asyncio.create_task(
+                send_llm_exception_alert(
+                    litellm_router_instance=self,
+                    request_kwargs=kwargs,
+                    error_traceback_str=traceback.format_exc(),
+                    original_exception=e,
+                )
+            )
+            raise e
+
+    async def _adiarize(self, model: str, form_fields: dict, audio_file: tuple, **kwargs):
+        model_name = model
+        try:
+            verbose_router_logger.debug(f"Inside _adiarize()- model: {model}; kwargs: {kwargs}")
+            parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
+            deployment = await self.async_get_available_deployment(
+                model=model,
+                messages=[{"role": "user", "content": "diarization"}],
+                specific_deployment=kwargs.pop("specific_deployment", None),
+                request_kwargs=kwargs,
+            )
+
+            self._update_kwargs_with_deployment(deployment=deployment, kwargs=kwargs)
+            data = deployment["litellm_params"].copy()
+            model_client = self._get_async_openai_model_client(
+                deployment=deployment,
+                kwargs=kwargs,
+            )
+
+            self.total_calls[model_name] += 1
+            response = litellm.adiarize(
+                **{
+                    **data,
+                    "form_fields": form_fields,
+                    "audio_file": audio_file,
+                    "client": model_client,
+                    **kwargs,
+                }
+            )
+
+            rpm_semaphore = self._get_client(
+                deployment=deployment,
+                kwargs=kwargs,
+                client_type="max_parallel_requests",
+            )
+
+            if rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
+                async with rpm_semaphore:
+                    await self.async_routing_strategy_pre_call_checks(
+                        deployment=deployment, parent_otel_span=parent_otel_span
+                    )
+                    response = await response
+            else:
+                await self.async_routing_strategy_pre_call_checks(
+                    deployment=deployment, parent_otel_span=parent_otel_span
+                )
+                response = await response
+
+            self.success_calls[model_name] += 1
+            verbose_router_logger.info(f"litellm.adiarize(model={model_name})\033[32m 200 OK\033[0m")
+            return response
+        except Exception as e:
+            verbose_router_logger.info(f"litellm.adiarize(model={model_name})\033[31m Exception {str(e)}\033[0m")
+            if model_name is not None:
+                self.fail_calls[model_name] += 1
+            raise e
+
     async def arerank(self, model: str, **kwargs):
         try:
             kwargs["model"] = model

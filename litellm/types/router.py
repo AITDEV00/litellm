@@ -699,7 +699,17 @@ class ModelGroupInfo(BaseModel):
     input_cost_per_pixel: float | None = None
     mode: (
         str
-        | Literal["chat", "embedding", "completion", "image_generation", "audio_transcription", "rerank", "moderations"]
+        | Literal[
+            "chat",
+            "embedding",
+            "completion",
+            "image_generation",
+            "audio_transcription",
+            "audio_speech",
+            "rerank",
+            "moderations",
+            "diarization",
+        ]
         | None
     ) = Field(default="chat")
     tpm: int | None = None

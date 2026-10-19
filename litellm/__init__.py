@@ -2372,6 +2372,15 @@ def __getattr__(name: str) -> Any:
 
         return locals()[name]
 
+    # Lazy load OICM diarization SDK functions (co-located slice in endpoints/diarization)
+    if name in ["adiarize", "diarize"]:
+        from litellm.endpoints.diarization.main import (
+            adiarize,
+            diarize,
+        )
+
+        return locals()[name]
+
     # Lazy load evals module functions
     if name in [
         "acreate_eval",

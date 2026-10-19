@@ -27,13 +27,13 @@ def strip_source_prefix(uuid: str) -> str:
 # Providers recognized by substring in the deployment's owned_by / model id.
 # Substring (not exact) matching, so suffixed ids like "hamsa-tts-new" still
 # resolve to the "hamsa" provider.
-KNOWN_PROVIDERS: Final[Tuple[str, ...]] = ("inception", "hamsa", "omnivoice")
+KNOWN_PROVIDERS: Final[Tuple[str, ...]] = ("inception", "hamsa", "omnivoice", "pyannote")
 
 # Providers whose pods serve a native REST surface instead of an OpenAI /v1
 # API. Their LiteLLM config classes append their own paths to api_base (e.g.
 # HamsaTextToSpeechConfig -> "<api_base>/tts/stream"), so the registered
 # api_base must be the bare ClusterIP with no "/v1" suffix.
-NATIVE_BASE_PROVIDERS: Final[FrozenSet[str]] = frozenset({"hamsa"})
+NATIVE_BASE_PROVIDERS: Final[FrozenSet[str]] = frozenset({"hamsa", "pyannote"})
 
 # Hamsa API surface variants, mirrored in litellm.llms.hamsa.common_utils.
 # The controller sniffs the pod's openapi.json and stamps the matching surface
@@ -156,12 +156,20 @@ RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
 HAMSA_TTS_PATH = "/tts/stream"
 HAMSA_TRANSCRIPTION_PATH = "/transcribe"
 
+# pyannoteAI-compatible diarization path served by coro deployments.
+DIARIZE_PATH = "/v1/diarize"
+
 # Ordered path to mode, most specific first. A path only implies a mode when the
 # chat path is absent, so this is consulted once that is established. A frozenset
 # value means any one of its members implies the mode.
 _PATH_MODES: Final[Tuple[Tuple[object, str], ...]] = (
     (EMBEDDING_PATH, "embedding"),
     (RERANK_PATHS, "rerank"),
+    # Diarize before transcription: a coro pod serves both surfaces, and the
+    # table returns its first hit, so diarize-first classifies coro as a
+    # diarization model. Pods serving transcriptions without diarize are
+    # unaffected, and chat-capable servers never reach the table.
+    (DIARIZE_PATH, "diarization"),
     (TRANSCRIPTION_PATH, "audio_transcription"),
     (TTS_PATH, "text_to_speech"),
     (HAMSA_TTS_PATH, "text_to_speech"),
@@ -176,6 +184,7 @@ _NAME_MODES: Final[Tuple[Tuple[str, str], ...]] = (
     ("asr", "audio_transcription"),
     ("-tts", "text_to_speech"),
     ("-stt", "audio_transcription"),
+    ("diariz", "diarization"),
 )
 
 
@@ -325,6 +334,9 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
 
     if "k2-fsa" in owner_lower or "k2fsa" in mid_lower:
         return "omnivoice"
+
+    if DIARIZE_PATH in paths and CHAT_PATH not in paths:
+        return "pyannote"
 
     if OCR_PATH in paths and CHAT_PATH not in paths:
         return "paddlex"

@@ -172,3 +172,59 @@ def test_client_distribution_module_has_router() -> None:
     from litellm.proxy.client_distribution import router
 
     assert len(router.routes) > 0, "client_distribution router is empty"
+
+
+# ---------------------------------------------------------------------------
+# Slice: diarization route (litellm/proxy/diarization_routes.py)
+# ---------------------------------------------------------------------------
+
+
+def test_diarization_routes_router_is_mounted_on_app() -> None:
+    """The /v1/diarize router must be included on the FastAPI app after a merge."""
+    from litellm.proxy.proxy_server import app
+
+    mounted_paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None) and "/diarize" in route.path
+    }
+    assert mounted_paths, "no /diarize route mounted; diarization_routes slice was dropped"
+
+
+def test_diarization_routes_module_has_router() -> None:
+    from litellm.proxy.diarization_routes import router
+
+    assert len(router.routes) > 0, "diarization_routes router is empty"
+
+
+# ---------------------------------------------------------------------------
+# Slice: diarization SDK (litellm/endpoints/diarization)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["diarize", "adiarize"],
+)
+def test_diarization_sdk_slice_wired_into_litellm_namespace(name: str) -> None:
+    fn = getattr(litellm, name)
+    assert callable(fn)
+    assert fn.__module__.startswith("litellm.endpoints.diarization")
+
+
+def test_diarization_provider_registry_dispatch_wired() -> None:
+    """The registry must dispatch pyannote to the diarization config."""
+    from litellm.utils import ProviderConfigManager
+
+    cfg = ProviderConfigManager.get_provider_diarization_config(litellm.LlmProviders.PYANNOTE)
+    assert cfg is not None, "PYANNOTE diarization config dispatch was dropped"
+    assert cfg.__class__.__name__ == "PyannoteDiarizationConfig"
+
+
+def test_diarization_route_type_dispatch_wired() -> None:
+    """route_llm_request must map adiarize to the /v1/diarize endpoint."""
+    from litellm.proxy.route_llm_request import ROUTE_ENDPOINT_MAPPING
+
+    assert ROUTE_ENDPOINT_MAPPING.get("adiarize") == "/v1/diarize", (
+        "adiarize dispatch mapping was dropped from route_llm_request"
+    )
