@@ -62,30 +62,70 @@ if ! (exec 3< "$TTY_INPUT") 2>/dev/null; then
   die "this installer asks for your gateway key interactively; run it from a terminal (or: curl -fsSL URL -o install.sh && ./install.sh)"
 fi
 
+# readline editing (arrows, backspace) on the tty. The raw `read -r` strips
+# nothing: pressing Left inserts the literal escape sequence ^[[D into the
+# entry, so a pasted-then-corrected key ends up rejected. bash's `read -e`
+# binds the line editor when stdin is the tty; dash has no -e, so the
+# fallback is a raw read on shells without it.
+read_line() {
+  if [ "${BASH_VERSION:-}" ]; then
+    IFS= read -e -r "$1" < "$TTY_INPUT"
+  else
+    IFS= read -r "$1" < "$TTY_INPUT"
+  fi
+}
+
 # ── 1. prompt for the gateway key (visible input) ─────────────────────────
 echo ""
 header "Gateway API key"
-printf "  Paste your ADEO LiteLLM virtual key, then Enter: " > "$TTY_INPUT"
-if ! IFS= read -r API_KEY < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
-echo "" > "$TTY_INPUT"
+printf "  Paste your ADEO LiteLLM virtual key below, then press Enter:\n" > "$TTY_INPUT"
+printf "  > " > "$TTY_INPUT"
+if ! read_line API_KEY; then echo "" > "$TTY_INPUT"; die "no key entered"; fi
+printf "\n" > "$TTY_INPUT"
 [ -n "$API_KEY" ] || die "no key entered"
 
 curl -fsSL -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/models?limit=2000" -o "$TMP/models.json" \
   || die "that key was rejected by $BASE_URL; check it with your platform admin"
 info "key accepted"
 
-# ── 2. harness selection (list baked at render time, no jq needed) ───────
+# ── 2. harness selection (installed harnesses only, no jq needed) ───────
 # The harness names are rendered from the manifest into this script, so the
 # menu can appear before jq is bootstrapped. Adding a harness stays a store
 # sync, not a script change: a new manifest re-renders the list.
+# Only harnesses whose config dir exists are offered: cc-switch skips live
+# sync for uninitialized apps (their config dir is missing), so configuring
+# one the user has never installed would silently do nothing. Detection
+# mirrors cc-switch's own initialization check per harness.
 HARNESSES="{% for h in harnesses | sort(attribute='harness') %}{{ h.harness }} {% endfor %}"
 [ -n "$HARNESSES" ] || die "manifest declares no harnesses"
+INSTALLED=""
+for h in $HARNESSES; do
+  case "$h" in
+    claude)   h_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ;;
+    codex)    if [ -n "${CODEX_HOME:-}" ] && [ -d "$CODEX_HOME" ]; then h_dir="$CODEX_HOME"; else h_dir="$HOME/.codex"; fi ;;
+    gemini)   h_dir="$HOME/.gemini" ;;
+    open-code) h_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ;;
+    hermes)   h_dir="$HOME/.hermes" ;;
+    open-claw) h_dir="$HOME/.openclaw" ;;
+    pi)       if [ -n "${PI_CODING_AGENT_DIR:-}" ]; then h_dir="$PI_CODING_AGENT_DIR"; else h_dir="$HOME/.pi/agent"; fi ;;
+    *)        h_dir="" ;;
+  esac
+  [ -n "$h_dir" ] && [ -d "$h_dir" ] && INSTALLED="$INSTALLED $h"
+done
+if [ -z "$INSTALLED" ]; then
+  echo ""
+  die "none of the supported harnesses are installed on this machine. Install at least one first (cc-switch supports: Claude Code, Codex CLI, Gemini CLI, OpenCode, Hermes, OpenClaw, Pi), then re-run this script"
+fi
+# Trim the leading space: the menu numbers index from 1, and a leading
+# space would shift every cut field by one (picking 1 would select nothing).
+HARNESSES="${INSTALLED# }"
 echo ""
 header "Which harnesses should route through the gateway?"
 i=1
 for h in $HARNESSES; do printf "    %d) %s\n" "$i" "$h"; i=$((i+1)); done
-printf "  Enter numbers separated by spaces (e.g. 1 3): " > "$TTY_INPUT"
-if ! IFS= read -r PICKS < "$TTY_INPUT"; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
+printf "  Enter numbers separated by spaces (e.g. 1 3):\n" > "$TTY_INPUT"
+printf "  > " > "$TTY_INPUT"
+if ! read_line PICKS; then echo "" > "$TTY_INPUT"; die "nothing selected"; fi
 [ -n "$PICKS" ] || die "nothing selected"
 
 CHOSEN=""

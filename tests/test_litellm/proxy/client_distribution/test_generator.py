@@ -113,13 +113,41 @@ def test_render_prompts_read_from_tty_not_stdin() -> None:
     install from the pipe failed with 401 before the user could type).
     """
     script: str = render_install_script(_MANIFEST, _BASE_URL)
-    assert 'read -r API_KEY < "$TTY_INPUT"' in script
-    assert 'read -r PICKS < "$TTY_INPUT"' in script
+    assert "read_line API_KEY" in script
+    assert "read_line PICKS" in script
+    # read_line reads the tty, never bare stdin, and binds the bash line
+    # editor so arrows/backspace edit instead of injecting escape bytes
+    assert 'read -e -r "$1" < "$TTY_INPUT"' in script
     # No prompt may read bare stdin
     assert "IFS= read -r API_KEY\n" not in script
     assert "IFS= read -r PICKS\n" not in script
     # Piped-mode users without a terminal get a clear error up front
     assert "run it from a terminal" in script
+
+
+def test_render_harness_menu_lists_installed_only() -> None:
+    """Only installed harnesses are offered; none installed dies with guidance.
+
+    cc-switch skips live sync for uninitialized apps (their config dir is
+    missing), so configuring a harness the user never installed would
+    silently do nothing. The menu must detect installations first, and a
+    machine with none must get a clear, actionable message naming the
+    supported harnesses.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    # Detection mirrors cc-switch's own initialization check per harness
+    assert 'claude)   h_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"' in script
+    assert '"$HOME/.codex"' in script
+    assert '"${XDG_CONFIG_HOME:-$HOME/.config}/opencode"' in script
+    assert '"$HOME/.pi/agent"' in script
+    # Only dir-existing harnesses are offered
+    assert 'INSTALLED="$INSTALLED $h"' in script
+    # None installed -> clear message naming the supported harnesses
+    assert "none of the supported harnesses are installed" in script
+    assert "Install at least one first" in script
+    # The offered list is the detected subset, not the manifest's full list;
+    # leading space trimmed so menu numbers index from 1 correctly
+    assert 'HARNESSES="${INSTALLED# }"' in script
 
 
 def test_render_key_input_is_visible() -> None:
