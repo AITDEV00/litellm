@@ -19,8 +19,8 @@
 # Usage:
 #   export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 #   export LITELLM_API_KEY="sk-..."
-#   ./set_reasoning_effort_default.sh deepseek-ai/DeepSeek-V4.1-Flash xhigh
-#   ./set_reasoning_effort_default.sh ffc021e6-832e-4e83-b9a9-40cb20107a92 xhigh --apply
+#   ./set_reasoning_effort_default.sh deepseek-ai/DeepSeek-V4.1-Flash max
+#   ./set_reasoning_effort_default.sh ffc021e6-832e-4e83-b9a9-40cb20107a92 max --apply
 #
 # Positional:
 #   1  model_name or model_info.id of the deployment
