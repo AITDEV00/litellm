@@ -4593,6 +4593,7 @@ proxy = [
     { name = "litellm-enterprise" },
     { name = "litellm-proxy-extras" },
     { name = "mcp" },
+    { name = "loguru" },
     { name = "openrouter" },
     { name = "orjson" },
     { name = "polars" },
@@ -4826,6 +4827,7 @@ requires-dist = [
     { name = "nvidia-riva-client", marker = "extra == 'stt-nvidia-riva'", specifier = ">=2.15.0" },
     { name = "openai", specifier = ">=2.20.0,<3.0.0" },
     { name = "openrouter", marker = "extra == 'proxy'", specifier = ">=1.2.0,<2.0" },
+    { name = "loguru", marker = "extra == 'proxy'", specifier = ">=0.7.3,<1.0" },
     { name = "opentelemetry-api", marker = "extra == 'proxy-runtime'", specifier = "==1.33.1" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'proxy-runtime'", specifier = "==1.33.1" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'proxy-runtime'", specifier = "==0.54b1" },
@@ -5082,6 +5084,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/fa/14cbd976e8ff77290c0c87f93c45029785537ffb84e2f5215416786cda11/logfire-4.6.0.tar.gz", hash = "sha256:974bc8f4efd3aa9df2d0c7b1d53b35dc4612ff5cee2be6c40dd65e5c26eab694", size = 533174, upload-time = "2025-09-10T14:56:42.168Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/9c/6384dc69601bfba19c1f5909a472b00cc4b5863f411ecf85be308beacf8f/logfire-4.6.0-py3-none-any.whl", hash = "sha256:d322844db7a2f1935976f2852a07e3753489ecc4e83fa288173b05a453bb1cbf", size = 219556, upload-time = "2025-09-10T14:56:37.278Z" },
+]
+
+[[package]]
+name = "loguru"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
 ]
 
 [[package]]
@@ -10653,6 +10668,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/2e/52e9ef2b5c8ef2470e1e3ae3ef89f7ac45eecd267c7b3bab8a7ad7d68af1/xmlsec-1.3.17-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:3d1fc1fbe2e8585a3f468cf4154d0ec36cd95a15e68429ad8cc8ccd7c04e84ae", size = 4214358, upload-time = "2025-11-11T16:20:24.073Z" },
     { url = "https://files.pythonhosted.org/packages/ab/cd/5e9061027a203fd083b6058c2948ee1a16bd909d3a0e331e054362ca550e/xmlsec-1.3.17-cp314-cp314-win_amd64.whl", hash = "sha256:e2bf1d07c4f97afeb957f626b8c3ebb8cef300efa0cb95599e936c69a66a1b17", size = 2513252, upload-time = "2025-11-11T16:20:25.738Z" },
     { url = "https://files.pythonhosted.org/packages/93/e9/b2f4b9092434b854bcae0d901c10a7e96d2a12d03cc35dbf7a7b2c91502b/xmlsec-1.3.17-cp314-cp314-win_arm64.whl", hash = "sha256:3a6ced8c7744e896cb5a9fd0156d204df3143a62bae11be91cab8e9743d40eec", size = 2328451, upload-time = "2025-11-11T16:20:27.247Z" },
+]
+
+[[package]]
+name = "win32-setctime"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]
