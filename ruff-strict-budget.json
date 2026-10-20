@@ -96,7 +96,7 @@
     "limit": 241
   },
   "DTZ006": {
-    "limit": 13
+    "limit": 12
   },
   "DTZ007": {
     "limit": 21
@@ -195,7 +195,7 @@
     "limit": 4
   },
   "PLW0602": {
-    "limit": 227
+    "limit": 226
   },
   "PLW0603": {
     "limit": 191
@@ -267,7 +267,7 @@
     "limit": 323
   },
   "SIM103": {
-    "limit": 123
+    "limit": 122
   },
   "SIM113": {
     "limit": 6
