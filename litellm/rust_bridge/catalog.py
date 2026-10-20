@@ -57,7 +57,10 @@ class Rule:
 
 Rules: TypeAlias = tuple[Rule, ...]
 
+PYTHON_ONLY_OCR_PROVIDERS: Final = frozenset({"paddlex"})
+
 RULES: Final[Rules] = (
+    Rule(Route.OCR, Rollout.PYTHON_ONLY, providers=PYTHON_ONLY_OCR_PROVIDERS),
     Rule(Route.OCR, Rollout.RUST_REQUIRED, providers=frozenset({"aws_textract"})),
     Rule(Route.OCR, Rollout.RUST_OPT_OUT),
     Rule(Route.MESSAGES, Rollout.PYTHON_ONLY),

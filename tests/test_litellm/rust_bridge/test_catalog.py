@@ -38,8 +38,12 @@ def test_shipped_decisions(
 
     if route is Route.OCR:
         enabled: Final = environment == "1" if environment is not None else process is not False
-        assert catalog.rollout(context) is Rollout.RUST_OPT_OUT
-        assert catalog.decision(context) is (Decision.RUST_WITH_FALLBACK if enabled else Decision.PYTHON)
+        if provider == "paddlex":
+            assert catalog.rollout(context) is Rollout.PYTHON_ONLY
+            assert catalog.decision(context) is Decision.PYTHON
+        else:
+            assert catalog.rollout(context) is Rollout.RUST_OPT_OUT
+            assert catalog.decision(context) is (Decision.RUST_WITH_FALLBACK if enabled else Decision.PYTHON)
     elif route is Route.TRANSCRIPTION and provider == "bedrock":
         assert catalog.rollout(context) is Rollout.RUST_REQUIRED
         assert catalog.decision(context) is Decision.RUST_REQUIRED
@@ -81,6 +85,25 @@ def test_first_matching_rule_respects_every_constraint(context: Context, expecte
     )
 
     assert catalog.decision(context, rules) is expected
+
+
+@pytest.mark.parametrize("process", (None, False, True))
+@pytest.mark.parametrize("environment", (None, "0", "1"))
+def test_paddlex_ocr_stays_on_python_so_the_rust_core_cannot_reject_it(
+    monkeypatch: pytest.MonkeyPatch, process: bool | None, environment: str | None
+) -> None:
+    """The Rust OCR core's provider enum has no `paddlex`, and it reports an
+    unknown provider as a hard ValueError rather than RustBridgeDeclined. Any
+    rollout that hands paddlex to Rust therefore fails the request instead of
+    falling back, so it has to be pinned to Python regardless of the switch."""
+    configuration.rust(process)
+    if environment is not None:
+        monkeypatch.setenv("LITELLM_RUST", environment)
+
+    context: Final = Context(Route.OCR, provider="paddlex", model="PP-DocLayoutV3")
+
+    assert catalog.rollout(context) is Rollout.PYTHON_ONLY
+    assert catalog.decision(context) is Decision.PYTHON
 
 
 @pytest.mark.parametrize("process", (None, False, True))
