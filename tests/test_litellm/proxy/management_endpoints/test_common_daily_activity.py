@@ -2453,3 +2453,19 @@ async def test_aggregated_sql_is_bounded_per_grouping_level():
     assert params[-1] == _MAX_ROWS_PER_GROUPING_LEVEL
     # The cap placeholder index matches the params length
     assert normalized_sql.endswith(f"WHERE level_rank <= ${len(params)}")
+
+
+async def test_get_api_key_metadata_resolves_cli_session_keys_from_the_key_itself():
+    mock_prisma = MagicMock()
+    mock_prisma.db.litellm_verificationtoken.find_many = AsyncMock(return_value=[])
+    mock_prisma.db.litellm_deletedverificationtoken.find_many = AsyncMock(return_value=[])
+    mock_prisma.db.query_raw = AsyncMock(side_effect=AssertionError("no reverse-hash or spend-log scan expected"))
+    mock_prisma.db.litellm_usertable.find_many = AsyncMock(
+        return_value=[SimpleNamespace(user_id="alice", user_email="alice@example.com", teams=["team-a"])]
+    )
+
+    result = await get_api_key_metadata(prisma_client=mock_prisma, api_keys={"cli-session-alice"})
+
+    assert result["cli-session-alice"]["key_alias"] == "cli-session-alice"
+    assert result["cli-session-alice"]["user_email"] == "alice@example.com"
+    assert result["cli-session-alice"]["team_id"] == "team-a"

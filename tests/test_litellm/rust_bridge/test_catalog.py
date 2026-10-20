@@ -6,7 +6,7 @@ from typing import Final
 import pytest
 
 from litellm.rust_bridge import catalog, configuration
-from litellm.rust_bridge.catalog import Context, Delivery, Route, Rule
+from litellm.rust_bridge.catalog import Delivery, Route, RouteContext, RouteRule
 from litellm.rust_bridge.configuration import Decision, Rollout
 
 
@@ -34,19 +34,18 @@ def test_shipped_decisions(
     configuration.rust(process)
     if environment is not None:
         monkeypatch.setenv("LITELLM_RUST", environment)
-    context: Final = Context(route, provider=provider, model="test-model", delivery=delivery)
+    context: Final = RouteContext(route, provider=provider, model="test-model", delivery=delivery)
 
     if route is Route.OCR:
-        enabled: Final = environment == "1" if environment is not None else process is not False
-        if provider == "paddlex":
-            assert catalog.rollout(context) is Rollout.PYTHON_ONLY
-            assert catalog.decision(context) is Decision.PYTHON
-        else:
-            assert catalog.rollout(context) is Rollout.RUST_OPT_OUT
-            assert catalog.decision(context) is (Decision.RUST_WITH_FALLBACK if enabled else Decision.PYTHON)
+        assert catalog.rollout(context) is Rollout.RUST_REQUIRED
+        assert catalog.decision(context) is Decision.RUST_REQUIRED
     elif route is Route.TRANSCRIPTION and provider == "bedrock":
         assert catalog.rollout(context) is Rollout.RUST_REQUIRED
         assert catalog.decision(context) is Decision.RUST_REQUIRED
+    elif route is Route.MESSAGES and provider == "anthropic":
+        assert catalog.rollout(context) is Rollout.RUST_OPT_IN
+        opted_in: Final = environment == "1" if environment is not None else process is True
+        assert catalog.decision(context) is (Decision.RUST_WITH_FALLBACK if opted_in else Decision.PYTHON)
     else:
         assert catalog.rollout(context) is Rollout.PYTHON_ONLY
         assert catalog.decision(context) is Decision.PYTHON
@@ -57,53 +56,47 @@ def test_missing_rule_stays_on_python_even_when_rust_is_enabled(monkeypatch: pyt
     configuration.rust(True)
     monkeypatch.setenv("LITELLM_RUST", "1")
 
-    assert catalog.rollout(Context(route), rules=()) is Rollout.PYTHON_ONLY
-    assert catalog.decision(Context(route), rules=()) is Decision.PYTHON
+    assert catalog.rollout(RouteContext(route), rules=()) is Rollout.PYTHON_ONLY
+    assert catalog.decision(RouteContext(route), rules=()) is Decision.PYTHON
 
 
 @pytest.mark.parametrize(
     ("context", "expected"),
     (
-        (Context(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.RUST_REQUIRED),
-        (Context(Route.RESPONSES, provider="openai", model="m"), Decision.PYTHON),
-        (Context(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.STREAMING), Decision.PYTHON),
-        (Context(Route.RESPONSES, provider="openai", model="other", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
-        (Context(Route.RESPONSES, provider="anthropic", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
-        (Context(Route.MESSAGES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
+        (RouteContext(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.RUST_REQUIRED),
+        (RouteContext(Route.RESPONSES, provider="openai", model="m"), Decision.PYTHON),
+        (RouteContext(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.STREAMING), Decision.PYTHON),
+        (RouteContext(Route.RESPONSES, provider="openai", model="other", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
+        (RouteContext(Route.RESPONSES, provider="anthropic", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
+        (RouteContext(Route.MESSAGES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
     ),
 )
 def test_first_matching_rule_respects_every_constraint(context: Context, expected: Decision) -> None:
     rules: Final = (
-        Rule(
+        RouteRule(
             Route.RESPONSES,
             Rollout.RUST_REQUIRED,
             providers=frozenset({"openai"}),
             models=frozenset({"m"}),
             deliveries=frozenset({Delivery.WEBSOCKET}),
         ),
-        Rule(Route.RESPONSES, Rollout.PYTHON_ONLY),
+        RouteRule(Route.RESPONSES, Rollout.PYTHON_ONLY),
     )
 
     assert catalog.decision(context, rules) is expected
 
 
-@pytest.mark.parametrize("process", (None, False, True))
-@pytest.mark.parametrize("environment", (None, "0", "1"))
-def test_paddlex_ocr_stays_on_python_so_the_rust_core_cannot_reject_it(
-    monkeypatch: pytest.MonkeyPatch, process: bool | None, environment: str | None
-) -> None:
-    """The Rust OCR core's provider enum has no `paddlex`, and it reports an
-    unknown provider as a hard ValueError rather than RustBridgeDeclined. Any
-    rollout that hands paddlex to Rust therefore fails the request instead of
-    falling back, so it has to be pinned to Python regardless of the switch."""
-    configuration.rust(process)
-    if environment is not None:
-        monkeypatch.setenv("LITELLM_RUST", environment)
+@pytest.mark.parametrize("provider", ("paddlex", "mistral", "aws_textract", "azure_ai", "cohere", "reducto"))
+def test_every_ocr_provider_routes_to_rust_because_python_ocr_no_longer_exists(provider: str) -> None:
+    """Upstream removed the Python OCR execution path, so a provider pinned to
+    Python would have nothing to dispatch to. Every OCR provider, including the
+    OICM-custom paddlex, must reach the Rust route."""
+    configuration.rust(True)
 
-    context: Final = Context(Route.OCR, provider="paddlex", model="PP-DocLayoutV3")
+    context: Final = RouteContext(Route.OCR, provider=provider, model="PP-DocLayoutV3")
 
-    assert catalog.rollout(context) is Rollout.PYTHON_ONLY
-    assert catalog.decision(context) is Decision.PYTHON
+    assert catalog.rollout(context) is Rollout.RUST_REQUIRED
+    assert catalog.decision(context) is Decision.RUST_REQUIRED
 
 
 @pytest.mark.parametrize("process", (None, False, True))
@@ -115,4 +108,4 @@ def test_textract_ocr_has_no_python_path_to_opt_out_to(
     if environment is not None:
         monkeypatch.setenv("LITELLM_RUST", environment)
 
-    assert catalog.decision(Context(Route.OCR, provider="aws_textract", model="m")) is Decision.RUST_REQUIRED
+    assert catalog.decision(RouteContext(Route.OCR, provider="aws_textract", model="m")) is Decision.RUST_REQUIRED
