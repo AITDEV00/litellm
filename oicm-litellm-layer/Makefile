@@ -29,6 +29,12 @@ LITELLM_DOCKERFILE := $(LITELLM_SRC_DIR)/Dockerfile
 LITELLM_SRC_TAG    ?= $(shell git -C $(LITELLM_SRC_DIR) rev-parse --abbrev-ref HEAD | tr '/' '_')
 LITELLM_SRC_HARBOR_IMG := $(REGISTRY)/$(REPO_PATH)/litellm-src
 
+# Extra `podman build` flags, e.g. to route around a DNS sinkhole on this box.
+# The admin-mcp dependency group pulls a tarball from codeload.github.com, which
+# resolves to 6.6.6.6 here. Pass the real address with:
+#   make litellm-src-build LITELLM_SRC_BUILD_ARGS=--add-host=codeload.github.com:20.233.83.150
+LITELLM_SRC_BUILD_ARGS ?=
+
 LITELLM_VENV_BIN := .venv/bin
 LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
@@ -176,6 +182,7 @@ clean:
 litellm-src-build:
 	@echo "Building $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 	podman build \
+		$(LITELLM_SRC_BUILD_ARGS) \
 		--tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) \
 		--file $(LITELLM_DOCKERFILE) \
 		$(LITELLM_SRC_DIR)

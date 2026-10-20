@@ -11,8 +11,8 @@ import { DataTable, DataTableSortHeader } from "../../../shared/DataTable";
 import { UiLoadingSpinner } from "../../../ui/ui-loading-spinner";
 import type { ModelPerformanceModel, ModelPerformanceScope, ModelPerformanceTimePoint } from "./types";
 import { uiSpendLogsCall } from "../../../networking";
-import { LogDetailsDrawer } from "../../../view_logs/LogDetailsDrawer/LogDetailsDrawer";
-import type { LogEntry } from "../../../view_logs/columns";
+import { LogDetailsDrawer } from "../../../logs/detail/LogDetailsDrawer";
+import type { LogEntry } from "../../../logs/types";
 
 const WINDOW_OPTIONS = [
   { label: "5m", value: "5m" },
