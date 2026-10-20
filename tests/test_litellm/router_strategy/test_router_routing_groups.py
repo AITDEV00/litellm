@@ -13,9 +13,15 @@ from collections.abc import Callable
 from unittest.mock import patch
 
 import pytest
+from typing import Final
+from unittest.mock import patch
+
+import pytest
+from pydantic import ValidationError
 
 import litellm
 from litellm import Router
+from litellm.caching.redis_cache import RedisPipelineIncrementOperation
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.types.router import RoutingGroup, RoutingStrategy
 from litellm.utils import Rules, function_setup
@@ -806,6 +812,165 @@ def test_strategy_reinit_unregisters_override_selectors():
     assert router._get_override_strategy_selector("latency-based-routing") is router.lowestlatency_logger
 
 
+def _single_latency_group():
+    return [{"group_name": "g1", "models": ["filtered-model"], "routing_strategy": "latency-based-routing"}]
+
+
+def _assert_still_routes_with_original_group(router, selector):
+    assert list(router._routing_groups) == ["g1"]
+    assert router._model_to_group == {"filtered-model": "g1"}
+    assert router._group_selectors["g1"]["latency-based-routing"] is selector
+    assert router._get_routing_context("filtered-model", None) == ("latency-based-routing", selector)
+    assert sum(1 for cb in litellm.callbacks if cb is selector) == 1
+
+
+def test_failed_routing_groups_update_keeps_previous_groups(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router(routing_groups=_single_latency_group())
+    selector = router._group_selectors["g1"]["latency-based-routing"]
+
+    with pytest.raises(ValueError, match="appears in"):
+        router.update_settings(
+            routing_groups=[
+                *_single_latency_group(),
+                {"group_name": "g2", "models": ["filtered-model"], "routing_strategy": "least-busy"},
+            ],
+        )
+
+    _assert_still_routes_with_original_group(router, selector)
+    assert sum(1 for cb in litellm.callbacks if type(cb) is not type(selector)) == 0
+    assert litellm.input_callback == []
+
+
+def test_failed_routing_groups_update_does_not_poison_later_strategy_changes(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router(routing_groups=_single_latency_group())
+
+    with pytest.raises(ValueError, match="appears in"):
+        router.update_settings(
+            routing_groups=[
+                *_single_latency_group(),
+                {"group_name": "g2", "models": ["filtered-model"], "routing_strategy": "least-busy"},
+            ],
+        )
+
+    router.update_settings(routing_strategy="least-busy")
+
+    assert list(router._routing_groups) == ["g1"]
+    assert [g["group_name"] for g in router.get_settings()["routing_groups"]] == ["g1"]
+
+
+def test_overlap_error_names_every_conflicting_model():
+    with pytest.raises(ValueError, match="appears in") as exc_info:
+        _build_router(
+            routing_groups=[
+                {
+                    "group_name": "g1",
+                    "models": ["filtered-model", "other-model"],
+                    "routing_strategy": "latency-based-routing",
+                },
+                {
+                    "group_name": "g2",
+                    "models": ["filtered-model", "other-model"],
+                    "routing_strategy": "least-busy",
+                },
+            ],
+        )
+    message = str(exc_info.value)
+    assert "'filtered-model' appears in 'g1' and 'g2'" in message
+    assert "'other-model' appears in 'g1' and 'g2'" in message
+
+
+def test_invalid_group_strategy_keeps_previous_groups(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router(routing_groups=_single_latency_group())
+    selector = router._group_selectors["g1"]["latency-based-routing"]
+
+    with pytest.raises(ValueError, match="Invalid routing_strategy"):
+        router.update_settings(
+            routing_groups=[
+                {"group_name": "g2", "models": ["other-model"], "routing_strategy": "not-a-real-strategy"},
+            ],
+        )
+
+    _assert_still_routes_with_original_group(router, selector)
+
+
+def test_unbuildable_group_selector_keeps_previous_groups(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router(routing_groups=_single_latency_group())
+    selector = router._group_selectors["g1"]["latency-based-routing"]
+
+    with pytest.raises(ValidationError, match="ttl"):
+        router.update_settings(
+            routing_groups=[
+                {"group_name": "g0", "models": ["other-model"], "routing_strategy": "least-busy"},
+                *_single_latency_group(),
+                {
+                    "group_name": "g2",
+                    "models": ["other-model-2"],
+                    "routing_strategy": "latency-based-routing",
+                    "routing_strategy_args": {"ttl": "not-a-number"},
+                },
+            ],
+        )
+
+    _assert_still_routes_with_original_group(router, selector)
+    assert litellm.callbacks == [selector]
+    assert litellm.input_callback == []
+
+
+def test_register_router_selector_wires_only_the_hooks_the_strategy_needs(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router()
+    least_busy = router._build_strategy_selector(
+        strategy="least-busy", routing_strategy_args={}, register_callbacks=False
+    )
+    latency = router._build_strategy_selector(
+        strategy="latency-based-routing", routing_strategy_args={}, register_callbacks=False
+    )
+    assert least_busy is not None and latency is not None
+    assert litellm.callbacks == [] and litellm.input_callback == []
+
+    router._register_router_selector(least_busy)
+    router._register_router_selector(latency)
+
+    assert [cb for cb in litellm.callbacks if cb is least_busy or cb is latency] == [least_busy, latency]
+    assert litellm.input_callback == [least_busy]
+
+
+def test_replace_routing_groups_swaps_state_and_callbacks_in_one_step(monkeypatch):
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router = _build_router(routing_groups=_single_latency_group())
+    old_selector = router._group_selectors["g1"]["latency-based-routing"]
+    new_selector = router._build_strategy_selector(
+        strategy="least-busy", routing_strategy_args={}, register_callbacks=False
+    )
+    assert new_selector is not None
+
+    router._replace_routing_groups(
+        (
+            (RoutingGroup(group_name="g2", models=["other-model"], routing_strategy="least-busy"), new_selector),
+            (RoutingGroup(group_name="g3", models=["other-model-2"], routing_strategy="simple-shuffle"), None),
+        )
+    )
+
+    assert list(router._routing_groups) == ["g2", "g3"]
+    assert router._model_to_group == {"other-model": "g2", "other-model-2": "g3"}
+    assert router._group_selectors == {"g2": {"least-busy": new_selector}, "g3": {}}
+    assert router._get_routing_context("other-model", None) == ("least-busy", new_selector)
+    assert router._get_routing_context("filtered-model", None)[0] == router.routing_strategy
+    assert all(cb is not old_selector for cb in litellm.callbacks)
+    assert sum(1 for cb in litellm.callbacks if cb is new_selector) == 1
+    assert litellm.input_callback == [new_selector]
+
+
 def test_override_selectors_are_not_registered_process_wide(monkeypatch):
     monkeypatch.setattr(litellm, "callbacks", [])
     monkeypatch.setattr(litellm, "input_callback", [])
@@ -1516,3 +1681,107 @@ async def test_group_call_429_cools_down_member_across_retries():
     )
     cooldown_ids = await _call_and_get_cooldowns(router, "quality")
     assert "deploy-3" in cooldown_ids
+
+
+def _sync_task_count() -> int:
+    return sum(
+        1
+        for t in asyncio.all_tasks()
+        if t.get_coro() is not None
+        and t.get_coro().__qualname__ == "BaseRoutingStrategy.periodic_sync_in_memory_spend_with_redis"
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_settings_same_routing_strategy_args_does_not_leak_sync_tasks(monkeypatch) -> None:
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router: Final = Router(
+        model_list=_model_list(),
+        routing_strategy="usage-based-routing-v2",
+        routing_strategy_args={"ttl": 60},
+    )
+    try:
+        assert _sync_task_count() == 1
+        selector_before: Final = router.lowesttpm_logger_v2
+
+        for _ in range(5):
+            router.update_settings(routing_strategy_args={"ttl": 60})
+        await asyncio.sleep(0)
+        assert _sync_task_count() == 1
+        assert router.lowesttpm_logger_v2 is selector_before, "same routing_strategy_args must not rebuild the selector"
+
+        router.update_settings(routing_strategy_args={"ttl": 120})
+        await asyncio.sleep(0)
+        assert _sync_task_count() == 1
+        assert router.lowesttpm_logger_v2.routing_args.ttl == 120
+    finally:
+        for t in [
+            t
+            for t in asyncio.all_tasks()
+            if t.get_coro() is not None
+            and t.get_coro().__qualname__ == "BaseRoutingStrategy.periodic_sync_in_memory_spend_with_redis"
+        ]:
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+
+class _RecordingRedisCache:
+    def __init__(self) -> None:
+        self.increment_lists: list[list[RedisPipelineIncrementOperation]] = []
+
+    async def async_increment_pipeline(self, increment_list: list[RedisPipelineIncrementOperation]) -> list[float]:
+        self.increment_lists.append(list(increment_list))
+        return [float(op["increment_value"]) for op in increment_list]
+
+
+@pytest.mark.asyncio
+async def test_update_settings_changed_routing_strategy_args_flushes_replaced_selector_queue(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(litellm, "callbacks", [])
+    monkeypatch.setattr(litellm, "input_callback", [])
+    router: Final = Router(
+        model_list=_model_list(),
+        routing_strategy="usage-based-routing-v2",
+        routing_strategy_args={"ttl": 60},
+    )
+    try:
+        redis_cache: Final = _RecordingRedisCache()
+        replaced: Final = router.lowesttpm_logger_v2
+        replaced.dual_cache.redis_cache = redis_cache
+        replaced.redis_increment_operation_queue.append(
+            RedisPipelineIncrementOperation(key="rpm-key", increment_value=3, ttl=60)
+        )
+
+        router.update_settings(routing_strategy_args={"ttl": 120})
+        await asyncio.sleep(0)
+        await asyncio.gather(
+            *(
+                t
+                for t in asyncio.all_tasks()
+                if t.get_coro() is not None
+                and t.get_coro().__qualname__ == "BaseRoutingStrategy._push_in_memory_increments_to_redis"
+            )
+        )
+
+        assert router.lowesttpm_logger_v2 is not replaced
+        assert redis_cache.increment_lists == [
+            [RedisPipelineIncrementOperation(key="rpm-key", increment_value=3, ttl=60)]
+        ]
+        assert replaced.redis_increment_operation_queue == []
+    finally:
+        for t in [
+            t
+            for t in asyncio.all_tasks()
+            if t.get_coro() is not None
+            and t.get_coro().__qualname__ == "BaseRoutingStrategy.periodic_sync_in_memory_spend_with_redis"
+        ]:
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass

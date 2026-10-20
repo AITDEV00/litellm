@@ -114,12 +114,19 @@ class DailySpendRecord(Protocol):
     @property
     def failed_requests(self) -> int: ...
 
+    @property
+    def total_response_time_ms(self) -> int: ...
+
+    @property
+    def timed_requests(self) -> int: ...
+
 
 class _KeyMetadataDict(TypedDict, total=False):
     key_alias: ReadOnly[str | None]
     team_id: ReadOnly[str | None]
     user_id: ReadOnly[str | None]
     user_email: ReadOnly[str | None]
+    key_exists: ReadOnly[bool]
 
 
 def _key_metadata(api_key_metadata: Mapping[str, _KeyMetadataDict], api_key: str) -> KeyMetadata:
@@ -129,6 +136,7 @@ def _key_metadata(api_key_metadata: Mapping[str, _KeyMetadataDict], api_key: str
         team_id=meta.get("team_id"),
         user_id=meta.get("user_id"),
         user_email=meta.get("user_email"),
+        key_exists=meta.get("key_exists", False),
     )
 
 
@@ -162,6 +170,8 @@ class _GroupingSetsRow(SimpleNamespace):
     api_requests: int | None
     successful_requests: int | None
     failed_requests: int | None
+    total_response_time_ms: int | None
+    timed_requests: int | None
 
 
 class _EntityRollupRow(_GroupingSetsRow):
@@ -217,6 +227,8 @@ def update_metrics(existing_metrics: SpendMetrics, record: DailySpendRecord) -> 
     existing_metrics.api_requests += record.api_requests or 0
     existing_metrics.successful_requests += record.successful_requests or 0
     existing_metrics.failed_requests += record.failed_requests or 0
+    existing_metrics.total_response_time_ms += record.total_response_time_ms or 0
+    existing_metrics.timed_requests += record.timed_requests or 0
     return existing_metrics
 
 
@@ -473,6 +485,7 @@ async def get_api_key_metadata(
             "key_alias": k.key_alias,
             "team_id": k.team_id,
             "user_id": getattr(k, "user_id", None),
+            "key_exists": True,
         }
         for k in key_records
     }
@@ -775,7 +788,9 @@ def _build_aggregated_sql_query(
             autorouter_savings_spend,
             api_requests,
             successful_requests,
-            failed_requests
+            failed_requests,
+            total_response_time_ms,
+            timed_requests
         FROM (
             SELECT
                 rollups.*,
@@ -808,7 +823,9 @@ def _build_aggregated_sql_query(
                     SUM(autorouter_savings_spend)::float AS autorouter_savings_spend,
                     SUM(api_requests)::bigint AS api_requests,
                     SUM(successful_requests)::bigint AS successful_requests,
-                    SUM(failed_requests)::bigint AS failed_requests
+                    SUM(failed_requests)::bigint AS failed_requests,
+                    SUM(total_response_time_ms)::bigint AS total_response_time_ms,
+                    SUM(timed_requests)::bigint AS timed_requests
                 FROM "{pg_table}"
                 WHERE {where_clause}
                 GROUP BY GROUPING SETS (
@@ -891,7 +908,9 @@ def _build_entity_rollup_sql_query(
             SUM(autorouter_savings_spend)::float AS autorouter_savings_spend,
             SUM(api_requests)::bigint AS api_requests,
             SUM(successful_requests)::bigint AS successful_requests,
-            SUM(failed_requests)::bigint AS failed_requests
+            SUM(failed_requests)::bigint AS failed_requests,
+            SUM(total_response_time_ms)::bigint AS total_response_time_ms,
+            SUM(timed_requests)::bigint AS timed_requests
         FROM "{pg_table}"
         WHERE {where_clause}
         GROUP BY GROUPING SETS (
@@ -1038,6 +1057,8 @@ def _record_to_spend_metrics(record: _GroupingSetsRow) -> SpendMetrics:
         api_requests=record.api_requests or 0,
         successful_requests=record.successful_requests or 0,
         failed_requests=record.failed_requests or 0,
+        total_response_time_ms=record.total_response_time_ms or 0,
+        timed_requests=record.timed_requests or 0,
     )
 
 
@@ -1299,6 +1320,8 @@ async def get_daily_activity(
                 total_prompt_caching_savings_spend=metadata_metrics.prompt_caching_savings_spend,
                 total_gateway_injected_caching_savings_spend=metadata_metrics.gateway_injected_caching_savings_spend,
                 total_autorouter_savings_spend=metadata_metrics.autorouter_savings_spend,
+                total_response_time_ms=metadata_metrics.total_response_time_ms,
+                total_timed_requests=metadata_metrics.timed_requests,
                 page=page,
                 total_pages=-(-total_count // page_size),  # Ceiling division
                 has_more=(page * page_size) < total_count,
@@ -1476,6 +1499,8 @@ async def get_daily_activity_aggregated(
                     "totals"
                 ].gateway_injected_caching_savings_spend,
                 total_autorouter_savings_spend=aggregated["totals"].autorouter_savings_spend,
+                total_response_time_ms=aggregated["totals"].total_response_time_ms,
+                total_timed_requests=aggregated["totals"].timed_requests,
                 page=1,
                 total_pages=1,
                 has_more=False,

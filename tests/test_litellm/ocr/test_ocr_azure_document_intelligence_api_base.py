@@ -11,7 +11,7 @@ supplied api_base is always honoured.
 from litellm.llms.azure_ai.ocr.common_utils import (
     is_azure_document_intelligence_model,
 )
-from litellm.ocr.legacy import _prepare_ocr_request
+from litellm.ocr.main import _prepare_ocr_request
 
 _DOC = {"type": "document_url", "document_url": "https://example.com/doc.pdf"}
 _DOC_INTELLIGENCE_ENDPOINT = "https://di.cognitiveservices.azure.com"

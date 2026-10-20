@@ -2,14 +2,15 @@ import os
 from typing import Final, Literal
 
 from . import *
+from .autorouter_baseline_cache import AutoRouterBaselineCache
 from .cache_control_check import _PROXY_CacheControlCheck
 from .dynamic_rate_limiter_v3_htb import _PROXY_DynamicRateLimitHandlerV3Htb
 from .litellm_skills import SkillsInjectionHook
-from .max_budget_limiter import _PROXY_MaxBudgetLimiter
 from .max_budget_per_session_limiter import _PROXY_MaxBudgetPerSessionHandler
 from .max_iterations_limiter import _PROXY_MaxIterationsHandler
 from .parallel_request_limiter import _PROXY_MaxParallelRequestsHandler
 from .parallel_request_limiter_v3 import _PROXY_MaxParallelRequestsHandler_v3
+from .prompt_cache_prediction import PromptCacheObserver
 from .responses_id_security import ResponsesIDSecurity
 from .sensitive_data_routing import _PROXY_SensitiveDataRoutingHandler
 
@@ -18,7 +19,6 @@ from .sensitive_data_routing import _PROXY_SensitiveDataRoutingHandler
 # transitively through `enterprise.enterprise_hooks` can resolve `PROXY_HOOKS`
 # and `get_proxy_hook` from this partially-initialized module without circling.
 PROXY_HOOKS: Final = {
-    "max_budget_limiter": _PROXY_MaxBudgetLimiter,
     "parallel_request_limiter": _PROXY_MaxParallelRequestsHandler_v3,
     "cache_control_check": _PROXY_CacheControlCheck,
     "responses_id_security": ResponsesIDSecurity,
@@ -27,6 +27,8 @@ PROXY_HOOKS: Final = {
     "max_budget_per_session_limiter": _PROXY_MaxBudgetPerSessionHandler,
     "sensitive_data_routing": _PROXY_SensitiveDataRoutingHandler,
     "dynamic_rate_limiter_v3_htb": _PROXY_DynamicRateLimitHandlerV3Htb,
+    "prompt_cache_prediction": PromptCacheObserver,
+    "autorouter_baseline_cache": AutoRouterBaselineCache,
 }
 
 ## FEATURE FLAG HOOKS ##
@@ -35,7 +37,7 @@ if os.getenv("LEGACY_MULTI_INSTANCE_RATE_LIMITING", "false").lower() == "true":
 
 
 def get_proxy_hook(
-    hook_name: Literal["max_budget_limiter", "managed_files", "parallel_request_limiter", "cache_control_check"] | str,
+    hook_name: Literal["managed_files", "parallel_request_limiter", "cache_control_check"] | str,
 ):
     """
     Factory method to get a proxy hook instance by name
