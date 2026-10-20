@@ -9,6 +9,7 @@ cookbook, and live probes through the gateway.
 
 | Model | Tiers honored | Default | Can thinking be disabled |
 |---|---|---|---|
+| `deepseek-ai/DeepSeek-V4.1-Flash` | none, minimal, low, medium, high, xhigh, max | max | Yes, `reasoning_effort: "none"` |
 | `moonshotai/Kimi-K3` | low, high, max | max | Yes, `reasoning_effort: "none"` |
 | `zai-org/GLM-5.3-Flash` | low, high | max | Yes, `reasoning_effort: "none"` |
 | `zai-org/GLM-5.3` | low, high | max | No, always-on |
@@ -32,6 +33,13 @@ makes it spend its whole token budget on reasoning and return `content: null`,
 the opposite of disabling.
 
 ## Per-model notes
+
+DeepSeek-V4.1-Flash accepts every tier and defaults to `max` through
+`litellm_params.reasoning_effort` on the deployment. Effort maps to reasoning
+token spend rather than a hard cap: on a multi-step word problem, `max` and
+`xhigh` produced roughly twice the reasoning tokens of `high`, and an unset
+request matched `max` rather than `xhigh`, which is what the stored default
+buys.
 
 Kimi K3 always thinks. `low`, `high`, and `max` are honored and default to
 `max`. Other tiers are accepted without error but are not honored, so they
