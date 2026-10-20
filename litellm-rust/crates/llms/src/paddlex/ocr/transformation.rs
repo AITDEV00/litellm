@@ -1,14 +1,13 @@
 use std::sync::LazyLock;
 
 use litellm_core_utils::{call_arguments::CallArguments, params::OpaqueParams};
+use litellm_llms_types::formats::ocr::{LiteLLMOcrResponse, OcrDocument, OcrResponseFormat};
 
 use crate::{
     base_llm::ocr::{
         error::Error,
         handler::OcrClient,
-        transformation::{
-            BaseOcrConfig, LiteLLMOcrResponse, OcrDocument, OcrResponseFormat, PreparedOcrRequest,
-        },
+        transformation::{BaseOcrConfig, PreparedOcrRequest},
     },
     mistral::ocr::transformation::{MistralOcrConfig, MistralOcrRequest},
 };
@@ -92,7 +91,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::base_llm::ocr::transformation::OcrDocument;
 
     #[test]
     fn supported_params_include_every_mistral_field_plus_the_paddlex_extensions() {
