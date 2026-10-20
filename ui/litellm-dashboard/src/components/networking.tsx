@@ -134,6 +134,8 @@ export { serverRootPath };
 
 export { deriveErrorMessage };
 
+export { modelPerformanceCall } from "@/components/UsagePage/components/ModelPerformance";
+
 const isLocal = process.env.NODE_ENV === "development";
 // In dev, if NEXT_PUBLIC_USE_REWRITES=true the Next.js dev server proxies API calls
 // to the backend — use relative URLs (null) so rewrites can intercept them.
