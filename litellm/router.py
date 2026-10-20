@@ -5051,7 +5051,7 @@ class Router:
         model_name = model
         try:
             verbose_router_logger.debug(f"Inside _acreate_voice()- model: {model}; kwargs: {kwargs}")
-            parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
+            parent_otel_span = get_parent_otel_span_from_kwargs(kwargs)
             deployment = await self.async_get_available_deployment(
                 model=model,
                 messages=[{"role": "user", "content": "voice registration"}],
@@ -5127,7 +5127,7 @@ class Router:
         model_name = model
         try:
             verbose_router_logger.debug(f"Inside _ascript()- model: {model}; kwargs: {kwargs}")
-            parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
+            parent_otel_span = get_parent_otel_span_from_kwargs(kwargs)
             deployment = await self.async_get_available_deployment(
                 model=model,
                 messages=[{"role": "user", "content": "prompt"}],
@@ -5204,7 +5204,7 @@ class Router:
         model_name = model
         try:
             verbose_router_logger.debug(f"Inside _adiarize()- model: {model}; kwargs: {kwargs}")
-            parent_otel_span = _get_parent_otel_span_from_kwargs(kwargs)
+            parent_otel_span = get_parent_otel_span_from_kwargs(kwargs)
             deployment = await self.async_get_available_deployment(
                 model=model,
                 messages=[{"role": "user", "content": "diarization"}],
