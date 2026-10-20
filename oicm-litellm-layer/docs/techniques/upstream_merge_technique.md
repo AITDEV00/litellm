@@ -18,8 +18,9 @@
 > (2) merges the upstream **tag directly into the existing custom branch while
 > the custom branch is checked out** (never the reverse), (3) resolves each
 > conflict by class, (4) verifies compile + drop-detection wiring, (5) audits
-> files the merge deleted, (6) ratchets lint budgets, and (7) commits a proper
-> two-parent merge commit (first parent = custom) and pushes.
+> files the merge deleted, (6) ratchets lint budgets on the custom branch,
+> and (7) commits a proper two-parent merge commit (first parent = custom)
+> and pushes.
 
 ---
 
@@ -100,7 +101,7 @@ from the custom branch before resolving anything.
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
 | Upstream deletes a file the branch still carries | Upstream's `test: drop static cost-map value assertions` removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict | Step 5: deletion audit |
 | Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
-| Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted | Step 6: `make lint-budget-update` |
+| Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted; no automation ratchets this branch | Step 6: `make lint-budget-update` |
 | **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, and its transitive `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
 ---
@@ -252,7 +253,9 @@ Classify each conflict:
   not creep back into the tree; see the re-import trap in Step 0.)
 - **Lint budget files** (`basedpyright-code-budget.json`,
   `ruff-strict-budget.json`, `type-discipline-budget.json`,
-  `test-quality-budget.json`) — take ours, then ratchet in Step 6.
+  `test-quality-budget.json`) — take ours, then ratchet in Step 6. Taking ours
+  keeps the ceilings the branch already earned; the ratchet is a separate,
+  deliberate commit.
 - **Real source files** — merge line by line, **always keeping the OICM custom
   logic** and carrying the upstream structural/typing changes across. The full
   list of custom-kept resolutions in v1.97.0 (paths as they were at that
@@ -379,10 +382,29 @@ That audit restored five (their subjects still exist), retired the embedding
 `extra_body` patch, and deliberately dropped the rest as superseded — the
 decision record is commit `104fcbcf2a` and its CHANGELOG entry.
 
-### Step 6 — Lint budget ratchet (mandatory post-merge)
+### Step 6 — Lint budget ratchet (mandatory post-merge on the custom branch)
 
-Per `CLAUDE.md`, the budget files are **ratcheted down** so lint ceilings
-don't leave stale headroom after the merge. Run once on a clean working tree:
+`CLAUDE.md` forbids editing or committing the four `*-budget.json` files on a
+**PR branch** and forbids running `make lint-budget-update` there, because a
+hosted Devin automation ratchets the repository default branch in its own PR
+and concurrent PRs would otherwise fight over the same `"limit"` lines. That
+rule does not cover this workflow: the `jya0-v<X>.0` branch is long-lived, work
+lands on it as direct commits (no PR merge commits authored by us), and the
+automation targets `litellm_internal_staging` on the fork, not this branch. No
+automation has ever ratcheted a budget here, so if this step is skipped the
+ceilings never come down.
+
+Check whether a ratchet is actually due before running it. The gates measure
+head violations against `merge-base($BASE_REF, HEAD)`, so a merge that already
+landed upstream counts as a base shift rather than as head improvement:
+
+```bash
+git log --oneline -3 -- '*budget.json'    # last ratchet commit
+BASE=$(python3 scripts/default_branch.py --base '')
+git diff --stat "$(git merge-base "$BASE" HEAD)" HEAD -- '*budget.json'
+```
+
+Run once on a clean working tree:
 
 ```bash
 make lint-budget-update
@@ -393,7 +415,7 @@ This runs four gates (the basedpyright one takes ~8 minutes; it provisions a
 - `make lint-ruff-budget-update` (ruff-strict)
 - `make lint-type-discipline-budget-update` (type-discipline)
 - `make lint-test-quality-budget-update` (test-quality)
-- `make lint-basedpyright-budget-update` (basedpyright — slowest)
+- `make lint-basedpyright-budget-update` (basedpyright, slowest)
 
 Each reports a ratchet, e.g. "Ratcheted basedpyright limits down by 2416 errors
 this branch fixed across 48 rules". Commit the budgets separately:
@@ -401,12 +423,57 @@ this branch fixed across 48 rules". Commit the budgets separately:
 ```bash
 git add ruff-strict-budget.json type-discipline-budget.json \
   test-quality-budget.json basedpyright-code-budget.json
-git commit -m "chore(lint): ratchet budgets after v1.97.0 merge"
+git commit -m "chore(lint): ratchet budgets after v1.102.0 merge"
 ```
+
+> **The ratchet can write limits below the current count. Read the diff.**
+> Every gate's `ratcheted_budget` is
+> `max(0, limit - max(0, base - current))`, which assumes `limit >= base`.
+> On this branch that assumption fails: the merge-base with the fork default is
+> ~7200 commits back, so `base` is often far above the stored `limit`, and
+> subtracting the whole delta overshoots past `current`. Measured on the
+> v1.102.0 tip, one ruff-strict run takes `ANN401` from `1156` to `434` while
+> head has `573`, and a second run takes it to `0`. Breaching rules go 22 to 26
+> after one run and 33 after two, so the ratchet is not idempotent and repeated
+> runs destroy the budget. It does not turn the gate red immediately, because
+> `evaluate` also requires `total > base`, and the stale base hides the
+> overshoot. It corrupts the next merge's baseline instead.
+>
+> After any ratchet, diff every rule against the live count and restore the
+> ones that landed low:
+>
+> ```bash
+> git diff -- ruff-strict-budget.json
+> PATH="$PWD/.venv/bin:$PATH" ruff check litellm --config ruff-strict.toml \
+>   --output-format json | python3 -c 'import json,sys,collections; \
+> c=collections.Counter(i["code"] for i in json.load(sys.stdin)); \
+> [print(f"{k} head={v}") for k,v in sorted(c.items())]'
+> ```
+>
+> A correct ratchet is one run, reviewed, with no limit below head.
+> Do not run it twice.
+
+CI enforces the ratchet direction separately and non-gating:
+`scripts/budget_ratchet_check.py` runs in `test-linting.yml` and turns red if
+any `limit` rises, a rule is dropped, or a budget file is deleted. It is
+deliberately not a required check, so a justified bump can still merge once a
+human accepts the red.
 
 > **Budget gotcha:** if the working tree contains unrelated changes (e.g. an
 > uncommitted image-tag bump), the ratchet measures them too. Commit the merge
 > resolution to a clean tree, or stash the unrelated change, before running.
+
+> **State at the v1.102.0 tip:** the last ratchet is `ec2070034e` (2026-09-02,
+> after the v1.99.1 merge). The v1.102.0 merge itself preserved the custom
+> budgets byte for byte and no ratchet followed it, so one is overdue.
+>
+> The ruff-strict gate is already red at this tip: 22 rules sit above their
+> stored limit (largest gaps `TID251` 1126 over 0, `F401` 281 over 23, `RET504`
+> 175 over 0, `RUF012` 240 over 168). That is a pre-existing state, not a
+> ratchet result, and it means a passing gate is not the bar for Step 6. Do not
+> try to "fix" it by ratcheting: a ratchet only lowers ceilings, it never
+> removes violations, and here it would push several limits further below head.
+> Clear the violations or accept the red explicitly.
 
 ### Step 7 — Commit the merge & push
 
@@ -476,8 +543,11 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   edits is the top source of "compiles upstream but not after the merge". Build
   the file list *before* resolving the last conflict; `git ls-files -u` is
   empty once the index is clean.
-- **Ratchet the lint budgets.** Four separate budget files; run
-  `make lint-budget-update` on a clean tree.
+- **Ratchet the lint budgets on the custom branch.** Four separate budget
+  files; run `make lint-budget-update` on a clean tree. The `CLAUDE.md` ban on
+  budget edits targets PR branches because a hosted automation ratchets the
+  repository default branch; that automation has never touched this branch, so
+  skipping the ratchet here leaves the ceilings stale indefinitely.
 - **Drop-detection tests are your safety net — with limits.** The OICM slice
   refactors are covered by `tests/test_litellm/proxy/test_oicm_drop_detection.py`;
   a future merge that drops a mount/re-export/callback fails a test instead of
