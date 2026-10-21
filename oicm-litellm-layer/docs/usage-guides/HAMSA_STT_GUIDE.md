@@ -13,7 +13,8 @@ The gateway is properly SSL-verified, so the curl examples below use standard HT
 > **Scope**: STT only. For Hamsa text-to-speech, see
 > [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md), which documents the
 > active `hamsa-tts-new` model. The original `hamsa-tts` deployment is retired:
-> its backend Service was removed, so it returns HTTP 500. This guide no longer
+> its backend Service was removed and its model row was deleted from the gateway,
+> so requesting it fails with HTTP 400 "Invalid model name". This guide no longer
 > documents it.
 
 > **Interactive test page**: a browser-based WebSocket client for realtime Hamsa STT is available at `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html`. See [Realtime STT via WebSocket](#2-realtime-stt-websocket).

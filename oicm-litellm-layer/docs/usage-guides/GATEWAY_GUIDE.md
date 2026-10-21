@@ -30,9 +30,10 @@ with this key returns exactly this set.
 | `Qwen/Qwen3-Embedding-4B` | Embeddings | 2560-dimensional embeddings |
 | `Qwen/Qwen3-Embedding-0.6B` | Embeddings | 1024-dimensional embeddings |
 
-> `hamsa-tts` (the original TTS deployment) is **retired**: its backend Service
-> no longer exists, so `/v1/audio/speech` against it returns HTTP 500 on both dev
-> and prod. Use `hamsa-tts-new`. `hamsa-stt` is unaffected.
+> `hamsa-tts` (the original TTS deployment) is **retired and removed from the
+> gateway**: its backend Service no longer exists, and its model row was deleted
+> on dev and prod, so `/v1/audio/speech` now rejects it with HTTP 400
+> "Invalid model name". Use `hamsa-tts-new`. `hamsa-stt` is unaffected.
 
 ### Reasoning Models
 

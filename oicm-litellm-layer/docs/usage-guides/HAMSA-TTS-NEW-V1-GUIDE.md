@@ -5,8 +5,9 @@
 > **Related docs**: [HAMSA_STT_GUIDE.md](HAMSA_STT_GUIDE.md) (`hamsa-stt` usage), [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway overview)
 
 > **This is the active Hamsa TTS model.** The original `hamsa-tts` deployment is
-> retired: its backend Service no longer exists, so calls to it return HTTP 500
-> on both dev and prod (verified 2026-10-21). Use `hamsa-tts-new`.
+> retired and removed from the gateway: its backend Service no longer exists and
+> its model row was deleted on dev and prod, so requests for it now fail with
+> HTTP 400 "Invalid model name" (verified 2026-10-21). Use `hamsa-tts-new`.
 
 **Gateway URL**: `https://litellm.ecouncil.ae` (valid DigiCert wildcard `*.ecouncil.ae` cert; `curl -k` is not required)
 
