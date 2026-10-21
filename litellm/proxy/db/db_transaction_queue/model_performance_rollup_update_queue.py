@@ -134,6 +134,9 @@ class ModelPerformanceRollupUpdateQueue(BaseUpdateQueue):
         """Enqueue an update."""
         verbose_proxy_logger.debug("Adding model performance rollup update to queue: %s", update)
         await self.update_queue.put(update)
+        # The base implementation emits this, but this override replaces it, so
+        # the queue-size gauge has to be emitted here or it never is.
+        await self._emit_new_item_added_to_queue_event(queue_size=self.update_queue.qsize())
         if self.update_queue.qsize() >= self.MAX_SIZE_IN_MEMORY_QUEUE:
             verbose_proxy_logger.warning(
                 "Model performance rollup queue is full. Aggregating all entries in queue to concatenate entries."

@@ -28,13 +28,7 @@ from typing import Any
 
 import httpx
 
-from controller.config import (
-    OICM_BASE_URL,
-    OICM_CLIENT_ID,
-    OICM_REALM,
-    OICM_USERNAME,
-    OICM_VERIFY_TLS,
-)
+from controller.sources_config import OicmSourceConfig, load_sources
 from controller.status import OicmStatusSource
 
 # Recent window keeps the metrics query fast (a 24h window times out).
@@ -64,8 +58,10 @@ def truncate(value: Any, max_str: int = 80) -> Any:
     return value
 
 
-async def probe(c: httpx.AsyncClient, label: str, path: str, note: str = "", sse: bool = False) -> dict:
-    url = f"{OICM_BASE_URL}/api/v1{path}"
+async def probe(
+    c: httpx.AsyncClient, base_url: str, label: str, path: str, note: str = "", sse: bool = False
+) -> dict:
+    url = f"{base_url}/api/v1{path}"
     try:
         if sse:
             # Server-sent event stream never terminates; read a bounded chunk.
@@ -112,10 +108,10 @@ async def probe(c: httpx.AsyncClient, label: str, path: str, note: str = "", sse
         }
 
 
-async def _get_json(c: httpx.AsyncClient, path: str) -> Any:
+async def _get_json(c: httpx.AsyncClient, base_url: str, path: str) -> Any:
     """GET a path under /api/v1 and return parsed JSON, or None on any failure."""
     try:
-        r = await c.get(f"{OICM_BASE_URL}/api/v1{path}", timeout=25)
+        r = await c.get(f"{base_url}/api/v1{path}", timeout=25)
         r.raise_for_status()
         return r.json()
     except (httpx.HTTPError, ValueError):
@@ -143,23 +139,30 @@ def _first_metric_ids(meta: Any) -> list[str]:
     return ["num_of_requests_waiting_in_queue"]
 
 
-async def _discover(c: httpx.AsyncClient, ws: str) -> dict[str, Any]:
+async def _discover(c: httpx.AsyncClient, base_url: str, ws: str) -> dict[str, Any]:
     """Resolve the representative workload, run, and metric ids from the live API.
 
     Picks the first deployment that has at least one workload run, so the
     run-scoped endpoints below return data instead of 404. Falls back to the
     first deployment when none has runs.
     """
-    deployments = _ids(await _get_json(c, f"/workspaces/{ws}/deployments"))
+    deployments = _ids(await _get_json(c, base_url, f"/workspaces/{ws}/deployments"))
     run_lists = await asyncio.gather(
-        *(_get_json(c, f"/workspaces/{ws}/workloads/{dep}/workload_runs") for dep in deployments)
+        *(
+            _get_json(c, base_url, f"/workspaces/{ws}/workloads/{dep}/workload_runs")
+            for dep in deployments
+        )
     )
-    pairs = [(dep, _ids(body)) for dep, body in zip(deployments, run_lists)]
+    pairs = [(dep, _ids(body)) for dep, body in zip(deployments, run_lists, strict=False)]
     chosen = next(((dep, runs) for dep, runs in pairs if runs), None)
     wl = chosen[0] if chosen else (deployments[0] if deployments else "")
     wr = chosen[1][0] if chosen else ""
 
-    meta = await _get_json(c, f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta") if wl else None
+    meta = (
+        await _get_json(c, base_url, f"/workspaces/{ws}/deployments/{wl}/inference_metrics_meta")
+        if wl
+        else None
+    )
     metric_ids = _first_metric_ids(meta)
 
     start = (datetime.now(timezone.utc) - _METRICS_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -174,13 +177,18 @@ async def main() -> None:
     if not ws:
         parser.error("workspace id required: pass --workspace or set OICM_WORKSPACE_ID")
 
-    source = OicmStatusSource()
+    sources = load_sources()
+    if not sources:
+        parser.error("no OICM sources configured; set OICM_SOURCES_FILE or deploy the sources ConfigMap")
+    source_config: OicmSourceConfig = sources[0]
+    source = OicmStatusSource(config=source_config)
     token = await source.auth.token()
     headers = {"Authorization": f"Bearer {token}"}
+    base_url = source_config.base_url.rstrip("/")
 
     try:
-        async with httpx.AsyncClient(timeout=30, verify=OICM_VERIFY_TLS, headers=headers) as c:
-            d = await _discover(c, ws)
+        async with httpx.AsyncClient(timeout=30, verify=source_config.verify_tls, headers=headers) as c:
+            d = await _discover(c, base_url, ws)
             wl, wr = d["wl"], d["wr"]
             metric_ids, metrics_start = d["metric_ids"], d["start"]
 
@@ -222,8 +230,8 @@ async def main() -> None:
 
             # Emit markdown header immediately, then stream each section as it lands.
             print("# OICM Status REST API - live catalog\n")
-            print(f"- Base URL: `{OICM_BASE_URL}`")
-            print(f"- Auth: realm `{OICM_REALM}`, client `{OICM_CLIENT_ID}`, password grant (`{OICM_USERNAME}`)")
+            print(f"- Base URL: `{base_url}`")
+            print(f"- Auth: realm `{source_config.realm}`, client `{source_config.client_id}`")
             print(f"- Workspace: `{ws}` (supplied; no workspace-list endpoint exists)")
             print(f"- Discovered: workload `{wl}`, run `{wr}`, metrics {metric_ids}")
             print(f"- Captured: {captured} (dev controller, live responses)\n")
@@ -232,7 +240,7 @@ async def main() -> None:
             print("---\n", flush=True)
 
             for label, path, note, sse in jobs:
-                r = await probe(c, label, path, note, sse=sse)
+                r = await probe(c, base_url, label, path, note, sse=sse)
                 out = []
                 out.append(f"## {r['label']}")
                 out.append(f"`{r['method']} {r['path']}`  ")

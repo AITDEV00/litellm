@@ -150,7 +150,7 @@ def resolve_token_count_settings(
         count_model=_resolved_count_model(
             configured.get("token_count_model"), default.get("token_count_model"), deployment_region
         ),
-        tokenizer=_tokenizer(default.get("token_count_tokenizer")),
+        tokenizer=_tokenizer(configured.get("token_count_tokenizer") or default.get("token_count_tokenizer")),
     )
 
 

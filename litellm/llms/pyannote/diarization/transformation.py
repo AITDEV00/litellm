@@ -25,6 +25,7 @@ from litellm.llms.base_llm.diarization.transformation import (
     BaseDiarizationConfig,
     DiarizationRequestData,
 )
+from litellm.llms.pyannote.common_utils import PyannoteModelInfo
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 
 
@@ -39,7 +40,7 @@ class PyannoteDiarizationConfig(BaseDiarizationConfig):
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ) -> dict:
-        return headers
+        return PyannoteModelInfo.inject_auth_headers(headers, api_key)
 
     def get_complete_url(
         self,
@@ -47,17 +48,19 @@ class PyannoteDiarizationConfig(BaseDiarizationConfig):
         api_base: Optional[str],
         litellm_params: dict,
     ) -> str:
-        if api_base is None:
+        resolved_base = PyannoteModelInfo.get_api_base(api_base)
+        if resolved_base is None:
             raise ValueError(
-                "Missing pyannote API base. Set api_base in the model config "
+                "Missing pyannote API base. Set PYANNOTE_API_BASE or api_base in the model config "
                 "(the discovery controller stamps the coro pod's service URL)."
             )
-        return f"{api_base.rstrip('/')}{self.DIARIZE_ENDPOINT_PATH}"
+        return f"{resolved_base.rstrip('/')}{self.DIARIZE_ENDPOINT_PATH}"
 
     def _serving_model_id(self, model: str) -> str:
-        while model.startswith(self.PROVIDER_PREFIX):
-            model = model[len(self.PROVIDER_PREFIX):]
-        return f"{self.PROVIDER_PREFIX}{model}"
+        stripped = model
+        while stripped.startswith(self.PROVIDER_PREFIX):
+            stripped = stripped[len(self.PROVIDER_PREFIX):]
+        return f"{self.PROVIDER_PREFIX}{stripped}"
 
     def transform_diarization_request(
         self,

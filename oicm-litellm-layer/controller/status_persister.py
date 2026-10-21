@@ -185,7 +185,13 @@ class StatusPersister:
         """
         if not snapshots:
             return 0
-        litellm_by_uuid = await self.litellm.list_all_models_by_key()
+        try:
+            litellm_by_uuid = await self.litellm.list_all_models_by_key()
+        except Exception:
+            # Status is only written onto rows this read finds, so an unreadable
+            # registry means there is nothing to attach it to this cycle.
+            logger.exception("Could not read the registered models; skipping status write")
+            return 0
         return await self.persist(snapshots, litellm_by_uuid, now=now)
 
     async def persist(

@@ -35,11 +35,11 @@ def get_provider_voice_config(
     provider: LlmProviders,
 ) -> BaseVoiceConfig | None:
     """Voice-management config for OICM providers (Hamsa, OmniVoice)."""
-    if litellm.LlmProviders.HAMSA == provider:
+    if provider == litellm.LlmProviders.HAMSA:
         from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
 
         return HamsaVoiceConfig()
-    if litellm.LlmProviders.OMNIVOICE == provider:
+    if provider == litellm.LlmProviders.OMNIVOICE:
         from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceConfig
 
         return OmniVoiceVoiceConfig()
@@ -50,7 +50,7 @@ def get_provider_script_config(
     provider: LlmProviders,
 ) -> BaseTextToSpeechConfig | None:
     """Script-synthesis config for an OICM-custom provider (OmniVoice)."""
-    if litellm.LlmProviders.OMNIVOICE == provider:
+    if provider == litellm.LlmProviders.OMNIVOICE:
         from litellm.llms.omnivoice.script.transformation import (
             OmniVoiceScriptConfig,
         )
@@ -68,7 +68,7 @@ def get_provider_text_to_speech_config(
     For providers with multiple TTS modes (e.g. OmniVoice voice cloning),
     *kwargs* is inspected to select the correct config subclass.
     """
-    if litellm.LlmProviders.HAMSA == provider:
+    if provider == litellm.LlmProviders.HAMSA:
         if kwargs is not None and kwargs.get("ref_audio") is not None:
             from litellm.llms.hamsa.voice.transformation import (
                 HamsaVoiceCloneConfig,
@@ -80,13 +80,13 @@ def get_provider_text_to_speech_config(
         )
 
         return HamsaTextToSpeechConfig()
-    if litellm.LlmProviders.INCEPTION == provider:
+    if provider == litellm.LlmProviders.INCEPTION:
         from litellm.llms.inception.text_to_speech.transformation import (
             InceptionTextToSpeechConfig,
         )
 
         return InceptionTextToSpeechConfig()
-    if litellm.LlmProviders.OMNIVOICE == provider:
+    if provider == litellm.LlmProviders.OMNIVOICE:
         if kwargs is not None and kwargs.get("ref_audio") is not None:
             from litellm.llms.omnivoice.voice.transformation import (
                 OmniVoiceVoiceCloneConfig,
@@ -105,13 +105,13 @@ def get_provider_audio_transcription_config(
     provider: LlmProviders,
 ) -> BaseAudioTranscriptionConfig | None:
     """Audio-transcription config for OICM-custom providers (Hamsa, Inception)."""
-    if litellm.LlmProviders.HAMSA == provider:
+    if provider == litellm.LlmProviders.HAMSA:
         from litellm.llms.hamsa.transcription.transformation import (
             HamsaAudioTranscriptionConfig,
         )
 
         return HamsaAudioTranscriptionConfig()
-    if litellm.LlmProviders.INCEPTION == provider:
+    if provider == litellm.LlmProviders.INCEPTION:
         from litellm.llms.inception.transcription.transformation import (
             InceptionAudioTranscriptionConfig,
         )
@@ -124,7 +124,7 @@ def get_provider_diarization_config(
     provider: LlmProviders,
 ) -> BaseDiarizationConfig | None:
     """Diarization config for OICM-custom providers (pyannote)."""
-    if litellm.LlmProviders.PYANNOTE == provider:
+    if provider == litellm.LlmProviders.PYANNOTE:
         from litellm.llms.pyannote.diarization.transformation import (
             PyannoteDiarizationConfig,
         )

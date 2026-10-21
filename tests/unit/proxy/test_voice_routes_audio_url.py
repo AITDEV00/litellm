@@ -186,3 +186,36 @@ def test_api_base_falls_through_to_the_next_deployment_when_unset() -> None:
     )
 
     assert _resolve_audio_api_base(router) == "http://pod:8080/v1"
+
+
+def test_provider_scoped_lookup_does_not_fall_through_to_another_provider() -> None:
+    """An explicitly requested provider must never resolve to a different one.
+
+    The health, models and metrics routes forward to a named provider's pod. If
+    no deployment of that provider exists, returning another provider's api_base
+    forwards the request to a server that cannot answer it, which is worse than
+    reporting that the provider is unregistered.
+    """
+    router = _FakeRouter(
+        [
+            {
+                "model_name": "hamsa-tts",
+                "litellm_params": {
+                    "model": "hamsa/hamsa-tts",
+                    "mode": "audio_speech",
+                    "api_base": "http://hamsa:8080/v1",
+                },
+            },
+            {
+                "model_name": "omnivoice",
+                "litellm_params": {
+                    "model": "omnivoice/omnivoice",
+                    "mode": "audio_speech",
+                    "api_base": "http://omnivoice:8080/v1",
+                },
+            },
+        ]
+    )
+
+    assert _resolve_audio_api_base(router, provider="omnivoice") == "http://omnivoice:8080/v1"
+    assert _resolve_audio_api_base(router, provider="inception") is None

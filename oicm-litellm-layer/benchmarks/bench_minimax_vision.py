@@ -141,11 +141,11 @@ async def main():
             for _ in range(2):
                 try:
                     await client.post(DIRECT_URL, headers=DIRECT_HEADERS, json=payload, timeout=60)
-                except:
+                except Exception:
                     pass
                 try:
                     await client.post(LITELLM_URL, headers=LITELLM_HEADERS, json=payload, timeout=60)
-                except:
+                except Exception:
                     pass
             print("  Warmup done")
             print()

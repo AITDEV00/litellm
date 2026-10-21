@@ -320,3 +320,22 @@ async def test_report_heartbeats_failure_returns_empty_not_false():
     """A refused heartbeat must read as 'not recorded', never as 'alive'."""
     client = LiteLLMClient(read_only=False, client=_RaisingClient(httpx.ConnectError("boom")))
     assert await client.report_heartbeats(["alain"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_model_info_read_raises_instead_of_looking_empty():
+    """An unreadable registry must not be reported as an empty one.
+
+    The reconciler treats an empty map as "nothing is registered yet" and
+    registers every deployment again, and /model/new mints a fresh model_id
+    rather than replacing, so swallowing the error would double every row.
+    """
+
+    class _FailingClient:
+        async def get(self, url, **kwargs):
+            return httpx.Response(500, json={"error": "boom"}, request=httpx.Request("GET", url))
+
+    client = LiteLLMClient(read_only=False, client=_FailingClient())
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.list_all_models_by_key()

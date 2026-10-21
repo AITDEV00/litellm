@@ -7,6 +7,7 @@ and the OICM-custom branches grafted into Inception. Delegated into from
 
 from litellm.llms.oicm_providers.registry import (
     get_provider_audio_transcription_config,
+    get_provider_diarization_config,
     get_provider_script_config,
     get_provider_text_to_speech_config,
     get_provider_voice_config,
@@ -14,6 +15,7 @@ from litellm.llms.oicm_providers.registry import (
 
 __all__ = [
     "get_provider_audio_transcription_config",
+    "get_provider_diarization_config",
     "get_provider_script_config",
     "get_provider_text_to_speech_config",
     "get_provider_voice_config",

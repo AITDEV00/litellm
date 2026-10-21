@@ -5,7 +5,7 @@ This is Component #4 of the OICM→LiteLLM integration layer.
 It plugs into LiteLLM via `litellm_settings.callbacks` in config.yaml.
 
 How it works:
-1. On each incoming request (async_log_pre_api_call): increment gauge
+1. On each incoming request (log_pre_api_call): increment gauge
 2. On each completed request (async_log_success_event): decrement gauge
 3. On each failed request (async_log_failure_event): decrement gauge
 4. The gauge is exposed on LiteLLM's /metrics endpoint alongside other Prometheus metrics
@@ -109,11 +109,16 @@ class KEDAMetricsCallback(CustomLogger):
             - hooks.keda_metrics.KEDAMetricsCallback
     """
 
-    async def async_log_pre_api_call(self, model, messages, kwargs):
-        """Increment concurrent requests gauge before the API call."""
+    def log_pre_api_call(self, model, messages, kwargs):
+        """Increment concurrent requests gauge before the API call.
+
+        Upstream invokes the synchronous pre-call hook, not the async one, so
+        this must stay sync or the gauge is never incremented and only ever
+        decrements.
+        """
         if not PROMETHEUS_AVAILABLE:
             return
-        
+
         model_id = _get_model_id(kwargs)
         if model_id:
             try:
@@ -148,6 +153,6 @@ class KEDAMetricsCallback(CustomLogger):
             except Exception as e:
                 logger.error(f"KEDA dec error for {model_id}: {e}")
 
-    async def async_log_stream_event(self, kwargs):
-        """No-op for streaming events — we track at request level, not chunk level."""
+    async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
+        """No-op for streaming events, which are tracked at request level."""
         pass

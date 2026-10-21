@@ -6,6 +6,7 @@ import httpx
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
+    from litellm.llms.base_llm.chat.transformation import BaseLLMException
 
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
@@ -18,9 +19,6 @@ class DiarizationRequestData(TypedDict):
 
 
 class BaseDiarizationConfig(ABC):
-    def __init__(self):
-        pass
-
     @classmethod
     def get_config(cls):
         return {

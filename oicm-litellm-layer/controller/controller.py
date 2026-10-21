@@ -152,6 +152,7 @@ class DiscoveryController:
         logger.info("Starting full sync...")
 
         k8s_discovered: Dict[str, OicmModel] = {}
+        discovery_failed = False
         for source in self.sources:
             try:
                 models = await source.discover()
@@ -161,8 +162,12 @@ class DiscoveryController:
                     source.__class__.__name__,
                     len(models),
                 )
-            except Exception as e:
-                logger.error("Source %s failed: %s", source.__class__.__name__, e)
+            except Exception:
+                # A source that could not be read has no opinion about which
+                # deployments exist, so its absence must not be read as
+                # deletion. Tracked below and folded into the delete guard.
+                discovery_failed = True
+                logger.exception("Source %s failed", source.__class__.__name__)
 
         # Drop excluded deployments before the plan is computed, so an already
         # registered one reads as deleted and is removed rather than kept as a
@@ -185,8 +190,14 @@ class DiscoveryController:
             if key not in excluded_keys
         }
 
-        litellm_by_key = await self.litellm.list_all_models_by_key()
-
+        try:
+            litellm_by_key = await self.litellm.list_all_models_by_key()
+        except Exception:
+            # The registry's current contents are unknown, so there is no safe
+            # plan to compute: every deployment would look unregistered and be
+            # created a second time. Skip this cycle and let the next one try.
+            logger.exception("Could not read the registered models; skipping this sync")
+            return
         # Existence comes from the poller's latest snapshots, not from a fresh
         # fetch here. The poll loop is the single writer, so this reads the same
         # map the poller just produced instead of issuing a second identical
@@ -201,7 +212,7 @@ class DiscoveryController:
             discovered,
             litellm_by_key,
             oicm_models,
-            allow_deletes=self.status_poller.all_sources_ok,
+            allow_deletes=self.status_poller.all_sources_ok and not discovery_failed,
         )
         await self.reconciler.execute(plan)
 

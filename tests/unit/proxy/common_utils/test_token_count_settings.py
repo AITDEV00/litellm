@@ -188,3 +188,29 @@ def test_hint_lands_in_the_upstream_error_message_and_keeps_its_envelope(message
 
     assert (json.loads(hinted.message) if isinstance(expected, dict) else hinted.message) == expected
     assert hinted.status_code == 404
+
+
+def test_a_deployment_tokenizer_override_wins_over_the_model_default() -> None:
+    """A per-deployment tokenizer must beat the model-wide default.
+
+    framing and count_model both resolve configured-then-default; tokenizer
+    read only the default, so a deployment that set its own tokenizer was
+    silently counted with the model's.
+    """
+    settings: Final = resolve_token_count_settings(
+        configured={"token_count_tokenizer": "kimi_k3"},
+        default={},
+        deployment_region=_in_us_west_2,
+    )
+
+    assert settings.tokenizer == "kimi_k3"
+
+
+def test_the_default_tokenizer_still_applies_when_a_deployment_sets_none() -> None:
+    settings: Final = resolve_token_count_settings(
+        configured={},
+        default={"token_count_tokenizer": "kimi_k3"},
+        deployment_region=_in_us_west_2,
+    )
+
+    assert settings.tokenizer == "kimi_k3"

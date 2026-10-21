@@ -153,3 +153,41 @@ class TestRegistration:
             )
             is None
         )
+
+
+def test_validate_environment_sends_the_configured_key(monkeypatch) -> None:
+    """The provider must authenticate when a key is configured.
+
+    validate_environment used to return the headers untouched, so neither the
+    caller's api_key nor PYANNOTE_API_KEY ever reached the wire.
+    """
+    monkeypatch.delenv("PYANNOTE_API_KEY", raising=False)
+    config = PyannoteDiarizationConfig()
+
+    headers = config.validate_environment({}, "pyannote/community-1", api_key="sk-test")
+
+    assert headers["Authorization"] == "Bearer sk-test"
+
+
+def test_validate_environment_falls_back_to_the_env_key(monkeypatch) -> None:
+    monkeypatch.setenv("PYANNOTE_API_KEY", "sk-from-env")
+    config = PyannoteDiarizationConfig()
+
+    headers = config.validate_environment({}, "pyannote/community-1")
+
+    assert headers["Authorization"] == "Bearer sk-from-env"
+
+
+def test_validate_environment_adds_no_header_when_keyless(monkeypatch) -> None:
+    """Keyless deployments have no auth dependency, so no header rather than a raise."""
+    monkeypatch.delenv("PYANNOTE_API_KEY", raising=False)
+    config = PyannoteDiarizationConfig()
+
+    assert "Authorization" not in config.validate_environment({}, "pyannote/community-1")
+
+
+def test_get_complete_url_falls_back_to_the_env_base(monkeypatch) -> None:
+    monkeypatch.setenv("PYANNOTE_API_BASE", "http://pod:8000")
+    config = PyannoteDiarizationConfig()
+
+    assert config.get_complete_url("pyannote/community-1", None, {}) == "http://pod:8000/v1/diarize"

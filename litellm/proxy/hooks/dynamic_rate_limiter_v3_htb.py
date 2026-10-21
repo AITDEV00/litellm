@@ -14,7 +14,7 @@ import asyncio
 from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, NoReturn, Union
 
 import httpx
 
@@ -803,7 +803,7 @@ class _PROXY_DynamicRateLimitHandlerV3Htb(CustomLogger):
         model_group_info: ModelGroupInfo,
         priority: str | None,
         htb_response: RateLimitResponse,
-    ) -> None:
+    ) -> NoReturn:
         resolved_model, llm_provider = resolve_llm_provider_for_rate_limit(model)
         status = next(
             (s for s in htb_response["statuses"] if s["code"] == "OVER_LIMIT"),
@@ -881,6 +881,7 @@ class _PROXY_DynamicRateLimitHandlerV3Htb(CustomLogger):
             priority=priority,
             htb_response=htb_response,
         )
+        return deployment
 
     def pre_call_check(self, deployment: dict) -> dict | None:
         return deployment

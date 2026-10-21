@@ -315,10 +315,11 @@ def _summarize(results: Sequence[Result]) -> None:
     for label, group in grouped.items():
         verdicts = tuple(_verdict(result) for result in group)
         counts = {verdict: verdicts.count(verdict) for verdict in dict.fromkeys(verdicts)}
-        if len(counts) == 1:
-            consensus = verdicts[0]
-        else:
-            consensus = "MIXED " + " ".join(f"{k}x{v}" for k, v in counts.items())
+        consensus = (
+            verdicts[0]
+            if len(counts) == 1
+            else "MIXED " + " ".join(f"{k}x{v}" for k, v in counts.items())
+        )
         tokens = [r.reasoning_tokens for r in group if r.reasoning_tokens is not None]
         rc_chars = [len(r.reasoning_content) for r in group if r.reasoning_content]
         content_chars = [len(r.content) for r in group if r.content]

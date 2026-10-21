@@ -163,15 +163,23 @@ class MemoryMonitor:
     async def _run_attribution_window(self) -> None:
         """Tier 2: tracemalloc for a bounded window, log top growing sites, stop.
 
-        Always stops the tracer — even on error — so tracing memory is never
-        left behind (tracemalloc itself is the classic source of a monitor
-        leak if left running).
+        Stops the tracer even on error so tracing memory is never left behind,
+        but only when this window started it. Tracing that was already running
+        belongs to someone else and is left alone.
         """
         if self._attribution_running:
             return
         self._attribution_running = True
+        started_tracing = False
         try:
             import tracemalloc
+
+            # Only the starter may stop it. Another component may already have
+            # tracing on for its own reasons, and stopping that would blind it
+            # for the rest of the process.
+            started_tracing = not tracemalloc.is_tracing()
+            if started_tracing:
+                tracemalloc.start(_TRACEMALLOC_DEPTH)
 
             monitor_logger.info(
                 "%s tracemalloc attribution window starting (%.0fs, depth=%d)",
@@ -179,7 +187,6 @@ class MemoryMonitor:
                 self.attribution_window_seconds,
                 _TRACEMALLOC_DEPTH,
             )
-            tracemalloc.start(_TRACEMALLOC_DEPTH)
             before: Final = tracemalloc.take_snapshot()
             await asyncio.sleep(self.attribution_window_seconds)
             after: Final = tracemalloc.take_snapshot()
@@ -210,14 +217,15 @@ class MemoryMonitor:
         except Exception as e:  # noqa: BLE001 - the monitor must never crash the proxy
             monitor_logger.warning("%s attribution window failed: %s", _MONITOR_LOG_PREFIX, e)
         finally:
-            try:
-                import tracemalloc
+            if started_tracing:
+                try:
+                    import tracemalloc
 
-                tracemalloc.stop()
-            except Exception as stop_err:  # noqa: BLE001 - releasing the tracer must never crash the proxy
-                monitor_logger.warning(
-                    "%s tracemalloc.stop() failed: %s", _MONITOR_LOG_PREFIX, stop_err
-                )
+                    tracemalloc.stop()
+                except Exception as stop_err:  # noqa: BLE001 - releasing the tracer must never crash the proxy
+                    monitor_logger.warning(
+                        "%s tracemalloc.stop() failed: %s", _MONITOR_LOG_PREFIX, stop_err
+                    )
             self._attribution_running = False
 
 

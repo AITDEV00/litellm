@@ -135,7 +135,7 @@ def flush_redis():
         f"KUBECONFIG={KUBECONFIG} kubectl exec -n {REDIS_NS} {REDIS_POD} "
         f"-- redis-cli -a {REDIS_PASS} --no-auth-warning FLUSHDB"
     )
-    subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
     print("  [redis] Flushed all keys")
 
 
@@ -147,7 +147,7 @@ def get_htb_counters(model: str) -> Dict[str, int]:
         f"KUBECONFIG={KUBECONFIG} kubectl exec -n {REDIS_NS} {REDIS_POD} "
         f"-- redis-cli -a {REDIS_PASS} --no-auth-warning KEYS '*{htb_hash}.*'"
     )
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
     keys = [k.strip() for k in result.stdout.strip().split("\n") if k.strip()]
 
     counters = {}
@@ -162,7 +162,7 @@ def get_htb_counters(model: str) -> Dict[str, int]:
                     f"KUBECONFIG={KUBECONFIG} kubectl exec -n {REDIS_NS} {REDIS_POD} "
                     f"-- redis-cli -a {REDIS_PASS} --no-auth-warning GET {key}"
                 )
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
                 val = result.stdout.strip()
                 if val:
                     counters[priority] = int(val)
@@ -173,7 +173,7 @@ def get_htb_counters(model: str) -> Dict[str, int]:
         f"KUBECONFIG={KUBECONFIG} kubectl exec -n {REDIS_NS} {REDIS_POD} "
         f"-- redis-cli -a {REDIS_PASS} --no-auth-warning GET {model_wide_key}"
     )
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
     val = result.stdout.strip()
     if val:
         counters["model_wide"] = int(val)
@@ -189,7 +189,7 @@ def get_htb_ewma(model: str, priority: str) -> Optional[float]:
         f"KUBECONFIG={KUBECONFIG} kubectl exec -n {REDIS_NS} {REDIS_POD} "
         f"-- redis-cli -a {REDIS_PASS} --no-auth-warning GET {ewma_key}"
     )
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
     val = result.stdout.strip()
     if val:
         return float(val)
@@ -318,7 +318,7 @@ def analyze_results(
     print(f"  Other errors:     {len(errors)}")
 
     # Per-priority breakdown
-    print(f"\n  --- Per-Priority Breakdown ---")
+    print("\n  --- Per-Priority Breakdown ---")
     priority_stats = {}
     for prio in sorted(set(r.priority for r in results)):
         prio_results = [r for r in results if r.priority == prio]
@@ -334,7 +334,7 @@ def analyze_results(
         print(f"  {prio:15s}: {len(prio_ok):3d} OK, {len(prio_denied):3d} denied, {len(prio_errors):3d} errors (sent {len(prio_results)})")
 
     # Per-model breakdown (which model actually served the request)
-    print(f"\n  --- Per-Model Served (response model) ---")
+    print("\n  --- Per-Model Served (response model) ---")
     model_served = Counter()
     for r in ok:
         model_served[r.response_model or r.model] += 1
@@ -342,7 +342,7 @@ def analyze_results(
         print(f"  {m:45s}: {count:3d} served")
 
     # Redis counter state
-    print(f"\n  --- Redis HTB Counters ---")
+    print("\n  --- Redis HTB Counters ---")
     for model in models_in_test:
         counters = get_htb_counters(model)
         if counters:
@@ -353,7 +353,7 @@ def analyze_results(
             print(f"  {model}: (no counters)")
 
     # EWMA values
-    print(f"\n  --- EWMA Values ---")
+    print("\n  --- EWMA Values ---")
     priorities = ["prior1", "prior2", "prior3"]
     for model in models_in_test:
         for prio in priorities:

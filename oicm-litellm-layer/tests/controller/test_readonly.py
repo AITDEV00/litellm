@@ -37,7 +37,9 @@ async def test_read_only_batch_does_not_write(caplog):
     )
 
     assert deleted == 0
-    assert registered == []
+    # One placeholder per register: callers align results to their inputs by
+    # position, so a short list would break the zip.
+    assert registered == [None]
     assert patched == 0
     client._delete_one.assert_not_awaited()
     client._register_one.assert_not_awaited()
@@ -122,3 +124,29 @@ async def test_set_blocked_reports_failure():
     client._client.patch = AsyncMock(side_effect=RuntimeError("boom"))
 
     assert await client.set_blocked("litellm-id", True) is False
+
+
+@pytest.mark.asyncio
+async def test_read_only_execute_survives_a_plan_with_registers(monkeypatch):
+    """A read-only controller must be able to run a full plan.
+
+    execute() zips plan.registers against the batch result positionally, so a
+    read-only batch that returns a short list crashed the debug controller on
+    every cycle that had something to register.
+    """
+    from unittest.mock import MagicMock
+
+    from controller.reconciler import SyncReconciler
+
+    pricing = MagicMock()
+    pricing.resolve = AsyncMock(return_value=None)
+    model = _make_model()
+    reconciler = SyncReconciler(LiteLLMClient(read_only=True), pricing)
+    plan = await reconciler.compute_plan({model.deployment_id: model}, {})
+    assert plan.registers, "precondition: the plan must have something to register"
+
+    deleted, registered, patched = await reconciler.execute(plan)
+
+    assert deleted == 0
+    assert registered == 1
+    assert patched == 0

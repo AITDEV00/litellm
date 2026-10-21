@@ -58,12 +58,16 @@ class LiteLLMClient:
         await self._client.aclose()
 
     async def list_all_models_by_key(self) -> dict[str, list[dict]]:
-        try:
-            resp = await self._client.get(f"{self.base_url}/model/info")
-            resp.raise_for_status()
-        except Exception as e:
-            logger.error("Failed to list models: %s", e)
-            return {}
+        """Every registered model, grouped by the OICM uuid it belongs to.
+
+        Raises rather than returning an empty map when the read fails. The
+        caller treats an empty map as "nothing is registered yet" and would
+        register a duplicate row for every deployment, because ``/model/new``
+        mints a fresh model_id instead of replacing. A failed read is not the
+        same fact as an empty registry, so it must not be reported as one.
+        """
+        resp = await self._client.get(f"{self.base_url}/model/info")
+        resp.raise_for_status()
 
         grouped: dict[str, list[dict]] = {}
         for m in resp.json().get("data", []):
@@ -247,7 +251,10 @@ class LiteLLMClient:
     ) -> Tuple[int, List[Optional[str]], int]:
         if self.read_only:
             self._log_read_only_plan(deletes, registers, patches)
-            return 0, [], 0
+            # One placeholder per register keeps the caller's positional
+            # zip(registers, registered_ids) valid. An empty list would break
+            # the alignment for any plan that has something to register.
+            return 0, [None] * len(registers), 0
 
         valid_deletes = [mid for mid in deletes if mid]
         del_results, reg_results, pat_results = await asyncio.gather(

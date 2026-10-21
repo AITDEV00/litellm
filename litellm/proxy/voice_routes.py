@@ -76,7 +76,10 @@ def _audio_deployments_by_priority(router_instance: Any, provider: str | None) -
 
     A provider-qualified match outranks any deployment that merely declares the
     audio_speech mode, so an explicitly requested provider is never shadowed by
-    whichever deployment happens to be listed first.
+    whichever deployment happens to be listed first. When a provider is named
+    but has no deployment of its own, nothing is yielded: falling through to an
+    unrelated provider's pod would forward the request to a server that cannot
+    serve it.
     """
     if provider is not None:
         prefix = f"{provider}/"
@@ -85,6 +88,7 @@ def _audio_deployments_by_priority(router_instance: Any, provider: str | None) -
             model_str = deployment.get("litellm_params", {}).get("model", "")
             if prefix in model_str or suffix in model_str:
                 yield deployment
+        return
     for deployment in router_instance.model_list:
         if _deployment_mode(deployment) == "audio_speech":
             yield deployment
@@ -252,7 +256,7 @@ async def audio_speech_clone(
 
         return StreamingResponse(
             _audio_speech_chunk_generator(response),
-            media_type="audio/mpeg",
+            media_type=_audio_media_type(data),
             headers=custom_headers,
         )
 
@@ -297,7 +301,15 @@ async def create_voice(
             data["model"] = proxy_server_mod.user_model
 
         model = data.pop("model", None) or proxy_server_mod.user_model
+
+        if model is None and proxy_server_mod.llm_router is not None:
+            model = _resolve_audio_model(proxy_server_mod.llm_router)
+
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
+        # The route owns the action. Without this a client could POST here with
+        # action="delete_profile" and drive a different pod operation through
+        # the create endpoint.
+        voice_data["action"] = "register"
         data = {"model": model, "voice_data": voice_data, **data}
 
         data = await proxy_server_mod.proxy_logging_obj.pre_call_hook(
@@ -617,7 +629,7 @@ async def audio_script(
 
         return StreamingResponse(
             _audio_speech_chunk_generator(response),
-            media_type="audio/mpeg",
+            media_type=_audio_media_type(data),
             headers=custom_headers,
         )
 

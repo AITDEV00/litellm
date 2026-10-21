@@ -3,7 +3,7 @@ import logging
 import signal
 import sys
 
-from . import config as _config  # noqa: F401 - side-effect: configures logging
+from . import config as _config  # noqa: F401  # side effect: configures logging at module scope
 from .controller import DiscoveryController
 
 logger = logging.getLogger("oicm-discovery")
@@ -11,7 +11,16 @@ logger = logging.getLogger("oicm-discovery")
 
 def run_once():
     controller = DiscoveryController()
-    asyncio.run(controller.full_sync())
+
+    async def _sync() -> None:
+        # Same priming `start()` does. Without it the snapshots are empty, so
+        # every Stopped deployment looks deleted and a one-shot run removes
+        # their rows.
+        if controller.status_poller.enabled:
+            await controller.status_poller.refresh()
+        await controller.full_sync()
+
+    asyncio.run(_sync())
 
 
 def run():

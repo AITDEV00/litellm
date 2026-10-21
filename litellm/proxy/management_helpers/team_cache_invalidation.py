@@ -13,7 +13,8 @@ the single helper call-site.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+import asyncio
+from typing import TYPE_CHECKING, Final, Optional
 
 from litellm._logging import verbose_proxy_logger
 from litellm.repositories.verification_token_repository import (
@@ -64,12 +65,27 @@ async def _invalidate_team_key_caches(
         )
         return
 
-    for key_row in team_keys:
-        if key_row.token is None:
-            continue
-        hashed_token = _hash_token_if_needed(key_row.token)
-        await _delete_cache_key_object(
-            hashed_token=hashed_token,
-            user_api_key_cache=user_api_key_cache,
-            proxy_logging_obj=proxy_logging_obj,
+    evictions: Final = await asyncio.gather(
+        *(
+            _delete_cache_key_object(
+                hashed_token=_hash_token_if_needed(key_row.token),
+                user_api_key_cache=user_api_key_cache,
+                proxy_logging_obj=proxy_logging_obj,
+            )
+            for key_row in team_keys
+            if key_row.token is not None
+        ),
+        return_exceptions=True,
+    )
+    failed: Final = sum(1 for result in evictions if isinstance(result, BaseException))
+    if failed:
+        # Best effort by contract: one unreachable cache entry must not stop the
+        # rest from being evicted, and must not fail the team update that
+        # triggered this. The stale entry expires with its TTL.
+        verbose_proxy_logger.warning(
+            "_invalidate_team_key_caches: %d/%d key cache evictions failed for team_id=%s. "
+            "Those entries may serve stale team_models until their TTL expires.",
+            failed,
+            len(evictions),
+            _sanitize_for_log(team_id),
         )
