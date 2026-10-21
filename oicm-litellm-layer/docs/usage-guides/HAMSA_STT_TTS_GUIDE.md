@@ -10,14 +10,24 @@ The gateway is properly SSL-verified, so the curl examples below use standard HT
 
 > **Interactive test page**: a browser-based WebSocket client for realtime Hamsa STT is available at `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html`. See [Realtime STT via WebSocket](#4-realtime-stt-websocket).
 
+> **`hamsa-tts` TTS is retired. Use [`hamsa-tts-new`](HAMSA-TTS-NEW-V1-GUIDE.md) instead.**
+> The original `hamsa-tts` deployment's backend Service
+> (`s-cd2850fc-5870-4a57-89da-5e978eee66f4`) no longer exists in the cluster, so
+> every `/v1/audio/speech` call to `hamsa-tts` returns HTTP 500
+> `HamsaException - Cannot connect to host ...`. This is true on both dev and
+> prod as of 2026-10-21. The TTS sections below are kept only to document the
+> retired contract; use the new guide for working examples. `hamsa-stt` is
+> **not** affected and remains fully operational.
+
 ---
 
 ## Available Hamsa Models
 
-| Model         | Type           | Description                            |
-| ------------- | -------------- | -------------------------------------- |
-| `hamsa-tts` | Text-to-Speech | Arabic/English TTS with 110+ speakers  |
-| `hamsa-stt` | Speech-to-Text | Arabic STT (REST + WebSocket realtime) |
+| Model         | Type           | Status    | Description                            |
+| ------------- | -------------- | --------- | -------------------------------------- |
+| `hamsa-tts` | Text-to-Speech | **Retired** | Backend removed; use `hamsa-tts-new` |
+| `hamsa-tts-new` | Text-to-Speech | Active | Arabic/English TTS, 113 bundled + 12 cloned ADEO voices. See [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md) |
+| `hamsa-stt` | Speech-to-Text | Active | Arabic STT (REST + WebSocket realtime) |
 
 Confirm they are registered on the gateway:
 
@@ -29,6 +39,14 @@ curl -s "https://litellm.ecouncil.ae/v1/models" \
 ---
 
 ## 1. Text-to-Speech (TTS)
+
+> **Retired.** This section documents the removed `hamsa-tts` contract and its
+> examples will fail with HTTP 500. For working TTS, see
+> [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md), which covers
+> `hamsa-tts-new`: the same `POST /v1/audio/speech` shape, `voice` required,
+> `response_format` of `wav` or `pcm`, plus `stream` support. Note the parameter
+> differences: `dialect` does not exist on the new model, and `voice` is
+> required rather than defaulting to `jasem`.
 
 ### Endpoint
 
@@ -119,6 +137,13 @@ Binary audio data with `Content-Type: audio/wav`. When `response_format=wav` the
 ---
 
 ## 2. Voice Management
+
+> **Unavailable.** Voice management targets `hamsa-tts`, which is retired: its
+> backend Service no longer exists. `POST /v1/audio/voices` cannot work today,
+> independently of the read-only-rootfs bug documented below. Kept as a record
+> of the retired contract. Cloned voices on the active model are already
+> provisioned: `hamsa-tts-new` ships 12 ADEO cloned voices (the `adeo_`-prefixed
+> names) alongside 113 bundled speakers, used directly in the `voice` field.
 
 ### Endpoint
 

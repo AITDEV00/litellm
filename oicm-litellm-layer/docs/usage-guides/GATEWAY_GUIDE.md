@@ -17,7 +17,7 @@ with this key returns exactly this set.
 
 | Model | Type | Description |
 |---|---|---|
-| `hamsa-tts` | Text-to-Speech | Arabic/English TTS with 110+ speakers |
+| `hamsa-tts-new` | Text-to-Speech | Arabic/English TTS, 113 bundled + 12 cloned ADEO voices. See [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md) |
 | `hamsa-stt` | Speech-to-Text | Arabic STT (REST + WebSocket realtime) |
 | `inception-tts` | Text-to-Speech | Inception TTS |
 | `inception-stt` | Speech-to-Text | Inception STT |
@@ -29,6 +29,10 @@ with this key returns exactly this set.
 | `deepseek-ai/DeepSeek-V4.1-Flash` | LLM Chat | DeepSeek V4.1 Flash reasoning model |
 | `Qwen/Qwen3-Embedding-4B` | Embeddings | 2560-dimensional embeddings |
 | `Qwen/Qwen3-Embedding-0.6B` | Embeddings | 1024-dimensional embeddings |
+
+> `hamsa-tts` (the original TTS deployment) is **retired**: its backend Service
+> no longer exists, so `/v1/audio/speech` against it returns HTTP 500 on both dev
+> and prod. Use `hamsa-tts-new`. `hamsa-stt` is unaffected.
 
 ### Reasoning Models
 
@@ -57,9 +61,16 @@ POST /v1/audio/speech
 
 ### Request Parameters
 
+> The original `hamsa-tts` deployment is **retired** and these parameters no
+> longer work. For the active model see
+> [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md). `hamsa-tts-new`
+> accepts `model`, `input`, `voice` (required), `response_format` (`wav` or
+> `pcm`), `speed`, `expressiveness` and `stream`, and does **not** accept
+> `dialect`.
+
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `model` | string | Yes | - | Must be `hamsa-tts` |
+| `model` | string | Yes | - | Was `hamsa-tts` (retired); use `hamsa-tts-new` |
 | `input` | string | Yes | - | Text to synthesize |
 | `voice` | string | No | `jasem` | Speaker name (case-insensitive) |
 | `dialect` | string | No | speaker default | `msa`, `ksa`, or `eng` |
@@ -101,45 +112,61 @@ Wael, William, Yara, Yehya, Zeina
 
 ### Examples
 
-**Arabic TTS (PCM WAV)**
+The original `hamsa-tts` examples that used `dialect` and `mulaw` are retired
+with the model. The working equivalents use `hamsa-tts-new`:
+
+**Arabic TTS (WAV)**
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "hamsa-tts",
+    "model": "hamsa-tts-new",
     "input": "مرحبا بك في اختبار تحويل النص إلى كلام",
-    "voice": "jasem",
-    "dialect": "ksa",
-    "expressiveness": 1.0,
+    "voice": "Zeina",
     "response_format": "wav"
   }' \
   -o output.wav
 ```
 
-**English TTS (mu-law)**
+**English TTS (WAV)**
 
 ```bash
-curl -sk -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
+curl -s -X POST "https://litellm.ecouncil.ae/v1/audio/speech" \
   -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "hamsa-tts",
+    "model": "hamsa-tts-new",
     "input": "Hello, welcome to the text to speech test.",
-    "voice": "amanda",
-    "response_format": "mulaw"
+    "voice": "Amir",
+    "response_format": "wav"
   }' \
-  -o output_mulaw.wav
+  -o output_en.wav
 ```
+
+For streaming, cloned ADEO voices, and the full 113-speaker list, see
+[HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md).
 
 ### Response
 
-Binary audio data with `Content-Type: audio/wav`. The audio is 16kHz mono 16-bit PCM (when `response_format=wav`) or 8kHz mono mu-law (when `response_format=mulaw`).
+Binary audio data with `Content-Type: audio/wav`. For `hamsa-tts-new`, the audio
+is 16kHz mono 16-bit PCM when `response_format=wav`, or raw headerless 16-bit
+16kHz mono PCM when `response_format=pcm` with `stream: true`.
 
 ---
 
 ## 2. Voice Management
+
+> **Unavailable.** Voice management targets `hamsa-tts`, which is retired: its
+> backend Service no longer exists. `POST /v1/audio/voices` therefore cannot
+> work today, independently of the read-only-rootfs bug documented below. The
+> content in this section is kept as a record of the retired contract.
+>
+> Cloned voices on the active model are already provisioned: `hamsa-tts-new`
+> ships 12 ADEO cloned voices (the `adeo_`-prefixed names) alongside 113 bundled
+> speakers. Pass them directly in the `voice` field. See
+> [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md).
 
 ### Endpoint
 
@@ -663,8 +690,8 @@ Header:    Authorization: Bearer <YOUR_API_KEY>
 
 | Endpoint | Method | Path | Model |
 |---|---|---|---|
-| Text-to-Speech | POST | `/v1/audio/speech` | `hamsa-tts` |
-| Voice Management | POST | `/v1/audio/voices` | `hamsa-tts` |
+| Text-to-Speech | POST | `/v1/audio/speech` | `hamsa-tts-new` (`hamsa-tts` retired) |
+| Voice Management | POST | `/v1/audio/voices` | `hamsa-tts` (retired) |
 | Speech-to-Text (REST) | POST | `/v1/audio/transcriptions` | `hamsa-stt` |
 | Speech-to-Text (WS) | WS | `/v1/realtime?model=hamsa-stt` | `hamsa-stt` |
 | Chat Completions | POST | `/v1/chat/completions` | Qwen / DeepSeek models |
