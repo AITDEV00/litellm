@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from litellm.proxy.voice_routes import _join_audio_url, _resolve_audio_target_url
+from litellm.proxy.voice_routes import (
+    _audio_speech_chunk_generator,
+    _join_audio_url,
+    _resolve_audio_model,
+    _resolve_audio_target_url,
+)
 
 
 class _FakeRouter:
@@ -51,3 +56,92 @@ def test_target_url_is_none_when_the_provider_is_not_registered():
     )
 
     assert _resolve_audio_target_url(router, "omnivoice", "/v1/models") is None
+
+
+class _FakeBinaryResponse:
+    """Minimal stand-in for ``HttpxBinaryResponseContent``.
+
+    ``aiter_bytes`` is a coroutine that returns an async iterator, matching the
+    openai SDK. A caller that forgets to await it gets a coroutine, and
+    ``async for`` over that raises TypeError.
+    """
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.closed = False
+
+    async def aiter_bytes(self, chunk_size: int | None = None):
+        async def _gen():
+            for chunk in self.chunks:
+                yield chunk
+
+        return _gen()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_chunk_generator_relays_audio_bytes():
+    response = _FakeBinaryResponse([b"aaa", b"bbb"])
+
+    relayed = [chunk async for chunk in _audio_speech_chunk_generator(response)]
+
+    assert relayed == [b"aaa", b"bbb"]
+    assert response.closed is True
+
+
+def test_audio_model_resolution_prefers_a_speech_deployment():
+    router = _FakeRouter(
+        [
+            {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt", "mode": "audio_transcription"}},
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"}},
+        ]
+    )
+
+    assert _resolve_audio_model(router) == "omnivoice"
+
+
+def test_audio_model_resolution_ignores_deployments_without_the_speech_mode():
+    router = _FakeRouter(
+        [
+            {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt", "mode": "audio_transcription"}},
+        ]
+    )
+
+    assert _resolve_audio_model(router) is None
+
+
+def test_audio_model_resolution_reads_mode_from_model_info():
+    """Mode lives in litellm_params for config-file deployments and in
+    model_info for API-created ones; both must be recognised."""
+    router = _FakeRouter(
+        [
+            {
+                "model_name": "hamsa-tts",
+                "litellm_params": {"model": "hamsa/hamsa-tts", "mode": "audio_speech"},
+            },
+            {
+                "model_name": "omnivoice",
+                "litellm_params": {"model": "omnivoice/omnivoice"},
+                "model_info": {"mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_audio_model(router) == "hamsa-tts"
+
+
+def test_audio_model_resolution_finds_api_created_deployments_alone():
+    router = _FakeRouter(
+        [
+            {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt"}},
+            {
+                "model_name": "omnivoice",
+                "litellm_params": {"model": "omnivoice/omnivoice"},
+                "model_info": {"mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_audio_model(router) == "omnivoice"

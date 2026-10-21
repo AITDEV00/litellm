@@ -53,6 +53,23 @@ _VOICE_DATA_KEYS = frozenset(
 )
 
 
+def _deployment_mode(deployment: Any) -> Any:
+    """The deployment's mode, which LiteLLM stores in either of two places.
+
+    Deployments created from a config file carry ``mode`` in ``litellm_params``,
+    while ones created through the model-management API carry it in
+    ``model_info``. Reading only one of the two silently skipped every
+    deployment registered the other way, so an audio route could resolve to a
+    deployment whose pod no longer exists.
+    """
+    litellm_params = deployment.get("litellm_params", {}) or {}
+    mode = litellm_params.get("mode")
+    if mode is not None:
+        return mode
+    model_info = deployment.get("model_info", {}) or {}
+    return model_info.get("mode")
+
+
 def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> str | None:
     if provider is not None:
         prefix = f"{provider}/"
@@ -63,8 +80,7 @@ def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> s
             if prefix in model_str or suffix in model_str:
                 return deployment.get("model_name")
     for deployment in router_instance.model_list:
-        litellm_params = deployment.get("litellm_params", {})
-        if litellm_params.get("mode") == "audio_speech":
+        if _deployment_mode(deployment) == "audio_speech":
             return deployment.get("model_name")
     return None
 
@@ -81,9 +97,8 @@ def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -
                 if api_base:
                     return str(api_base).rstrip("/")
     for deployment in router_instance.model_list:
-        litellm_params = deployment.get("litellm_params", {})
-        if litellm_params.get("mode") == "audio_speech":
-            api_base = litellm_params.get("api_base")
+        if _deployment_mode(deployment) == "audio_speech":
+            api_base = deployment.get("litellm_params", {}).get("api_base")
             if api_base:
                 return str(api_base).rstrip("/")
     return None
@@ -128,7 +143,7 @@ def _audio_media_type(data: dict) -> str:
 async def _audio_speech_chunk_generator(
     _response: Any,
 ) -> AsyncGenerator[bytes, None]:
-    _generator = _response.aiter_bytes(chunk_size=AUDIO_SPEECH_CHUNK_SIZE)
+    _generator = await _response.aiter_bytes(chunk_size=AUDIO_SPEECH_CHUNK_SIZE)
     try:
         async for chunk in _generator:
             yield chunk

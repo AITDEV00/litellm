@@ -37,7 +37,7 @@ TTS uses an OpenAI-compatible JSON body posted to `/v1/audio/speech`. The gatewa
 | `response_format` | no | | Audio format (e.g. `mp3`, `wav`, `flac`) |
 | `speed` | no | | Playback speed multiplier (0.25 to 4.0) |
 | `language` | no | | Language code for synthesis |
-| `stream` | no | | Whether to stream the audio |
+| `stream` | no | | Whether to stream the audio. The pod rejects `stream=true` unless `response_format` is `pcm`, so set both together |
 
 OmniVoice also accepts custom inference parameters that are passed through verbatim:
 
@@ -168,11 +168,16 @@ Voice cloning uses multipart form-data posted to `/v1/audio/speech/clone`. This 
 
 The `voice` field is set to `"clone"` by the gateway route. It is not forwarded to the pod; it is only used internally for routing.
 
+Always pass `model=omnivoice` explicitly. When `model` is omitted the gateway
+falls back to the first deployment registered with `mode: audio_speech`, which is
+not necessarily OmniVoice and can be a deployment whose pod no longer exists.
+
 ### Sample curl
 
 ```bash
 curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
   -H "Authorization: Bearer <your-api-key>" \
+  -F "model=omnivoice" \
   -F "text=Hello world, this is a cloned voice test." \
   -F "ref_audio=@reference.wav" \
   -F "ref_text=This is the reference audio transcript." \
@@ -187,6 +192,7 @@ curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
 ```bash
 curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
   -H "Authorization: Bearer <your-api-key>" \
+  -F "model=omnivoice" \
   -F "text=Hello world." \
   -F "ref_audio=@reference.wav" \
   -o clone_output.mp3
@@ -197,6 +203,7 @@ curl -sS https://litellm.ecouncil.ae/v1/audio/speech/clone \
 ```bash
 curl -sS http://localhost:4000/v1/audio/speech/clone \
   -H "Authorization: Bearer {{ master_key }}" \
+  -F "model=omnivoice" \
   -F "text=Hello from local proxy." \
   -F "ref_audio=@reference.wav" \
   -o clone_local.mp3

@@ -37,7 +37,7 @@ TTS uses an OpenAI-compatible JSON body posted to `/v1/audio/speech`. The gatewa
 | `response_format` | no | | Audio format (e.g. `mp3`) |
 | `speed` | no | | Playback speed multiplier |
 | `language` | no | | Language code for synthesis |
-| `stream` | no | | Whether to stream the audio |
+| `stream` | no | | Whether to stream the audio. The pod rejects `stream=true` unless `response_format` is `pcm` or `wav`, and the gateway's default format is `mp3`, so set both together |
 
 Any other fields you pass that are not LiteLLM-internal parameters are passed through to the pod verbatim. LiteLLM-internal kwargs (things like `api_base`, `api_key`, `metadata`, `litellm_call_id`, etc.) are stripped before the request reaches the upstream pod.
 
