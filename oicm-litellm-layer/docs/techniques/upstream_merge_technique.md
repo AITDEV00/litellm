@@ -636,3 +636,130 @@ distinct loss classes that need different fixes:
   commits after this merge were all merge clobbers found days later in
   production or code review. The Step 5 drop audit exists so the next merge
   finds them on merge day.
+
+## Tooling survey: what can be automated, and what cannot (2026-10-21)
+
+This section records what was researched while looking for a less brute-force
+merge process. The conclusion up front: **no tool makes an upstream merge both
+AI-assisted and deterministic.** The workable split is *deterministic collection,
+AI proposal, deterministic verification*: the model is never the thing that
+decides whether it was right.
+
+### Syntax-aware merge drivers (deterministic, no LLM)
+
+**[Mergiraf](https://mergiraf.org)** (Codeberg, Rust, GPLv3) is the closest match
+to "deterministic structural merge". It parses both sides into syntax trees and
+merges at function/class granularity instead of line granularity, so the very
+common "both branches added different things to the same region" case resolves
+cleanly instead of producing a conflict. It is a drop-in git merge driver
+(`.gitattributes` + `git config`), works with `merge`, `rebase` and
+`cherry-pick`, and, importantly for this repo, deliberately leaves conflict
+markers behind when it is not confident rather than guessing. Python is
+supported. It also has a standalone `mergiraf solve <file>` mode that operates on
+a file already carrying conflict markers, which means it can be trialled on a
+finished merge without changing any configuration.
+
+Caveat before adopting: GPLv3. It is a build/developer tool rather than a linked
+dependency, but confirm that is acceptable before wiring it into anything that
+ships.
+
+**weave** is a tree-sitter based entity-level merge driver. Its author reports
+31/31 clean merges versus git's 15/31 on a benchmark of concurrent-edit
+scenarios. Less mature than Mergiraf; worth knowing about, not worth depending
+on yet.
+
+Neither tool understands *intent*. They reduce false conflicts. They do not know
+that `ENFORCE_PRISMA_MIGRATION_CHECK` is load-bearing, so they cannot stop the
+loss class that actually bit us.
+
+### `git rerere` (built in, unused here)
+
+`rerere` records how a conflict was resolved and replays that resolution the next
+time the identical conflict appears. It is one config line
+(`git config rerere.enabled true`) and costs nothing to run. This repo merges
+incrementally every release and the same handful of files conflict repeatedly
+(`proxy_server.py`, `uv.lock`, `custom_httpx/llm_http_handler.py`), so the value
+compounds over time. It is not a substitute for the drop audit; it only helps
+where a human already resolved the same hunk before.
+
+Related: `merge.conflictStyle=zdiff3` produces better conflict display than the
+default, and Mergiraf requires the base revision to be visible, so zdiff3 is the
+right setting if Mergiraf is adopted.
+
+### LLM-based merge tools (non-deterministic)
+
+GitKraken (V11.2+) and GitLens 18.2 both offer AI conflict resolution with
+confidence levels, and `merde.ai` is a dedicated service. Treat all of them as
+proposal engines, never as gates.
+
+The most useful data point found: the `merde.ai` authors built a benchmark from
+real-world conflicts, started with the obvious "feed the conflict to an LLM and
+ask it to resolve" approach, and **scored single digits**. It only became useful
+after substantial engineering to let the model dig through surrounding context
+before answering. The lesson is not that LLM merging is useless, it is that a
+conflict hunk in isolation is nearly always insufficient context, which is the
+same reason our Step 5 audit exists.
+
+**jj (jujutsu)** models conflicts as first-class committable objects rather than
+a blocking state. A genuinely better model for this workflow, but it is a
+different VCS and a large migration. Not justified here.
+
+### Why comments cannot protect custom code
+
+A comment saying "IMPORTANT: do not remove" sits on a line that upstream can
+freely delete. Git's merge is line-based and has no concept of intent, so the
+comment disappears with the code and provides zero protection. This is precisely
+how `ENFORCE_PRISMA_MIGRATION_CHECK` vanished in the v1.106.0 merge: no conflict,
+no marker, no warning. What caught it was the post-merge hash audit, not any
+in-file annotation.
+
+Comments *are* useful to a script. A structured marker gives deterministic
+tooling an anchor:
+
+```python
+# fork-guard:begin id=oicm-otel-span-rename
+return get_parent_otel_span_from_kwargs(kwargs)
+# fork-guard:end id=oicm-otel-span-rename
+```
+
+A small script can then assert post-merge that every registered region still
+exists and still contains the expected symbol. That converts an unenforceable
+comment into a real gate. Apply it only to the hot upstream-owned files, not
+repo-wide: marking everything recreates the noise problem.
+
+### Measured conflict surface (v1.106.1)
+
+Measured rather than estimated, against `v1.106.1`:
+
+| Category | Files | Added / Deleted |
+|---|---|---|
+| Custom features in fork-only files (upstream has no such path) | many | `voice_routes.py` +708, `client_distribution/routes.py` +586, `session_identity/resolver.py` +240, `oicm_routes.py` +188, `diarization_routes.py` +188 |
+| Production files we edit that **upstream owns** | **65** | **+2596 / -281** |
+
+The second row is the entire risk surface, and it is concentrated: the top ten
+files hold roughly 75% of it (`llm_http_handler.py` +453,
+`db_spend_update_writer.py` +355, `prometheus_api.py` +257, `router.py` +240,
+`proxy_server.py` +120, and five smaller ones).
+
+The important finding is that the feature architecture is already right: OICM
+features live in their own files, which upstream cannot conflict with. The
+weakness is that 65 upstream-owned files carry unmarked edits, so nothing
+signals when one is silently reverted.
+
+### Recommended additions, in order of value
+
+1. **`fork_guard.py audit --base <pre-merge-ref>`**: the hash comparison from
+   Step 5, mechanised into a failing gate. This is the check that would have
+   caught the prisma regression on merge day. No new dependencies.
+2. **`fork_guard.py inventory`**: classify every changed file as fork-only
+   (safe) or upstream-owned (risk), and print the ranked table above. Makes the
+   risk surface visible before a merge starts.
+3. **`fork_guard.py report`**: collect every conflict into one reviewable file
+   grouped by feature, so conflicts are evaluated as a batch after the merge
+   stops instead of resolved blind in the middle.
+4. **`git config rerere.enabled true`** and `merge.conflictStyle=zdiff3`, free.
+5. **Mergiraf as a merge driver**: the largest win on false conflicts, but the
+   GPLv3 question should be settled first.
+
+Items 1 and 2 need no new dependencies and no licensing decision, which is why
+they come first.
