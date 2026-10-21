@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, Final
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
@@ -27,6 +27,8 @@ from litellm.proxy.litellm_pre_call_utils import add_litellm_data_to_request
 from litellm.proxy.route_llm_request import route_request
 
 router = APIRouter(tags=["audio"])
+
+_API_VERSION_PREFIX = "/v1"
 
 _VOICE_DATA_KEYS = frozenset(
     {
@@ -85,6 +87,28 @@ def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -
             if api_base:
                 return str(api_base).rstrip("/")
     return None
+
+
+def _join_audio_url(api_base: str, path: str) -> str:
+    """Append a pod path to an api_base that may already end in the version prefix.
+
+    Audio deployments are registered with api_base values like ``http://host:8080/v1``
+    while the forwarded paths also start with ``/v1``, so naive concatenation
+    requests ``/v1/v1/models`` and the pod answers 404.
+    """
+    base: Final = api_base.rstrip("/")
+    suffix: Final = path if path.startswith("/") else f"/{path}"
+    if base.endswith(_API_VERSION_PREFIX) and suffix.startswith(_API_VERSION_PREFIX):
+        suffix = suffix[len(_API_VERSION_PREFIX) :]
+    return base + suffix
+
+
+def _resolve_audio_target_url(llm_router: Any, provider: str, path: str) -> str | None:
+    """The pod URL the custom audio routes forward to, or None when unregistered."""
+    api_base: Final = _resolve_audio_api_base(llm_router, provider=provider)
+    if api_base is None:
+        return None
+    return _join_audio_url(api_base, path)
 
 
 def _audio_media_type(data: dict) -> str:
@@ -649,16 +673,14 @@ async def _proxy_to_audio_pod(
             param=None,
         )
 
-    api_base = _resolve_audio_api_base(llm_router, provider=provider)
-    if api_base is None:
+    target_url: Final = _resolve_audio_target_url(llm_router, provider, path)
+    if target_url is None:
         raise ProxyException(
             message="No {} deployment found".format(provider),
             code=503,
             type="server_error",
             param=None,
         )
-
-    target_url = api_base + path
 
     ssl_verify = True
     timeout = 30.0
