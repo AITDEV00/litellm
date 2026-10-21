@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from collections.abc import Iterator
 from typing import Any, AsyncGenerator, Dict, Final
 
 import orjson
@@ -53,7 +54,7 @@ _VOICE_DATA_KEYS = frozenset(
 )
 
 
-def _deployment_mode(deployment: Any) -> Any:
+def _deployment_mode(deployment: dict) -> str | None:
     """The deployment's mode, which LiteLLM stores in either of two places.
 
     Deployments created from a config file carry ``mode`` in ``litellm_params``,
@@ -62,45 +63,44 @@ def _deployment_mode(deployment: Any) -> Any:
     deployment registered the other way, so an audio route could resolve to a
     deployment whose pod no longer exists.
     """
-    litellm_params = deployment.get("litellm_params", {}) or {}
-    mode = litellm_params.get("mode")
+    litellm_params: Final = deployment.get("litellm_params") or {}
+    mode: Final = litellm_params.get("mode")
     if mode is not None:
-        return mode
-    model_info = deployment.get("model_info", {}) or {}
+        return str(mode)
+    model_info: Final = deployment.get("model_info") or {}
     return model_info.get("mode")
 
 
-def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> str | None:
+def _audio_deployments_by_priority(router_instance: Any, provider: str | None) -> Iterator[dict]:
+    """Audio deployments to consider, best first.
+
+    A provider-qualified match outranks any deployment that merely declares the
+    audio_speech mode, so an explicitly requested provider is never shadowed by
+    whichever deployment happens to be listed first.
+    """
     if provider is not None:
         prefix = f"{provider}/"
         suffix = f"/{provider}"
         for deployment in router_instance.model_list:
-            litellm_params = deployment.get("litellm_params", {})
-            model_str = litellm_params.get("model", "")
+            model_str = deployment.get("litellm_params", {}).get("model", "")
             if prefix in model_str or suffix in model_str:
-                return deployment.get("model_name")
+                yield deployment
     for deployment in router_instance.model_list:
         if _deployment_mode(deployment) == "audio_speech":
-            return deployment.get("model_name")
+            yield deployment
+
+
+def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> str | None:
+    for deployment in _audio_deployments_by_priority(router_instance, provider):
+        return deployment.get("model_name")
     return None
 
 
 def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -> str | None:
-    if provider is not None:
-        prefix = f"{provider}/"
-        suffix = f"/{provider}"
-        for deployment in router_instance.model_list:
-            litellm_params = deployment.get("litellm_params", {})
-            model_str = litellm_params.get("model", "")
-            if prefix in model_str or suffix in model_str:
-                api_base = litellm_params.get("api_base")
-                if api_base:
-                    return str(api_base).rstrip("/")
-    for deployment in router_instance.model_list:
-        if _deployment_mode(deployment) == "audio_speech":
-            api_base = deployment.get("litellm_params", {}).get("api_base")
-            if api_base:
-                return str(api_base).rstrip("/")
+    for deployment in _audio_deployments_by_priority(router_instance, provider):
+        api_base = deployment.get("litellm_params", {}).get("api_base")
+        if api_base:
+            return str(api_base).rstrip("/")
     return None
 
 

@@ -9,11 +9,14 @@ even though the routes were registered.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import pytest
 
 from litellm.proxy.voice_routes import (
     _audio_speech_chunk_generator,
     _join_audio_url,
+    _resolve_audio_api_base,
     _resolve_audio_model,
     _resolve_audio_target_url,
 )
@@ -36,11 +39,11 @@ class _FakeRouter:
         ("http://host:8080/v1", "/metrics", "http://host:8080/metrics"),
     ],
 )
-def test_pod_path_is_anchored_at_the_host_root(api_base: str, path: str, expected: str):
+def test_pod_path_is_anchored_at_the_host_root(api_base: str, path: str, expected: str) -> None:
     assert _join_audio_url(api_base, path) == expected
 
 
-def test_target_url_uses_the_registered_deployment_api_base():
+def test_target_url_uses_the_registered_deployment_api_base() -> None:
     router = _FakeRouter(
         [{"litellm_params": {"model": "omnivoice/omnivoice", "api_base": "http://pod:8080/v1"}}]
     )
@@ -50,7 +53,7 @@ def test_target_url_uses_the_registered_deployment_api_base():
     )
 
 
-def test_target_url_is_none_when_the_provider_is_not_registered():
+def test_target_url_is_none_when_the_provider_is_not_registered() -> None:
     router = _FakeRouter(
         [{"litellm_params": {"model": "hamsa/hamsa-tts", "api_base": "http://pod:8080/v1"}}]
     )
@@ -70,8 +73,8 @@ class _FakeBinaryResponse:
         self.chunks = chunks
         self.closed = False
 
-    async def aiter_bytes(self, chunk_size: int | None = None):
-        async def _gen():
+    async def aiter_bytes(self, chunk_size: int | None = None) -> AsyncIterator[bytes]:
+        async def _gen() -> AsyncIterator[bytes]:
             for chunk in self.chunks:
                 yield chunk
 
@@ -82,7 +85,7 @@ class _FakeBinaryResponse:
 
 
 @pytest.mark.asyncio
-async def test_chunk_generator_relays_audio_bytes():
+async def test_chunk_generator_relays_audio_bytes() -> None:
     response = _FakeBinaryResponse([b"aaa", b"bbb"])
 
     relayed = [chunk async for chunk in _audio_speech_chunk_generator(response)]
@@ -91,7 +94,7 @@ async def test_chunk_generator_relays_audio_bytes():
     assert response.closed is True
 
 
-def test_audio_model_resolution_prefers_a_speech_deployment():
+def test_audio_model_resolution_prefers_a_speech_deployment() -> None:
     router = _FakeRouter(
         [
             {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt", "mode": "audio_transcription"}},
@@ -102,7 +105,7 @@ def test_audio_model_resolution_prefers_a_speech_deployment():
     assert _resolve_audio_model(router) == "omnivoice"
 
 
-def test_audio_model_resolution_ignores_deployments_without_the_speech_mode():
+def test_audio_model_resolution_ignores_deployments_without_the_speech_mode() -> None:
     router = _FakeRouter(
         [
             {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt", "mode": "audio_transcription"}},
@@ -112,7 +115,7 @@ def test_audio_model_resolution_ignores_deployments_without_the_speech_mode():
     assert _resolve_audio_model(router) is None
 
 
-def test_audio_model_resolution_reads_mode_from_model_info():
+def test_audio_model_resolution_reads_mode_from_model_info() -> None:
     """Mode lives in litellm_params for config-file deployments and in
     model_info for API-created ones; both must be recognised."""
     router = _FakeRouter(
@@ -132,7 +135,7 @@ def test_audio_model_resolution_reads_mode_from_model_info():
     assert _resolve_audio_model(router) == "hamsa-tts"
 
 
-def test_audio_model_resolution_finds_api_created_deployments_alone():
+def test_audio_model_resolution_finds_api_created_deployments_alone() -> None:
     router = _FakeRouter(
         [
             {"model_name": "hamsa-stt", "litellm_params": {"model": "hamsa/hamsa-stt"}},
@@ -145,3 +148,41 @@ def test_audio_model_resolution_finds_api_created_deployments_alone():
     )
 
     assert _resolve_audio_model(router) == "omnivoice"
+
+
+def test_provider_qualified_match_outranks_mode_match() -> None:
+    """An explicitly requested provider must never be shadowed by a deployment
+    that merely declares audio_speech and happens to be listed first."""
+    router = _FakeRouter(
+        [
+            {
+                "model_name": "inception-tts",
+                "litellm_params": {"model": "inception/inception-tts", "api_base": "http://inc:8080/v1"},
+                "model_info": {"mode": "audio_speech"},
+            },
+            {
+                "model_name": "omnivoice",
+                "litellm_params": {"model": "omnivoice/omnivoice", "api_base": "http://omni:8080/v1"},
+                "model_info": {"mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_audio_model(router, "omnivoice") == "omnivoice"
+    assert _resolve_audio_api_base(router, "omnivoice") == "http://omni:8080/v1"
+
+
+def test_api_base_falls_through_to_the_next_deployment_when_unset() -> None:
+    """A mode match with no api_base must not end the search."""
+    router = _FakeRouter(
+        [
+            {"model_name": "no-base", "model_info": {"mode": "audio_speech"}},
+            {
+                "model_name": "has-base",
+                "litellm_params": {"model": "omnivoice/omnivoice", "api_base": "http://pod:8080/v1"},
+                "model_info": {"mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_audio_api_base(router) == "http://pod:8080/v1"
