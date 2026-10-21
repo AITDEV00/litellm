@@ -937,7 +937,14 @@ class _PROXY_DynamicRateLimitHandlerV3Htb(CustomLogger):
                 return
 
             user_api_key_auth_metadata = standard_logging_metadata.get("user_api_key_auth_metadata") or {}
-            key_priority: str | None = user_api_key_auth_metadata.get("priority")
+            # The pre-call hook resolves priority with team-first precedence
+            # and stores it in the context var; the standard logging payload
+            # carries only key metadata, which disagrees with that resolution
+            # whenever the team sets a priority. Tokens must be accounted
+            # against the same bucket the request's RPM was, so the pre-call
+            # value wins; the key metadata is the fallback for calls that
+            # never went through the pre-call hook (e.g. background jobs).
+            key_priority: str | None = htb_priority.get() or user_api_key_auth_metadata.get("priority")
 
             total_tokens = 0
             rate_limit_type = self.v3_limiter.get_rate_limit_type()

@@ -63,9 +63,12 @@ def _resolve_uuid(model_name: str, kwargs: dict) -> Optional[str]:
     2. Check the in-memory cache
     3. Return None if not found (gauge won't be emitted)
     """
-    # Try from kwargs metadata
-    metadata = kwargs.get("metadata", {})
-    model_info = metadata.get("model_info", {})
+    # Try from kwargs metadata. At pre-call time (log_pre_api_call) the
+    # routing metadata lives under litellm_params.metadata; post-call events
+    # also surface it at the top level. Check both shapes.
+    litellm_params = kwargs.get("litellm_params", {}) or {}
+    metadata = kwargs.get("metadata") or litellm_params.get("metadata") or {}
+    model_info = metadata.get("model_info", {}) or {}
     oicm_uuid = model_info.get("oicm_uuid")
     if oicm_uuid:
         _uuid_cache[model_name] = oicm_uuid

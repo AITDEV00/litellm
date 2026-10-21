@@ -8,6 +8,7 @@ The summary-item cases are driven by the live captures in
 
 import json
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -299,3 +300,44 @@ class TestTransitionMemory:
         assert degraded.serving_available is False
         assert degraded.status_changed_at != first.status_changed_at
         assert degraded.status_changed_at == degraded.observed_at
+
+
+class TestSummariesEnvelope:
+    """A 200 with an unexpected body must raise, not read as an empty workspace.
+
+    The poller marks a raising source failed, which retains its last snapshots
+    and suppresses deletes. An empty tuple from a misparsed payload would
+    strip every Stopped placeholder for the source on the next sync while
+    all_sources_ok stays True.
+    """
+
+    def _source(self, payload):
+        from controller.sources_config import OicmSourceConfig
+        from controller.status.oicm import OicmStatusSource
+
+        config = OicmSourceConfig(
+            name="alain",
+            base_url="http://oicm.test",
+            auth_url="http://auth.test",
+            workspace_id="ws1",
+        )
+        source = OicmStatusSource(config=config)
+        source._get = AsyncMock(return_value=payload)
+        return source
+
+    @pytest.mark.asyncio
+    async def test_an_empty_items_list_is_a_valid_empty_workspace(self):
+        source = self._source({"items": []})
+        assert await source.summaries() == ()
+
+    @pytest.mark.asyncio
+    async def test_a_payload_without_items_raises(self):
+        source = self._source({"deployments": []})
+        with pytest.raises(ValueError):
+            await source.summaries()
+
+    @pytest.mark.asyncio
+    async def test_a_non_object_payload_raises(self):
+        source = self._source([{"deployment_id": "dep1"}])
+        with pytest.raises(ValueError):
+            await source.summaries()

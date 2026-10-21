@@ -741,3 +741,52 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
 
     ttft = next(p for p in captured if "time_to_first_token_metric_bucket" in p)
     assert "sum by (le, model_id, model)" in ttft
+
+
+def test_model_performance_prometheus_filters_each_metric_on_a_label_it_exposes(
+    client, auth_as, monkeypatch
+):
+    """A model_group filter must not silently empty the throughput series.
+
+    The output-tokens counter exposes ``requested_model`` (and ``model``), but
+    not ``litellm_model_name``. Filtering it on litellm_model_name made every
+    throughput query return zero points whenever a model_group was requested,
+    which read on dashboards as "no traffic" rather than as a broken filter.
+    The concurrency gauge and the TTFT histogram are filtered on their own
+    labels for the same reason.
+    """
+    pc = MagicMock()
+    pc.db.query_raw = AsyncMock(return_value=[])
+    monkeypatch.setattr(proxy_server, "prisma_client", pc)
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.is_prometheus_connected",
+        lambda: True,
+    )
+
+    captured_promql: list[str] = []
+
+    async def fake_query_prometheus_range(promql, start, end, step):
+        captured_promql.append(promql)
+        return []
+
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.query_prometheus_range",
+        fake_query_prometheus_range,
+    )
+
+    with auth_as():
+        response = client.get(
+            "/model/performance", params={"window": "15m", "model_group": "gpt-4"}
+        )
+    assert response.status_code == 200
+
+    by_metric = {
+        "in_progress_requests": next(q for q in captured_promql if "in_progress_requests" in q),
+        "output_tokens": next(q for q in captured_promql if "output_tokens" in q),
+        "time_to_first_token": next(q for q in captured_promql if "time_to_first_token" in q),
+    }
+
+    assert '{litellm_model_name="gpt-4"}' in by_metric["in_progress_requests"]
+    assert '{requested_model="gpt-4"}' in by_metric["output_tokens"]
+    assert '{model="gpt-4"}' in by_metric["time_to_first_token"]
+    assert "litellm_model_name" not in by_metric["output_tokens"]

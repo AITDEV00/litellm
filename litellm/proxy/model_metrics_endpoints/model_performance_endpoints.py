@@ -329,17 +329,17 @@ async def _fetch_prometheus_performance(
     start = end - _parse_window_to_timedelta(range_str)
 
     label_filter = ""
-    # The concurrency gauge carries litellm_model_name; the throughput counter
-    # carries requested_model; the TTFT histogram carries ``model`` (not
-    # litellm_model_name). Each metric is filtered on the label it actually
-    # exposes so a model_group filter does not silently drop a metric to empty.
+    throughput_label_filter = ""
+    ttft_label_filter = ""
+    # Each metric is filtered on the label it actually exposes so a
+    # model_group filter does not silently drop a metric to empty: the
+    # concurrency gauge carries litellm_model_name, the throughput counter
+    # carries requested_model, and the TTFT histogram carries ``model``
+    # (not litellm_model_name).
     if model_filter:
         quoted = _quote_promql_string_literal(model_filter)
         label_filter = f"{{litellm_model_name={quoted}}}"
-
-    ttft_label_filter = ""
-    if model_filter:
-        quoted = _quote_promql_string_literal(model_filter)
+        throughput_label_filter = f"{{requested_model={quoted}}}"
         ttft_label_filter = f"{{model={quoted}}}"
 
     # Group by model_id: it is present on all three metrics, whereas
@@ -365,7 +365,7 @@ async def _fetch_prometheus_performance(
             f"sum by (model_id, litellm_model_name) (max_over_time(litellm_deployment_in_progress_requests{label_filter}[{step}]))"
         ),
         "throughput_tokens_per_sec": (
-            f"sum by (model_id, requested_model) (rate(litellm_output_tokens_metric_total{label_filter}[{range_str}]))"
+            f"sum by (model_id, requested_model) (rate(litellm_output_tokens_metric_total{throughput_label_filter}[{range_str}]))"
         ),
         # TTFT is the time to first token for streaming requests, captured by
         # litellm_llm_api_time_to_first_token_metric (a histogram). It must not

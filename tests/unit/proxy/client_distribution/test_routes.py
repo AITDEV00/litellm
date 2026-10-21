@@ -354,6 +354,38 @@ class TestAdminPutArtifact:
         assert response2.json()["unchanged"] is True
 
 
+    def test_oversized_chunked_upload_is_rejected_without_content_length(
+        self, admin_app: FastAPI, monkeypatch
+    ) -> None:
+        """The size cap must hold for chunked uploads, not just honest headers.
+
+        The old check read only the Content-Length header, which chunked
+        uploads never send, so an unbounded stream bypassed the cap and was
+        fully buffered by request.body().
+        """
+        monkeypatch.setattr(routes_mod, "_MAX_ARTIFACT_BYTES", 1024)
+        client: TestClient = TestClient(admin_app)
+
+        response = client.put(
+            "/install/admin/v1/artifact/providers/adeo/open-code/v2.json",
+            content=b"x" * 4096,
+            headers={"content-type": "application/octet-stream", "Transfer-Encoding": "chunked"},
+        )
+
+        assert response.status_code == 413
+
+    def test_honest_oversized_header_is_still_rejected(self, admin_app: FastAPI) -> None:
+        from litellm.proxy.client_distribution import routes as routes_module
+
+        client: TestClient = TestClient(admin_app)
+        response = client.put(
+            "/install/admin/v1/artifact/providers/adeo/open-code/v2.json",
+            content=b"x" * (routes_module._MAX_ARTIFACT_BYTES + 1),
+            headers={"content-type": "application/octet-stream"},
+        )
+        assert response.status_code == 413
+
+
 class TestAdminDeleteArtifact:
     def test_delete_unreferenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
         s3._store["providers/adeo/open-code/v9.json"] = b"old"

@@ -56,6 +56,7 @@ router = APIRouter(tags=["install"])
 
 # Max artifact upload size (cc-switch archives are ~20 MB).
 _MAX_ARTIFACT_BYTES: Final = 200 * 1024 * 1024
+_ARTIFACT_READ_CHUNK: Final = 1024 * 1024
 
 _CONTENT_TYPES: Final = {
     ".json": "application/json",
@@ -307,19 +308,28 @@ async def admin_put_artifact(
     _require_admin(user_api_key_dict)
     config, s3 = _get_storage()
 
-    content_length: int = int(request.headers.get("content-length", "0"))
-    if content_length > _MAX_ARTIFACT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"artifact too large: {content_length} bytes (max {_MAX_ARTIFACT_BYTES})",
-        )
-
     try:
         key: str = normalize_key(path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    body: bytes = await request.body()
+    # The cap is enforced on the bytes actually read, not on the
+    # Content-Length header: a chunked upload sends no Content-Length, and a
+    # mismatched one lies. Accumulating per chunk keeps peak memory at
+    # _MAX_ARTIFACT_BYTES rather than at whatever the client sends.
+    chunks: list[bytes] = []  # rebind-ok: grows while streaming, then joined once
+    total: int = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > _MAX_ARTIFACT_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"artifact too large: over {_MAX_ARTIFACT_BYTES} bytes",
+            )
+        chunks.append(chunk)
+    body: bytes = b"".join(chunks)
     sha256: str = hashlib.sha256(body).hexdigest()
 
     # Check if the object already exists with the same hash

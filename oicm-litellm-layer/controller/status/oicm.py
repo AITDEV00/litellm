@@ -157,5 +157,15 @@ class OicmStatusSource(StatusSource):
         raw = await self._get(
             f"/api/v1/workspaces/{self.workspace_id}/deployment_summary"
         )
-        items = raw.get("items", []) if isinstance(raw, dict) else []
-        return tuple(OicmDeploymentSummary.model_validate(item) for item in items)
+        # A genuinely empty workspace answers {"items": []}. Anything else, a
+        # renamed key, an HTML error page with a 200, a bare list, is an
+        # unknown shape, and treating it as "no deployments" would strip every
+        # Stopped placeholder for this source on the next sync. Raising here
+        # marks the source failed, which retains its last snapshots and
+        # suppresses deletes instead.
+        if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+            raise ValueError(
+                f"unexpected deployment_summary payload from {self.name}: "
+                f"expected an object with an items list, got {type(raw).__name__}"
+            )
+        return tuple(OicmDeploymentSummary.model_validate(item) for item in raw["items"])

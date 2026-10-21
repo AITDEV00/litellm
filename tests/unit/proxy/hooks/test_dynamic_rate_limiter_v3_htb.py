@@ -688,3 +688,76 @@ async def test_priority_429_includes_model_name_and_configured_limits():
     assert "Priority: prod" in error_msg, error_msg
     assert "Rate limit type: requests" in error_msg, error_msg
     assert "Remaining: -100" in error_msg, error_msg
+
+
+@pytest.mark.asyncio
+async def test_success_event_tokens_land_in_the_pre_call_bucket_when_team_priority_overrides_key_priority():
+    """Token accounting must use the same priority the RPM check did.
+
+    The pre-call hook resolves priority with team-first precedence and stores
+    it in the htb_priority context var. The success event used to read only
+    key metadata, so a request whose team sets priority "high" while the key
+    sets "low" had its RPM counted against model:high but its tokens against
+    model:low, letting token-based limits leak across priority buckets.
+    """
+    from unittest.mock import MagicMock
+
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
+    from litellm.types.utils import ModelResponse, Usage
+
+    os.environ["LITELLM_LICENSE"] = "test-license-key"
+    litellm.priority_reservation = {"high": 0.8, "low": 0.2}
+
+    dual_cache = DualCache()
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler.update_variables(llm_router=MagicMock())
+
+    incremented_keys = []
+
+    async def mock_increment(pipeline_operations, parent_otel_span=None):
+        for op in pipeline_operations:
+            incremented_keys.append(op["key"])
+
+    handler.v3_limiter.async_increment_tokens_with_ttl_preservation = mock_increment
+
+    mock_response = MagicMock(spec=ModelResponse)
+    mock_response.usage = MagicMock(spec=Usage)
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 20
+    mock_response.usage.total_tokens = 30
+
+    # The pre-call hook ran in this context and resolved the TEAM priority
+    # ("high"), which differs from the key metadata priority ("low").
+    token = htb_priority.set("high")
+    try:
+        kwargs = {
+            "standard_logging_object": {
+                "metadata": {
+                    "user_api_key_auth_metadata": {"priority": "low"},
+                },
+                "model_group": "some-model",
+            },
+            "litellm_params": {
+                "metadata": {"model_group": "some-model"},
+            },
+        }
+
+        with patch(
+            "litellm.proxy.common_utils.callback_utils.get_model_group_from_litellm_kwargs",
+            return_value="some-model",
+        ):
+            await handler.async_log_success_event(
+                kwargs=kwargs,
+                response_obj=mock_response,
+                start_time=None,
+                end_time=None,
+            )
+    finally:
+        htb_priority.reset(token)
+
+    priority_keys = [k for k in incremented_keys if "priority_model" in k]
+    assert len(priority_keys) == 1
+    assert "high" in priority_keys[0], (
+        f"tokens must land in the pre-call bucket 'high', got {priority_keys[0]}"
+    )
+    assert "low" not in priority_keys[0]
