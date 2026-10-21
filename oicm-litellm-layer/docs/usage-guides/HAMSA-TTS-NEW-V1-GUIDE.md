@@ -2,7 +2,7 @@
 
 > **Scope**: How to call `hamsa-tts-new` text-to-speech through the LiteLLM gateway, with sample curl commands and expected response shapes
 >
-> **Related docs**: [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) (`hamsa-stt` usage, and the retired `hamsa-tts` contract kept for reference), [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway overview)
+> **Related docs**: [HAMSA_STT_GUIDE.md](HAMSA_STT_GUIDE.md) (`hamsa-stt` usage), [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway overview)
 
 > **This is the active Hamsa TTS model.** The original `hamsa-tts` deployment is
 > retired: its backend Service no longer exists, so calls to it return HTTP 500

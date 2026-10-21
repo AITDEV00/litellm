@@ -2,7 +2,7 @@
 
 > **Scope**: How to call pyannote speaker diarization (`pyannote/community-1`) through the LiteLLM gateway's `/v1/diarize` route, with sample curl commands, expected response shapes, error contracts, and verified performance numbers
 >
-> **Related docs**: [VIBEVOICE_ASR_GUIDE.md](VIBEVOICE_ASR_GUIDE.md) (chat-style ASR), [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) (native multipart STT), [../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) (implementation plan)
+> **Related docs**: [VIBEVOICE_ASR_GUIDE.md](VIBEVOICE_ASR_GUIDE.md) (chat-style ASR), [HAMSA_STT_GUIDE.md](HAMSA_STT_GUIDE.md) (native multipart STT), [../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) (implementation plan)
 
 ---
 

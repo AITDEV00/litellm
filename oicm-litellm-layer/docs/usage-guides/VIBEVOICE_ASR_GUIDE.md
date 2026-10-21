@@ -2,7 +2,7 @@
 
 > **Scope**: How to call Microsoft VibeVoice automatic speech recognition (ASR) through the LiteLLM gateway, with sample curl commands and expected response shapes
 >
-> **Related docs**: [HAMSA_STT_TTS_GUIDE.md](HAMSA_STT_TTS_GUIDE.md) (native `/v1/audio/transcriptions` STT provider), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (similar OpenAI-compatible audio provider)
+> **Related docs**: [HAMSA_STT_GUIDE.md](HAMSA_STT_GUIDE.md) (native `/v1/audio/transcriptions` STT provider), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (similar OpenAI-compatible audio provider)
 
 ---
 
