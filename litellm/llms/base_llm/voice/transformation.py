@@ -19,6 +19,13 @@ else:
 
 
 class BaseVoiceConfig(ABC):
+    # Voice-management actions this provider can serve. Every provider that
+    # implements this interface can register and load a voice; list and profile
+    # reads are opt-in per provider because some voice backends have no
+    # read API at all. Declared as class data so the proxy can route a
+    # no-model request to a deployment that will not reject the action.
+    SUPPORTED_VOICE_ACTIONS: frozenset[str] = frozenset({"register", "load"})
+
     @classmethod
     def get_config(cls):
         return {

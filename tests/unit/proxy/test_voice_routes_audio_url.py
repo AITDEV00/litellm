@@ -245,7 +245,34 @@ def test_voice_management_fallback_skips_providers_without_voice_support() -> No
     )
 
     assert _resolve_audio_model(router) == "inception-tts"
-    assert _resolve_voice_model(router) == "hamsa-tts-new"
+    assert _resolve_voice_model(router, action="register") == "hamsa-tts-new"
+
+
+def test_voice_list_skips_providers_without_a_read_api() -> None:
+    """A read action must only resolve to a provider that serves it.
+
+    Hamsa implements voice registration and loading but has no list
+    endpoint, so a no-model list request routed there failed Hamsa's
+    register validation. The read actions must skip it and land on the
+    one deployment that serves them.
+    """
+    router: Final = _FakeRouter(
+        [
+            {
+                "model_name": "hamsa-tts-new",
+                "litellm_params": {"model": "hamsa/hamsa-tts-new", "mode": "audio_speech"},
+            },
+            {
+                "model_name": "omnivoice",
+                "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_voice_model(router, action="register") == "hamsa-tts-new"
+    assert _resolve_voice_model(router, action="list") == "omnivoice"
+    assert _resolve_voice_model(router, action="list_profiles") == "omnivoice"
+    assert _resolve_voice_model(router, action="get_profile") == "omnivoice"
 
 
 def test_voice_management_falls_back_to_none_when_no_provider_supports_voice() -> None:
@@ -258,4 +285,4 @@ def test_voice_management_falls_back_to_none_when_no_provider_supports_voice() -
         ]
     )
 
-    assert _resolve_voice_model(router) is None
+    assert _resolve_voice_model(router, action="register") is None

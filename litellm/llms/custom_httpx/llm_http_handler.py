@@ -2,8 +2,10 @@ import asyncio
 import inspect
 import json
 import ssl
+import traceback
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager
+from datetime import datetime
 from functools import lru_cache, partial
 from types import MappingProxyType
 from typing import (
@@ -12576,25 +12578,33 @@ class BaseLLMHTTPHandler:
             },
         )
 
+        start_time: Final = datetime.now()  # noqa: DTZ005  # naive matches the rest of this call path
+
         try:
-            response = await _send_voice_request_async(
+            response: Final = await _send_voice_request_async(
                 client=async_httpx_client,
                 url=api_base,
                 headers=headers,
                 request_data=request_data,
                 timeout=timeout,
             )
+            transformed: Final = voice_provider_config.transform_create_voice_response(
+                model=model,
+                raw_response=response,
+                logging_obj=logging_obj,
+            )
         except Exception as e:
+            await logging_obj.dispatch_failure_handlers(
+                e,
+                traceback.format_exc(),
+            )
             raise self._handle_error(
                 e=e,
                 provider_config=voice_provider_config,
             )
 
-        return voice_provider_config.transform_create_voice_response(
-            model=model,
-            raw_response=response,
-            logging_obj=logging_obj,
-        )
+        await logging_obj.dispatch_success_handlers(result=transformed, start_time=start_time)
+        return transformed
 
     #########################################################
     ########## DIARIZATION API HANDLERS #####################

@@ -101,6 +101,10 @@ def create_voice(
     )
 
     litellm_params_dict["voice_action"] = voice_data.get("action", "register")
+    # The async-classification whitelists read this flag from litellm_params,
+    # but get_litellm_params drops unallowlisted kwargs, so stamp it here or
+    # async callbacks never see the terminal logging events for voice calls.
+    litellm_params_dict["acreate_voice"] = acreate_voice or False
     if voice_data.get("profile_id") is not None:
         litellm_params_dict["profile_id"] = voice_data["profile_id"]
 
@@ -127,6 +131,11 @@ def create_voice(
             "metadata": metadata,
             "preset_cache_key": None,
             "stream_response": {},
+            # The async-classification whitelists read this from the logging
+            # snapshot; a named parameter never lands in **call_kwargs, so it
+            # must be spelled out here or the request classifies as sync SDK
+            # and async callbacks never see the terminal logging events.
+            "acreate_voice": acreate_voice,
             **call_kwargs,
         },
         custom_llm_provider=resolved_custom_llm_provider,

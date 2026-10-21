@@ -2157,6 +2157,7 @@ class Logging(LiteLLMLoggingBaseClass):
             and litellm_params.get(CallTypes.agenerate_content.value, False) is not True
             and litellm_params.get(CallTypes.agenerate_content_stream.value, False) is not True
             and litellm_params.get(CallTypes.arealtime.value, False) is not True
+            and litellm_params.get(CallTypes.acreate_voice.value, False) is not True
         )
 
     _is_sync_litellm_request = is_sync_litellm_request

@@ -177,6 +177,19 @@ class OmniVoiceVoiceConfig(OmniVoiceModelInfo, BaseVoiceConfig):
       - "delete_profile"  -> DELETE /v1/voices/profiles/{profile_id}
     """
 
+    SUPPORTED_VOICE_ACTIONS: frozenset[str] = frozenset(
+        {
+            "register",
+            "load",
+            "list",
+            "list_profiles",
+            "get_profile",
+            "create_profile",
+            "update_profile",
+            "delete_profile",
+        }
+    )
+
     def validate_environment(
         self,
         headers: dict,

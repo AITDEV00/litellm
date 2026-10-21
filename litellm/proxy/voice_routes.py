@@ -100,11 +100,12 @@ def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> s
     return None
 
 
-def _voice_capable_providers() -> frozenset[str]:
-    """Providers whose deployments can serve voice-management actions.
+def _voice_capable_providers(action: str) -> frozenset[str]:
+    """Providers whose deployments can serve this voice-management action.
 
-    Derived from the provider registry rather than hardcoded, so adding a
-    voice config for a new provider makes it eligible here automatically.
+    Derived from the provider registry and each provider's declared action
+    set, so adding voice support for a new provider makes it eligible here
+    automatically.
     """
     import litellm  # noqa: PLC0415  # deferred like every other import in this router
     from litellm.llms.oicm_providers import get_provider_voice_config
@@ -112,19 +113,22 @@ def _voice_capable_providers() -> frozenset[str]:
     return frozenset(
         member.value
         for member in litellm.LlmProviders
-        if get_provider_voice_config(member) is not None
+        if (config := get_provider_voice_config(member)) is not None
+        and action in config.SUPPORTED_VOICE_ACTIONS
     )
 
 
-def _resolve_voice_model(router_instance: Any) -> str | None:
-    """A deployment that can actually serve a voice-management action.
+def _resolve_voice_model(router_instance: Any, action: str) -> str | None:
+    """A deployment that can actually serve this voice-management action.
 
     The plain audio fallback returns whichever audio_speech deployment is
     registered first, which on this gateway is a provider with no voice
     management at all: every no-model voice request then failed with a 400
     from that provider instead of reaching one that supports the action.
+    Providers that support voice management but not this specific action
+    (e.g. a backend with no list API) are skipped for the same reason.
     """
-    capable: Final = _voice_capable_providers()
+    capable: Final = _voice_capable_providers(action)
     for deployment in _audio_deployments_by_priority(router_instance, provider=None):
         model_str = str(deployment.get("litellm_params", {}).get("model", ""))
         if model_str.split("/", 1)[0] in capable:
@@ -335,7 +339,7 @@ async def create_voice(
         model = data.pop("model", None) or proxy_server_mod.user_model
 
         if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_voice_model(proxy_server_mod.llm_router)
+            model = _resolve_voice_model(proxy_server_mod.llm_router, action="register")
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         # The route owns the action. Without this a client could POST here with
@@ -436,7 +440,7 @@ async def _route_voice_management(
         model = data.pop("model", None) or proxy_server_mod.user_model
 
         if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_voice_model(proxy_server_mod.llm_router)
+            model = _resolve_voice_model(proxy_server_mod.llm_router, action=action)
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         voice_data["action"] = action
