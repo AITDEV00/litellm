@@ -159,3 +159,9 @@ class KEDAMetricsCallback(CustomLogger):
     async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
         """No-op for streaming events, which are tracked at request level."""
         pass
+
+
+# The config loader resolves dotted callback paths to attributes, so it needs
+# a module-level instance, not the bare class (same convention as
+# priority_bridge).
+keda_metrics = KEDAMetricsCallback()

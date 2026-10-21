@@ -10,6 +10,7 @@ even though the routes were registered.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Final
 
 import pytest
 
@@ -19,6 +20,7 @@ from litellm.proxy.voice_routes import (
     _resolve_audio_api_base,
     _resolve_audio_model,
     _resolve_audio_target_url,
+    _resolve_voice_model,
 )
 
 
@@ -219,3 +221,41 @@ def test_provider_scoped_lookup_does_not_fall_through_to_another_provider() -> N
 
     assert _resolve_audio_api_base(router, provider="omnivoice") == "http://omnivoice:8080/v1"
     assert _resolve_audio_api_base(router, provider="inception") is None
+
+
+def test_voice_management_fallback_skips_providers_without_voice_support() -> None:
+    """A no-model voice-management request must resolve to a provider that
+    supports voice actions, not whichever audio deployment registered first.
+
+    The gateway registers inception-tts before the voice-capable providers, so
+    the generic audio fallback sent every no-model /v1/voices request to a
+    provider that rejects voice management outright.
+    """
+    router: Final = _FakeRouter(
+        [
+            {
+                "model_name": "inception-tts",
+                "litellm_params": {"model": "inception/inception-tts", "mode": "audio_speech"},
+            },
+            {
+                "model_name": "hamsa-tts-new",
+                "litellm_params": {"model": "hamsa/hamsa-tts-new", "mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_audio_model(router) == "inception-tts"
+    assert _resolve_voice_model(router) == "hamsa-tts-new"
+
+
+def test_voice_management_falls_back_to_none_when_no_provider_supports_voice() -> None:
+    router: Final = _FakeRouter(
+        [
+            {
+                "model_name": "inception-tts",
+                "litellm_params": {"model": "inception/inception-tts", "mode": "audio_speech"},
+            },
+        ]
+    )
+
+    assert _resolve_voice_model(router) is None

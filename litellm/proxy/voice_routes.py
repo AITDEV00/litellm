@@ -100,6 +100,38 @@ def _resolve_audio_model(router_instance: Any, provider: str | None = None) -> s
     return None
 
 
+def _voice_capable_providers() -> frozenset[str]:
+    """Providers whose deployments can serve voice-management actions.
+
+    Derived from the provider registry rather than hardcoded, so adding a
+    voice config for a new provider makes it eligible here automatically.
+    """
+    import litellm  # noqa: PLC0415  # deferred like every other import in this router
+    from litellm.llms.oicm_providers import get_provider_voice_config
+
+    return frozenset(
+        member.value
+        for member in litellm.LlmProviders
+        if get_provider_voice_config(member) is not None
+    )
+
+
+def _resolve_voice_model(router_instance: Any) -> str | None:
+    """A deployment that can actually serve a voice-management action.
+
+    The plain audio fallback returns whichever audio_speech deployment is
+    registered first, which on this gateway is a provider with no voice
+    management at all: every no-model voice request then failed with a 400
+    from that provider instead of reaching one that supports the action.
+    """
+    capable: Final = _voice_capable_providers()
+    for deployment in _audio_deployments_by_priority(router_instance, provider=None):
+        model_str = str(deployment.get("litellm_params", {}).get("model", ""))
+        if model_str.split("/", 1)[0] in capable:
+            return deployment.get("model_name")
+    return None
+
+
 def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -> str | None:
     for deployment in _audio_deployments_by_priority(router_instance, provider):
         api_base = deployment.get("litellm_params", {}).get("api_base")
@@ -303,7 +335,7 @@ async def create_voice(
         model = data.pop("model", None) or proxy_server_mod.user_model
 
         if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_audio_model(proxy_server_mod.llm_router)
+            model = _resolve_voice_model(proxy_server_mod.llm_router)
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         # The route owns the action. Without this a client could POST here with
@@ -404,7 +436,7 @@ async def _route_voice_management(
         model = data.pop("model", None) or proxy_server_mod.user_model
 
         if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_audio_model(proxy_server_mod.llm_router)
+            model = _resolve_voice_model(proxy_server_mod.llm_router)
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         voice_data["action"] = action

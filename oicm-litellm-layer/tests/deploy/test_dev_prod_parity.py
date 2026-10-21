@@ -120,15 +120,19 @@ _DEV_DB_ENV_VARS: Final = (
     "DATABASE_NAME",
 )
 
-# Config keys under `general_settings` expected to differ, with the reason. Dev
-# sets drain sizing at the gateway; prod delegates it to the janitor CronJob.
-_EXPECTED_CONFIG_DIFFS: Final = frozenset(
+# Config keys under `general_settings` expected to differ, with the reason.
+# Empty since 4f513b1dca mirrored prod's retention settings on dev: the dev
+# overlay's general_settings is byte-identical to the base config prod runs.
+# When a dev-only knob is re-introduced, declare it here with its reason.
+_EXPECTED_CONFIG_DIFFS: Final = frozenset()
+
+# Top-level config paths expected to differ. The KEDA gauge callback ships in
+# the shared hooks ConfigMap for both environments, but only dev activates it:
+# prod follows after the dev burn-in proves the metric drives autoscaling
+# correctly.
+_EXPECTED_TOP_LEVEL_CONFIG_DIFFS: Final = frozenset(
     {
-        "maximum_spend_logs_retention_interval",
-        "maximum_spend_logs_cleanup_batch_size",
-        "maximum_spend_logs_cleanup_max_batches",
-        "maximum_spend_logs_cleanup_run_budget",
-        "maximum_health_check_retention_period",
+        "litellm_settings.callbacks",
     }
 )
 
@@ -334,14 +338,6 @@ def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict
     )
 
 
-def test_health_check_retention_is_bounded_on_dev(prod: dict[str, dict], dev: dict[str, dict]):
-    """Dev sets health-check retention, prod leaves it unset (unbounded)."""
-    prod_config = _parsed_config(prod["ConfigMap/litellm-config"])
-    dev_config = _parsed_config(dev[f"ConfigMap/litellm-config{_DEV_SUFFIX}"])
-    assert "maximum_health_check_retention_period" not in prod_config["general_settings"]
-    assert dev_config["general_settings"]["maximum_health_check_retention_period"] == "30d"
-
-
 def _parsed_config(configmap: dict) -> dict:
     return yaml.safe_load(configmap["data"]["config.yaml"])
 
@@ -362,6 +358,7 @@ def test_config_diff_is_only_the_expected_keys(prod: dict[str, dict], dev: dict[
     # Dev may add keys (the cleanup knobs prod delegates to its janitor) and may
     # change values, but only for the keys the overlay declares.
     declared = {f"general_settings.{name}" for name in _EXPECTED_CONFIG_DIFFS}
+    declared |= _EXPECTED_TOP_LEVEL_CONFIG_DIFFS
     differing = {k for k in prod_flat if dev_flat.get(k) != prod_flat[k]}
     differing |= {k for k in dev_flat if k not in prod_flat}
     unexpected = differing - declared
