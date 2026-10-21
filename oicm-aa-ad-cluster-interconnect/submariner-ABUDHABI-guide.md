@@ -708,11 +708,26 @@ grep server /tmp/abudhabi-kubeconfig-fixed   # must show 10.10.128.71:6443
 ### Step 2 — Ship the kubeconfig into a pod on the remote node via ConfigMap
 
 The nettest image lacks `tar` so `kubectl cp` doesn't work. Use a ConfigMap instead. The example
-below uses the Al Ain cluster's namespace and node; substitute for your remote cluster:
+below uses the Al Ain cluster's namespace and node; substitute for your remote cluster.
+
+**Check for an existing ConfigMap first.** The Al Ain cluster already carries the Abu Dhabi
+kubeconfig under **two** names — `abudhabi-kubeconfig` and `ad-kubeconfig` — in
+`oik8s-cilium-system`, both pointing at `https://10.10.128.71:6443`. They have been in place since
+the original interconnect build. `kubectl create configmap` fails with `AlreadyExists` if you do
+not check, and the newer one (`ad-kubeconfig`) is what the long-lived relay pod mounts:
+```bash
+kubectl -n oik8s-cilium-system get configmap abudhabi-kubeconfig ad-kubeconfig 2>&1
+```
+
+If neither exists, create it (otherwise skip to the pod manifest):
 ```bash
 kubectl -n oik8s-cilium-system create configmap abudhabi-kubeconfig \
   --from-file=abudhabi-kubeconfig-fixed=/tmp/abudhabi-kubeconfig-fixed
+```
 
+Create the relay pod. Use **`sleep 7200`** (2 hours), not a short sleep: a single cross-cluster
+image transfer can run ~55 minutes, and the pod dies mid-transfer if the sleep expires.
+```bash
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -725,7 +740,7 @@ spec:
   containers:
   - name: debug
     image: registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0
-    command: ["sleep","600"]
+    command: ["sleep","7200"]
     securityContext: { privileged: true }
     volumeMounts:
     - { name: host, mountPath: /host }
@@ -763,14 +778,84 @@ kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
   'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get globalingressip -A'
 ```
 
+> **Two kubeconfig path names are in use — pick one and stay consistent.** This section copies to
+> `/host/tmp/abudhabi-kubeconfig` (ConfigMap `abudhabi-kubeconfig`). The long-lived relay pod used
+> by the image-sync runbook mounts ConfigMap `ad-kubeconfig` and uses `/tmp/ad-kubeconfig`.
+> Mixing the two produces `error: stat /tmp/ad-kubeconfig: no such file or directory`. Check what
+> actually exists before copying:
+> ```bash
+> kubectl -n oik8s-cilium-system exec ad-debug -- sh -c 'ls -l /host/tmp/*kubeconfig /kubeconfig/ 2>&1'
+> ```
+
+### Step 3b — If kubectl fails with a TLS / certificate error, use an insecure kubeconfig
+
+Symptom: the kubeconfig is mounted and the server IP is correct, but every `kubectl` call fails
+while parsing the CA or verifying the certificate (the Al Ain relay reaches the Abu Dhabi API
+through a firewall NAT, so the cert SAN does not always match the address actually used).
+
+Bypass TLS verification by rewriting the kubeconfig to drop `certificate-authority-data` and set
+`insecure-skip-tls-verify: true`. Client cert/key auth is still used, so the connection stays
+authenticated; only the server identity check is relaxed. This was the breakthrough that made the
+first successful Abu Dhabi crawl work.
+
+**Do the rewrite on the dev box, then ship it** — the `nettest` image has no `python3`, so an
+in-pod rewrite is unreliable. Run the script below on the dev box (needs `python3` + `pyyaml`),
+save the output as a file, and use *that* file as the ConfigMap payload in Step 2:
+
+```bash
+# on the dev box — input: the IP-fixed kubeconfig from Step 1
+python3 - /tmp/abudhabi-kubeconfig-fixed /tmp/abudhabi-kubeconfig-insecure <<'PY'
+import sys, yaml
+src, dst = sys.argv[1], sys.argv[2]
+k = yaml.safe_load(open(src))
+for c in k["clusters"]:
+    c["cluster"].pop("certificate-authority-data", None)
+    c["cluster"]["insecure-skip-tls-verify"] = True
+yaml.safe_dump(k, open(dst, "w"), default_flow_style=False)
+print("wrote", dst)
+PY
+
+# sanity check — should print insecure-skip-tls-verify: true and NO certificate-authority-data
+grep -E 'insecure-skip-tls-verify|certificate-authority-data|server:' /tmp/abudhabi-kubeconfig-insecure
+
+# ship it as the ConfigMap payload instead of the original:
+kubectl -n oik8s-cilium-system create configmap abudhabi-kubeconfig \
+  --from-file=abudhabi-kubeconfig-fixed=/tmp/abudhabi-kubeconfig-insecure \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Then re-run Step 3 and Step 3's copy command (which reads
+`/kubeconfig/abudhabi-kubeconfig-fixed`), and verify:
+```bash
+kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c \
+  'KUBECONFIG=/tmp/abudhabi-kubeconfig kubectl get nodes'
+```
+
+> **Keep the original CA-bearing kubeconfig for anything that can reach the API directly** (e.g.
+> from an Abu Dhabi master node). `insecure-skip-tls-verify` is a relay-only workaround, not a
+> replacement — it removes MITM protection, so do not commit it as the canonical kubeconfig.
+
 ### Step 4 — Clean up when done
 ```bash
+# delete ONLY the pod you created:
 kubectl -n oik8s-cilium-system delete pod ad-debug --ignore-not-found --force --grace-period=0
-kubectl -n oik8s-cilium-system delete configmap abudhabi-kubeconfig --ignore-not-found
 rm -f /tmp/abudhabi-kubeconfig-fixed
 # /tmp/abudhabi-kubeconfig remains on the remote host (contains client cert/key; delete it if concerned):
 #   kubectl -n oik8s-cilium-system exec ad-debug -- chroot /host sh -c 'rm -f /tmp/abudhabi-kubeconfig'
 ```
+
+> ⚠️ **Do NOT delete the `abudhabi-kubeconfig` / `ad-kubeconfig` ConfigMaps.** They are long-lived
+> shared assets that predate any debugging session — every future relay run reads them. Deleting
+> them forces a re-export from an Abu Dhabi master node, which is only possible with the access you
+> were using the relay to get. Delete the pod; leave the ConfigMaps.
+>
+> If you *must* rotate them (e.g. the client cert expires — see the reference section below), patch
+> the existing ConfigMap rather than deleting it:
+> ```bash
+> kubectl -n oik8s-cilium-system create configmap abudhabi-kubeconfig \
+>   --from-file=abudhabi-kubeconfig-fixed=/tmp/abudhabi-kubeconfig-fixed \
+>   --dry-run=client -o yaml | kubectl apply -f -
+> ```
 
 > **Why not `kubectl cp`?** The nettest image doesn't include `tar`, which `kubectl cp` requires.
 > The ConfigMap approach avoids this entirely. If you have an image with `kubectl` built in

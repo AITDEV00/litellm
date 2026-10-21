@@ -923,3 +923,30 @@ Ain node. The full procedure (export kubeconfig, ship via ConfigMap, chroot kube
 the kubeconfig template are documented in the Abu Dhabi guide, §A.8 "Connecting to the Abu Dhabi
 cluster from a remote node". The Al Ain-specific values to substitute are: node `adeo-gpu-03`,
 namespace `oik8s-cilium-system`, Harbor image `registry.adeoaiengine.ecouncil.ae/submariner/nettest:0.24.0`
+
+### Verified working pattern (2026-07 / 2026-08)
+
+The relay has been used successfully three times; this is the shape that works in practice.
+
+**The kubeconfigs already exist in the cluster** — you do not need to re-export from Abu Dhabi.
+Two ConfigMaps in `oik8s-cilium-system` carry it, both with server `https://10.10.128.71:6443`:
+`abudhabi-kubeconfig` and `ad-kubeconfig`. Reuse them; do not delete them.
+
+**Relay pod** — privileged, `hostNetwork` + `hostPID`, host root at `/host`, kubeconfig ConfigMap
+mounted at `/kubeconfig`, and a **2-hour** sleep (`sleep 7200`). A single cross-cluster image
+transfer can take ~55 minutes, so short sleeps kill the pod mid-run. The host's own `kubectl` and
+`python3` are used via `chroot /host` because the `nettest` image has neither.
+
+**Two path conventions exist** — the Abu Dhabi guide §A.8 uses `/tmp/abudhabi-kubeconfig`, while
+the image-sync runbook uses `/tmp/ad-kubeconfig`. Both are just files on the host `/tmp`. Pick one
+and stay consistent within a session, or you get `stat /tmp/ad-kubeconfig: no such file or directory`.
+
+**If kubectl fails on TLS/cert parsing**, rebuild the kubeconfig without
+`certificate-authority-data` and with `insecure-skip-tls-verify: true` (see Abu Dhabi guide §A.8
+Step 3b). Client cert/key auth still applies; only server verification is skipped. This is a
+relay-only workaround — keep the CA-bearing kubeconfig for direct access from an AD master.
+
+> ⚠️ **gpu-03 is the Submariner gateway**, so it carries Globalnet iptables chains
+> (`SM-GN-EGRESS-CLUSTER`, `SUBMARINER-GN-MARK`, `SUBMARINER-GN-EGRESS`) that other GPU nodes do
+> not. These are **expected**, not a fault — do not remove them while debugging an unrelated pod
+> on this node.
