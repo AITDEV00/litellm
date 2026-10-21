@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 from functools import partial
-from typing import Any
+from typing import Any, Final
 
 import httpx
 import openai
@@ -32,9 +32,9 @@ from litellm.utils import ProviderConfigManager, exception_type, get_llm_provide
 async def adiarize(*args, **kwargs) -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     model = args[0] if len(args) > 0 else kwargs["model"]
-    kwargs["adiarize"] = True
+    call_kwargs: Final = {**kwargs, "adiarize": True}
     try:
-        func = partial(diarize, *args, **kwargs)
+        func = partial(diarize, *args, **call_kwargs)
         ctx = contextvars.copy_context()
         func_with_context = partial(ctx.run, func)
 
@@ -49,7 +49,7 @@ async def adiarize(*args, **kwargs) -> dict[str, Any]:
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
-            extra_kwargs=kwargs,
+            extra_kwargs=call_kwargs,
         ) from None
 
 
@@ -82,19 +82,18 @@ def diarize(
     resolved_extra_headers = extra_headers or kwargs.get("extra_headers")
     model_info = kwargs.get("model_info")
     metadata = kwargs.get("metadata")
-
-    if timeout is None:
-        timeout = litellm.request_timeout
-
-    if max_retries is None:
-        max_retries = litellm.num_retries or openai.DEFAULT_MAX_RETRIES
+    resolved_timeout: Final = litellm.request_timeout if timeout is None else timeout
+    resolved_max_retries: Final = (
+        (litellm.num_retries or openai.DEFAULT_MAX_RETRIES) if max_retries is None else max_retries
+    )
+    call_kwargs: Final = {key: value for key, value in kwargs.items() if key != "base_url"}
 
     base_llm_http_handler = BaseLLMHTTPHandler()
 
-    _, custom_llm_provider, dynamic_api_key, dynamic_api_base = get_llm_provider(
+    _, resolved_custom_llm_provider, dynamic_api_key, dynamic_api_base = get_llm_provider(
         model=model,
         custom_llm_provider=custom_llm_provider,
-        api_base=api_base or kwargs.pop("base_url", None),
+        api_base=api_base or kwargs.get("base_url"),
     )
 
     litellm_params_dict = get_litellm_params(
@@ -103,21 +102,21 @@ def diarize(
         extra_headers=resolved_extra_headers,
         headers=headers,
         model=model,
-        custom_llm_provider=custom_llm_provider,
-        timeout=timeout,
-        max_retries=max_retries,
-        **kwargs,
+        custom_llm_provider=resolved_custom_llm_provider,
+        timeout=resolved_timeout,
+        max_retries=resolved_max_retries,
+        **call_kwargs,
     )
 
     diarization_provider_config = ProviderConfigManager.get_provider_diarization_config(
-        provider=litellm.LlmProviders(custom_llm_provider),
+        provider=litellm.LlmProviders(resolved_custom_llm_provider),
     )
 
     if diarization_provider_config is None:
         raise litellm.BadRequestError(
-            message="Diarization is not supported for provider={}".format(custom_llm_provider),
+            message="Diarization is not supported for provider={}".format(resolved_custom_llm_provider),
             model=model,
-            llm_provider=custom_llm_provider,
+            llm_provider=resolved_custom_llm_provider,
         )
 
     logging_obj: LiteLLMLoggingObj = kwargs.get("litellm_logging_obj")  # pyright: ignore[reportAny]  # kwargs-typed; Logging is the runtime type
@@ -132,9 +131,9 @@ def diarize(
             "metadata": metadata,
             "preset_cache_key": None,
             "stream_response": {},
-            **kwargs,
+            **call_kwargs,
         },
-        custom_llm_provider=custom_llm_provider,
+        custom_llm_provider=resolved_custom_llm_provider,
     )
 
     optional_params: dict[str, Any] = {}
@@ -149,7 +148,7 @@ def diarize(
         optional_params=optional_params,
         litellm_params=litellm_params_dict,
         logging_obj=logging_obj,
-        timeout=timeout,
+        timeout=resolved_timeout,
         extra_headers=resolved_extra_headers,
         client=client,
         _is_async=adiarize or False,

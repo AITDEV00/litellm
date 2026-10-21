@@ -13,7 +13,7 @@ import asyncio
 import contextvars
 from collections.abc import Coroutine
 from functools import partial
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import httpx
 import openai
@@ -30,9 +30,9 @@ from litellm.utils import ProviderConfigManager, exception_type, get_llm_provide
 async def acreate_voice(*args, **kwargs) -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     model = args[0] if len(args) > 0 else kwargs["model"]
-    kwargs["acreate_voice"] = True
+    call_kwargs: Final = {**kwargs, "acreate_voice": True}
     try:
-        func = partial(create_voice, *args, **kwargs)
+        func = partial(create_voice, *args, **call_kwargs)
         ctx = contextvars.copy_context()
         func_with_context = partial(ctx.run, func)
 
@@ -47,7 +47,7 @@ async def acreate_voice(*args, **kwargs) -> dict[str, Any]:
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
-            extra_kwargs=kwargs,
+            extra_kwargs=call_kwargs,
         ) from None
 
 
@@ -73,19 +73,18 @@ def create_voice(
     resolved_extra_headers = extra_headers or kwargs.get("extra_headers")
     model_info = kwargs.get("model_info")
     metadata = kwargs.get("metadata")
-
-    if timeout is None:
-        timeout = litellm.request_timeout
-
-    if max_retries is None:
-        max_retries = litellm.num_retries or openai.DEFAULT_MAX_RETRIES
+    resolved_timeout: Final = litellm.request_timeout if timeout is None else timeout
+    resolved_max_retries: Final = (
+        (litellm.num_retries or openai.DEFAULT_MAX_RETRIES) if max_retries is None else max_retries
+    )
+    call_kwargs: Final = {key: value for key, value in kwargs.items() if key != "base_url"}
 
     base_llm_http_handler = BaseLLMHTTPHandler()
 
-    _, custom_llm_provider, dynamic_api_key, dynamic_api_base = get_llm_provider(
+    _, resolved_custom_llm_provider, dynamic_api_key, dynamic_api_base = get_llm_provider(
         model=model,
         custom_llm_provider=custom_llm_provider,
-        api_base=api_base or kwargs.pop("base_url", None),
+        api_base=api_base or kwargs.get("base_url"),
     )
 
     litellm_params_dict = get_litellm_params(
@@ -95,10 +94,10 @@ def create_voice(
         extra_headers=resolved_extra_headers,
         headers=headers,
         model=model,
-        custom_llm_provider=custom_llm_provider,
-        timeout=timeout,
-        max_retries=max_retries,
-        **kwargs,
+        custom_llm_provider=resolved_custom_llm_provider,
+        timeout=resolved_timeout,
+        max_retries=resolved_max_retries,
+        **call_kwargs,
     )
 
     litellm_params_dict["voice_action"] = voice_data.get("action", "register")
@@ -106,14 +105,14 @@ def create_voice(
         litellm_params_dict["profile_id"] = voice_data["profile_id"]
 
     voice_provider_config = ProviderConfigManager.get_provider_voice_config(
-        provider=litellm.LlmProviders(custom_llm_provider),
+        provider=litellm.LlmProviders(resolved_custom_llm_provider),
     )
 
     if voice_provider_config is None:
         raise litellm.BadRequestError(
-            message="Voice management is not supported for provider={}".format(custom_llm_provider),
+            message="Voice management is not supported for provider={}".format(resolved_custom_llm_provider),
             model=model,
-            llm_provider=custom_llm_provider,
+            llm_provider=resolved_custom_llm_provider,
         )
 
     logging_obj: LiteLLMLoggingObj = kwargs.get("litellm_logging_obj")  # pyright: ignore[reportAny]  # kwargs-typed; Logging is the runtime type
@@ -128,9 +127,9 @@ def create_voice(
             "metadata": metadata,
             "preset_cache_key": None,
             "stream_response": {},
-            **kwargs,
+            **call_kwargs,
         },
-        custom_llm_provider=custom_llm_provider,
+        custom_llm_provider=resolved_custom_llm_provider,
     )
 
     optional_params: dict[str, Any] = {}
@@ -142,7 +141,7 @@ def create_voice(
         optional_params=optional_params,
         litellm_params=litellm_params_dict,
         logging_obj=logging_obj,
-        timeout=timeout,
+        timeout=resolved_timeout,
         extra_headers=resolved_extra_headers,
         client=client,
         _is_async=acreate_voice or False,
@@ -152,9 +151,9 @@ def create_voice(
 async def ascript(*args, **kwargs) -> HttpxBinaryResponseContent:
     loop = asyncio.get_event_loop()
     model = args[0] if len(args) > 0 else kwargs["model"]
-    kwargs["aspeech"] = True
+    call_kwargs: Final = {**kwargs, "aspeech": True}
     try:
-        func = partial(script, *args, **kwargs)
+        func = partial(script, *args, **call_kwargs)
         ctx = contextvars.copy_context()
         func_with_context = partial(ctx.run, func)
 
@@ -171,7 +170,7 @@ async def ascript(*args, **kwargs) -> HttpxBinaryResponseContent:
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
-            extra_kwargs=kwargs,
+            extra_kwargs=call_kwargs,
         ) from None
 
 
@@ -202,10 +201,10 @@ def script(
     proxy_server_request = kwargs.get("proxy_server_request")
     extra_headers = kwargs.get("extra_headers")
     model_info = kwargs.get("model_info")
-    model, custom_llm_provider, dynamic_api_key, api_base = get_llm_provider(
+    resolved_model, resolved_custom_llm_provider, dynamic_api_key, resolved_api_base = get_llm_provider(
         model=model, custom_llm_provider=custom_llm_provider, api_base=api_base
     )  # pyright: ignore[reportAny]  # get_llm_provider returns a broad tuple; narrowed by usage
-    kwargs.pop("tags", [])
+    call_kwargs: Final = {key: value for key, value in kwargs.items() if key != "tags"}
 
     optional_params: dict[str, Any] = {}
     if response_format is not None:
@@ -215,36 +214,32 @@ def script(
     if instructions is not None:
         optional_params["instructions"] = instructions
 
-    if timeout is None:
-        timeout = litellm.request_timeout
-
-    if max_retries is None:
-        max_retries = litellm.num_retries or openai.DEFAULT_MAX_RETRIES
-    litellm_params_dict = get_litellm_params(**kwargs)
+    resolved_timeout: Final = litellm.request_timeout if timeout is None else timeout
+    litellm_params_dict = get_litellm_params(**call_kwargs)
 
     text_to_speech_provider_config = ProviderConfigManager.get_provider_script_config(
-        provider=litellm.LlmProviders(custom_llm_provider),
+        provider=litellm.LlmProviders(resolved_custom_llm_provider),
     )
     if text_to_speech_provider_config is None:
         raise litellm.BadRequestError(
-            message="Script synthesis is not supported for provider={}".format(custom_llm_provider),
-            model=model,
-            llm_provider=custom_llm_provider,
+            message="Script synthesis is not supported for provider={}".format(resolved_custom_llm_provider),
+            model=resolved_model,
+            llm_provider=resolved_custom_llm_provider,
         )
 
-    voice, optional_params = text_to_speech_provider_config.map_openai_params(
-        model=model,
+    resolved_voice, resolved_optional_params = text_to_speech_provider_config.map_openai_params(
+        model=resolved_model,
         optional_params=optional_params,
         voice=voice,
         drop_params=False,
-        kwargs=kwargs,
+        kwargs=call_kwargs,
     )
 
     logging_obj: LiteLLMLoggingObj = cast(LiteLLMLoggingObj, kwargs.get("litellm_logging_obj"))
     logging_obj.update_environment_variables(
-        model=model,
+        model=resolved_model,
         user=user,
-        optional_params=optional_params,
+        optional_params=resolved_optional_params,
         litellm_params={
             "litellm_call_id": litellm_call_id,
             "proxy_server_request": proxy_server_request,
@@ -252,28 +247,28 @@ def script(
             "metadata": metadata,
             "preset_cache_key": None,
             "stream_response": {},
-            **kwargs,
+            **call_kwargs,
         },
-        custom_llm_provider=custom_llm_provider,
+        custom_llm_provider=resolved_custom_llm_provider,
     )
 
-    if api_base is not None:
-        litellm_params_dict["api_base"] = api_base
+    if resolved_api_base is not None:
+        litellm_params_dict["api_base"] = resolved_api_base
     if api_key is not None:
         litellm_params_dict["api_key"] = api_key
 
     base_llm_http_handler = BaseLLMHTTPHandler()
 
     return base_llm_http_handler.text_to_speech_handler(
-        model=model,
+        model=resolved_model,
         input=input,
-        voice=voice,
+        voice=resolved_voice,
         text_to_speech_provider_config=text_to_speech_provider_config,
-        text_to_speech_optional_params=optional_params,
-        custom_llm_provider=custom_llm_provider,
+        text_to_speech_optional_params=resolved_optional_params,
+        custom_llm_provider=resolved_custom_llm_provider,
         litellm_params=litellm_params_dict,
         logging_obj=logging_obj,
-        timeout=timeout,
+        timeout=resolved_timeout,
         extra_headers=extra_headers,
         client=client,
         _is_async=aspeech or False,
