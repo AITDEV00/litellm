@@ -25,12 +25,9 @@ Model ID resolution:
 """
 
 import logging
-import os
 from typing import Optional
 
 from litellm.integrations.custom_logger import CustomLogger
-from litellm.caching import DualCache
-from litellm.proxy._types import UserAPIKeyAuth
 
 logger = logging.getLogger("oicm-keda")
 

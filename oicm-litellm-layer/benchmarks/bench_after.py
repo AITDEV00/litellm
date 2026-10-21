@@ -43,7 +43,6 @@ PAYLOAD = {
 async def run_benchmark(url, headers, label, concurrency, total, client):
     sem = asyncio.Semaphore(concurrency)
     times = []
-    errors = 0
 
     async def single_request():
         async with sem:

@@ -43,14 +43,14 @@ async def adiarize(*args, **kwargs) -> dict[str, Any]:
             response = await response
         return response
     except Exception as e:
-        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base", None))
+        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base"))
         raise exception_type(
             model=model,
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
             extra_kwargs=kwargs,
-        )
+        ) from None
 
 
 @client
@@ -76,12 +76,12 @@ def diarize(
         form_fields: request form fields forwarded verbatim to the pod
         audio_file: ``(filename, bytes, content_type)`` tuple
     """
-    user = kwargs.get("user", None)
-    litellm_call_id: str | None = kwargs.get("litellm_call_id", None)
-    proxy_server_request = kwargs.get("proxy_server_request", None)
-    extra_headers = kwargs.get("extra_headers", None)
-    model_info = kwargs.get("model_info", None)
-    metadata = kwargs.get("metadata", None)
+    user = kwargs.get("user")
+    litellm_call_id: str | None = kwargs.get("litellm_call_id")
+    proxy_server_request = kwargs.get("proxy_server_request")
+    resolved_extra_headers = extra_headers or kwargs.get("extra_headers")
+    model_info = kwargs.get("model_info")
+    metadata = kwargs.get("metadata")
 
     if timeout is None:
         timeout = litellm.request_timeout
@@ -100,7 +100,7 @@ def diarize(
     litellm_params_dict = get_litellm_params(
         api_key=api_key or dynamic_api_key,
         api_base=api_base or dynamic_api_base,
-        extra_headers=extra_headers,
+        extra_headers=resolved_extra_headers,
         headers=headers,
         model=model,
         custom_llm_provider=custom_llm_provider,
@@ -141,7 +141,7 @@ def diarize(
 
     # The pod's accepted serving id is the full pre-split string (e.g.
     # "pyannote/community-1"); the provider split above resolved dispatch only.
-    response = base_llm_http_handler.diarization_handler(
+    return base_llm_http_handler.diarization_handler(
         model=model,
         form_fields=form_fields,
         audio_file=audio_file,
@@ -150,8 +150,7 @@ def diarize(
         litellm_params=litellm_params_dict,
         logging_obj=logging_obj,
         timeout=timeout,
-        extra_headers=extra_headers,
+        extra_headers=resolved_extra_headers,
         client=client,
         _is_async=adiarize or False,
     )
-    return response

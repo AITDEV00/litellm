@@ -24,7 +24,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from litellm._logging import verbose_proxy_logger
-from litellm.proxy._types import ProxyException
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.common_utils.http_parsing_utils import get_form_data
@@ -55,15 +54,27 @@ _KNOWN_LITELLM_PARAMS = frozenset(
 )
 
 
+def _deployment_mode(deployment: dict) -> str | None:
+    """The deployment's mode, which LiteLLM stores in either of two places.
+
+    Deployments created from a config file carry ``mode`` in ``litellm_params``,
+    while ones created through the model-management API carry it in
+    ``model_info``. Reading only one of the two silently skips every deployment
+    registered the other way.
+    """
+    mode = (deployment.get("litellm_params") or {}).get("mode")
+    if mode is not None:
+        return str(mode)
+    return (deployment.get("model_info") or {}).get("mode")
+
+
 def _resolve_diarization_model(router_instance: Any) -> str | None:
     for deployment in router_instance.model_list:
-        litellm_params = deployment.get("litellm_params", {})
-        model_str = str(litellm_params.get("model", ""))
+        model_str = str(deployment.get("litellm_params", {}).get("model", ""))
         if model_str.startswith("pyannote/"):
             return deployment.get("model_name")
     for deployment in router_instance.model_list:
-        model_info = deployment.get("model_info", {})
-        if model_info.get("mode") == "diarization":
+        if _deployment_mode(deployment) == "diarization":
             return deployment.get("model_name")
     return None
 

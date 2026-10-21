@@ -41,14 +41,14 @@ async def acreate_voice(*args, **kwargs) -> dict[str, Any]:
             response = await response
         return response
     except Exception as e:
-        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base", None))
+        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base"))
         raise exception_type(
             model=model,
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
             extra_kwargs=kwargs,
-        )
+        ) from None
 
 
 @client
@@ -67,12 +67,12 @@ def create_voice(
     acreate_voice: bool | None = None,
     **kwargs,
 ) -> dict[str, Any]:
-    user = kwargs.get("user", None)
-    litellm_call_id: str | None = kwargs.get("litellm_call_id", None)
-    proxy_server_request = kwargs.get("proxy_server_request", None)
-    extra_headers = kwargs.get("extra_headers", None)
-    model_info = kwargs.get("model_info", None)
-    metadata = kwargs.get("metadata", None)
+    user = kwargs.get("user")
+    litellm_call_id: str | None = kwargs.get("litellm_call_id")
+    proxy_server_request = kwargs.get("proxy_server_request")
+    resolved_extra_headers = extra_headers or kwargs.get("extra_headers")
+    model_info = kwargs.get("model_info")
+    metadata = kwargs.get("metadata")
 
     if timeout is None:
         timeout = litellm.request_timeout
@@ -92,7 +92,7 @@ def create_voice(
         api_key=api_key or dynamic_api_key,
         api_base=api_base or dynamic_api_base,
         api_version=api_version,
-        extra_headers=extra_headers,
+        extra_headers=resolved_extra_headers,
         headers=headers,
         model=model,
         custom_llm_provider=custom_llm_provider,
@@ -135,7 +135,7 @@ def create_voice(
 
     optional_params: dict[str, Any] = {}
 
-    response = base_llm_http_handler.voice_handler(
+    return base_llm_http_handler.voice_handler(
         model=model,
         voice_data=voice_data,
         voice_provider_config=voice_provider_config,
@@ -143,11 +143,10 @@ def create_voice(
         litellm_params=litellm_params_dict,
         logging_obj=logging_obj,
         timeout=timeout,
-        extra_headers=extra_headers,
+        extra_headers=resolved_extra_headers,
         client=client,
         _is_async=acreate_voice or False,
     )
-    return response
 
 
 async def ascript(*args, **kwargs) -> HttpxBinaryResponseContent:
@@ -166,14 +165,14 @@ async def ascript(*args, **kwargs) -> HttpxBinaryResponseContent:
             response = await loop.run_in_executor(None, func_with_context)
         return response
     except Exception as e:
-        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base", None))
+        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base"))
         raise exception_type(
             model=model,
             custom_llm_provider=custom_llm_provider,
             original_exception=e,
             completion_kwargs=args,
             extra_kwargs=kwargs,
-        )
+        ) from None
 
 
 @client
@@ -198,11 +197,11 @@ def script(
     aspeech: bool | None = None,
     **kwargs,
 ) -> HttpxBinaryResponseContent | Coroutine[Any, Any, HttpxBinaryResponseContent]:
-    user = kwargs.get("user", None)
-    litellm_call_id: str | None = kwargs.get("litellm_call_id", None)
-    proxy_server_request = kwargs.get("proxy_server_request", None)
-    extra_headers = kwargs.get("extra_headers", None)
-    model_info = kwargs.get("model_info", None)
+    user = kwargs.get("user")
+    litellm_call_id: str | None = kwargs.get("litellm_call_id")
+    proxy_server_request = kwargs.get("proxy_server_request")
+    extra_headers = kwargs.get("extra_headers")
+    model_info = kwargs.get("model_info")
     model, custom_llm_provider, dynamic_api_key, api_base = get_llm_provider(
         model=model, custom_llm_provider=custom_llm_provider, api_base=api_base
     )  # pyright: ignore[reportAny]  # get_llm_provider returns a broad tuple; narrowed by usage
@@ -265,7 +264,7 @@ def script(
 
     base_llm_http_handler = BaseLLMHTTPHandler()
 
-    response = base_llm_http_handler.text_to_speech_handler(
+    return base_llm_http_handler.text_to_speech_handler(
         model=model,
         input=input,
         voice=voice,
@@ -279,4 +278,3 @@ def script(
         client=client,
         _is_async=aspeech or False,
     )
-    return response

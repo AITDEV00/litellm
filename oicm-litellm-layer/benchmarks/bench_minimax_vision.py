@@ -9,7 +9,6 @@ import time
 import statistics
 import json
 import base64
-import sys
 import os
 import re
 from pathlib import Path
@@ -170,5 +169,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import os
     asyncio.run(main())

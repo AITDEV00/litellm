@@ -102,7 +102,6 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
 
-    call_types = list(ROUTE_ENDPOINT.keys())
 
     with psycopg.connect(args.dsn, row_factory=dict_row) as conn:
         grand = 0

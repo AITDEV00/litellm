@@ -39,7 +39,6 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -52,7 +51,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

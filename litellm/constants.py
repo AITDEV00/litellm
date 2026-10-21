@@ -1054,6 +1054,7 @@ openai_compatible_providers: Final[list] = [
     "morph",
     "lambda_ai",
     "inception",
+    "omnivoice",
     "hyperbolic",
     "vercel_ai_gateway",
     "aiml",

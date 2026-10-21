@@ -45,3 +45,39 @@ def test_create_voice_signature_keeps_required_params() -> None:
     assert params[:2] == ["model", "voice_data"]
     assert "voice_data" in sig.parameters
     assert "model" in sig.parameters
+
+def test_create_voice_forwards_caller_extra_headers(monkeypatch) -> None:
+    """A caller-supplied extra_headers must reach the HTTP handler.
+
+    The slice used to read ``extra_headers`` back out of ``**kwargs`` and assign
+    it over the named parameter. Python routes an explicit ``extra_headers=``
+    into the parameter, never into ``kwargs``, so that assignment always wrote
+    None and the caller's headers were silently dropped.
+
+    Calls the undecorated function: the ``@client`` wrapper only adds logging
+    bookkeeping and needs a fully wired Logging object to run.
+    """
+    import litellm.endpoints.voice.main as voice_main
+    from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
+
+    captured: dict = {}
+
+    def _fake_voice_handler(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(BaseLLMHTTPHandler, "voice_handler", _fake_voice_handler)
+
+    voice_main.create_voice.__wrapped__(  # pyright: ignore[reportFunctionMemberAccess]  # @wraps exposes __wrapped__
+        model="omnivoice/omnivoice",
+        voice_data={"action": "register"},
+        extra_headers={"x-caller": "kept"},
+        litellm_logging_obj=_StubLoggingObj(),
+    )
+
+    assert captured["extra_headers"] == {"x-caller": "kept"}
+
+
+class _StubLoggingObj:
+    def update_environment_variables(self, **kwargs) -> None:
+        return None

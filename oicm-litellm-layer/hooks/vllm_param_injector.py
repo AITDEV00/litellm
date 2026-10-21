@@ -33,9 +33,8 @@ For embedding requests, this hook currently cannot help because the embedding
 handler doesn't merge extra_body. See the embedding patch in /patches/.
 """
 
-import copy
 import logging
-from typing import Any, Dict, Optional, Union
+from typing import Optional, Union
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import UserAPIKeyAuth

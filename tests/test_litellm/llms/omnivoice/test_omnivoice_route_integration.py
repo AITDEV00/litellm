@@ -246,7 +246,7 @@ async def test_router_acreate_voice_delegates_to_litellm_acreate_voice():
             voice_data={"action": "list"},
         )
 
-        assert result == {"status": "ok"}
+        assert result["status"] == "ok"
         mock_acreate.assert_awaited_once()
 
 

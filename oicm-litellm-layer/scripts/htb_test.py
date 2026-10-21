@@ -40,13 +40,11 @@ Usage:
 
 import argparse
 import asyncio
-import json
 import os
 import subprocess
 import sys
-import time
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
