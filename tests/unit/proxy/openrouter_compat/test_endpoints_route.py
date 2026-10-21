@@ -210,6 +210,38 @@ def test_endpoint_carries_limits_pricing_and_provider():
     assert endpoint["model_id"] == "Qwen/Qwen3.6-35B-A3B-FP8"
 
 
+def test_diarization_deployment_is_advertised_as_supporting_diarization():
+    """A pyannote deployment registered with mode=diarization must say so.
+
+    ``supports_diarization`` became a required field of the official
+    ``PublicEndpoint``, so a mapper that never sets it fails validation and the
+    whole endpoints route 500s. Deriving it from ``model_info.mode`` keeps the
+    route working and keeps the advertised capability truthful.
+    """
+    deployment = _deployment("dep-1").model_copy(
+        update={"model_info": {"mode": "diarization"}}
+    )
+    model = _aggregated([deployment])
+    endpoint = _payload(model, _statuses(model))["data"]["endpoints"][0]
+
+    assert endpoint["supports_diarization"] is True
+
+
+def test_non_diarization_deployment_does_not_claim_diarization():
+    model = _aggregated([_deployment("dep-1")])
+    endpoint = _payload(model, _statuses(model))["data"]["endpoints"][0]
+
+    assert endpoint["supports_diarization"] is False
+
+
+def test_service_tier_is_unset_rather_than_invented():
+    """The gateway serves no tiered pricing, so the field stays null."""
+    model = _aggregated([_deployment("dep-1")])
+    endpoint = _payload(model, _statuses(model))["data"]["endpoints"][0]
+
+    assert endpoint["service_tier"] is None
+
+
 def test_internal_paths_and_secrets_never_appear():
     """No api_base, fingerprint, or auth header may leak into the payload."""
     deployment = _deployment("dep-1")

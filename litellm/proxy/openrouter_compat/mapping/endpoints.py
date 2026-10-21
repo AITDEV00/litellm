@@ -33,6 +33,7 @@ from litellm.proxy.openrouter_compat.openrouter_schema.endpoints import (
 # OpenRouter's own display convention is "<provider>: <model>".
 _NAME_SEPARATOR: Final = ": "
 _UNPRICED: Final = Pricing(prompt="0", completion="0")
+_DIARIZATION_MODE: Final = "diarization"
 
 
 class GatewayEndpoint(PublicEndpoint):
@@ -137,6 +138,8 @@ class OpenRouterEndpointsMapper:
         model_name = deployment.identity.upstream_model_id or model.logical_model_name
         return GatewayEndpoint(
             context_length=deployment.limits.context_length or 0,
+            service_tier=None,
+            supports_diarization=deployment.model_info.get("mode") == _DIARIZATION_MODE,
             latency_last_30m=_percentile_stats(metrics.ttft_latency_ms if metrics else None),
             max_completion_tokens=deployment.limits.max_completion_tokens,
             max_prompt_tokens=deployment.limits.max_input_tokens,
