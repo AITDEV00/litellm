@@ -90,17 +90,19 @@ def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -
 
 
 def _join_audio_url(api_base: str, path: str) -> str:
-    """Append a pod path to an api_base that may already end in the version prefix.
+    """Anchor a pod path at the deployment's host root.
 
-    Audio deployments are registered with api_base values like ``http://host:8080/v1``
-    while the forwarded paths also start with ``/v1``, so naive concatenation
-    requests ``/v1/v1/models`` and the pod answers 404.
+    Audio deployments register their api_base as the OpenAI-compatible base,
+    e.g. ``http://host:8080/v1``, but the routes here forward absolute pod paths:
+    ``/v1/models`` and ``/v1/voices`` live under the version prefix while
+    ``/health`` and ``/metrics`` live at the root. Concatenating the base as-is
+    therefore requested either ``/v1/v1/models`` or ``/v1/health``, and the pod
+    answered 404 for both.
     """
     base: Final = api_base.rstrip("/")
+    root: Final = base[: -len(_API_VERSION_PREFIX)] if base.endswith(_API_VERSION_PREFIX) else base
     suffix: Final = path if path.startswith("/") else f"/{path}"
-    if base.endswith(_API_VERSION_PREFIX) and suffix.startswith(_API_VERSION_PREFIX):
-        suffix = suffix[len(_API_VERSION_PREFIX) :]
-    return base + suffix
+    return root + suffix
 
 
 def _resolve_audio_target_url(llm_router: Any, provider: str, path: str) -> str | None:

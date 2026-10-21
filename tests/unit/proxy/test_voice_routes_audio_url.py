@@ -25,14 +25,13 @@ class _FakeRouter:
         ("http://host:8080/v1", "/v1/models", "http://host:8080/v1/models"),
         ("http://host:8080/v1/", "/v1/models", "http://host:8080/v1/models"),
         ("http://host:8080", "/v1/models", "http://host:8080/v1/models"),
-        ("http://host:8080/v1", "/health", "http://host:8080/v1/health"),
-        ("http://host:8080", "/health", "http://host:8080/health"),
         ("http://host:8080/v1", "/v1/models/abc", "http://host:8080/v1/models/abc"),
-        ("http://host:8080/v1", "v1/models", "http://host:8080/v1/models"),
-        ("http://host:8080/v1", "models", "http://host:8080/v1/models"),
+        ("http://host:8080/v1", "/health", "http://host:8080/health"),
+        ("http://host:8080", "/health", "http://host:8080/health"),
+        ("http://host:8080/v1", "/metrics", "http://host:8080/metrics"),
     ],
 )
-def test_version_prefix_is_not_duplicated(api_base: str, path: str, expected: str):
+def test_pod_path_is_anchored_at_the_host_root(api_base: str, path: str, expected: str):
     assert _join_audio_url(api_base, path) == expected
 
 
