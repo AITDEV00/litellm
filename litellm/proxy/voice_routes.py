@@ -43,6 +43,19 @@ OPS_ONLY_ROUTES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Read-only model discovery, proxied straight to the pod's /v1/models. Kept in
+# the llm_api_routes allowlist (a key that can call a model can list it) but, like
+# upstream's own /v1/models, it has no CallTypes entry because it invokes no model
+# and therefore has nothing for a guardrail to scan.
+DISCOVERY_ROUTES: Final[frozenset[str]] = frozenset(
+    {
+        "/audio/models",
+        "/v1/audio/models",
+        "/audio/models/{model_id}",
+        "/v1/audio/models/{model_id}",
+    }
+)
+
 _API_VERSION_PREFIX = "/v1"
 
 _VOICE_DATA_KEYS = frozenset(

@@ -33,8 +33,9 @@ from litellm.proxy.route_llm_request import route_request
 router = APIRouter(tags=["audio"])
 
 # Pod diagnostics rather than inference; see the note in voice_routes.py. This
-# router serves only the diarize contract today.
+# router serves only the diarize contract today, which is neither.
 OPS_ONLY_ROUTES: Final[frozenset[str]] = frozenset()
+DISCOVERY_ROUTES: Final[frozenset[str]] = frozenset()
 
 _KNOWN_LITELLM_PARAMS = frozenset(
     {

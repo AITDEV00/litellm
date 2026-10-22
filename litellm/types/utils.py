@@ -804,6 +804,20 @@ API_ROUTE_TO_CALL_TYPES: Final[Mapping[str, Sequence[CallTypes]]] = {
     # Audio Voices
     "/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
     "/v1/audio/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    # OICM voice-management slice. These dispatch the same call types as the
+    # routes above (speech/clone -> aspeech, profiles/script -> acreate_voice),
+    # and without an entry here guardrail call-type resolution returns None and
+    # silently skips post-call scanning for them.
+    "/audio/speech/clone": [CallTypes.aspeech, CallTypes.speech],
+    "/v1/audio/speech/clone": [CallTypes.aspeech, CallTypes.speech],
+    "/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/voices": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/voices/profiles": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/voices/profiles": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/voices/profiles/{profile_id}": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/voices/profiles/{profile_id}": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/audio/script": [CallTypes.acreate_voice, CallTypes.create_voice],
+    "/v1/audio/script": [CallTypes.acreate_voice, CallTypes.create_voice],
     # Audio Diarization
     "/diarize": [CallTypes.adiarize, CallTypes.diarize],
     "/v1/diarize": [CallTypes.adiarize, CallTypes.diarize],

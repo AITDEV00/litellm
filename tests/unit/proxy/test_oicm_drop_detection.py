@@ -14,12 +14,15 @@ wired into the runtime.
 """
 
 import importlib
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 import litellm
+
+if TYPE_CHECKING:
+    from litellm.proxy._types import UserAPIKeyAuth
 
 # ---------------------------------------------------------------------------
 # Slice: voice routes (litellm/proxy/voice_routes.py)
@@ -264,7 +267,6 @@ def test_fork_inference_routes_are_reachable_by_llm_api_keys() -> None:
     from unittest.mock import MagicMock
 
     from litellm.proxy._types import UserAPIKeyAuth
-    from litellm.proxy.auth.route_checks import RouteChecks
 
     served: set[str] = set()
     ops_only: set[str] = set()
@@ -286,12 +288,7 @@ def test_fork_inference_routes_are_reachable_by_llm_api_keys() -> None:
     request = MagicMock(spec=Request)
     request.method = "POST"
 
-    denied: list[str] = []
-    for path in sorted(served - ops_only):
-        try:
-            RouteChecks.is_virtual_key_allowed_to_call_route(route=path, valid_token=token, request=request)
-        except Exception:
-            denied.append(path)
+    denied = sorted(path for path in served - ops_only if not _llm_api_key_can_call(path, token, request))
 
     assert not denied, (
         f"Fork inference route(s) {denied} are mounted but NOT reachable by "
@@ -302,7 +299,7 @@ def test_fork_inference_routes_are_reachable_by_llm_api_keys() -> None:
         "at class-definition time, so a runtime append elsewhere will not help."
     )
 
-    exposed_ops = sorted(path for path in ops_only if _llm_api_key_can_call(RouteChecks, path, token, request))
+    exposed_ops = sorted(path for path in ops_only if _llm_api_key_can_call(path, token, request))
     assert not exposed_ops, (
         f"Route(s) {exposed_ops} are declared OPS_ONLY_ROUTES but are still reachable by "
         "llm_api_routes keys, so the exemption is not actually keeping them off the "
@@ -310,9 +307,55 @@ def test_fork_inference_routes_are_reachable_by_llm_api_keys() -> None:
     )
 
 
-def _llm_api_key_can_call(RouteChecks, path: str, token, request) -> bool:
+def test_fork_inference_routes_resolve_a_guardrail_call_type() -> None:
+    """Reachable is not enough: a route that invokes a model must also resolve to
+    a CallTypes entry.
+
+    Unified guardrails call ``get_call_types_for_route(user_api_key_dict.request_route)``
+    and, on a miss, log a warning and skip post-call scanning. An inference route
+    that is authorized but absent from ``API_ROUTE_TO_CALL_TYPES`` therefore
+    silently opts out of every guardrail, which is invisible in a 200 response.
+
+    Discovery routes are exempt: upstream's own ``/v1/models`` is in
+    llm_api_routes with no CallTypes entry, because listing models invokes no
+    model and so has nothing to scan.
+    """
+    from litellm.litellm_core_utils.api_route_to_call_types import get_call_types_for_route
+
+    missing: list[str] = []
+    for module_path in _FORK_INFERENCE_ROUTERS:
+        module = importlib.import_module(module_path)
+        exempt = set(module.OPS_ONLY_ROUTES) | set(module.DISCOVERY_ROUTES)
+        for route in getattr(module.router, "routes", []):
+            path = getattr(route, "path", "")
+            if not path or path in exempt:
+                continue
+            concrete = path.replace("{profile_id}", "probe").replace("{model_id}", "probe")
+            if not get_call_types_for_route(concrete):
+                missing.append(path)
+
+    assert not missing, (
+        f"Fork inference route(s) {missing} resolve no CallTypes, so unified guardrails "
+        "skip post-call scanning for them with only a log warning. Add them to "
+        "API_ROUTE_TO_CALL_TYPES in litellm/types/utils.py using the call type their "
+        "handler actually dispatches, or declare them DISCOVERY_ROUTES if they invoke "
+        "no model."
+    )
+
+
+def _llm_api_key_can_call(path: str, token: "UserAPIKeyAuth", request: Request) -> bool:
+    """Whether an llm_api_routes key may call `path`.
+
+    Only the expected 403 is treated as a denial. Any other exception is a bug in
+    the check itself and must surface, otherwise a typo here would read as
+    "correctly denied" and silently satisfy the OPS_ONLY assertion.
+    """
+    from litellm.proxy.auth.route_checks import RouteChecks
+
     try:
         RouteChecks.is_virtual_key_allowed_to_call_route(route=path, valid_token=token, request=request)
         return True
-    except Exception:
+    except HTTPException as e:
+        assert e.status_code == 403, f"{path} rejected with {e.status_code}, expected 403"
         return False
+
