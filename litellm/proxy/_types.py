@@ -552,6 +552,26 @@ class LiteLLMRoutes(enum.Enum):
         "/v1/rag/ingest",
         "/rag/query",
         "/v1/rag/query",
+        # OICM fork slices: pyannoteAI diarization + voice management. These
+        # are inference (data-plane) routes; without an entry here the
+        # llm_api_routes snapshot excludes them and every key_type=llm_api
+        # key gets a 403 from is_virtual_key_allowed_to_call_route.
+        "/diarize",
+        "/v1/diarize",
+        "/v1/audio/speech/clone",
+        "/audio/speech/clone",
+        "/voices",
+        "/v1/voices",
+        "/voices/profiles",
+        "/v1/voices/profiles",
+        "/voices/profiles/{profile_id}",
+        "/v1/voices/profiles/{profile_id}",
+        "/audio/script",
+        "/v1/audio/script",
+        "/audio/models",
+        "/v1/audio/models",
+        "/audio/models/{model_id}",
+        "/v1/audio/models/{model_id}",
         "/lens",
         "/lens/{lens_id}",
         "/lens/{lens_id}/runs",

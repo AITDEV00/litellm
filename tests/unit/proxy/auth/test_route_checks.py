@@ -659,6 +659,81 @@ def test_virtual_key_llm_api_routes_allows_model_info(route):
     assert result is True
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/diarize",
+        "/v1/diarize",
+        "/audio/speech/clone",
+        "/v1/audio/speech/clone",
+        "/voices",
+        "/v1/voices",
+        "/voices/profiles",
+        "/v1/voices/profiles",
+        "/voices/profiles/profile-1",
+        "/v1/voices/profiles/profile-1",
+        "/audio/script",
+        "/v1/audio/script",
+        "/audio/models",
+        "/v1/audio/models",
+        "/audio/models/model-1",
+        "/v1/audio/models/model-1",
+    ],
+)
+def test_virtual_key_llm_api_routes_allows_oicm_inference_slices(route):
+    """Every OICM fork inference route must be reachable by virtual keys scoped
+    to allowed_routes=["llm_api_routes"], the preset every key_type=llm_api key
+    gets. /v1/diarize shipped (2026-10-19) registered on the app but missing
+    from every LiteLLMRoutes group, so all 91 llm_api keys on prod got 403 on a
+    route the master key could call. Each parametrized path was denied before
+    this regression test's group membership fix.
+
+    Pod diagnostics (/audio/health, /audio/metrics) are deliberately excluded:
+    they are declared OPS_ONLY_ROUTES on the routers and pinned as still-denied
+    by test_virtual_key_llm_api_routes_denies_oicm_ops_routes.
+    """
+
+    assert RouteChecks.is_llm_api_route(route=route) is True
+
+    valid_token = UserAPIKeyAuth(
+        user_id="test_user",
+        allowed_routes=["llm_api_routes"],
+    )
+
+    result = RouteChecks.is_virtual_key_allowed_to_call_route(
+        route=route,
+        valid_token=valid_token,
+        request=_mock_request("POST"),
+    )
+
+    assert result is True
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["/audio/health", "/v1/audio/health", "/audio/metrics", "/v1/audio/metrics"],
+)
+def test_virtual_key_llm_api_routes_denies_oicm_ops_routes(route):
+    """Pod diagnostics are not inference. An llm_api key must not be able to read
+    another tenant's audio pod health or runtime metrics, so these stay off the
+    llm_api_routes groups even though the handlers exist on the same routers.
+    """
+
+    valid_token = UserAPIKeyAuth(
+        user_id="test_user",
+        allowed_routes=["llm_api_routes"],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        RouteChecks.is_virtual_key_allowed_to_call_route(
+            route=route,
+            valid_token=valid_token,
+            request=_mock_request("GET"),
+        )
+
+    assert exc_info.value.status_code == 403
+
+
 @pytest.mark.parametrize("route", ["/model/info", "/v1/model/info", "/model_group/info"])
 def test_model_info_not_classified_as_llm_api(route):
     """Membership in `llm_api_routes` must not promote /model/info to an

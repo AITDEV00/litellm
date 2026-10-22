@@ -105,6 +105,10 @@ BACKEND_PATH_PREFIXES: tuple[str, ...] = (
     "/team_callback",
     # Rust data-plane gateway → proxy control-plane API (logging today, auth later)
     "/v1/rust_control_plane/",
+    # OICM fork slices: status ingestion (controller writes) and the
+    # client-distribution manifest download endpoint
+    "/oicm/",
+    "/install",
     # Alerting / email / IP allowlist
     "/alerting/",
     "/email/",

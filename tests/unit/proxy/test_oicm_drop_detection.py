@@ -14,11 +14,12 @@ wired into the runtime.
 """
 
 import importlib
+from typing import Final
 
 import pytest
+from fastapi import Request
 
 import litellm
-
 
 # ---------------------------------------------------------------------------
 # Slice: voice routes (litellm/proxy/voice_routes.py)
@@ -228,3 +229,90 @@ def test_diarization_route_type_dispatch_wired() -> None:
     assert ROUTE_ENDPOINT_MAPPING.get("adiarize") == "/v1/diarize", (
         "adiarize dispatch mapping was dropped from route_llm_request"
     )
+
+
+# ---------------------------------------------------------------------------
+# Structural guard: every fork-owned inference route must be authorized for
+# llm_api_routes keys
+# ---------------------------------------------------------------------------
+
+_FORK_INFERENCE_ROUTERS: Final = (
+    "litellm.proxy.diarization_routes",
+    "litellm.proxy.voice_routes",
+)
+
+
+def test_fork_inference_routes_are_reachable_by_llm_api_keys() -> None:
+    """Mounting a fork inference router is not enough: every path it serves
+    must also be authorized for keys scoped to allowed_routes=["llm_api_routes"]
+    (the preset every key_type=llm_api key gets). The llm_api_routes snapshot
+    is built once at LiteLLMRoutes class-definition time, so a route registered
+    on the app but absent from the groups is 403 for every llm_api key, while
+    the master key (allowed_routes=None) still succeeds and masks the bug in
+    gateway-level smoke tests.
+
+    Each router declares an OPS_ONLY_ROUTES set for paths that are pod
+    diagnostics rather than inference. Everything else must be reachable, so a
+    newly added route has to be classified explicitly instead of silently
+    defaulting to denied.
+
+    This is the missing inverse of upstream's test_routes_on_litellm_proxy
+    (which checks every *allowlisted* route exists on the app) and of the
+    mount tests above (which only check the router is included). It fails for
+    /v1/diarize from 2026-10-19 until the group-membership fix.
+    """
+    from unittest.mock import MagicMock
+
+    from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.auth.route_checks import RouteChecks
+
+    served: set[str] = set()
+    ops_only: set[str] = set()
+    for module_path in _FORK_INFERENCE_ROUTERS:
+        module = importlib.import_module(module_path)
+        served |= {getattr(route, "path", "") for route in getattr(module.router, "routes", [])}
+        ops_only |= set(module.OPS_ONLY_ROUTES)
+
+    assert served, "no fork inference routes found; the routers failed to import"
+
+    unclassified = sorted(ops_only - served)
+    assert not unclassified, (
+        f"OPS_ONLY_ROUTES names route(s) {unclassified} that the router does not serve. "
+        "A renamed or removed path leaves a stale exemption that silently widens the "
+        "inference allowlist."
+    )
+
+    token = UserAPIKeyAuth(user_id="guard", allowed_routes=["llm_api_routes"])
+    request = MagicMock(spec=Request)
+    request.method = "POST"
+
+    denied: list[str] = []
+    for path in sorted(served - ops_only):
+        try:
+            RouteChecks.is_virtual_key_allowed_to_call_route(route=path, valid_token=token, request=request)
+        except Exception:
+            denied.append(path)
+
+    assert not denied, (
+        f"Fork inference route(s) {denied} are mounted but NOT reachable by "
+        "llm_api_routes keys (key_type=llm_api). Add them to a group included "
+        "in the llm_api_routes snapshot, e.g. litellm_native_routes in "
+        "litellm/proxy/_types.py, or list them in the router's OPS_ONLY_ROUTES "
+        "if they are diagnostics rather than inference. The snapshot is built "
+        "at class-definition time, so a runtime append elsewhere will not help."
+    )
+
+    exposed_ops = sorted(path for path in ops_only if _llm_api_key_can_call(RouteChecks, path, token, request))
+    assert not exposed_ops, (
+        f"Route(s) {exposed_ops} are declared OPS_ONLY_ROUTES but are still reachable by "
+        "llm_api_routes keys, so the exemption is not actually keeping them off the "
+        "inference surface."
+    )
+
+
+def _llm_api_key_can_call(RouteChecks, path: str, token, request) -> bool:
+    try:
+        RouteChecks.is_virtual_key_allowed_to_call_route(route=path, valid_token=token, request=request)
+        return True
+    except Exception:
+        return False

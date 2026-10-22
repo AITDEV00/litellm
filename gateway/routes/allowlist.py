@@ -27,6 +27,11 @@ GATEWAY_PATH_PREFIXES: tuple[str, ...] = (
     "/moderations",
     "/v1/audio/",
     "/audio/",
+    # OICM fork slices: pyannoteAI diarization + voice management
+    "/v1/diarize",
+    "/diarize",
+    "/v1/voices",
+    "/voices",
     "/v1/images/",
     "/images/",
     "/v1/files",
@@ -76,6 +81,8 @@ GATEWAY_PATH_PREFIXES: tuple[str, ...] = (
     "/search",
     "/v1/containers",
     "/containers",
+    # OpenRouter-compatible model discovery (fork slice; data-plane reads)
+    "/api/v1/models",
     "/v1/evals",
     "/v1/traces",
     "/v1/logs",

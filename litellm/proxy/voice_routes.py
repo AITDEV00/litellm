@@ -29,6 +29,20 @@ from litellm.proxy.route_llm_request import route_request
 
 router = APIRouter(tags=["audio"])
 
+# Routes on this router that are pod diagnostics rather than inference, so they
+# stay off the llm_api_routes allowlist. Every other path here must be reachable
+# by a key_type=llm_api key; tests/unit/proxy/test_oicm_drop_detection.py fails
+# on any route that is in neither set, so a new route has to be classified
+# explicitly instead of silently defaulting to denied.
+OPS_ONLY_ROUTES: Final[frozenset[str]] = frozenset(
+    {
+        "/audio/health",
+        "/v1/audio/health",
+        "/audio/metrics",
+        "/v1/audio/metrics",
+    }
+)
+
 _API_VERSION_PREFIX = "/v1"
 
 _VOICE_DATA_KEYS = frozenset(

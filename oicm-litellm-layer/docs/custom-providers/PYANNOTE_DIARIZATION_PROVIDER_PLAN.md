@@ -218,9 +218,19 @@ own OpenAPI export, which derives from the route's declared response shape.
 3. `litellm/constants.py`: add `/v1/diarize` to
    `API_ROUTE_TO_CALL_TYPES` mapped to the new call types (both with and
    without the `/v1` prefix, matching how `/v1/audio/speech` is double-listed)
-4. `litellm/utils.py`: add `get_provider_diarization_config` to
+4. `litellm/proxy/_types.py`: add `/diarize` and `/v1/diarize` to
+   `LiteLLMRoutes.litellm_native_routes`. This is SEPARATE from step 3 and is
+   the one that governs authorization: `API_ROUTE_TO_CALL_TYPES` resolves call
+   types (guardrails, spend), while `llm_api_routes` is a snapshot built at
+   `LiteLLMRoutes` class-definition time. A route missing from every group is
+   mounted and callable by the master key but 403s for every `key_type=llm_api`
+   key. This was missed on the first implementation and shipped broken on
+   2026-10-19; `tests/unit/proxy/test_oicm_drop_detection.py::test_fork_inference_routes_are_reachable_by_llm_api_keys`
+   now enforces it. If the route is a pod diagnostic rather than inference,
+   list it in the router's `OPS_ONLY_ROUTES` instead of widening the allowlist
+5. `litellm/utils.py`: add `get_provider_diarization_config` to
    `ProviderConfigManager`, delegating to the registry slice
-5. `litellm/llms/oicm_providers/registry.py`: add
+6. `litellm/llms/oicm_providers/registry.py`: add
    `get_provider_diarization_config(provider)` returning
    `PyannoteDiarizationConfig()` for `PYANNOTE`
 6. Tests: registry dispatch test in

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import Any, Dict
+from typing import Any, Dict, Final
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -31,6 +31,10 @@ from litellm.proxy.litellm_pre_call_utils import add_litellm_data_to_request
 from litellm.proxy.route_llm_request import route_request
 
 router = APIRouter(tags=["audio"])
+
+# Pod diagnostics rather than inference; see the note in voice_routes.py. This
+# router serves only the diarize contract today.
+OPS_ONLY_ROUTES: Final[frozenset[str]] = frozenset()
 
 _KNOWN_LITELLM_PARAMS = frozenset(
     {
