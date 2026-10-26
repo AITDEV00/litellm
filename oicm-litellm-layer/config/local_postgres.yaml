@@ -1,0 +1,16 @@
+# Config for the self-contained Postgres variant (Dockerfile.postgres).
+# Baked into the image and passed via --config, so the container needs no mounts.
+model_list: []
+
+litellm_settings:
+  drop_params: true
+  cache: false
+
+general_settings:
+  # Stops LiteLLM writing per-request rows to LiteLLM_SpendLogs. This is the
+  # only control for it: there is no environment variable, it is read once from
+  # general_settings at startup (proxy_server.py, then passed into
+  # DBSpendUpdateWriter). Key/user/team spend totals are still updated, so
+  # budgets keep working; only the per-request request-log table is skipped.
+  disable_spend_logs: true
+  master_key: os.environ/LITELLM_MASTER_KEY

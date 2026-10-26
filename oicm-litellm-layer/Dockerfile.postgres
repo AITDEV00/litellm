@@ -35,14 +35,22 @@ RUN chmod +x /usr/local/bin/pg-entrypoint.sh
 COPY decor/postgres/edge-logo.png /app/assets/edge-logo.png
 COPY decor/postgres/edge-favicon.png /app/assets/edge-favicon.png
 
+# Baked rather than mounted so the image is self-contained. disable_spend_logs
+# lives here because it has no environment-variable equivalent.
+COPY config/local_postgres.yaml /app/config.yaml
+
 # POSTGRES_PASSWORD is deliberately not defaulted: a credential baked into a
 # layer is readable by anyone who can pull the image. It is required at run time.
+# The UI credentials below are the exception, because this variant is a local
+# demo image and the login has to be knowable without reading the pod env.
 ENV PGDATA=/var/lib/postgresql/data \
     POSTGRES_USER=litellm \
     POSTGRES_DB=litellm \
     PGPORT=5432 \
     UI_LOGO_PATH=/app/assets/edge-logo.png \
     LITELLM_FAVICON_URL=/app/assets/edge-favicon.png \
+    UI_USERNAME=ai-admin \
+    UI_PASSWORD='P@$$w0rd-13579' \
     LITELLM_LOG=ERROR
 
 VOLUME ["/var/lib/postgresql/data"]
@@ -52,4 +60,4 @@ VOLUME ["/var/lib/postgresql/data"]
 WORKDIR /app
 
 ENTRYPOINT ["/usr/local/bin/pg-entrypoint.sh"]
-CMD ["--port", "4000"]
+CMD ["--config", "/app/config.yaml", "--port", "4000"]

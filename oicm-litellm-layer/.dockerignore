@@ -7,3 +7,5 @@
 !scripts/pg-entrypoint.sh
 !decor/
 !decor/postgres/
+!config/
+!config/local_postgres.yaml
