@@ -31,3 +31,4 @@ data:
   exclusions.yaml: |
     model_ids:
       - orcarouter/Qwen3.8-27B-Uncensored-FP8
+      - M2
