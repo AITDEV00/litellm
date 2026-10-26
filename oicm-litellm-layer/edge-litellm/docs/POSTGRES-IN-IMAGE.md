@@ -28,11 +28,13 @@ make run
 Or straight from the registry, with no flags at all. The image defaults `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`, and the UI login to the same value, so a fresh host needs nothing but the pull:
 
 ```
-docker pull --tls-verify=false zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
+docker pull zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
 docker run -d --name adeo-litellm-edge -p 4000:4000 \
   -v adeo_litellm_edge_data:/var/lib/postgresql/data \
   zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
 ```
+
+`docker` has no `--tls-verify` flag; that is podman's. Docker reads trusted CAs from `/etc/docker/certs.d/<registry>/ca.crt`, so a host that trusts the internal CA pulls with no flags. For the full deployment walkthrough, including the failures that are easy to hit, see [EDGE-VM-DEPLOY.md](EDGE-VM-DEPLOY.md)
 
 The UI is at http://localhost:4000/ui/ (user `ai-admin`) and the API at http://localhost:4000/v1/models. The master key, the UI password, and the Postgres password are all `P@$$w0rd-13579` unless overridden. Data lives in the `adeo_litellm_edge_data` volume and survives restarts
 
@@ -65,10 +67,10 @@ make release
 
 That builds, tags, and pushes to `zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<branch-tag>`. Pass `TAG=1.106.1` to publish under a version of your choosing. `make push` does the tag and push without rebuilding, and `make tags`, `make inspect`, `make delete` manage what is already published
 
-The registry is served from an internal CA (`EC-ISSUINGCA`) that is not in the system trust store, so every podman call passes `--tls-verify=false`. To drop that flag, install the CA at `/etc/containers/certs.d/zdc-ai-harbor.ecouncil.ae/ca.crt` and set `TLS_VERIFY=true`. Until a host trusts the CA, pulling there needs the same flag:
+The registry is served from an internal CA (`EC-ISSUINGCA`) that is not in the system trust store on this build host, so every podman call here passes `--tls-verify=false`. To drop that flag, install the CA at `/etc/containers/certs.d/zdc-ai-harbor.ecouncil.ae/ca.crt` and set `TLS_VERIFY=true`. Pulling with docker needs no equivalent flag: docker reads `/etc/docker/certs.d/<registry>/ca.crt`, and the edge VM already trusts the CA
 
 ```
-docker pull --tls-verify=false zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
+docker pull zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
 ```
 
 ## How it works

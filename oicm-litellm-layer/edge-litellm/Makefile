@@ -77,8 +77,8 @@ help:
 	@echo
 	@echo "  Overrides: TAG=1.106.1  TLS_VERIFY=true  BASE_IMAGE=<ref>  ENV_FILE=<path>"
 	@echo
-	@echo "  Pull on another host, until the internal CA is trusted there:"
-	@echo "    docker pull --tls-verify=false $(REMOTE_IMG):$(TAG)"
+	@echo "  Pull on the edge VM (docker needs no TLS flag; the CA is trusted there):"
+	@echo "    sudo docker pull $(REMOTE_IMG):$(TAG)"
 
 ## Fail early with a clear message rather than a confusing error later.
 check-env:
@@ -155,7 +155,8 @@ pull:
 release: build push
 	@echo
 	@echo "Published $(REMOTE_IMG):$(TAG)"
-	@echo "Pull with: docker pull --tls-verify=false $(REMOTE_IMG):$(TAG)"
+	@echo "Pull on the edge VM with: sudo docker pull $(REMOTE_IMG):$(TAG)"
+	@echo "See docs/EDGE-VM-DEPLOY.md for the full walkthrough."
 
 tags: check-env
 	@curl -sk $(REGISTRY_URL)/v2/$(PROJECT)/$(REPO)/tags/list \

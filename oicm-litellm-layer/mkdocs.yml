@@ -112,6 +112,7 @@ nav:
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
       - Postgres In Image: edge-litellm/docs/POSTGRES-IN-IMAGE.md
+      - Edge VM Deploy: edge-litellm/docs/EDGE-VM-DEPLOY.md
   - TLS / Certificates:
       - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
       - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md
