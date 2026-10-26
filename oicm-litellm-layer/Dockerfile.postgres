@@ -43,6 +43,10 @@ COPY config/local_postgres.yaml /app/config.yaml
 # layer is readable by anyone who can pull the image. It is required at run time.
 # The UI credentials below are the exception, because this variant is a local
 # demo image and the login has to be knowable without reading the pod env.
+#
+# LITELLM_LOG is deliberately left unset so container logs stay at the upstream
+# default. Silencing per-request rows is disable_spend_logs in
+# config/local_postgres.yaml, which is a separate concern from stdout logging.
 ENV PGDATA=/var/lib/postgresql/data \
     POSTGRES_USER=litellm \
     POSTGRES_DB=litellm \
@@ -50,8 +54,7 @@ ENV PGDATA=/var/lib/postgresql/data \
     UI_LOGO_PATH=/app/assets/edge-logo.png \
     LITELLM_FAVICON_URL=/app/assets/edge-favicon.png \
     UI_USERNAME=ai-admin \
-    UI_PASSWORD='P@$$w0rd-13579' \
-    LITELLM_LOG=ERROR
+    UI_PASSWORD='P@$$w0rd-13579'
 
 VOLUME ["/var/lib/postgresql/data"]
 

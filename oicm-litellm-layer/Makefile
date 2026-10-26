@@ -300,8 +300,9 @@ litellm-pg-build:
 		.
 	@echo "Built $(LITELLM_PG_IMG):$(LITELLM_PG_TAG)"
 
-## Run the self-contained image with a named volume so the database survives
-## restarts. POSTGRES_PASSWORD is required:
+## Run the self-contained image in the foreground with a TTY, so the container's
+## own logs stream to this terminal. --config is repeated because any argument
+## here replaces the image CMD, and without it disable_spend_logs is lost.
 ##   make litellm-pg-run POSTGRES_PASSWORD=devpassword
 litellm-pg-run:
 	@if [ -z "$(POSTGRES_PASSWORD)" ]; then \
@@ -318,15 +319,8 @@ litellm-pg-run:
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
 		$(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
-		--port 4000 \
-		--detailed_debug
-
-## Open a psql session against the database inside the running container.
-## The socket path must be explicit: psql defaults to /tmp, but the server
-## listens on /var/run/postgresql.
-litellm-pg-shell:
-	podman exec -it litellm-postgres bash -c \
-		'gosu postgres psql -h /var/run/postgresql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
+                --config /app/config.yaml \
+                --port 4000
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the
