@@ -29,6 +29,12 @@ RUN apk add --no-cache \
 COPY scripts/pg-entrypoint.sh /usr/local/bin/pg-entrypoint.sh
 RUN chmod +x /usr/local/bin/pg-entrypoint.sh
 
+# Mirrors production's model list onto this instance. Shipped in the image so it
+# can be run with `podman exec` after the container is up, with no host checkout
+# and no mount.
+COPY scripts/models/configure_edge_models.sh /usr/local/bin/configure_edge_models.sh
+RUN chmod +x /usr/local/bin/configure_edge_models.sh
+
 # Baked in rather than mounted, so the image is self-contained. The parent image
 # has no /app/assets, so these are the only files there. Regenerate with
 # decor/postgres/generate-icons.py.

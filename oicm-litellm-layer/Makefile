@@ -68,7 +68,7 @@ MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
-        litellm-pg-build litellm-pg-run litellm-pg-shell \
+        litellm-pg-build litellm-pg-run litellm-pg-shell litellm-pg-mirror \
 
 all: pull build push
 
@@ -319,8 +319,27 @@ litellm-pg-run:
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
 		$(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
-                --config /app/config.yaml \
-                --port 4000
+		--config /app/config.yaml \
+		--port 4000
+
+## Open a shell in the running container.
+litellm-pg-shell:
+	podman exec -it litellm-postgres /bin/sh
+
+## Copy every model production serves onto the running edge proxy, each pointed
+## back at production. The script ships in the image, so this only forwards the
+## key. Pass DRY_RUN=1 to preview, ONLY=substr to copy a subset.
+##   make litellm-pg-mirror PROD_API_KEY=sk-...
+litellm-pg-mirror:
+	@if [ -z "$(PROD_API_KEY)" ]; then \
+		echo "PROD_API_KEY is required: make litellm-pg-mirror PROD_API_KEY=<key>"; \
+		exit 1; \
+	fi
+	podman exec -it \
+		-e PROD_API_KEY=$(PROD_API_KEY) \
+		-e DRY_RUN=$(DRY_RUN) \
+		-e ONLY=$(ONLY) \
+		litellm-postgres /usr/local/bin/configure_edge_models.sh
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the
