@@ -20,6 +20,19 @@ oicm-litellm-layer/
 ├── .env.datasource         ← local datasource env (see example)
 ├── .env.datasource.example
 │
+├── edge-litellm/           ← SELF-CONTAINED EDGE IMAGE (proxy + bundled Postgres)
+│   │                          Standalone: own Dockerfile, Makefile, and Harbor
+│   │                          publish. Nested here because it layers on the
+│   │                          litellm-src image this layer builds. See
+│   │                          edge-litellm/docs/POSTGRES-IN-IMAGE.md.
+│   ├── Dockerfile              ← Postgres layered on litellm-src
+│   ├── Makefile                ← build, run, mirror, publish to Harbor
+│   ├── .env.edge               ← credentials (UNTRACKED, gitignored)
+│   ├── config/                 ← proxy config (spend logs off, models in DB)
+│   ├── decor/                  ← ADEO EDGE logo/favicon + generator
+│   ├── scripts/                ← supervisor entrypoint + model mirror
+│   └── docs/                   ← runbook
+│
 ├── controller/             ← DISCOVERY CONTROLLER (component #1)
 │   ├── __main__.py         ← entry point
 │   ├── config.py           ← env vars, constants (incl. LITELLM_ADMIN_KEY default)

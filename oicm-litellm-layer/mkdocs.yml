@@ -111,6 +111,7 @@ nav:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
+      - Postgres In Image: edge-litellm/docs/POSTGRES-IN-IMAGE.md
   - TLS / Certificates:
       - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
       - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md

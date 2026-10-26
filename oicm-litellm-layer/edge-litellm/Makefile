@@ -28,8 +28,9 @@ BASE_REGISTRY ?= registry.adeoaiengine.ecouncil.ae
 BASE_PATH     ?= openinnovationai/platform/mlops/mlops-serving/litellm-src
 
 # Defaults to the branch name of the litellm checkout, slashes replaced so it
-# stays a valid tag. Override for a release: make release TAG=1.106.1
-TAG ?= $(shell git -C .. rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '_')
+# stays a valid tag. This directory is nested two levels below the repo root.
+# Override for a release: make release TAG=1.106.1
+TAG ?= $(shell git -C ../.. rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '_')
 
 BASE_IMAGE ?= $(BASE_REGISTRY)/$(BASE_PATH):$(TAG)
 REMOTE_IMG ?= $(REGISTRY)/$(PROJECT)/$(REPO)
@@ -48,7 +49,7 @@ VOLUME   ?= adeo_litellm_edge_data
 
 HARBOR_USER     := $(shell grep -m1 '^HARBOR_USER=' $(ENV_FILE) 2>/dev/null | cut -d= -f2-)
 HARBOR_PASSWORD := $(shell grep -m1 '^HARBOR_PASSWORD=' $(ENV_FILE) 2>/dev/null | cut -d= -f2-)
-MASTER_KEY      := $(shell python3 ../oicm-litellm-layer/scripts/get_master_key.py 2>/dev/null)
+MASTER_KEY      := $(shell python3 ../scripts/get_master_key.py 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
@@ -91,7 +92,7 @@ check-env:
 check-base:
 	@podman image exists $(BASE_IMAGE) || { \
 		echo "Base image $(BASE_IMAGE) not found."; \
-		echo "Build it first: make -C ../oicm-litellm-layer litellm-src-build"; \
+		echo "Build it first: make -C .. litellm-src-build"; \
 		echo "Or point at another: make build BASE_IMAGE=<ref>"; \
 		exit 1; \
 	}

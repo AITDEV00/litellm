@@ -270,9 +270,9 @@ litellm-logo:
 		--dry-run=client -o yaml | \
 		KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f -
 
-## The self-contained edge image (proxy plus bundled Postgres) moved to
-## ../edge-litellm, which owns its Dockerfile, build, run, and Harbor publish.
-##   make -C ../edge-litellm help
+## The self-contained edge image (proxy plus bundled Postgres) lives in
+## edge-litellm/, which owns its own Dockerfile, build, run, and Harbor publish.
+##   make -C edge-litellm help
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the

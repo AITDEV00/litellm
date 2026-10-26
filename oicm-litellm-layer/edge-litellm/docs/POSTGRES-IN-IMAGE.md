@@ -13,7 +13,7 @@ SQLite is not an option. Three independent guards reject it: `schema.prisma` pin
 Postgres is layered on top of the already-built proxy image, so that image must exist first
 
 ```
-make -C ../oicm-litellm-layer litellm-src-build
+make -C .. litellm-src-build
 make build
 ```
 
