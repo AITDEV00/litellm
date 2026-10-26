@@ -11,3 +11,4 @@
 !decor/postgres/
 !config/
 !config/local_postgres.yaml
+!.env.edge

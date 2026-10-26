@@ -292,6 +292,12 @@ litellm-pg-build:
 		echo "Base image $(LITELLM_PG_BASE_IMAGE) not found. Run: make litellm-src-build"; \
 		exit 1; \
 	}
+	@[ -f .env.edge ] || { \
+		echo ".env.edge is missing. It holds the edge credentials the image bakes in,"; \
+		echo "including PROD_API_KEY. It is untracked because this repository is public."; \
+		echo "Recreate it with the values in docs/runbooks/POSTGRES-IN-IMAGE.md."; \
+		exit 1; \
+	}
 	@echo "Building $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) from $(LITELLM_PG_BASE_IMAGE)"
 	podman build \
 		--tag $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
@@ -303,10 +309,12 @@ litellm-pg-build:
 ## Run the self-contained image in the foreground with a TTY, so the container's
 ## own logs stream to this terminal. --config is repeated because any argument
 ## here replaces the image CMD, and without it disable_spend_logs is lost.
-##   make litellm-pg-run POSTGRES_PASSWORD=devpassword
+## Credentials come from .env.edge via --env-file, which passes values through
+## untouched; make would turn the password's literal $$ into a process id.
+##   make litellm-pg-run
 litellm-pg-run:
-	@if [ -z "$(POSTGRES_PASSWORD)" ]; then \
-		echo "POSTGRES_PASSWORD is required: make litellm-pg-run POSTGRES_PASSWORD=<value>"; \
+	@if [ ! -f .env.edge ]; then \
+		echo ".env.edge is missing; it holds POSTGRES_PASSWORD and the edge credentials"; \
 		exit 1; \
 	fi
 	@echo "Running $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) on port $(LITELLM_PG_PORT)"
@@ -316,7 +324,7 @@ litellm-pg-run:
 		--name litellm-postgres \
 		-p $(LITELLM_PG_PORT):4000 \
 		-v litellm_pg_data:/var/lib/postgresql/data \
-		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		--env-file .env.edge \
 		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
 		$(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
 		--config /app/config.yaml \
@@ -327,18 +335,13 @@ litellm-pg-shell:
 	podman exec -it litellm-postgres /bin/sh
 
 ## Copy every model production serves onto the running edge proxy, each pointed
-## back at production. The script ships in the image, so this only forwards the
-## key. Pass DRY_RUN=1 to preview, ONLY=substr to copy a subset.
-##   make litellm-pg-mirror PROD_API_KEY=sk-...
+## back at production. The script and its credentials ship in the image, so this
+## needs no arguments. Pass DRY_RUN=1 to preview, ONLY=substr to copy a subset.
+##   make litellm-pg-mirror
 litellm-pg-mirror:
-	@if [ -z "$(PROD_API_KEY)" ]; then \
-		echo "PROD_API_KEY is required: make litellm-pg-mirror PROD_API_KEY=<key>"; \
-		exit 1; \
-	fi
 	podman exec -it \
-		-e PROD_API_KEY=$(PROD_API_KEY) \
-		-e DRY_RUN=$(DRY_RUN) \
-		-e ONLY=$(ONLY) \
+		$(if $(DRY_RUN),-e DRY_RUN=$(DRY_RUN)) \
+		$(if $(ONLY),-e ONLY=$(ONLY)) \
 		litellm-postgres /usr/local/bin/configure_edge_models.sh
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml

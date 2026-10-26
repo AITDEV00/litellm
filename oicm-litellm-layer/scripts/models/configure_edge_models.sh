@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 #
 # Mirrors every model the production gateway serves onto this edge proxy, each
-# pointed back at production. Run it inside the container once it is up:
+# pointed back at production. Credentials are baked into the image at
+# /etc/litellm-edge/credentials.env, so this needs no arguments:
 #
 #   podman exec -it litellm-postgres /usr/local/bin/configure_edge_models.sh
 #
-# or from the host:
+# or from the host, through the Makefile:
 #
-#   make litellm-pg-mirror PROD_API_KEY=sk-...
+#   make litellm-pg-mirror
 #
-# Required:
-#   PROD_API_KEY     production virtual key, used as the edge's upstream key
-#
-# Optional:
-#   EDGE_BASE        default http://localhost:4000
-#   PROD_BASE        default https://litellm.ecouncil.ae
-#   EDGE_MASTER_KEY  falls back to LITELLM_MASTER_KEY, which the container has
-#   DRY_RUN          set to 1 to print what would change, touching nothing
-#   ONLY             comma-separated substrings; only matching model ids copy
+# Optional, all defaulting to the baked-in file:
+#   PROD_API_KEY          production virtual key, used as the edge's upstream key
+#   PROD_BASE             default https://litellm.ecouncil.ae
+#   EDGE_BASE             default http://localhost:4000
+#   EDGE_MASTER_KEY       falls back to LITELLM_MASTER_KEY, which the container has
+#   DRY_RUN               set to 1 to print what would change, touching nothing
+#   ONLY                  comma-separated substrings; only matching model ids copy
+#   EDGE_CREDENTIALS_FILE default /etc/litellm-edge/credentials.env
 #
 # Two production endpoints are read, because neither has everything:
 #   /api/v1/models  the OpenRouter-compatible catalogue: context_length and
@@ -29,18 +29,12 @@
 # Everything below runs in Python rather than curl because the runtime image has
 # no curl, and the catalogue payload is far past the per-argument limit, so it
 # cannot be passed around as an environment variable either.
+#
+# Credentials are read from EDGE_CREDENTIALS_FILE, which the image bakes in, so
+# a plain `podman exec` needs no flags. The file is parsed as key=value rather
+# than sourced: the password contains a literal $$ that any shell would expand.
 
 set -euo pipefail
-
-if [ -z "${PROD_API_KEY:-}" ]; then
-    echo "PROD_API_KEY is required (production virtual key used upstream)" >&2
-    exit 1
-fi
-
-if [ -z "${EDGE_MASTER_KEY:-${LITELLM_MASTER_KEY:-}}" ]; then
-    echo "EDGE_MASTER_KEY is required (or LITELLM_MASTER_KEY in the container)" >&2
-    exit 1
-fi
 
 exec python3 - <<'PYTHON'
 import json
@@ -49,12 +43,42 @@ import sys
 import urllib.error
 import urllib.request
 
-EDGE_BASE = os.environ.get("EDGE_BASE", "http://localhost:4000").rstrip("/")
-PROD_BASE = os.environ.get("PROD_BASE", "https://litellm.ecouncil.ae").rstrip("/")
-PROD_API_KEY = os.environ["PROD_API_KEY"]
-EDGE_MASTER_KEY = os.environ.get("EDGE_MASTER_KEY") or os.environ["LITELLM_MASTER_KEY"]
-DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
-ONLY = [p.strip() for p in os.environ.get("ONLY", "").split(",") if p.strip()]
+
+def load_credentials(path):
+    """Parse key=value lines without shell expansion, so literal $$ survives."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return {}
+    pairs = (
+        (line.split("=", 1)[0].strip(), line.split("=", 1)[1])
+        for line in lines
+        if "=" in line and not line.lstrip().startswith("#")
+    )
+    return {key: value for key, value in pairs if key}
+
+
+CREDENTIALS_FILE = os.environ.get("EDGE_CREDENTIALS_FILE", "/etc/litellm-edge/credentials.env")
+CREDENTIALS = load_credentials(CREDENTIALS_FILE)
+
+
+def setting(name, default=""):
+    """Explicit environment wins, so a one-off override needs no file edit."""
+    return os.environ.get(name) or CREDENTIALS.get(name) or default
+
+
+EDGE_BASE = setting("EDGE_BASE", "http://localhost:4000").rstrip("/")
+PROD_BASE = setting("PROD_BASE", "https://litellm.ecouncil.ae").rstrip("/")
+PROD_API_KEY = setting("PROD_API_KEY")
+EDGE_MASTER_KEY = setting("EDGE_MASTER_KEY") or setting("LITELLM_MASTER_KEY")
+DRY_RUN = setting("DRY_RUN", "0") == "1"
+ONLY = [p.strip() for p in setting("ONLY").split(",") if p.strip()]
+
+if not PROD_API_KEY:
+    sys.exit(f"PROD_API_KEY is not set and {CREDENTIALS_FILE} does not provide one")
+if not EDGE_MASTER_KEY:
+    sys.exit(f"EDGE_MASTER_KEY is not set and {CREDENTIALS_FILE} does not provide LITELLM_MASTER_KEY")
 
 
 def call(url, key, payload=None, method=None):

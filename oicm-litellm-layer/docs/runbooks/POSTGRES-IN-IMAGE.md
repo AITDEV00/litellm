@@ -22,12 +22,25 @@ make litellm-pg-build
 ## Run
 
 ```
-make litellm-pg-run POSTGRES_PASSWORD=devpassword
+make litellm-pg-run
 ```
 
 The UI is at http://localhost:4000/ui/ and the API at http://localhost:4000/v1/models. Data lives in the `litellm_pg_data` volume and survives restarts
 
 Open a psql session against the running container with `make litellm-pg-shell`
+
+## Mirroring production's models
+
+The image ships `configure_edge_models.sh` at `/usr/local/bin/`, so a running container can be seeded with every model production serves. Credentials are baked in, so no arguments are needed:
+
+```
+make litellm-pg-mirror
+podman exec -it litellm-postgres /usr/local/bin/configure_edge_models.sh
+```
+
+Both endpoints are read because neither is complete on its own. `/api/v1/models` is the OpenRouter-compatible catalogue and the only source of `context_length` and pricing. `/model/info` is the only source of `mode`, which is load-bearing: an embedding or TTS deployment registered as `chat` will not route
+
+Registration is idempotent on `model_name`, because `/model/new` mints a fresh row per call and a rerun would otherwise double every deployment for the router to load-balance across. Pass `DRY_RUN=1` to preview and `ONLY=substr` to copy a subset
 
 ## How it works
 
@@ -43,7 +56,11 @@ The obvious implementation uses `pg_ctl start`, which detaches Postgres from the
 
 ### Credentials
 
-`POSTGRES_PASSWORD` has no default and is not baked into any layer. A credential in an image layer is readable by anyone who can pull the image. The entrypoint refuses to start without it. The generated `DATABASE_URL` is exported rather than printed, because container logs are routinely collected. Set `DATABASE_URL` yourself to point the proxy at a real database instead
+`POSTGRES_PASSWORD` has no default in the image and is not baked into any layer as an `ENV`. A credential in an image layer is readable by anyone who can pull the image. The entrypoint refuses to start without it. The generated `DATABASE_URL` is exported rather than printed, because container logs are routinely collected. Set `DATABASE_URL` yourself to point the proxy at a real database instead
+
+Run-time values come from `oicm-litellm-layer/.env.edge`, passed with `--env-file`. That file is gitignored and must exist on the build host, because `Dockerfile.postgres` copies it to `/etc/litellm-edge/credentials.env` for the mirror script. It is not tracked because `PROD_API_KEY` is a live production virtual key and this repository is public
+
+Two consumers read it and neither expands it. `podman --env-file` passes values through byte for byte, and the mirror script parses `key=value` rather than sourcing the file. This matters because the UI password contains a literal `$$`: make turns it into `P@-13579` when it includes a `.env`, and a shell turns it into `P@<pid>w0rd-13579`. Both forms fail to authenticate, so the value must never pass through either
 
 ## Why not in the cluster
 

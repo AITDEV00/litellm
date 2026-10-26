@@ -35,6 +35,14 @@ RUN chmod +x /usr/local/bin/pg-entrypoint.sh
 COPY scripts/models/configure_edge_models.sh /usr/local/bin/configure_edge_models.sh
 RUN chmod +x /usr/local/bin/configure_edge_models.sh
 
+# Credentials the script above reads, so a plain `podman exec` needs no flags.
+# .env.edge is untracked and gitignored because PROD_API_KEY is a live
+# production virtual key and this repository is public, so the file must exist
+# on the build host. Not read by LiteLLM itself: the proxy's own settings still
+# come from environment variables at run time.
+COPY .env.edge /etc/litellm-edge/credentials.env
+RUN chmod 600 /etc/litellm-edge/credentials.env
+
 # Baked in rather than mounted, so the image is self-contained. The parent image
 # has no /app/assets, so these are the only files there. Regenerate with
 # decor/postgres/generate-icons.py.

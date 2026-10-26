@@ -5,6 +5,9 @@
 .venv_policy_test
 .env
 .env.datasource
+# Edge demo image credentials. Holds a live production virtual key, and this
+# repository is public.
+.env.edge
 .claude
 .newenv
 newenv/*
