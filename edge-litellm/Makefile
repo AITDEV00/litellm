@@ -107,7 +107,7 @@ build: check-env check-base
 
 ## Credentials come from .env.edge via --env-file, which passes values through
 ## byte for byte. Passing them with -e would let the shell expand the literal $$
-## in UI_PASSWORD, which produces a password that does not authenticate.
+## in the password, which produces a password that does not authenticate.
 run: check-env
 	@echo "Running $(LOCAL_IMG) on port $(PORT)"
 	@echo "UI:  http://localhost:$(PORT)/ui/"
@@ -117,7 +117,6 @@ run: check-env
 		-p $(PORT):4000 \
 		-v $(VOLUME):/var/lib/postgresql/data \
 		--env-file $(ENV_FILE) \
-		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
 		$(LOCAL_IMG) \
 		--config /app/config.yaml \
 		--port 4000

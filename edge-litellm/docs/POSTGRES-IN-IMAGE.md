@@ -25,9 +25,24 @@ make build
 make run
 ```
 
-The UI is at http://localhost:4000/ui/ and the API at http://localhost:4000/v1/models. Data lives in the `adeo_litellm_edge_data` volume and survives restarts
+Or straight from the registry, with no flags at all. The image defaults `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`, and the UI login to the same value, so a fresh host needs nothing but the pull:
+
+```
+docker pull --tls-verify=false zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
+docker run -d --name adeo-litellm-edge -p 4000:4000 \
+  -v adeo_litellm_edge_data:/var/lib/postgresql/data \
+  zdc-ai-harbor.ecouncil.ae/adeo-gpt-agent/adeo-litellm-edge:<tag>
+```
+
+The UI is at http://localhost:4000/ui/ (user `ai-admin`) and the API at http://localhost:4000/v1/models. The master key, the UI password, and the Postgres password are all `P@$$w0rd-13579` unless overridden. Data lives in the `adeo_litellm_edge_data` volume and survives restarts
+
+First boot takes about a minute because Prisma applies the schema. Errors mentioning `relation "LiteLLM_VerificationTokenView" does not exist` and `_prisma_migrations` during that window are the proxy probing before Prisma finishes and are expected
 
 Open a psql session against the running container with `make shell`
+
+### The password must not be passed with -e
+
+`P@$$w0rd-13579` contains a literal `$$` and an `@`. A shell expands `$$` to its own process id, and the entrypoint percent-encodes the password before putting it in `DATABASE_URL` because an unencoded `@` ends the URL's userinfo section and the driver then looks for a host named `$$w0rd@127.0.0.1`. Use the image default, or `--env-file`, never `-e PASSWORD='...'`
 
 ## Mirroring production's models
 
@@ -69,7 +84,8 @@ The obvious implementation uses `pg_ctl start`, which detaches Postgres from the
 
 ### Credentials
 
-`POSTGRES_PASSWORD` has no default in the image and is not baked into any layer as an `ENV`. A credential in an image layer is readable by anyone who can pull the image. The entrypoint refuses to start without it. The generated `DATABASE_URL` is exported rather than printed, because container logs are routinely collected. Set `DATABASE_URL` yourself to point the proxy at a real database instead
+The image defaults `POSTGRES_PASSWORD` and `LITELLM_MASTER_KEY` to `P@$$w0rd-13579`, the same value as the UI login, so a pull is runnable with no flags. That is a deliberate trade for a demo image and it means the credential is readable by anyone who can pull the image. Override both with `--env-file` for anything else. The entrypoint percent-encodes the password before building `DATABASE_URL`, and the URL is exported rather than printed, because container logs are routinely collected. Set `DATABASE_URL` yourself to point the proxy at a real database instead
+
 
 Run-time values come from `.env.edge` in this directory, passed with `--env-file`. That file is gitignored and must exist on the build host, because `Dockerfile` copies it to `/etc/litellm-edge/credentials.env` for the mirror script. It is not tracked because `PROD_API_KEY` is a live production virtual key and this repository is public
 

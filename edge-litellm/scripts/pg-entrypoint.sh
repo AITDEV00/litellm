@@ -83,8 +83,21 @@ fi
 
 # Exported, never echoed: the URL embeds the password and container logs are
 # routinely collected.
+#
+# The password is percent-encoded because it is user-supplied and may contain
+# characters that are structural in a URL. An unencoded @ ends the userinfo
+# section, so `P@$$w0rd` makes the driver look for a host named
+# `$$w0rd@127.0.0.1` and the connection fails. Postgres itself accepts the raw
+# password; only the URL needs encoding. printf turns each byte into %XX, which
+# is what RFC 3986 wants for the userinfo component.
 if [ -z "${DATABASE_URL:-}" ]; then
-    export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${PGPORT}/${POSTGRES_DB}"
+    encoded_password="$(
+        printf '%s' "$POSTGRES_PASSWORD" |
+            od -An -tx1 -v |
+            tr -d ' \n' |
+            sed 's/../%&/g'
+    )"
+    export DATABASE_URL="postgresql://${POSTGRES_USER}:${encoded_password}@127.0.0.1:${PGPORT}/${POSTGRES_DB}"
 fi
 
 echo "[pg] ready"

@@ -53,10 +53,11 @@ COPY decor/edge-favicon.png /app/assets/edge-favicon.png
 # lives here because it has no environment-variable equivalent.
 COPY config/local_postgres.yaml /app/config.yaml
 
-# POSTGRES_PASSWORD is deliberately not defaulted: a credential baked into a
-# layer is readable by anyone who can pull the image. It is required at run time.
-# The UI credentials below are the exception, because this variant is a local
-# demo image and the login has to be knowable without reading the pod env.
+# POSTGRES_PASSWORD and LITELLM_MASTER_KEY both default to the same value so the
+# image is usable with no flags, which is the point of a self-contained demo.
+# Single-quoted because Docker collapses $$ in ENV, turning P@$$w0rd into P@-w0rd.
+# The UI credentials are the same value for the same reason: the login has to be
+# knowable without reading the pod env.
 #
 # LITELLM_LOG is deliberately left unset so container logs stay at the upstream
 # default. Silencing per-request rows is disable_spend_logs in
@@ -65,6 +66,8 @@ ENV PGDATA=/var/lib/postgresql/data \
     POSTGRES_USER=litellm \
     POSTGRES_DB=litellm \
     PGPORT=5432 \
+    POSTGRES_PASSWORD='P@$$w0rd-13579' \
+    LITELLM_MASTER_KEY='P@$$w0rd-13579' \
     UI_LOGO_PATH=/app/assets/edge-logo.png \
     LITELLM_FAVICON_URL=/app/assets/edge-favicon.png \
     UI_USERNAME=ai-admin \
