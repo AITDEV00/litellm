@@ -140,6 +140,7 @@ nav:
       - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
       - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
       - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
+      - Spend-Logs UI Enrichment Window Fix — Logic Map: performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md
       - Before Optimization: performance/before-optimization.md
       - After Optimization: performance/after-optimization.md
       - Before/After Correct Configuration: performance/before-after-correct-configuration.md
@@ -160,6 +161,7 @@ nav:
       - Security: client-distribution/security.md
       - Rollout: client-distribution/rollout.md
       - Open Questions: client-distribution/open-questions.md
+      - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md

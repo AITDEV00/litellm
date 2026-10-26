@@ -64,7 +64,7 @@ ALAIN_KUBECONFIG ?= $(HOME)/.kube/alain-oicm.conf
 # both environments, automatically.
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
-.PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean \
+.PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean clean-artifacts \
 	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
@@ -187,6 +187,18 @@ oicm-sa-secrets:
 clean:
 	podman rmi $(DISCOVERY_IMG):$(TAG) 2>/dev/null || true
 	podman rmi $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG) 2>/dev/null || true
+
+## Delete regenerable build artifacts. These are all git-ignored and total
+## several hundred MB, mostly the client-distribution mirror staging. Nothing
+## here is needed to build, deploy, or run; each is recreated on demand by the
+## command named beside it. Leaves the venvs alone, since litellm-local-run
+## uses .venv.
+clean-artifacts:
+	@echo "Removing regenerable build artifacts"
+	rm -rf examples/client-distribution/.staging   # examples/client-distribution/sync-mirror.sh
+	rm -rf site .venv-docs                          # make docs
+	rm -rf .mypy_cache                              # type checker
+	@echo "Remaining on disk:"; du -sh . 2>/dev/null
 
 ## Build the LiteLLM source image (with the enterprise dev override) from the
 ## upstream Dockerfile at the repo root. Tag is the sanitized git branch name,

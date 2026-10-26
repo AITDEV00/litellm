@@ -7,7 +7,7 @@ document to stdout.
 
 Usage:
   kubectl exec deploy/oicm-discovery-controller-dev -- \
-      python3 /app/scripts/probe_oicm_status_api.py > oicm-api-catalog.md
+      python3 /app/scripts/probes/probe_oicm_status_api.py > oicm-api-catalog.md
 
 Only the workspace is an input (OICM_WORKSPACE_ID env, or --workspace). The
 workload, workload-run, and metric ids are discovered from the live API: the

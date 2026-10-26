@@ -10,11 +10,11 @@ spend thinking tokens that never surface in the response body; the two signals
 disagreeing is what distinguishes "thinking disabled" from "thinking stripped".
 
 Usage:
-    python3 scripts/probe_reasoning.py --list
-    python3 scripts/probe_reasoning.py --model Kimi
-    python3 scripts/probe_reasoning.py --label glm
-    python3 scripts/probe_reasoning.py --full --label kimi/none
-    python3 scripts/probe_reasoning.py --repeat 3 --probe 'tag|model|{"reasoning_effort":"low"}'
+    python3 scripts/probes/probe_reasoning.py --list
+    python3 scripts/probes/probe_reasoning.py --model Kimi
+    python3 scripts/probes/probe_reasoning.py --label glm
+    python3 scripts/probes/probe_reasoning.py --full --label kimi/none
+    python3 scripts/probes/probe_reasoning.py --repeat 3 --probe 'tag|model|{"reasoning_effort":"low"}'
 """
 
 from __future__ import annotations

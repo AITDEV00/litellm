@@ -603,7 +603,7 @@ The code is designed to work with any priority configuration:
 | Deployment | `deploy/base/gateway`, `deploy/prod/litellm-redis.yaml`, `deploy/prod/litellm-ingress.yaml`, `deploy/prod/discovery-controller.yaml` | Kubernetes manifests |
 | Controller | `controller/` (8 Python files) | Cross-cluster model discovery and fallback reconciliation |
 | Hooks | `hooks/vllm_param_injector.py`, `hooks/keda_metrics.py` | Custom LiteLLM hooks |
-| Tests | `scripts/htb_test_v2.py`, `tests/test_litellm/proxy/hooks/test_priority_reservation_adeo.py`, `tests/test_litellm/proxy/hooks/run_priority_simulations.py` | HTB test suite |
+| Tests | `scripts/htb/htb_test_v2.py`, `tests/test_litellm/proxy/hooks/test_priority_reservation_adeo.py`, `tests/test_litellm/proxy/hooks/run_priority_simulations.py` | HTB test suite |
 | Benchmarks | `bench_*.py` (4 files) | Performance benchmarking scripts |
 | Documentation | `README.md`, `CHANGELOG.md`, `IMPLEMENTATION_PLAN.md`, etc. | Project docs |
 
@@ -904,19 +904,19 @@ This is the most critical test. It verifies that HTB enforcement works correctly
 
 ```bash
 # Test 1: Qwen 3.5 0.8B (no fallbacks)
-python3 oicm-litellm-layer/scripts/htb_test_v2.py --test 1
+python3 oicm-litellm-layer/scripts/htb/htb_test_v2.py --test 1
 
 # Test 2: GLM-5.2 (with fallbacks)
-python3 oicm-litellm-layer/scripts/htb_test_v2.py --test 2
+python3 oicm-litellm-layer/scripts/htb/htb_test_v2.py --test 2
 
 # Test 3: GLM-5.2 + direct fallback models
-python3 oicm-litellm-layer/scripts/htb_test_v2.py --test 3
+python3 oicm-litellm-layer/scripts/htb/htb_test_v2.py --test 3
 ```
 
 ### Running all tests sequentially
 
 ```bash
-python3 oicm-litellm-layer/scripts/htb_test_v2.py --all
+python3 oicm-litellm-layer/scripts/htb/htb_test_v2.py --all
 ```
 
 Each test flushes Redis between sub-tests and waits 2 seconds for the proxy to stabilize. When running `--all`, there is a 65-second wait between tests to let the sliding window reset.

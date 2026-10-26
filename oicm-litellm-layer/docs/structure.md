@@ -16,7 +16,9 @@ oicm-litellm-layer/
 ├── mkdocs.yml              ← THIS documentation site's config (nav = registry)
 ├── requirements-docs.txt   ← docs-site build deps (mkdocs + material)
 ├── Dockerfile.dev          ← local dev container
+├── Dockerfile.postgres     ← self-contained image: proxy + bundled Postgres
 ├── docker-compose.dev.yml  ← local dev stack
+├── .dockerignore           ← keeps Dockerfile.postgres build context to one file
 ├── .env.datasource         ← local datasource env (see example)
 ├── .env.datasource.example
 │
@@ -120,7 +122,8 @@ oicm-litellm-layer/
 │   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
 │   ├── session-identity/   ← session-id resolver implementation plan
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
-│   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource validation)
+│   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource
+│   │                          validation, postgres backup, postgres-in-image)
 │   ├── architecture/       ← integration-layer implementation plan
 │   ├── cache-invalidation/  ← cache invalidation design + testing
 │   ├── oicm-slices.md       ← OICM vertical-slice locations & pattern (see below)
@@ -136,20 +139,33 @@ oicm-litellm-layer/
 │   └── ui/litellm-dashboard/src/components/UsagePage/components/ModelPerformance/
 │
 ├── scripts/                ← helper scripts
+│   │                          Root holds only scripts invoked by tooling
+│   │                          (Makefile, mkdocs.yml, Dockerfile.postgres), so
+│   │                          their paths stay stable. Everything else is
+│   │                          bucketed by task and run by hand.
 │   ├── get_master_key.py       ← prints the master key from deploy/base/gateway (single source)
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── port-forward-datasources.sh ← datasource local-validation port-forwards
-│   ├── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
 │   ├── make_service_account_secrets.sh ← generate OICM SA secrets (make oicm-sa-secrets)
-│   ├── htb_test.py  htb_test_v2.py ← HTB limiter live tests
-│   ├── backfill_hosted_vllm_spend.py  ← spend backfill after model onboarding
-│   ├── rebuild_daily_spend_rollups.py ← daily-spend rollup rebuild
-│   ├── add_model_if_has_refs.sh ← add model only if price refs exist
-│   ├── remove_dangling_model_refs.sh ← clean dangling model references
-│   ├── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
-│   ├── probe_reasoning.py ← cache-bypassing reasoning-control probe
-│   ├── probe_oicm_status_api.py ← OICM status API probe
-│   └── vllm-0.20.0/        ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
+│   ├── pg-entrypoint.sh        ← supervises Postgres + proxy (Dockerfile.postgres)
+│   ├── db/                 ← database maintenance
+│   │   └── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
+│   ├── models/             ← model access-list and per-deployment settings
+│   │   ├── add_model_if_has_refs.sh ← add model only if price refs exist
+│   │   ├── remove_dangling_model_refs.sh ← clean dangling model references
+│   │   └── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
+│   ├── spend/              ← spend-log backfill and rollups
+│   │   ├── backfill_hosted_vllm_spend.py  ← spend backfill after model onboarding
+│   │   └── rebuild_daily_spend_rollups.py ← daily-spend rollup rebuild
+│   ├── probes/             ← live probes and verification against a running gateway
+│   │   ├── probe_reasoning.py ← cache-bypassing reasoning-control probe
+│   │   ├── probe_oicm_status_api.py ← OICM status API probe
+│   │   ├── stress_diarize.py  ← diarization stress test
+│   │   └── verify_usage_guide_models.sh ← exercises every usage-guide model
+│   ├── htb/                ← HTB rate-limiter live tests
+│   │   └── htb_test.py  htb_test_v2.py
+│   └── onboarding/         ← git-ignored per-model onboarding bundles
+│       └── vllm-0.20.0/    ← vLLM 0.20.0 onboarding bundle (onboard/offboard)
 │
 ├── benchmarks/             ← benchmark scripts
 │   ├── bench_after.py  bench_final.py  bench_2replicas.py  bench_minimax_vision.py

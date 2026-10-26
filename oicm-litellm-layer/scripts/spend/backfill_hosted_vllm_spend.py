@@ -23,7 +23,7 @@ Pass ``--apply`` to actually UPDATE. Always review the dry-run totals first.
 
 Run inside the cluster against a postgres pod, e.g.:
 
-  kubectl exec -i -n adeo-litellm deploy/litellm-proxy-dev -- python - < scripts/backfill_hosted_vllm_spend.py --dsn "postgresql://litellm:PW@adeo-litellm-postgres-rw.adeo-litellm:5432/litellm"
+  kubectl exec -i -n adeo-litellm deploy/litellm-proxy-dev -- python - < scripts/spend/backfill_hosted_vllm_spend.py --dsn "postgresql://litellm:PW@adeo-litellm-postgres-rw.adeo-litellm:5432/litellm"
 
 or locally with the dev DB via port-forward. The DSN should point at the DB you
 want to fix (prod: adeo-litellm-postgres-rw; dev: adeo-litellm-postgres-dev-rw).

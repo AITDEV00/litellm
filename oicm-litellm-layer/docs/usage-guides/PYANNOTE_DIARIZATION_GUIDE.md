@@ -171,7 +171,7 @@ kubectl exec -n adeo $POD -- sh -c \
 
 ### 3.2 Through-gateway stress (60s clips; includes network + gateway overhead)
 
-Verified with `oicm-litellm-layer/scripts/stress_diarize.py` (phases: gate -> contract -> single -> concurrency -> long clip) against the dev gateway port-forward, coro pod on `adeo-gpu-01` (4 CPU / 16 Gi / MIG-2g.35gb):
+Verified with `oicm-litellm-layer/scripts/probes/stress_diarize.py` (phases: gate -> contract -> single -> concurrency -> long clip) against the dev gateway port-forward, coro pod on `adeo-gpu-01` (4 CPU / 16 Gi / MIG-2g.35gb):
 
 | Scenario | Result |
 | -------- | ------ |
@@ -195,7 +195,7 @@ Reproduce through-gateway:
 kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14000:4000   # dev
 GATEWAY_KEY=$(python3 oicm-litellm-layer/scripts/get_master_key.py) \
 DIARIZE_CONCURRENCY=8 DIARIZE_ROUNDS=5 \
-  python3 oicm-litellm-layer/scripts/stress_diarize.py
+  python3 oicm-litellm-layer/scripts/probes/stress_diarize.py
 ```
 
 ---

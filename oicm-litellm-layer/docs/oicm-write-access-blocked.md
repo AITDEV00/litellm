@@ -8,7 +8,7 @@ Status: OICM API **read works**, **write blocked** by two independent platform d
 > `application_admin` role. A `POST /api/v1/model_servers` with a malformed body
 > now returns HTTP 400 (schema validation), not 403, so auth and create
 > permission are granted. Working credentials live in
-> `scripts/vllm-0.20.0/.env` (not committed). The auth gotcha below (use the
+> `scripts/onboarding/vllm-0.20.0/.env` (not committed). The auth gotcha below (use the
 > `auth-oicm.` issuer) still applies. This document is retained as the root-cause
 > record of the original blocker.
 

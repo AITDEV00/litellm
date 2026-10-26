@@ -17,7 +17,7 @@ undercharged, so unrelated rollups are not disturbed. A row is only rewritten wh
 the recomputed spend differs by more than --epsilon. Dry-run by default; --apply writes.
 
 Run inside a proxy pod:
-  kubectl exec -i -n adeo-litellm deploy/litellm-proxy-dev -- sh -c "python - --dsn '$DSN'" < scripts/rebuild_daily_spend_rollups.py
+  kubectl exec -i -n adeo-litellm deploy/litellm-proxy-dev -- sh -c "python - --dsn '$DSN'" < scripts/spend/rebuild_daily_spend_rollups.py
 """
 
 from __future__ import annotations

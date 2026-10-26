@@ -89,7 +89,7 @@ disable one.
 
 An operator-level default lives in `litellm_params.reasoning_effort` on the
 deployment, which the Router merges into every request that carries no effort of
-its own. Use `scripts/set_reasoning_effort_default.sh` to set it. The patch
+its own. Use `scripts/models/set_reasoning_effort_default.sh` to set it. The patch
 carries only that key, so it is reconcile-safe: the OICM controller patches the
 same way and never sends the key, and the merge preserves it.
 
@@ -99,7 +99,7 @@ Its only consumer is the OpenAI GPT-5 sampling-param guard, and it cannot hold
 
 ## Reproducing
 
-`scripts/probe_reasoning.py` runs the probes. Every request carries a unique
+`scripts/probes/probe_reasoning.py` runs the probes. Every request carries a unique
 nonce so the LiteLLM response cache always misses, and a repeated response id is
 flagged as a cache hit, so a cached answer cannot be mistaken for a fresh
 generation.
@@ -108,9 +108,9 @@ generation.
 export PROXY_BASE_URL="https://litellm.ecouncil.ae"
 export LITELLM_API_KEY="sk-..."
 
-python3 scripts/probe_reasoning.py --list
-python3 scripts/probe_reasoning.py --label kimi --repeat 3 --summary
-python3 scripts/probe_reasoning.py --probe 'tag|model|{"reasoning_effort":"low"}'
+python3 scripts/probes/probe_reasoning.py --list
+python3 scripts/probes/probe_reasoning.py --label kimi --repeat 3 --summary
+python3 scripts/probes/probe_reasoning.py --probe 'tag|model|{"reasoning_effort":"low"}'
 ```
 
 Two cautions when reading results. LiteLLM response caching is on, so any probe
