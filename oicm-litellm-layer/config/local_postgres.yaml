@@ -7,6 +7,9 @@ litellm_settings:
   cache: false
 
 general_settings:
+  # Required for POST /model/new to register a deployment at runtime. Without
+  # it the endpoint returns 500 and no model is added.
+  store_model_in_db: true
   # Stops LiteLLM writing per-request rows to LiteLLM_SpendLogs. This is the
   # only control for it: there is no environment variable, it is read once from
   # general_settings at startup (proxy_server.py, then passed into
