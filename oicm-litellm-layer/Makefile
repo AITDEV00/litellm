@@ -40,6 +40,18 @@ LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
+# Self-contained image: the proxy plus a Postgres it owns, in one container.
+# Built on top of the litellm-src image so it inherits the venv, Prisma engines,
+# and UI. Local-only; not deployed to the cluster. See
+# docs/runbooks/POSTGRES-IN-IMAGE.md.
+LITELLM_PG_DOCKERFILE := Dockerfile.postgres
+LITELLM_PG_IMG        := litellm-postgres
+LITELLM_PG_TAG        ?= $(LITELLM_SRC_TAG)
+LITELLM_PG_BASE_IMAGE ?= $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)
+LITELLM_PG_PORT       ?= 4000
+# Never default this to a real value; the entrypoint refuses to start without it.
+POSTGRES_PASSWORD     ?=
+
 # The kubeconfig for the Al Ain cluster, where every target here runs. One
 # variable so a renamed or relocated kubeconfig is a one-line change, and so no
 # target can point at a file that does not exist. An exported KUBECONFIG still
@@ -56,7 +68,7 @@ MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
-	port-forward-datasources docs
+        litellm-pg-build litellm-pg-run litellm-pg-shell \
 
 all: pull build push
 
@@ -258,6 +270,51 @@ litellm-logo:
 		--from-file=favicon.png=decor/favicon.png \
 		--dry-run=client -o yaml | \
 		KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f -
+
+## Build the self-contained image: the proxy plus a Postgres it owns, in one
+## container. Requires the litellm-src image for LITELLM_SRC_TAG to exist first
+## (make litellm-src-build), since Postgres is layered on top of it.
+##   make litellm-pg-build
+litellm-pg-build:
+	@podman image exists $(LITELLM_PG_BASE_IMAGE) || { \
+		echo "Base image $(LITELLM_PG_BASE_IMAGE) not found. Run: make litellm-src-build"; \
+		exit 1; \
+	}
+	@echo "Building $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) from $(LITELLM_PG_BASE_IMAGE)"
+	podman build \
+		--tag $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
+		--build-arg LITELLM_PG_BASE_IMAGE=$(LITELLM_PG_BASE_IMAGE) \
+		--file $(LITELLM_PG_DOCKERFILE) \
+		.
+	@echo "Built $(LITELLM_PG_IMG):$(LITELLM_PG_TAG)"
+
+## Run the self-contained image with a named volume so the database survives
+## restarts. POSTGRES_PASSWORD is required:
+##   make litellm-pg-run POSTGRES_PASSWORD=devpassword
+litellm-pg-run:
+	@if [ -z "$(POSTGRES_PASSWORD)" ]; then \
+		echo "POSTGRES_PASSWORD is required: make litellm-pg-run POSTGRES_PASSWORD=<value>"; \
+		exit 1; \
+	fi
+	@echo "Running $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) on port $(LITELLM_PG_PORT)"
+	@echo "UI:  http://localhost:$(LITELLM_PG_PORT)/ui/"
+	@echo "API: http://localhost:$(LITELLM_PG_PORT)/v1/models"
+	podman run --rm -it \
+		--name litellm-postgres \
+		-p $(LITELLM_PG_PORT):4000 \
+		-v litellm_pg_data:/var/lib/postgresql/data \
+		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
+		$(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
+		--port 4000 \
+		--detailed_debug
+
+## Open a psql session against the database inside the running container.
+## The socket path must be explicit: psql defaults to /tmp, but the server
+## listens on /var/run/postgresql.
+litellm-pg-shell:
+	podman exec -it litellm-postgres bash -c \
+		'gosu postgres psql -h /var/run/postgresql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the

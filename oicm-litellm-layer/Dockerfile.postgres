@@ -1,0 +1,46 @@
+# Self-contained LiteLLM image: the proxy plus a Postgres it owns, in one
+# container. Intended for demos, CI, and MCP experimentation where requiring an
+# external database defeats the purpose. Not for the cluster; see
+# docs/runbooks/POSTGRES-IN-IMAGE.md for why.
+#
+# Derives from the already-built proxy image so it inherits the venv, Prisma
+# engines, admin UI, and entrypoint unchanged. The only additions are Postgres
+# from the Wolfi repo the base already uses (glibc, matching the runtime) and a
+# supervisor that starts Postgres before the proxy.
+ARG LITELLM_PG_BASE_IMAGE
+
+FROM ${LITELLM_PG_BASE_IMAGE}
+
+USER root
+
+# initdb and postgres both refuse to run as root, so the server runs as an
+# unprivileged `postgres` user and gosu drops privileges for it.
+RUN apk add --no-cache \
+        postgresql-16 \
+        postgresql-16-client \
+        postgresql-16-contrib \
+        gosu \
+    && addgroup -S postgres \
+    && adduser -S -G postgres -h /var/lib/postgresql postgres \
+    && mkdir -p /var/lib/postgresql/data /var/run/postgresql \
+    && chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql \
+    && chmod 700 /var/lib/postgresql/data
+
+COPY scripts/pg-entrypoint.sh /usr/local/bin/pg-entrypoint.sh
+RUN chmod +x /usr/local/bin/pg-entrypoint.sh
+
+# POSTGRES_PASSWORD is deliberately not defaulted: a credential baked into a
+# layer is readable by anyone who can pull the image. It is required at run time.
+ENV PGDATA=/var/lib/postgresql/data \
+    POSTGRES_USER=litellm \
+    POSTGRES_DB=litellm \
+    PGPORT=5432
+
+VOLUME ["/var/lib/postgresql/data"]
+
+# Kept identical to the base image: its ENTRYPOINT is the relative path
+# docker/prod_entrypoint.sh, which only resolves from /app.
+WORKDIR /app
+
+ENTRYPOINT ["/usr/local/bin/pg-entrypoint.sh"]
+CMD ["--port", "4000"]
