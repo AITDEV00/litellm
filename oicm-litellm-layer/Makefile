@@ -40,18 +40,6 @@ LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
-# Self-contained image: the proxy plus a Postgres it owns, in one container.
-# Built on top of the litellm-src image so it inherits the venv, Prisma engines,
-# and UI. Local-only; not deployed to the cluster. See
-# docs/runbooks/POSTGRES-IN-IMAGE.md.
-LITELLM_PG_DOCKERFILE := Dockerfile.postgres
-LITELLM_PG_IMG        := litellm-postgres
-LITELLM_PG_TAG        ?= $(LITELLM_SRC_TAG)
-LITELLM_PG_BASE_IMAGE ?= $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)
-LITELLM_PG_PORT       ?= 4000
-# Never default this to a real value; the entrypoint refuses to start without it.
-POSTGRES_PASSWORD     ?=
-
 # The kubeconfig for the Al Ain cluster, where every target here runs. One
 # variable so a renamed or relocated kubeconfig is a one-line change, and so no
 # target can point at a file that does not exist. An exported KUBECONFIG still
@@ -68,7 +56,6 @@ MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
-        litellm-pg-build litellm-pg-run litellm-pg-shell litellm-pg-mirror \
 
 all: pull build push
 
@@ -283,66 +270,9 @@ litellm-logo:
 		--dry-run=client -o yaml | \
 		KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f -
 
-## Build the self-contained image: the proxy plus a Postgres it owns, in one
-## container. Requires the litellm-src image for LITELLM_SRC_TAG to exist first
-## (make litellm-src-build), since Postgres is layered on top of it.
-##   make litellm-pg-build
-litellm-pg-build:
-	@podman image exists $(LITELLM_PG_BASE_IMAGE) || { \
-		echo "Base image $(LITELLM_PG_BASE_IMAGE) not found. Run: make litellm-src-build"; \
-		exit 1; \
-	}
-	@[ -f .env.edge ] || { \
-		echo ".env.edge is missing. It holds the edge credentials the image bakes in,"; \
-		echo "including PROD_API_KEY. It is untracked because this repository is public."; \
-		echo "Recreate it with the values in docs/runbooks/POSTGRES-IN-IMAGE.md."; \
-		exit 1; \
-	}
-	@echo "Building $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) from $(LITELLM_PG_BASE_IMAGE)"
-	podman build \
-		--tag $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
-		--build-arg LITELLM_PG_BASE_IMAGE=$(LITELLM_PG_BASE_IMAGE) \
-		--file $(LITELLM_PG_DOCKERFILE) \
-		.
-	@echo "Built $(LITELLM_PG_IMG):$(LITELLM_PG_TAG)"
-
-## Run the self-contained image in the foreground with a TTY, so the container's
-## own logs stream to this terminal. --config is repeated because any argument
-## here replaces the image CMD, and without it disable_spend_logs is lost.
-## Credentials come from .env.edge via --env-file, which passes values through
-## untouched; make would turn the password's literal $$ into a process id.
-##   make litellm-pg-run
-litellm-pg-run:
-	@if [ ! -f .env.edge ]; then \
-		echo ".env.edge is missing; it holds POSTGRES_PASSWORD and the edge credentials"; \
-		exit 1; \
-	fi
-	@echo "Running $(LITELLM_PG_IMG):$(LITELLM_PG_TAG) on port $(LITELLM_PG_PORT)"
-	@echo "UI:  http://localhost:$(LITELLM_PG_PORT)/ui/"
-	@echo "API: http://localhost:$(LITELLM_PG_PORT)/v1/models"
-	podman run --rm -it \
-		--name litellm-postgres \
-		-p $(LITELLM_PG_PORT):4000 \
-		-v litellm_pg_data:/var/lib/postgresql/data \
-		--env-file .env.edge \
-		-e LITELLM_MASTER_KEY=$(MASTER_KEY) \
-		$(LITELLM_PG_IMG):$(LITELLM_PG_TAG) \
-		--config /app/config.yaml \
-		--port 4000
-
-## Open a shell in the running container.
-litellm-pg-shell:
-	podman exec -it litellm-postgres /bin/sh
-
-## Copy every model production serves onto the running edge proxy, each pointed
-## back at production. The script and its credentials ship in the image, so this
-## needs no arguments. Pass DRY_RUN=1 to preview, ONLY=substr to copy a subset.
-##   make litellm-pg-mirror
-litellm-pg-mirror:
-	podman exec -it \
-		$(if $(DRY_RUN),-e DRY_RUN=$(DRY_RUN)) \
-		$(if $(ONLY),-e ONLY=$(ONLY)) \
-		litellm-postgres /usr/local/bin/configure_edge_models.sh
+## The self-contained edge image (proxy plus bundled Postgres) moved to
+## ../edge-litellm, which owns its Dockerfile, build, run, and Harbor publish.
+##   make -C ../edge-litellm help
 
 ## Run LiteLLM proxy from the local venv (no Docker). Uses config/local_dev.yaml
 ## which has no DB/Redis deps so it starts instantly. The proxy serves the

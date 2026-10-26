@@ -1,4 +1,4 @@
-# Config for the self-contained Postgres variant (Dockerfile.postgres).
+# Config for the self-contained Postgres variant of the edge image.
 # Baked into the image and passed via --config, so the container needs no mounts.
 model_list: []
 

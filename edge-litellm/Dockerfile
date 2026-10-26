@@ -32,7 +32,7 @@ RUN chmod +x /usr/local/bin/pg-entrypoint.sh
 # Mirrors production's model list onto this instance. Shipped in the image so it
 # can be run with `podman exec` after the container is up, with no host checkout
 # and no mount.
-COPY scripts/models/configure_edge_models.sh /usr/local/bin/configure_edge_models.sh
+COPY scripts/configure_edge_models.sh /usr/local/bin/configure_edge_models.sh
 RUN chmod +x /usr/local/bin/configure_edge_models.sh
 
 # Credentials the script above reads, so a plain `podman exec` needs no flags.
@@ -45,9 +45,9 @@ RUN chmod 600 /etc/litellm-edge/credentials.env
 
 # Baked in rather than mounted, so the image is self-contained. The parent image
 # has no /app/assets, so these are the only files there. Regenerate with
-# decor/postgres/generate-icons.py.
-COPY decor/postgres/edge-logo.png /app/assets/edge-logo.png
-COPY decor/postgres/edge-favicon.png /app/assets/edge-favicon.png
+# decor/generate-icons.py.
+COPY decor/edge-logo.png /app/assets/edge-logo.png
+COPY decor/edge-favicon.png /app/assets/edge-favicon.png
 
 # Baked rather than mounted so the image is self-contained. disable_spend_logs
 # lives here because it has no environment-variable equivalent.

@@ -1,0 +1,14 @@
+# Build context for the edge image. The build needs the two scripts, the icons,
+# the config, and the credentials file, so everything else is excluded to keep
+# the context small. Without this, `podman build .` ships the whole directory,
+# including any build artifacts left on disk.
+*
+!scripts/
+!scripts/pg-entrypoint.sh
+!scripts/configure_edge_models.sh
+!decor/
+!decor/edge-logo.png
+!decor/edge-favicon.png
+!config/
+!config/local_postgres.yaml
+!.env.edge

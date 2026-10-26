@@ -16,9 +16,7 @@ oicm-litellm-layer/
 ├── mkdocs.yml              ← THIS documentation site's config (nav = registry)
 ├── requirements-docs.txt   ← docs-site build deps (mkdocs + material)
 ├── Dockerfile.dev          ← local dev container
-├── Dockerfile.postgres     ← self-contained image: proxy + bundled Postgres
 ├── docker-compose.dev.yml  ← local dev stack
-├── .dockerignore           ← keeps Dockerfile.postgres build context to one file
 ├── .env.datasource         ← local datasource env (see example)
 ├── .env.datasource.example
 │
@@ -140,14 +138,13 @@ oicm-litellm-layer/
 │
 ├── scripts/                ← helper scripts
 │   │                          Root holds only scripts invoked by tooling
-│   │                          (Makefile, mkdocs.yml, Dockerfile.postgres), so
-│   │                          their paths stay stable. Everything else is
-│   │                          bucketed by task and run by hand.
+│   │                          (Makefile, mkdocs.yml), so their paths stay
+│   │                          stable. Everything else is bucketed by task and
+│   │                          run by hand.
 │   ├── get_master_key.py       ← prints the master key from deploy/base/gateway (single source)
 │   ├── mkdocs_master_key.py    ← MkDocs hook injecting {{ master_key }} into docs
 │   ├── port-forward-datasources.sh ← datasource local-validation port-forwards
 │   ├── make_service_account_secrets.sh ← generate OICM SA secrets (make oicm-sa-secrets)
-│   ├── pg-entrypoint.sh        ← supervises Postgres + proxy (Dockerfile.postgres)
 │   ├── db/                 ← database maintenance
 │   │   └── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
 │   ├── models/             ← model access-list and per-deployment settings

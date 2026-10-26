@@ -106,8 +106,12 @@ def call(url, key, payload=None, method=None):
 def catalogue():
     """name -> {context_length, prompt_price, completion_price} from production."""
     status, payload = call(PROD_BASE + "/api/v1/models", PROD_API_KEY)
-    if status != 200 or not isinstance(payload, dict):
+    if status == 0:
+        sys.exit(f"could not reach {PROD_BASE} ({payload}); not changing anything")
+    if status in (401, 403):
         sys.exit(f"PROD_API_KEY rejected by {PROD_BASE} (HTTP {status}); not changing anything")
+    if status != 200 or not isinstance(payload, dict):
+        sys.exit(f"{PROD_BASE}/api/v1/models returned HTTP {status}; not changing anything")
     found = {}
     for entry in payload.get("data") or []:
         name = entry.get("id")
