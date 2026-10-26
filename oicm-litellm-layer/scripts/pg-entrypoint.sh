@@ -20,12 +20,19 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     pwfile="$(mktemp)"
     printf '%s' "$POSTGRES_PASSWORD" >"$pwfile"
     chown postgres:postgres "$pwfile"
+    # --encoding/--locale are required. This image has no locale archive, so a
+    # bare initdb silently picks SQL_ASCII, and psycopg then returns bytes for
+    # every text column, which crashes LiteLLM's migration bookkeeping with
+    # "cannot use a string pattern on a bytes-like object". C locale needs no
+    # locale files, and UTF8 keeps the server usable for non-ASCII data.
     gosu postgres initdb \
         --pgdata="$PGDATA" \
         --username="$POSTGRES_USER" \
         --pwfile="$pwfile" \
         --auth-local=trust \
-        --auth-host=scram-sha-256
+        --auth-host=scram-sha-256 \
+        --encoding=UTF8 \
+        --locale=C
     rm -f "$pwfile"
 fi
 

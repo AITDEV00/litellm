@@ -29,12 +29,21 @@ RUN apk add --no-cache \
 COPY scripts/pg-entrypoint.sh /usr/local/bin/pg-entrypoint.sh
 RUN chmod +x /usr/local/bin/pg-entrypoint.sh
 
+# Baked in rather than mounted, so the image is self-contained. The parent image
+# has no /app/assets, so these are the only files there. Regenerate with
+# decor/postgres/generate-icons.py.
+COPY decor/postgres/edge-logo.png /app/assets/edge-logo.png
+COPY decor/postgres/edge-favicon.png /app/assets/edge-favicon.png
+
 # POSTGRES_PASSWORD is deliberately not defaulted: a credential baked into a
 # layer is readable by anyone who can pull the image. It is required at run time.
 ENV PGDATA=/var/lib/postgresql/data \
     POSTGRES_USER=litellm \
     POSTGRES_DB=litellm \
-    PGPORT=5432
+    PGPORT=5432 \
+    UI_LOGO_PATH=/app/assets/edge-logo.png \
+    LITELLM_FAVICON_URL=/app/assets/edge-favicon.png \
+    LITELLM_LOG=ERROR
 
 VOLUME ["/var/lib/postgresql/data"]
 

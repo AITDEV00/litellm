@@ -1,7 +1,9 @@
-# Build context for Dockerfile.postgres. The build needs exactly one file,
-# scripts/pg-entrypoint.sh, so everything else is excluded to keep the context
+# Build context for Dockerfile.postgres. The build needs the supervisor script
+# and the Postgres icon, so everything else is excluded to keep the context
 # small. Without this, `podman build .` ships the whole layer directory,
 # including the venvs and any build artifacts left on disk.
 *
 !scripts/
 !scripts/pg-entrypoint.sh
+!decor/
+!decor/postgres/
