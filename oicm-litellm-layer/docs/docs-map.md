@@ -208,6 +208,7 @@ than hand-edit; each file states its generation date.
 | Doc | Location |
 |-----|----------|
 | Integration-layer implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` |
+| Secondary gateway (edge mirror) design exploration | `docs/architecture/EDGE-MIRROR-DESIGN.md` |
 
 ## Cache invalidation
 

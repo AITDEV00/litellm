@@ -105,6 +105,7 @@ nav:
       - Deployment & Cluster: deployment.md
       - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
+      - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
       - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
