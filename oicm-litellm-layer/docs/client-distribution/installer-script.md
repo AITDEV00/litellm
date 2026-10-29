@@ -265,6 +265,22 @@ Version policy: the mirror pins exactly one cc-switch version
 publishes the new archives; the outgoing set is retained until the new
 manifest is live, to cover a client mid-download.
 
+## Codex's model catalog needs a daemon restart
+
+Codex 0.165.0 keeps a managed app-server per `CODEX_HOME` and reads
+`model_catalog_json` once at startup. A catalog written by this installer
+therefore stays invisible to the interactive `/model` picker until that daemon
+restarts, even though `codex exec -m <model>` works immediately (it never
+consults the picker). Verified empirically: a home with a correct config and
+catalog still listed only the OpenAI built-ins until the daemon was stopped,
+then listed all seven gateway models.
+
+This is why the closing message is more than "restart the harness". When codex
+was one of the chosen harnesses and a daemon is running, the script names the
+real fix: quit Codex, or `pkill -f 'codex app-server'`. The check is
+`pgrep`-guarded so a minimal host without `pgrep` never fails an install over a
+hint.
+
 ## Windows (Git Bash / WSL)
 
 Native PowerShell `/install.ps1` is deferred. Windows is supported through the

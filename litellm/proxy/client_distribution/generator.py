@@ -408,6 +408,18 @@ echo ""
 "$CCS_BIN" env check 2>/dev/null || true
 echo ""
 success "Done. Restart each configured harness to pick up the gateway."
+# Codex runs a per-CODEX_HOME background app-server that reads the model
+# catalog once at startup, so a catalog written just now stays invisible to
+# /model until that daemon restarts. A plain "restart the harness" is not
+# enough: the daemon outlives individual sessions. Only mention it when codex
+# was configured and a daemon is actually running.
+case " $CHOSEN " in
+  *" codex "*)
+    if command -v pgrep >/dev/null 2>&1 && pgrep -f 'codex app-server' >/dev/null 2>&1; then
+      info "Codex's background daemon is running and cached the old model list; quit Codex (or: pkill -f 'codex app-server') so /model shows the new models."
+    fi
+    ;;
+esac
 info "Re-run this script any time to re-sync models:  curl -fsSL $BASE_URL/install | sh"
 info "Update cc-switch only via this script, not 'cc-switch update'."
 # A child process (this script) cannot modify the parent shell's PATH, so

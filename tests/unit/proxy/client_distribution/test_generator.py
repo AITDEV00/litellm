@@ -223,6 +223,26 @@ def test_render_shell_aware_copyable_path_command() -> None:
     assert "for THIS $PARENT_SHELL shell" in script
 
 
+def test_render_warns_about_stale_codex_daemon() -> None:
+    """A codex daemon alive at install time holds the old model catalog.
+
+    Codex 0.165.0 keeps a per-CODEX_HOME app-server that reads
+    model_catalog_json once at startup, so a freshly written catalog stays
+    invisible to /model until that daemon restarts. Verified empirically:
+    a home with the correct config and catalog still listed only the
+    OpenAI built-ins until the daemon was stopped. The installer must say
+    so, and only when codex was configured.
+    """
+    script: str = render_install_script(_MANIFEST, _BASE_URL)
+    assert "codex app-server" in script
+    assert "pkill -f 'codex app-server'" in script
+    # Gated on codex being one of the chosen harnesses
+    assert 'case " $CHOSEN " in' in script
+    assert '*" codex "*)' in script
+    # pgrep may be absent on a minimal host; never fail the install over it
+    assert "command -v pgrep" in script
+
+
 def test_render_is_generic_orchestrator() -> None:
     """The script embeds no per-harness JSON shape; it fetches presets and composes with jq."""
     script: str = render_install_script(_MANIFEST, _BASE_URL)
