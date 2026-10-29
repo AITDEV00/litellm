@@ -41,10 +41,12 @@ CC_SWITCH_TARGETS = {
 # Every harness carries a preset file — the shape it encodes is the
 # harness's own business, so there is no mode split. v2 adds per-model
 # context windows and the default output cap where the harness has a real
-# knob for them.
+# knob for them. v3 (codex only) adds the modelCatalog block that makes
+# cc-switch emit Codex's model_catalog_json + generated catalog, and drops
+# the dead disable_response_storage TOML key Codex 0.165.0 warns about.
 HARNESSES = {
     "claude": 2,
-    "codex": 2,
+    "codex": 3,
     "gemini": 2,
     "open-code": 2,
     "pi": 2,

@@ -52,11 +52,14 @@ CC_SWITCH_TARGETS=(
 
 # Every harness carries a versioned preset file. Preset content is
 # generated from the gateway's baked presets (single source of truth);
-# bump PRESET_VERSION in build-manifest.py and re-sync to change a shape.
-# v2 adds per-model context windows + the default output cap.
-PRESET_VERSION="2"
+# bump the per-harness version in build-manifest.py's HARNESSES map and
+# re-sync to change a shape. v2 adds per-model context windows + the
+# default output cap; v3 (codex only) adds the modelCatalog block and drops
+# the dead disable_response_storage key.
 PROVIDER="adeo"
-HARNESSES=(claude codex gemini open-code pi hermes open-claw)
+# Per-harness preset versions; MUST match build-manifest.py's HARNESSES map,
+# which is the manifest's source of truth.
+HARNESSES=(claude:2 codex:3 gemini:2 open-code:2 pi:2 hermes:2 open-claw:2)
 # litellm checkout that has the baked presets (litellm/proxy/client_distribution)
 LITELLM_ROOT="${LITELLM_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 
@@ -127,9 +130,11 @@ if [ "$fetch" -eq 1 ]; then
   # Presets are canonical per-harness skeletons with sentinels; the installer
   # fills the runtime values. Generated from BAKED_PRESETS so the store, the
   # baked fallback, and the docs can never drift apart.
-  for harness in "${HARNESSES[@]}"; do
+  for spec in "${HARNESSES[@]}"; do
+    harness="${spec%%:*}"
+    preset_version="${spec##*:}"
     preset_dir="${STAGE_DIR}/providers/${PROVIDER}/${harness}"
-    preset_file="${preset_dir}/v${PRESET_VERSION}.json"
+    preset_file="${preset_dir}/v${preset_version}.json"
     mkdir -p "$preset_dir"
     ( cd "$LITELLM_ROOT" && .venv/bin/python - "$harness" > "$preset_file" ) <<'PYEOF' || die "failed to generate preset for $harness"
 import sys
@@ -188,9 +193,11 @@ if [ "$push" -eq 1 ]; then
     push_artifact "jq/${JQ_VERSION}/${target}" "${STAGE_DIR}/jq/${JQ_VERSION}/${target}"
   done
 
-  # Push all harness presets
-  for harness in "${HARNESSES[@]}"; do
-    rel="providers/${PROVIDER}/${harness}/v${PRESET_VERSION}.json"
+  # Push all harness presets at their pinned per-harness version
+  for spec in "${HARNESSES[@]}"; do
+    harness="${spec%%:*}"
+    preset_version="${spec##*:}"
+    rel="providers/${PROVIDER}/${harness}/v${preset_version}.json"
     push_artifact "$rel" "${STAGE_DIR}/${rel}"
   done
 

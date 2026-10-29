@@ -280,11 +280,13 @@ configure_harness() {
   #   ["__MODELS_ARRAY_CTX__"]        -> [{id,name,contextWindow?}]   (pi, open-claw)
   #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
   #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
+  #   {"__MODELS_CATALOG__": null}   -> {models:[{model,displayName,contextWindow?}]} (codex)
   # A model with no reported context simply omits the context key.
   MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
   MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
   MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
     'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
+  MODELS_CATALOG="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c '{models: map({model: .id, displayName: .id} + (if .context then {contextWindow: .context} else {} end))}')"
   "$JQ_BIN" \
     --arg url "$BASE_URL" \
     --arg url_v1 "$BASE_URL/v1" \
@@ -296,6 +298,7 @@ configure_harness() {
     --argjson models_array_ctx "$MODELS_ARRAY_CTX" \
     --argjson models_array_ctx_snake "$MODELS_ARRAY_CTX_SNAKE" \
     --argjson models_object_limit "$MODELS_OBJECT_LIMIT" \
+    --argjson models_catalog "$MODELS_CATALOG" \
     'walk(
        if type == "string" and . == "__DEFAULT_MODEL_CONTEXT__" then $default_ctx
        elif type == "string" then
@@ -310,6 +313,7 @@ configure_harness() {
        elif type == "array" and . == ["__MODELS_ARRAY_CTX__"] then $models_array_ctx
        elif type == "array" and . == ["__MODELS_ARRAY_CTX_SNAKE__"] then $models_array_ctx_snake
        elif type == "object" and . == {"__MODELS_OBJECT_LIMIT__": null} then $models_object_limit
+       elif type == "object" and . == {"__MODELS_CATALOG__": null} then $models_catalog
        else . end)
      | walk(if type == "object" then with_entries(select(.value != null)) else . end)' \
     "$TMP/preset.json" > "$TMP/provider.json" \

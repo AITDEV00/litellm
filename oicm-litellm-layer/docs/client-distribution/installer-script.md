@@ -119,6 +119,7 @@ preset picks the placeholder matching its shape:
 | `["__MODELS_ARRAY_CTX_SNAKE__"]` | `[{id,name,context_length?}]` | hermes |
 | `{"__MODELS_OBJECT__": null}` | `{id:{name}}` (v1 presets) | — |
 | `{"__MODELS_OBJECT_LIMIT__": null}` | `{id:{name,limit:{context?,output}}}` | open-code |
+| `{"__MODELS_CATALOG__": null}` | `{models:[{model,displayName,contextWindow?}]}` | codex: cc-switch turns it into Codex's `model_catalog_json` plus a generated catalog file, the only way Codex's model picker learns the key's models (Codex has no model discovery) |
 
 A model whose context the gateway does not report simply omits the context
 key; for the single-model harnesses the compose drops the whole field: claude

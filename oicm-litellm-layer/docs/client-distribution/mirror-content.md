@@ -80,7 +80,7 @@ when the host has none.
   },
   "harnesses": {
     "claude":    {"version": 2, "path": "providers/adeo/claude/v2.json",    "sha256": "..."},
-    "codex":     {"version": 2, "path": "providers/adeo/codex/v2.json",     "sha256": "..."},
+    "codex":     {"version": 3, "path": "providers/adeo/codex/v3.json",     "sha256": "..."},
     "gemini":    {"version": 2, "path": "providers/adeo/gemini/v2.json",    "sha256": "..."},
     "open-code": {"version": 2, "path": "providers/adeo/open-code/v2.json", "sha256": "..."},
     "pi":        {"version": 2, "path": "providers/adeo/pi/v2.json",        "sha256": "..."},
@@ -150,12 +150,17 @@ The per-harness shapes (all verified against the v5.11.1 binary — see
 [installer-script.md](installer-script.md) step 4 for the compose). Preset
 v2 adds per-model context windows (`context_length` from the key-scoped
 `/api/v1/models`) wherever the harness has a real knob, plus the manifest's
-`max_output_tokens` default for the two harnesses with an output knob:
+`max_output_tokens` default for the two harnesses with an output knob. v3
+(codex only) adds the `modelCatalog` block and drops the dead
+`disable_response_storage` TOML key (Codex 0.165.0 prints a per-run
+"unrecognized setting" warning for it). A preset version bump is a new
+`v<N>.json` object + a manifest repoint: the old version stays in the store,
+so mid-flight installers finish against the version they pinned.
 
 | Harness | Sentinels in preset | Notes |
 |---|---|---|
 | claude | `env` with `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` + the three role-model slots, `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (`__DEFAULT_MODEL_CONTEXT__`), `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (`__MAX_OUTPUT_TOKENS__`) | what cc-switch's own field-mode add stores, plus the two managed limit env keys |
-| codex | TOML `config` string (with `model_context_window = __DEFAULT_MODEL_CONTEXT__`) + `auth.OPENAI_API_KEY` | cc-switch stores a TOML doc, not env keys; no output knob exists |
+| codex | TOML `config` string (with `model_context_window = __DEFAULT_MODEL_CONTEXT__`) + `auth.OPENAI_API_KEY` + `modelCatalog` with `{"__MODELS_CATALOG__": null}` | cc-switch stores a TOML doc, not env keys; no output knob exists; v3 adds the `modelCatalog` block so cc-switch emits Codex's `model_catalog_json` + a generated catalog file (Codex has no model discovery, so the catalog is the only way its picker learns our models) and drops the dead `disable_response_storage` key Codex 0.165.0 warns about |
 | gemini | `env` with `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_MODEL` | writer drops env keys outside its allow-list, so no limit fields |
 | open-code | `npm`, `options.baseURL/apiKey`, `{"__MODELS_OBJECT_LIMIT__": null}` | models as `{id:{name,limit:{context,output}}}` |
 | hermes | snake_case `base_url`/`api_key`/`api_mode`, `["__MODELS_ARRAY_CTX_SNAKE__"]` | models as `[{id,name,context_length}]` |

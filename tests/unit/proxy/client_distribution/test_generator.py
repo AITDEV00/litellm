@@ -241,8 +241,12 @@ def test_render_is_generic_orchestrator() -> None:
     assert '__MODELS_ARRAY_CTX__"' in script
     assert '"__MODELS_ARRAY_CTX_SNAKE__"' in script
     assert '__MODELS_OBJECT_LIMIT__"' in script
+    assert '"__MODELS_CATALOG__": null}' in script
+    assert "MODELS_CATALOG=" in script
+    assert '{models: map({model: .id, displayName: .id}' in script
     assert "__MODELS_ARRAY__" not in script
     assert "__MODELS_OBJECT__" not in script
+    assert "disable_response_storage" not in script
     # Manifest-sourced default output cap
     assert 'MAX_OUTPUT_TOKENS="65536"' in script
     # Harness list is manifest-driven: rendered from the context at render
@@ -425,7 +429,17 @@ def test_baked_preset_codex_shape() -> None:
     assert "model_provider" in str(preset["config"])
     # Bare sentinel: composed as a TOML integer, not a quoted string
     assert "model_context_window = __DEFAULT_MODEL_CONTEXT__\n" in str(preset["config"])
+    # The catalog block is what makes Codex's model picker learn our models
+    assert preset["modelCatalog"] == {"__MODELS_CATALOG__": None}
     assert preset["auth"] == {"OPENAI_API_KEY": "__API_KEY__"}
+
+
+def test_baked_preset_codex_drops_dead_codex_keys() -> None:
+    """Codex 0.165.0 prints a per-run 'unrecognized setting' warning for
+    disable_response_storage; the preset must ship only keys current Codex
+    recognizes."""
+    config: str = str(json.loads(get_baked_preset("codex") or "{}")["config"])
+    assert "disable_response_storage" not in config
 
 
 def test_baked_preset_gemini_shape() -> None:
@@ -443,6 +457,8 @@ def test_baked_preset_models_sentinels() -> None:
         assert p["models"] == ["__MODELS_ARRAY_CTX__"], harness
     hermes: dict[str, object] = json.loads(get_baked_preset("hermes") or "{}")
     assert hermes["models"] == ["__MODELS_ARRAY_CTX_SNAKE__"]
+    codex: dict[str, object] = json.loads(get_baked_preset("codex") or "{}")
+    assert codex["modelCatalog"] == {"__MODELS_CATALOG__": None}
 
 
 def test_baked_preset_pi_has_flat_base_url() -> None:

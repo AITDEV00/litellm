@@ -336,11 +336,13 @@ configure_harness() {
   #   ["__MODELS_ARRAY_CTX__"]        -> [{id,name,contextWindow?}]   (pi, open-claw)
   #   ["__MODELS_ARRAY_CTX_SNAKE__"]  -> [{id,name,context_length?}]       (hermes)
   #   {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}} (open-code)
+  #   {"__MODELS_CATALOG__": null}   -> {models:[{model,displayName,contextWindow?}]} (codex)
   # A model with no reported context simply omits the context key.
   MODELS_ARRAY_CTX="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {contextWindow: .context} else {} end))')"
   MODELS_ARRAY_CTX_SNAKE="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c 'map({id: .id, name: .id} + (if .context then {context_length: .context} else {} end))')"
   MODELS_OBJECT_LIMIT="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c --argjson maxout "$MAX_OUTPUT_TOKENS" \
     'map({key: .id, value: {name: .id, limit: ((if .context then {context: .context} else {} end) + {output: $maxout})}}) | from_entries')"
+  MODELS_CATALOG="$(printf '%s' "$MODELS_JSON" | "$JQ_BIN" -c '{models: map({model: .id, displayName: .id} + (if .context then {contextWindow: .context} else {} end))}')"
   "$JQ_BIN" \
     --arg url "$BASE_URL" \
     --arg url_v1 "$BASE_URL/v1" \
@@ -352,6 +354,7 @@ configure_harness() {
     --argjson models_array_ctx "$MODELS_ARRAY_CTX" \
     --argjson models_array_ctx_snake "$MODELS_ARRAY_CTX_SNAKE" \
     --argjson models_object_limit "$MODELS_OBJECT_LIMIT" \
+    --argjson models_catalog "$MODELS_CATALOG" \
     'walk(
        if type == "string" and . == "__DEFAULT_MODEL_CONTEXT__" then $default_ctx
        elif type == "string" then
@@ -366,6 +369,7 @@ configure_harness() {
        elif type == "array" and . == ["__MODELS_ARRAY_CTX__"] then $models_array_ctx
        elif type == "array" and . == ["__MODELS_ARRAY_CTX_SNAKE__"] then $models_array_ctx_snake
        elif type == "object" and . == {"__MODELS_OBJECT_LIMIT__": null} then $models_object_limit
+       elif type == "object" and . == {"__MODELS_CATALOG__": null} then $models_catalog
        else . end)
      | walk(if type == "object" then with_entries(select(.value != null)) else . end)' \
     "$TMP/preset.json" > "$TMP/provider.json" \
@@ -470,8 +474,11 @@ echo ""
 # field entirely when the gateway reports none), __MAX_OUTPUT_TOKENS__ (the
 # manifest's default per-request output cap), and the whole-value models
 # placeholders ["__MODELS_ARRAY_CTX__"] -> [{id,name,contextWindow?}...],
-# ["__MODELS_ARRAY_CTX_SNAKE__"] -> [{id,name,context_length?}...], and
-# {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}...}.
+# ["__MODELS_ARRAY_CTX_SNAKE__"] -> [{id,name,context_length?}...],
+# {"__MODELS_OBJECT_LIMIT__": null} -> {id:{name,limit:{context?,output}}}...,
+# and {"__MODELS_CATALOG__": null} -> {models:[{model,displayName,
+# contextWindow?}...]} (codex modelCatalog; cc-switch turns it into Codex's
+# model_catalog_json + a generated catalog file).
 #
 # Context/output land only where the harness has a real, verified knob:
 # claude env keys, codex TOML key, opencode limit block, pi/open-claw
@@ -502,6 +509,10 @@ BAKED_PRESETS: Final[dict[str, str]] = {
     # model_context_window is a provider-exclusive TOML key cc-switch
     # respects (its own fallback when the key is absent is 128000); Codex
     # itself has no max-output config knob, so only the context is set.
+    # modelCatalog makes cc-switch emit model_catalog_json + a generated
+    # catalog file, which is the only way Codex's picker learns our models
+    # (it has no /models discovery). The dead disable_response_storage key
+    # is gone: Codex 0.165.0 ignores it with a warning on every run.
     "codex": json.dumps(
         {
             "config": (
@@ -509,7 +520,6 @@ BAKED_PRESETS: Final[dict[str, str]] = {
                 "model = \"__DEFAULT_MODEL__\"\n"
                 "model_reasoning_effort = \"high\"\n"
                 "model_context_window = __DEFAULT_MODEL_CONTEXT__\n"
-                "disable_response_storage = true\n"
                 "\n"
                 "[model_providers.adeo-litellm]\n"
                 "name = \"ADEO LiteLLM\"\n"
@@ -518,6 +528,7 @@ BAKED_PRESETS: Final[dict[str, str]] = {
                 "requires_openai_auth = true"
             ),
             "auth": {"OPENAI_API_KEY": "__API_KEY__"},
+            "modelCatalog": {"__MODELS_CATALOG__": None},
         },
         indent=2,
     ),
