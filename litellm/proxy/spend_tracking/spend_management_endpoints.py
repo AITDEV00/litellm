@@ -3785,7 +3785,14 @@ async def global_spend_refresh():
                 },
             )
             await new_client.db.connect()
-            await _query_raw(new_client, sql_query)
+            try:
+                await _query_raw(new_client, sql_query)
+            finally:
+                # Each PrismaClient owns a query-engine subprocess. Dropping the
+                # only reference lets the OS reclaim it; keeping it alive leaves a
+                # full engine (tens of MB floor, high-water-mark RSS) per refresh
+                # call for the worker's lifetime.
+                await new_client.db.disconnect()
             verbose_proxy_logger.info("MonthlyGlobalSpend view refreshed")
             return {
                 "message": "MonthlyGlobalSpend view refreshed",

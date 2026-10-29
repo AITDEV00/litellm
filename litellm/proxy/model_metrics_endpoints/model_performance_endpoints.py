@@ -11,7 +11,7 @@ import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, cast
+from typing import Any, Final, Optional, cast
 
 import fastapi
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -113,6 +113,16 @@ _PROMETHEUS_WINDOWS = ("1m", "5m", "15m", "30m", "1h")
 # Ranges spanning at least this many seconds (14 days) are routed through the
 # dedicated long-timeout Prisma client to avoid the 30s default HTTP timeout.
 _HEAVY_RANGE_THRESHOLD_SECONDS = 14 * 24 * 60 * 60
+
+# Hard ceiling on the rows either heavy-path query may ship to the engine. The
+# engine's resident memory is a high-water mark set by the largest result it ever
+# buffers and is never returned to the OS, so an unbounded rowset (one engine
+# OOMed at 4.5 GiB in production off a single query) must not reach it. The
+# per-(model_group, bucket) row count is bounded by (buckets x model groups),
+# which stays far under this for any range the bucket sizing allows; the cap
+# only bites for degenerate inputs.
+_HEAVY_QUERY_ROW_CAP: Final = 50_000
+_HEAVY_QUERY_ROW_LIMIT_SQL: Final = f"LIMIT {_HEAVY_QUERY_ROW_CAP}"
 
 
 def _bucket_interval_for_window(window: str, start_time: datetime, end_time: datetime) -> str:
@@ -676,6 +686,7 @@ async def _fetch_db_performance(
         LEFT JOIN concurrency c
             ON c.model_group = bk.model_group AND c.bucket = bk.bucket
         ORDER BY bk.model_group, bk.bucket
+        {_HEAVY_QUERY_ROW_LIMIT_SQL}
     """
 
     # Ranges spanning at least ~2 weeks can exceed Prisma's 30s default HTTP
@@ -807,7 +818,7 @@ async def _fetch_db_performance_from_rollup(
     # peak concurrency. The running sum is NOT reset at coarse-bucket
     # boundaries (a request spanning a boundary must keep its concurrency), so
     # it is computed over the whole window and then binned.
-    sql_query = """
+    sql_query = f"""
         WITH agg AS (
             SELECT
                 model_group,
@@ -865,6 +876,7 @@ async def _fetch_db_performance_from_rollup(
         LEFT JOIN concurrency c
             ON c.model_group = a.model_group AND c.bucket = a.bucket
         ORDER BY a.model_group, a.bucket
+        {_HEAVY_QUERY_ROW_LIMIT_SQL}
     """
 
     range_duration = (end_time - start_time).total_seconds()

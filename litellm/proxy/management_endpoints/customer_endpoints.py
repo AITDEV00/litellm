@@ -84,6 +84,7 @@ if TYPE_CHECKING:
             self,
             where: Mapping[str, object] | None = None,
             include: Mapping[str, bool] | None = None,
+            take: int | None = None,
         ) -> Sequence[_RowT_co]: ...
 
         async def create(
@@ -513,6 +514,14 @@ class _CustomerDailyActivityScope(NamedTuple):
     end_user_metadata: Mapping[str, dict[str, object]]
 
 
+# Rows the alias pre-fetch may read out of LiteLLM_EndUserTable. The query
+# engine's resident memory is a high-water mark set by the largest result it
+# ever buffers, so an unbounded full-table read (one engine-OOMed at 12Gi in
+# production) must never reach it. The alias map is display-only metadata for
+# breakdown rows, so a cap is lossless for any realistic result set.
+_END_USER_ALIAS_SCAN_CAP: Final = 10000
+
+
 async def resolve_customer_daily_activity_scope(
     *,
     end_user_ids: tuple[str, ...] | None,
@@ -522,7 +531,7 @@ async def resolve_customer_daily_activity_scope(
     end_user_aliases: Final = (
         await find_many_in(end_user_table, "user_id", end_user_ids)
         if end_user_ids is not None
-        else await end_user_table.find_many(where={})
+        else await end_user_table.find_many(take=_END_USER_ALIAS_SCAN_CAP)
     )
     metadata: Final = MappingProxyType({end_user.user_id: {"alias": end_user.alias} for end_user in end_user_aliases})
     return _CustomerDailyActivityScope(end_user_ids, metadata)

@@ -638,6 +638,48 @@ async def test_get_customer_daily_activity_admin_param_passing(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_customer_daily_activity_alias_scan_is_capped(monkeypatch):
+    """
+    Memory regression: when no end_user_ids are supplied, the alias pre-fetch
+    must scan LiteLLM_EndUserTable with a take cap. Before this fix it ran
+    find_many(where={}), shipping the whole table (70k+ rows in production)
+    to the Prisma engine per call, whose RSS high-water mark then never
+    returned to the OS.
+    """
+    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+    from litellm.proxy.management_endpoints import customer_endpoints
+    from litellm.proxy.management_endpoints.customer_endpoints import (
+        _END_USER_ALIAS_SCAN_CAP,
+        get_customer_daily_activity,
+    )
+
+    mock_prisma_client = AsyncMock()
+    mock_prisma_client.db.litellm_endusertable.find_many = AsyncMock(return_value=[])
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma_client)
+
+    mocked_response = MagicMock(name="SpendAnalyticsPaginatedResponse")
+    get_daily_activity_mock = AsyncMock(return_value=mocked_response)
+    monkeypatch.setattr(customer_endpoints, "get_daily_activity", get_daily_activity_mock)
+
+    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin1")
+    await get_customer_daily_activity(
+        end_user_ids=None,
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+        model=None,
+        api_key=None,
+        page=1,
+        page_size=10,
+        exclude_end_user_ids=None,
+        user_api_key_dict=auth,
+    )
+
+    find_many_mock = mock_prisma_client.db.litellm_endusertable.find_many
+    find_many_mock.assert_awaited_once()
+    assert find_many_mock.call_args.kwargs["take"] == _END_USER_ALIAS_SCAN_CAP
+
+
+@pytest.mark.asyncio
 async def test_get_customer_daily_activity_with_end_user_aliases(monkeypatch):
     from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
     from litellm.proxy.management_endpoints import customer_endpoints

@@ -671,6 +671,32 @@ def test_model_performance_large_range_uses_long_timeout_client(client, auth_as,
     assert "LiteLLM_ModelPerformanceRollup" in captured["sql"]
 
 
+def test_model_performance_queries_cap_result_rows(client, auth_as, monkeypatch):
+    """Memory regression: both DB paths must cap the rowset they ship to the
+    Prisma engine. The engine's RSS is a high-water mark set by the largest
+    result it ever buffers and is never returned to the OS, so an unbounded
+    query (one engine OOMed at 4.5 GiB in production) must never reach it."""
+    pc = MagicMock()
+    captured: dict[str, str] = {}
+
+    async def fake_query_raw(sql, *args):
+        captured["sql"] = sql
+        return []
+
+    pc.db.query_raw = fake_query_raw
+    monkeypatch.setattr(proxy_server, "prisma_client", pc)
+    monkeypatch.setattr(
+        "litellm.integrations.prometheus_helpers.prometheus_api.is_prometheus_connected",
+        lambda: True,
+    )
+
+    with auth_as():
+        response = client.get("/model/performance", params={"window": "7d"})
+    assert response.status_code == 200
+    assert "LIMIT" in captured["sql"]
+    assert "50000" in captured["sql"]
+
+
 # ---------------------------------------------------------------------------
 # GET /model/performance — PromQL carries the readable model label through the
 # aggregation so the name survives the range query

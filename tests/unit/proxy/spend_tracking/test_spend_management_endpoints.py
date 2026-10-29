@@ -8022,3 +8022,67 @@ async def test_management_team_lookup_without_memberships_keeps_own_user_scope()
     scope = await resolve_owned_read_scope(auth.user_id, lookup)
     assert scope == OwnedRows("caller")
     assert team_reads == []
+
+
+@pytest.mark.asyncio
+async def test_global_spend_refresh_disconnects_its_client(monkeypatch):
+    """
+    Memory regression: POST /global/spend/refresh builds a dedicated
+    PrismaClient with a long HTTP timeout and must disconnect it after use.
+    Before this fix the client was never disconnected, so every call leaked a
+    full query-engine subprocess (whose RSS is a high-water mark) for the
+    worker's lifetime.
+    """
+    from litellm.proxy.spend_tracking.spend_management_endpoints import global_spend_refresh
+
+    class FakeRow:
+        def __getitem__(self, key):
+            return "m" if key == "relkind" else "MonthlyGlobalSpend"
+
+    shared_prisma = MagicMock()
+    shared_prisma.db.query_raw = AsyncMock(return_value=[FakeRow()])
+    monkeypatch.setattr(ps, "prisma_client", shared_prisma)
+    monkeypatch.setattr(spend_management_endpoints.os, "getenv", lambda name: "postgresql://fake")
+
+    fake_refresh_client = MagicMock()
+    fake_refresh_client.db.connect = AsyncMock()
+    fake_refresh_client.db.disconnect = AsyncMock()
+    fake_refresh_client.db.query_raw = AsyncMock(return_value=[])
+
+    fake_prisma_client_cls = MagicMock(side_effect=lambda *a, **kw: fake_refresh_client)
+    monkeypatch.setattr("litellm.proxy.utils.PrismaClient", fake_prisma_client_cls)
+
+    result = await global_spend_refresh()
+
+    assert result["status"] == "success", result
+    fake_refresh_client.db.connect.assert_awaited_once()
+    fake_refresh_client.db.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_global_spend_refresh_disconnects_even_when_the_refresh_fails(monkeypatch):
+    """The engine leak fix must hold on the error path too: a failed
+    REFRESH MATERIALIZED VIEW must still disconnect the client."""
+    from litellm.proxy.spend_tracking.spend_management_endpoints import global_spend_refresh
+
+    class FakeRow:
+        def __getitem__(self, key):
+            return "m" if key == "relkind" else "MonthlyGlobalSpend"
+
+    shared_prisma = MagicMock()
+    shared_prisma.db.query_raw = AsyncMock(return_value=[FakeRow()])
+    monkeypatch.setattr(ps, "prisma_client", shared_prisma)
+    monkeypatch.setattr(spend_management_endpoints.os, "getenv", lambda name: "postgresql://fake")
+
+    fake_refresh_client = MagicMock()
+    fake_refresh_client.db.connect = AsyncMock()
+    fake_refresh_client.db.disconnect = AsyncMock()
+    fake_refresh_client.db.query_raw = AsyncMock(side_effect=RuntimeError("refresh exploded"))
+
+    fake_prisma_client_cls = MagicMock(side_effect=lambda *a, **kw: fake_refresh_client)
+    monkeypatch.setattr("litellm.proxy.utils.PrismaClient", fake_prisma_client_cls)
+
+    result = await global_spend_refresh()
+
+    assert result["status"] == "failure", result
+    fake_refresh_client.db.disconnect.assert_awaited_once()
