@@ -19,8 +19,14 @@
 > the custom branch is checked out** (never the reverse), (3) resolves each
 > conflict by class, (4) verifies compile + drop-detection wiring, (5) audits
 > files the merge deleted, (6) ratchets lint budgets on the custom branch,
-> and (7) commits a proper two-parent merge commit (first parent = custom)
+> (7) **updates the smoke suite to cover anything the merge changed, then
+> deploys the merged image to dev and runs that suite against it**, and
+> (8) commits a proper two-parent merge commit (first parent = custom)
 > and pushes.
+>
+> **Steps 7 and 8 are the only ones that test the deployed artifact.** Steps 0-6
+> prove the tree; only the container proves the gateway. A merge is not done
+> until `make smoke` passes against the dev deployment of the merged image.
 
 ---
 
@@ -101,6 +107,9 @@ from the custom branch before resolving anything.
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
 | Upstream deletes a file the branch still carries | Upstream's `test: drop static cost-map value assertions` removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict | Step 5: deletion audit |
 | Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
+| **A documented behavior changed but the suite still asserts the old contract** | Upstream renames a response field, changes an error status, or moves a route; the tree imports fine and every unit test passes | Step 7: update `tests/smoke/` alongside the merge, then run it against dev |
+| **The merge compiles but the container is broken** | `uv.lock` reverted, a dependency dropped, a startup import missing; `import litellm` passes but the gateway will not boot | Step 7: deploy to dev and `make smoke` |
+| **A merge regression that no unit test covers** | Dropped mount, lost re-export, changed route path; only visible over HTTP against a real gateway | Step 7: `make smoke-fast` |
 | Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted; no automation ratchets this branch | Step 6: `make lint-budget-update` |
 | **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, and its transitive `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
@@ -314,7 +323,7 @@ python -c "import litellm"
 python -c "from litellm.proxy import proxy_server"
 
 # Slice wiring intact (the merge-specific safety net)
-python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
+python -m pytest tests/unit/proxy/test_oicm_drop_detection.py -q
 ```
 
 > **Safety-net caveat:** drop-detection covers the *wired* slices (voice
@@ -475,7 +484,76 @@ human accepts the red.
 > removes violations, and here it would push several limits further below head.
 > Clear the violations or accept the red explicitly.
 
-### Step 7 — Commit the merge & push
+### Step 7 — Update the smoke suite, deploy to dev, run it (mandatory)
+
+The smoke suite is the only check that exercises the **deployed** gateway
+instead of the source tree. It lives in `tests/smoke/` and runs via the
+`smoke-*` make targets. See `tests/smoke/AGENTS.md` for its conventions.
+
+**7a — Update the suite for anything the merge changed.** Do this *before*
+deploying, while the diff is in front of you. For each conflict you resolved or
+file the merge rewrote, ask whether a documented behavior changed:
+
+- A route moved, was renamed, or disappeared → update the path in
+  `test_contract.py`.
+- A response field was renamed or an error status changed → update the
+  assertion.
+- A new OICM feature landed → add its contract to the matching feature class.
+- A feature was retired → delete its test and its doc, in the same commit.
+
+The suite must describe the gateway as it **is after the merge**, never as it
+was before. A suite left asserting the old contract is worse than no suite: it
+fails for the wrong reason and trains the reader to ignore it.
+
+```bash
+cd oicm-litellm-layer
+.venv/bin/python -m pytest tests/smoke --collect-only -q   # must collect cleanly
+```
+
+**7b — Build and deploy the merged image to dev only.** Never prod (see the
+lessons at the bottom).
+
+```bash
+cd oicm-litellm-layer
+make litellm-src-release-dev     # build + push + pin the dev overlay + roll dev
+KUBECONFIG=~/.kube/alain-oicm.conf kubectl -n adeo-litellm rollout status deployment/litellm-proxy-dev
+```
+
+**7c — Point the suite at dev and run every tier.**
+
+```bash
+KUBECONFIG=~/.kube/alain-oicm.conf \
+  kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000 &
+
+cd oicm-litellm-layer
+export KEY=sk-...                # a scoped llm_api key; master alone cannot
+                                # prove a customer key works
+make smoke                      # Tier A + B + C, read-only
+```
+
+`make smoke` covers contract, model-contract, and the read-only leak census. If
+the merge touched router settings, routing-strategy rebuilds, or anything that
+spawns periodic tasks, also run the mutating leak probe **on dev only**:
+
+```bash
+make smoke-leaks-mutate          # writes routing_strategy_args, restores it
+```
+
+**7d — A failure here is a merge blocker.** Distinguish a real regression from a
+pre-existing failure with the two worktree baselines in the next section. If the
+behavior changed on purpose, the fix is to update the test and the doc that
+documents it, not to loosen the assertion.
+
+> **`smoke-leaks-mutate` never runs against prod.** It writes a live router
+> setting, and `POST /config/update` persists to the DB. The read-only targets
+> are safe on prod; this one is not, and the Makefile excludes it from every
+> target except its own for that reason.
+
+> **The suite must not rot.** Adding a documented gateway behavior without
+> adding its contract here means the next merge can drop it silently. When you
+> add a feature, add the test in the same PR; when you retire one, delete both.
+
+### Step 8 — Commit the merge & push
 
 ```bash
 # Re-apply a stashed debug-manifest image-tag bump if any
@@ -500,6 +578,10 @@ git status --short                        # clean tree
 
 If `HEAD^1` is not `$OLD_CUSTOM_HEAD`, the direction flipped; see the
 Merge direction section above and redo before pushing.
+
+If Step 7 changed anything, include those changes in the merge commit (or a
+follow-up commit on the same push) and make sure `git status --short` is empty
+before you call the merge done.
 
 ---
 
@@ -549,7 +631,7 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   repository default branch; that automation has never touched this branch, so
   skipping the ratchet here leaves the ceilings stale indefinitely.
 - **Drop-detection tests are your safety net — with limits.** The OICM slice
-  refactors are covered by `tests/test_litellm/proxy/test_oicm_drop_detection.py`;
+  refactors are covered by `tests/unit/proxy/test_oicm_drop_detection.py`;
   a future merge that drops a mount/re-export/callback fails a test instead of
   production. But it only covers the wired slices; kwargs lists and UI mounts
   have no drop-detection coverage and must be checked in the diff.
@@ -571,6 +653,19 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   actually boots the debug gateway and serves a model request with the master
   key before considering the merge done. The `openrouter` crash only surfaced at
   gateway startup, not in any import test.
+- **The smoke suite is part of the merge, not an afterthought.** Step 7 runs
+  `make smoke` against the dev deployment of the merged image. That is the only
+  step that tests what customers will actually hit. Skipping it means every
+  other step passed on a tree that does not behave.
+- **Update the smoke suite in the same merge that changes behavior.** A merge
+  that renames a field or moves a route leaves `tests/smoke/` asserting the old
+  contract. Fix the test and the doc that documents the behavior together; a
+  stale suite fails for the wrong reason and gets ignored.
+- **Never point the mutating leak probe at prod.** `make smoke-leaks-mutate`
+  writes `routing_strategy_args` through `POST /config/update`, which persists
+  to the DB. It restores what it changes, but a crash mid-run leaves prod
+  altered. The read-only targets (`smoke`, `smoke-fast`, `smoke-models`,
+  `smoke-leaks`) are safe on prod; this one is dev-only.
 
 ---
 

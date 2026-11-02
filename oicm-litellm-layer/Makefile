@@ -52,10 +52,16 @@ ALAIN_KUBECONFIG ?= $(HOME)/.kube/alain-oicm.conf
 # both environments, automatically.
 MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 
+# Base URL the smoke suite targets. Defaults to the dev gateway port-forward;
+# pass BASE=https://litellm.ecouncil.ae for prod. KEY (a scoped virtual key) is
+# only needed for the Tier-B model-contract and scoped-auth tests.
+BASE ?= http://localhost:14001
+
 .PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean clean-artifacts \
 	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
+	smoke smoke-fast smoke-models smoke-leaks smoke-leaks-mutate \
 
 all: pull build push
 
@@ -364,3 +370,37 @@ litellm-ui-dev:
 ## Stop a locally-running Docker LiteLLM container (started by litellm-local-docker)
 litellm-local-stop:
 	-podman rm -f litellm-local 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Smoke tests: live post-merge behavior checks against a DEPLOYED gateway.
+#
+# Run after a merge to confirm documented behaviors survived. Point at a target
+# with BASE/KEY. Defaults to the dev gateway port-forward:
+#   kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000 &
+#   make smoke-fast
+# Prod:  make smoke-fast BASE=https://litellm.ecouncil.ae
+#
+# Tier A (contract) needs only the master key (auto-derived from the manifest).
+# Tier B (model_contract) and the scoped-key auth tests need a scoped key:
+#   export KEY=sk-...
+#
+# `smoke-leaks-mutate` is the only target that writes live router state. It
+# restores what it changes, but it is excluded from `smoke` and `smoke-leaks`
+# on purpose: never point it at prod without reading the test first.
+# ---------------------------------------------------------------------------
+SMOKE_PYTEST := $(CURDIR)/.venv/bin/python -m pytest tests/smoke -p no:cacheprovider -q
+
+smoke-fast:
+	BASE=$(BASE) MASTER_KEY=$(MASTER_KEY) $(SMOKE_PYTEST) -m "contract and not mutating"
+
+smoke-models:
+	BASE=$(BASE) MASTER_KEY=$(MASTER_KEY) $(SMOKE_PYTEST) -m "(contract or model_contract) and not mutating"
+
+smoke-leaks:
+	BASE=$(BASE) MASTER_KEY=$(MASTER_KEY) $(SMOKE_PYTEST) -m "soak and not mutating"
+
+smoke-leaks-mutate:
+	BASE=$(BASE) MASTER_KEY=$(MASTER_KEY) $(SMOKE_PYTEST) -m "soak and mutating"
+
+smoke:
+	BASE=$(BASE) MASTER_KEY=$(MASTER_KEY) $(SMOKE_PYTEST) -m "not mutating"

@@ -5,6 +5,55 @@ reverse chronological order (newest first).
 
 ---
 
+## 2026-11-02
+
+### Live smoke suite, now a mandatory step of the upstream merge
+
+Added `tests/smoke/`, a pytest suite that runs against a **deployed** gateway
+(dev or prod) rather than the source tree, driven by four make targets:
+`smoke-fast` (contract, no inference), `smoke-models` (adds real model calls),
+`smoke-leaks` (task census + cache boundedness), and `smoke` (all read-only
+tiers). 40 tests across three marker-selected tiers.
+
+This closes a gap the merge technique could not: Steps 0-6 prove the tree, and
+drop-detection proves wiring, but nothing proved the **container** or a
+documented behavior. The `openrouter` startup crash and the v1.102.0 mount
+clobbers all passed every existing test.
+
+Coverage added: admin CRUD round-trips (key/team/budget), the auth matrix
+(401/403), the free OmniVoice read routes and voice-profile CRUD, the error
+contracts the usage guides document (unknown voice 400, unsupported diarize
+field 400/422, image-gen `enhance_prompt` 400), `/v1/models` scoping,
+`/model/performance` source-per-window and invalid-window 400, client
+distribution, the OICM status API, router settings, embedding dimensions, STT,
+TTS WAV shape, `reasoning_effort=none` zero think-tokens, and chat content.
+
+Design points worth knowing:
+
+- **Hard failures only.** A missing gateway or key fails; nothing skips. A
+  missing `KEY` fails the Tier-B and scoped-auth tests.
+- **A connection failure is never a pass.** `HttpError(status=0)` is unreachable,
+  so every reachability test asserts `Success` before the status guard. An
+  earlier draft used `status < 500`, which let a dead gateway pass 7 tests.
+- **Mutating tests are opt-in.** `smoke-leaks-mutate` is the only target that
+  writes live router state. It changes `routing_strategy_args` (DB-owned, so the
+  write is accepted), restores it in a `finally`, and re-asserts the restored
+  value. An earlier draft read the wrong response key and would have written
+  `simple-shuffle` over prod's `usage-based-routing-v2`.
+- **Frontend contract tests.** `ModelPerformance/api.test.ts` pins the query
+  params `modelPerformanceCall` builds and the response shape, alongside the
+  existing drop-detection test.
+
+Docs updated: `docs/techniques/upstream_merge_technique.md` (new mandatory Step 7
+= update suite + deploy to dev + run it; commit renumbered to Step 8; failure
+table and lessons extended), `docs/oicm-slices.md` (drop-detection proves wiring,
+smoke proves behavior; new rule to add a smoke contract with each behavior),
+`docs/structure.md` (tests/smoke/ tree), `docs/Makefile-reference.md` (targets
+and variables), `docs/docs-map.md`, `tests/smoke/AGENTS.md`, and the stale
+`tests/test_litellm/` paths corrected to `tests/unit/`.
+
+---
+
 ## 2026-09-24
 
 ### Post-merge drop audit: restored custom tests lost in the v1.99.1 → v1.102.0 merge

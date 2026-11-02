@@ -34,7 +34,7 @@ thin import/delegation line.
    Re-export through `litellm/__init__.py` or the parent module so callers
    don't change.
 3. **Pin the wiring with a drop-detection test.** Add a case to
-   `tests/test_litellm/proxy/test_oicm_drop_detection.py` that asserts the mount /
+   `tests/unit/proxy/test_oicm_drop_detection.py` that asserts the mount /
    re-export / callback registration still resolves. A future merge that deletes
    the slice or its wiring fails the test.
 
@@ -190,18 +190,24 @@ ModelPerformance/
 ## Drop-detection tests
 
 The single safety net for all the above is
-`tests/test_litellm/proxy/test_oicm_drop_detection.py`. It is intentionally
+`tests/unit/proxy/test_oicm_drop_detection.py`. It is intentionally
 **shallow** (assert the wiring exists / resolves) rather than full behavioral
 tests: the behavioral contract of each slice is covered by its own co-located
 test module. Run it after every upstream merge:
 
 ```bash
-python -m pytest tests/test_litellm/proxy/test_oicm_drop_detection.py -q
+python -m pytest tests/unit/proxy/test_oicm_drop_detection.py -q
 ```
 
 It covers: voice routes mount, voice/script SDK re-export, OICM provider
 dispatch, Prometheus in-flight ledger mixin, HTB callback registration, and
 team cache invalidation slice identity.
+
+> **Drop-detection proves wiring, not behavior.** It passes on a tree whose
+> gateway is broken at runtime (a bad dependency, a startup import). The
+> behavior gate is the live smoke suite in `tests/smoke/`, run against the dev
+> deployment with `make smoke` after the merge. See
+> [Upstream Merge Technique](techniques/upstream_merge_technique.md) Step 7.
 
 ---
 
@@ -215,3 +221,8 @@ team cache invalidation slice identity.
   classes) should not need to know the slice exists.
 - **Reference files by identity** (import from the slice, don't redefine), so a
   merge that duplicates or drops the definition is caught by an identity assert.
+- **Add a live smoke contract for every user-visible behavior.** Wiring tests
+  prove the slice is mounted; `tests/smoke/` proves it works through the
+  gateway. A new route or a changed response shape needs a case in the matching
+  `test_contract.py` / `test_model_contract.py` class in the same PR, and the
+  doc that documents the behavior updated with it.

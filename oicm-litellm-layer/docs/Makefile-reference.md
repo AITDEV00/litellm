@@ -107,6 +107,41 @@ make litellm-ui-dev            # Next.js UI dev server on :3000
 make litellm-local-stop        # stop the local docker container
 ```
 
+## Live smoke tests (post-merge, against a deployed gateway)
+
+Behavior checks that run against a **deployed** gateway, not the source tree.
+Mandatory after every upstream merge (Step 7 of the
+[merge technique](techniques/upstream_merge_technique.md)). See
+`tests/smoke/AGENTS.md` for the suite conventions.
+
+```bash
+make smoke-fast          # Tier A: contract only, no inference, ~1-2 min
+make smoke-models        # Tier A + B: adds real model calls (costs tokens)
+make smoke-leaks         # Tier C read-only: task census + cache boundedness
+make smoke-leaks-mutate  # Tier C mutating: DEV ONLY, writes routing_strategy_args
+make smoke               # every read-only tier (excludes mutating tests)
+```
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `BASE` | `http://localhost:14001` | Target gateway. Use `https://litellm.ecouncil.ae` for prod. |
+| `KEY` | unset | A scoped `key_type=llm_api` key. Required for Tier B and the scoped-auth tests; the master key bypasses `allowed_routes` and cannot prove a customer key works. |
+| `MASTER_KEY` | manifest value | Auto-derived from `deploy/base/gateway/secrets/litellm-master-key.yaml`. |
+
+Typical post-merge run:
+
+```bash
+KUBECONFIG=~/.kube/alain-oicm.conf \
+  kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000 &
+cd oicm-litellm-layer
+export KEY=sk-...
+make smoke
+```
+
+> `smoke-leaks-mutate` is excluded from every other target because it writes a
+> live router setting through `POST /config/update`, which persists to the DB.
+> It restores what it changes, but never point it at prod.
+
 ## Docs
 ```bash
 make docs          # build mkdocs site to ./site (gitignored)

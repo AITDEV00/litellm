@@ -193,7 +193,7 @@ touches only `/v1/diarize`.)
   `get_provider_diarization_config`; `ProviderConfigManager` in `litellm/utils.py`
   delegates with one clean line
 - Drop-detection: extend
-  `tests/test_litellm/proxy/test_oicm_drop_detection.py` with
+  `tests/unit/proxy/test_oicm_drop_detection.py` with
   `test_diarization_routes_router_is_mounted_on_app` and
   `test_diarization_sdk_slice_wired_into_litellm_namespace`
 

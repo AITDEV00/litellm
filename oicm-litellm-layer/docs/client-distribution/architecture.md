@@ -84,7 +84,7 @@ litellm/proxy/client_distribution/
   globals inside handlers, matching `voice_routes.py` / `oicm_routes.py`.
 - Wiring is one line in `proxy_server.py` next to the existing mounts:
   `app.include_router(client_distribution.router)`.
-- **Drop-detection tests** in `tests/test_litellm/proxy/test_oicm_drop_detection.py`
+- **Drop-detection tests** in `tests/unit/proxy/test_oicm_drop_detection.py`
   pin the wiring so an upstream merge that clobbers the line fails a test.
 - No `StaticFiles` mount this time: reads are proxied from RustFS by a handler,
   because the bytes live in a bucket, not a directory. (That is the one place

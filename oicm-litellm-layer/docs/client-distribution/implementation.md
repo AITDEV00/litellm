@@ -76,7 +76,7 @@ Everything below is grounded in the **current** source tree and the **live**
   `app=litellm-proxy-dev` — usable as NetworkPolicy selectors
 - Slice pattern precedent: `litellm/proxy/oicm_routes.py`, wired at
   `proxy_server.py:18897-18899` in a fork-appended block, pinned by
-  `tests/test_litellm/proxy/test_oicm_drop_detection.py`
+  `tests/unit/proxy/test_oicm_drop_detection.py`
 
 ## The operating rule: everything lands on dev first
 
@@ -426,7 +426,7 @@ Key implementation points, each grounded in what exists:
   `MappingProxyType`, typed everything, no `Any`. `# noqa` only with named
   rule + reason.
 
-Tests (co-located, mirroring `tests/test_litellm/proxy/client_distribution/`):
+Tests (co-located, mirroring `tests/unit/proxy/client_distribution/`):
 
 - `test_generator.py` — render with a known manifest + base URL; assert the
   three origin overrides, the `lite config set` line, that no upstream URL
@@ -441,13 +441,13 @@ Tests (co-located, mirroring `tests/test_litellm/proxy/client_distribution/`):
   `unchanged: true`); DELETE rejects while manifest-referenced; path escape
   rejected.
 - Drop-detection additions to
-  `tests/test_litellm/proxy/test_oicm_drop_detection.py`:
+  `tests/unit/proxy/test_oicm_drop_detection.py`:
   `test_client_distribution_router_mounted_on_app` (route paths present),
   `test_client_distribution_module_has_router` (router non-empty). Pattern
   copied verbatim from `test_voice_routes_router_is_mounted_on_app`.
 
 **Exit:** all tests green locally
-(`python -m pytest tests/test_litellm/proxy/client_distribution/ -q` and the
+(`python -m pytest tests/unit/proxy/client_distribution/ -q` and the
 two new drop tests).
 
 ---

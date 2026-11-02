@@ -146,7 +146,7 @@ oicm-litellm-layer/
 │   ├── litellm/integrations/prometheus_helpers/          ← in-flight deployment gauge slice
 │   ├── litellm/proxy/hooks/dynamic_rate_limiter_v3_htb.py ← HTB rate limiter
 │   ├── litellm/proxy/management_helpers/                  ← team cache invalidation slice
-│   ├── tests/test_litellm/proxy/test_oicm_drop_detection.py
+│   ├── tests/unit/proxy/test_oicm_drop_detection.py
 │   └── ui/litellm-dashboard/src/components/UsagePage/components/ModelPerformance/
 │
 ├── scripts/                ← helper scripts
@@ -190,13 +190,21 @@ oicm-litellm-layer/
 │   │                          gen_image.sh, test_image_endpoints.sh (36 cases), inputs/; out/ is gitignored
 │   └── openrouter/         ← /api/v1/models demo
 │
-├── tests/                  ← tests (controller, deploy, hooks)
+├── tests/                  ← tests (controller, deploy, hooks, live smoke)
 │   ├── controller/
 │   │   ├── test_reconciler.py, test_controller_watch.py, test_exclusions.py, ...
 │   │   └── pricing/        ← pricing tests
 │   ├── deploy/             ← kustomize render / dev-prod parity tests
-│   └── hooks/
-│       └── test_priority_bridge.py
+│   ├── hooks/
+│   │   └── test_priority_bridge.py
+│   └── smoke/              ← live post-merge behavior checks against a DEPLOYED
+│       │                      gateway (make smoke-fast / smoke-models /
+│       │                      smoke-leaks). See AGENTS.md there.
+│       ├── client.py          ← typed httpx client + resource teardown
+│       ├── conftest.py        ← BASE/KEY resolution, hard-fail-only fixtures
+│       ├── test_contract.py   ← Tier A: no inference (CRUD, auth, error contracts)
+│       ├── test_model_contract.py ← Tier B: real model calls (shape/determinism)
+│       └── test_leaks.py      ← Tier C: task census + cache boundedness
 │
 └── downloaded_sources/     ← git-ignored; pinned upstream source trees kept
                                locally for reference (openrouter-docs,
