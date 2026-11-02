@@ -206,6 +206,25 @@ class TestErrorContracts:
         )
         assert result.status in (400, 422), f"unsupported diarize field should be 400/422, got {result.status}"
 
+    def test_multipart_metadata_lone_surrogate_400(self, gw: Gateway) -> None:
+        """v1.106.6: a lone surrogate escape in a multipart metadata field must
+        400 the same way the JSON body path does (no provider or DB can encode
+        it). This pins the _parse_form_metadata hardening in
+        litellm/proxy/common_utils/http_parsing_utils.py."""
+        key = _need_scoped(gw)
+        import io
+
+        wav = io.BytesIO(b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+        result = gw.post(
+            "/v1/diarize",
+            key=key,
+            files={"file": ("a.wav", wav, "audio/wav")},
+            data={"model": "pyannote/community-1", "metadata": '{"surrogate": "\\ud800"}'},
+        )
+        assert result.status == 400, (
+            f"lone surrogate in multipart metadata should be 400, got {result.status}: {error_detail(result)}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # /v1/models scoping

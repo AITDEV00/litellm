@@ -6,19 +6,12 @@ from typing import Final
 import pytest
 
 from litellm.rust_bridge import catalog, configuration
-<<<<<<<< HEAD:tests/test_litellm/rust_bridge/test_catalog.py
-from litellm.rust_bridge.catalog import Delivery, Route, RouteContext, RouteRule
-========
 from litellm.rust_bridge.catalog import (
-    Context,
-    LoggerContext,
-    LoggerRule,
     Route,
     RouteContext,
     RouteRule,
     Rules,
 )
->>>>>>>> v1.106.0:tests/unit/rust_bridge/test_catalog.py
 from litellm.rust_bridge.configuration import Decision, Rollout
 
 
@@ -51,11 +44,7 @@ def test_shipped_decisions(
         assert catalog.decision(context) is Decision.RUST_REQUIRED
     elif route is Route.MESSAGES and provider == "anthropic":
         assert catalog.rollout(context) is Rollout.RUST_OPT_IN
-<<<<<<<< HEAD:tests/test_litellm/rust_bridge/test_catalog.py
-        opted_in: Final = environment == "1" if environment is not None else process is True
-========
         opted_in: Final = environment == "1" or (environment is None and process is True)
->>>>>>>> v1.106.0:tests/unit/rust_bridge/test_catalog.py
         assert catalog.decision(context) is (Decision.RUST_WITH_FALLBACK if opted_in else Decision.PYTHON)
     else:
         assert catalog.rollout(context) is Rollout.PYTHON_ONLY
@@ -71,24 +60,6 @@ def test_missing_rule_stays_on_python_even_when_rust_is_enabled(monkeypatch: pyt
     assert catalog.decision(RouteContext(route), rules=()) is Decision.PYTHON
 
 
-<<<<<<<< HEAD:tests/test_litellm/rust_bridge/test_catalog.py
-@pytest.mark.parametrize(
-    ("context", "expected"),
-    (
-        (RouteContext(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.RUST_REQUIRED),
-        (RouteContext(Route.RESPONSES, provider="openai", model="m"), Decision.PYTHON),
-        (RouteContext(Route.RESPONSES, provider="openai", model="m", delivery=Delivery.STREAMING), Decision.PYTHON),
-        (RouteContext(Route.RESPONSES, provider="openai", model="other", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
-        (RouteContext(Route.RESPONSES, provider="anthropic", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
-        (RouteContext(Route.MESSAGES, provider="openai", model="m", delivery=Delivery.WEBSOCKET), Decision.PYTHON),
-========
-def test_logger_rollout_obeys_the_global_switch() -> None:
-    assert catalog.rollout(LoggerContext()) is Rollout.RUST_OPT_IN
-    assert catalog.decision(LoggerContext()) is Decision.PYTHON
-    configuration.rust(True)
-    assert catalog.decision(LoggerContext()) is Decision.RUST_WITH_FALLBACK
-
-
 @pytest.mark.parametrize(
     ("context", "expected"),
     (
@@ -99,10 +70,9 @@ def test_logger_rollout_obeys_the_global_switch() -> None:
         (RouteContext(Route.RESPONSES, provider="openai", model="other"), Decision.PYTHON),
         (RouteContext(Route.RESPONSES, provider="anthropic", model="m"), Decision.PYTHON),
         (RouteContext(Route.MESSAGES, provider="openai", model="m"), Decision.PYTHON),
->>>>>>>> v1.106.0:tests/unit/rust_bridge/test_catalog.py
     ),
 )
-def test_first_matching_rule_respects_every_constraint(context: Context, expected: Decision) -> None:
+def test_first_matching_rule_respects_every_constraint(context: RouteContext, expected: Decision) -> None:
     rules: Final = (
         RouteRule(
             Route.RESPONSES,
@@ -116,31 +86,15 @@ def test_first_matching_rule_respects_every_constraint(context: Context, expecte
     assert catalog.decision(context, rules) is expected
 
 
-@pytest.mark.parametrize("provider", ("paddlex", "mistral", "aws_textract", "azure_ai", "cohere", "reducto"))
-def test_every_ocr_provider_routes_to_rust_because_python_ocr_no_longer_exists(provider: str) -> None:
-    """Upstream removed the Python OCR execution path, so a provider pinned to
-    Python would have nothing to dispatch to. Every OCR provider, including the
-    OICM-custom paddlex, must reach the Rust route."""
-    configuration.rust(True)
-
-    context: Final = RouteContext(Route.OCR, provider=provider, model="PP-DocLayoutV3")
-
-    assert catalog.rollout(context) is Rollout.RUST_REQUIRED
-    assert catalog.decision(context) is Decision.RUST_REQUIRED
-
-
 @pytest.mark.parametrize("process", (None, False, True))
 @pytest.mark.parametrize("environment", (None, "0", "1"))
-def test_textract_ocr_has_no_python_path_to_opt_out_to(
+def test_ocr_has_no_python_path_to_opt_out_to(
     monkeypatch: pytest.MonkeyPatch, process: bool | None, environment: str | None
 ) -> None:
     configuration.rust(process)
     if environment is not None:
         monkeypatch.setenv("LITELLM_RUST", environment)
 
-<<<<<<<< HEAD:tests/test_litellm/rust_bridge/test_catalog.py
-    assert catalog.decision(RouteContext(Route.OCR, provider="aws_textract", model="m")) is Decision.RUST_REQUIRED
-========
     assert catalog.decision(RouteContext(Route.OCR, model="m")) is Decision.RUST_REQUIRED
     assert catalog.decision(RouteContext(Route.OCR, provider="aws_textract", model="m")) is Decision.RUST_REQUIRED
 
@@ -151,12 +105,10 @@ def test_textract_ocr_has_no_python_path_to_opt_out_to(
         (RouteContext(Route.OCR, provider="local"), Decision.RUST_REQUIRED),
         (RouteContext(Route.OCR, provider="other"), Decision.PYTHON),
         (RouteContext(Route.MESSAGES, provider="local"), Decision.PYTHON),
-        (LoggerContext(), Decision.RUST_REQUIRED),
     ),
 )
-def test_mixed_rules_select_only_the_matching_domain(context: Context, expected: Decision) -> None:
+def test_rules_select_only_the_matching_route(context: RouteContext, expected: Decision) -> None:
     rules: Final[Rules] = (
-        LoggerRule(Rollout.RUST_REQUIRED),
         RouteRule(Route.OCR, Rollout.RUST_REQUIRED, providers=frozenset({"local"})),
         RouteRule(Route.OCR, Rollout.PYTHON_ONLY),
     )
@@ -164,7 +116,6 @@ def test_mixed_rules_select_only_the_matching_domain(context: Context, expected:
     assert catalog.decision(context, rules) is expected
 
 
-@pytest.mark.parametrize("context", (RouteContext(Route.OCR), LoggerContext()))
 @pytest.mark.parametrize(
     ("rollout", "process", "environment", "expected"),
     (
@@ -178,9 +129,8 @@ def test_mixed_rules_select_only_the_matching_domain(context: Context, expected:
         (Rollout.RUST_OPT_OUT, True, "0", Decision.PYTHON),
     ),
 )
-def test_all_domains_share_rollout_switches_and_first_match(
+def test_rollout_switches_and_first_match(
     monkeypatch: pytest.MonkeyPatch,
-    context: Context,
     rollout: Rollout,
     process: bool | None,
     environment: str | None,
@@ -191,20 +141,17 @@ def test_all_domains_share_rollout_switches_and_first_match(
         monkeypatch.setenv("LITELLM_RUST", environment)
     rules: Final[Rules] = (
         RouteRule(Route.OCR, rollout),
-        LoggerRule(rollout),
         RouteRule(Route.OCR, Rollout.RUST_REQUIRED),
     )
 
-    assert catalog.decision(context, rules) is expected
-    assert catalog.decision(context, ()) is Decision.PYTHON
+    assert catalog.decision(RouteContext(Route.OCR), rules) is expected
+    assert catalog.decision(RouteContext(Route.OCR), ()) is Decision.PYTHON
 
 
-@pytest.mark.parametrize("context", (RouteContext(Route.OCR),))
-def test_empty_constraints_match_nothing(context: Context) -> None:
+def test_empty_constraints_match_nothing() -> None:
     rules: Final[Rules] = (
         RouteRule(Route.OCR, Rollout.RUST_REQUIRED, providers=frozenset()),
         RouteRule(Route.OCR, Rollout.RUST_REQUIRED, models=frozenset()),
     )
 
-    assert catalog.decision(context, rules) is Decision.PYTHON
->>>>>>>> v1.106.0:tests/unit/rust_bridge/test_catalog.py
+    assert catalog.decision(RouteContext(Route.OCR), rules) is Decision.PYTHON
