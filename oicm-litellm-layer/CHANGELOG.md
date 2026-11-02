@@ -5,6 +5,47 @@ reverse chronological order (newest first).
 
 ---
 
+## 2026-11-02 (later)
+
+### Upstream merge v1.106.1 -> v1.106.6 executed with the full 8-step process
+
+Merged upstream tag `v1.106.6` into new branch `jya0-v1.106.6` (merge commit
+`03b10466a8`, first parent = custom tip `d2d97cc138`, verified before push).
+All 288 conflicts resolved by class; the 162 upstream deletions were all
+`_experimental/out/` artifacts (drop audit clean); `uv.lock` kept the OICM-only
+deps (`openrouter`, `loguru`, `jsonpath-python`) and adopted upstream's
+opentelemetry pins.
+
+Notable resolutions and findings:
+
+- `tests/unit/rust_bridge/test_catalog.py` was **inherited broken**: it had
+  carried nested conflict markers since the v1.106.0 merge and never parsed.
+  Resolved by taking upstream's clean version; our side's tests referenced
+  symbols (`Delivery`, `LoggerContext`) that no longer exist in
+  `litellm/rust_bridge/catalog.py`. Caught by Step 4's per-file py_compile.
+- The Dockerfile keeps our download-then-verify liteadmin fetch (buildah
+  rejects `ADD --checksum`) with upstream's new pin
+  `5661c805ce479a0cf11b842ea133cf8d22cd7e34`; the build needed
+  `LITELLM_SRC_BUILD_ARGS=--add-host=codeload.github.com:20.233.83.150`
+  because codeload.github.com is a DNS sinkhole on the build box.
+- `litellm/proxy/common_utils/http_parsing_utils.py` took upstream's
+  `_parse_form_metadata` (multipart metadata with lone surrogate escapes now
+  400s like the JSON path) while keeping our octet-stream parse branch.
+
+Step 7 ran for the first time as part of a merge: the smoke suite gained
+`test_multipart_metadata_lone_surrogate_400` pinning the new hardening, the
+merged image (`litellm-src:jya0-v1.106.6`) was deployed to dev
+(`litellm 1.106.6` confirmed in-pod), `make smoke` passed 41/41, and
+`make smoke-leaks-mutate` passed with router settings byte-identical after
+restore. The minted smoke key was deleted afterwards.
+
+Merge lessons were appended to
+`docs/techniques/upstream_merge_technique.md` (including that Step 6, the lint
+budget ratchet, is obsolete: the budget files no longer exist; the gates
+compare counts against the merge-base now).
+
+---
+
 ## 2026-11-02
 
 ### Live smoke suite, now a mandatory step of the upstream merge

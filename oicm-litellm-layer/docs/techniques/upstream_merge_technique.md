@@ -732,6 +732,46 @@ distinct loss classes that need different fixes:
   production or code review. The Step 5 drop audit exists so the next merge
   finds them on merge day.
 
+## Lessons Learned (v1.106.1 → v1.106.6, first run of the full 8-step process)
+
+- **An inherited-broken file surfaced only because Step 4 py_compiles every
+  resolved file.** `tests/unit/rust_bridge/test_catalog.py` had carried nested
+  conflict markers (`<<<<<<<< HEAD:tests/test_litellm/...`) since the v1.106.0
+  merge — the markers came from *that* merge's rename, never resolved, never
+  parsed. It conflicted again here and taking upstream's clean version
+  (`git checkout --theirs`) was correct: our side's parametrize blocks
+  referenced `Delivery`/`LoggerContext`, symbols upstream had already removed
+  from `litellm/rust_bridge/catalog.py`. Step 4 catches what a green
+  `git status` hides.
+- **The drop audit's silent-delete check can be structurally empty, and that is
+  correct.** All 162 files upstream deleted between the tags were
+  `_experimental/out/` build artifacts, which our tree does not track, so the
+  staged-tree diff shows 0 deletions of every kind. Sanity-check that the audit
+  *can* see the class (compare `git ls-tree` of `_experimental/` on both sides)
+  before trusting a zero.
+- **codeload.github.com is a DNS sinkhole on the build box.** The image build
+  downloads the liteadmin tarball at build time; it failed with
+  `curl: (7) ... Could not connect`. The fix is documented in the layer
+  Makefile header: `make litellm-src-build
+  LITELLM_SRC_BUILD_ARGS=--add-host=codeload.github.com:20.233.83.150`.
+  The cached layers make the retry cheap.
+- **Step 7a earns its keep when the merge changes a documented contract.**
+  v1.106.6 hardened multipart `metadata` parsing (lone surrogate escapes now
+  400 like the JSON path, `_parse_form_metadata` in
+  `litellm/proxy/common_utils/http_parsing_utils.py`). The suite gained
+  `test_multipart_metadata_lone_surrogate_400` in the same merge that
+  introduced the behavior, so the contract is pinned from birth.
+- **The mutating router test is safe by construction, and the restore held.**
+  After `make smoke-leaks-mutate` on dev, `/router/settings` returned
+  `routing_strategy_args: {}` and `routing_strategy: usage-based-routing-v2`,
+  byte-identical to pre-merge state. Write only DB-owned keys, restore in
+  `finally`, re-assert after restore.
+- **Step 6 (lint budget ratchet) is obsolete in its current form.** The four
+  budget files were deleted from the tree; the gates now compare each rule's
+  codebase count against the merge-base (see AGENTS.md). Do not run
+  `make lint-budget-update` on a merge branch; skip straight from Step 5 to
+  Step 7 when following the numbered sequence.
+
 ## Tooling survey: what can be automated, and what cannot (2026-10-21)
 
 This section records what was researched while looking for a less brute-force
