@@ -20,7 +20,7 @@ from .exclusions import excluded, load_exclusions
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
-from .models import OicmModel
+from .models import OicmModel, strip_source_prefix
 from .pricing import PricingResolver, PricingSource, pricing_to_params
 from .reconciler import SyncReconciler, _summaries_to_models
 from .sources import ModelSource
@@ -48,7 +48,12 @@ class DiscoveryController:
         if sources is not None:
             self.sources = sources
         else:
-            self.sources: List[ModelSource] = [LocalDeploymentSource()]
+            # The task lookup closes over `self` and reads `self.status_poller`
+            # at discovery time, not construction time, because the poller is
+            # created below and injection order must not constrain it.
+            self.sources: List[ModelSource] = [
+                LocalDeploymentSource(task_lookup=lambda uuid: self._declared_task(uuid))
+            ]
             if ENABLE_SUBMARINER_IMPORTS:
                 self.sources.append(SubmarinerImportSource())
                 logger.info("Submariner import source enabled")
@@ -147,6 +152,18 @@ class DiscoveryController:
         if self.status_poller.persister is None:
             return None
         return self.status_poller.persister.checked_at.get(cluster)
+
+    def _declared_task(self, uuid: str) -> Optional[str]:
+        """OICM's declared inference task for a deployment, if polled yet.
+
+        A plain lookup, not a fetch: the poll loop is the single writer of
+        snapshots, and discovery reading them here joins two views the
+        controller already owns (k8s evidence, OICM declaration). A brand-new
+        deployment may not have been polled yet; None simply means tier 0
+        sits this discovery out and the mode falls to path detection.
+        """
+        snap = self.status_poller.snapshot(strip_source_prefix(uuid))
+        return snap.inference_task if snap else None
 
     async def full_sync(self):
         logger.info("Starting full sync...")

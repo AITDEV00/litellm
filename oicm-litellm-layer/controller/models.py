@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final, FrozenSet, List, Mapping, Optional, Tuple
 
 from .capabilities import CapabilityFacts, capability_metadata
@@ -93,6 +94,11 @@ class OicmModel:
     # classified) about image/audio acceptance. None means unknown and stamps
     # nothing; see capabilities.py.
     capability_facts: Optional[CapabilityFacts] = None
+    # OICM's declared ModelServerTasks value for this deployment, stamped as
+    # model_info.oicm_task so consumers see the operator's intent even when
+    # the mounted surface (mode) serves it differently (a VibeVoice-ASR is
+    # task=ASR, mode=chat).
+    inference_task: Optional[str] = None
 
     @property
     def deployment_id(self) -> str:
@@ -207,6 +213,63 @@ _NAME_MODES: Final[Tuple[Tuple[str, str], ...]] = (
     ("diariz", "diarization"),
 )
 
+# OICM's declared `inference_task` (ModelServerTasks, the operator's deploy-time
+# intent) to controller mode. Data, not code, so a new task is one table row.
+# Tasks absent from the table degrade to path detection rather than guessing.
+# The mode values are the controller's internal vocabulary; to_litellm_mode
+# translates at the boundary.
+_TASK_MODES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "Text Generation": "chat",
+        "Image-Text-to-Text": "chat",
+        "Any-to-Any": "chat",
+        "Text-to-Speech": "text_to_speech",
+        "Automatic Speech Recognition": "audio_transcription",
+        "Text Embedding": "embedding",
+        "Text-to-Image": "image_generation",
+        "Diarization": "diarization",
+    }
+)
+
+# The path(s) that prove a task's native surface is actually mounted. Tier 0
+# only overrides when one of these is present; otherwise the mounted surface
+# wins (a VibeVoice-ASR serves through chat and stays chat).
+_TASK_SURFACE_PATHS: Final[Mapping[str, Tuple[str, ...]]] = MappingProxyType(
+    {
+        "Text-to-Speech": (TTS_PATH,),
+        "Automatic Speech Recognition": (TRANSCRIPTION_PATH,),
+        "Text Embedding": (EMBEDDING_PATH,),
+        "Diarization": (DIARIZE_PATH,),
+    }
+)
+
+
+def detect_mode_from_task(
+    inference_task: Optional[str], paths: FrozenSet[str]
+) -> Optional[str]:
+    """The tier-0 mode decision from OICM's declared task, or None.
+
+    The declaration is intent, the paths are the mounted surface, and the two
+    can disagree: a VibeVoice-ASR declares `Automatic Speech Recognition` but
+    serves through /v1/chat/completions with no transcription path mounted.
+    Registering it as audio_transcription would make the gateway POST
+    /v1/audio/transcriptions, which the pod does not serve. So the task's mode
+    is used only when the task's native surface is actually mounted; otherwise
+    the caller falls through to path detection, which sees the chat surface.
+
+    Returns None for an unknown task, an absent task, or an unmounted surface,
+    which keeps this tier strictly additive over detect_mode_from_paths.
+    """
+    if not inference_task:
+        return None
+    mode = _TASK_MODES.get(inference_task)
+    if mode is None:
+        return None
+    surface_paths = _TASK_SURFACE_PATHS.get(inference_task)
+    if surface_paths is not None and not any(p in paths for p in surface_paths):
+        return None
+    return mode
+
 
 def detect_mode_from_paths(paths: FrozenSet[str], model_id: str, extra_args: str) -> str:
     """Infer the LiteLLM mode from the pod's exposed paths, then its name.
@@ -264,6 +327,7 @@ def build_model(
     namespace: str = NAMESPACE,
     max_model_len: Optional[int] = None,
     capability_facts: Optional[CapabilityFacts] = None,
+    inference_task: Optional[str] = None,
 ) -> OicmModel:
     """Assemble an OicmModel, deriving model_name from the raw id.
 
@@ -286,6 +350,7 @@ def build_model(
         api_surface=api_surface,
         max_model_len=max_model_len,
         capability_facts=capability_facts,
+        inference_task=inference_task,
     )
 
 
@@ -308,6 +373,7 @@ def build_oicm_model(
     cluster: str = CLUSTER_NAME,
     provider: str = "hosted_vllm",
     api_base_override: Optional[str] = None,
+    inference_task: Optional[str] = None,
 ) -> OicmModel:
     """Build the model record for a deployment known only from OICM.
 
@@ -334,6 +400,7 @@ def build_oicm_model(
         cluster=cluster,
         api_base_override=api_base_override,
         serving=serving,
+        inference_task=inference_task,
     )
 
 

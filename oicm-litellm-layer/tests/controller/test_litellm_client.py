@@ -312,7 +312,7 @@ async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
 
     client = LiteLLMClient(read_only=False, client=_PatchClient())
     ok = await client.patch_status(
-        "mid-1", True, "abudhabi", "abudhabi-oicm", {"v": 1, "status": "Stopped"}
+        "mid-1", True, "abudhabi", "abudhabi-oicm", "Text-to-Speech", {"v": 1, "status": "Stopped"}
     )
 
     assert ok is True
@@ -320,6 +320,7 @@ async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
     assert seen["json"]["blocked"] is True
     assert seen["json"]["model_info"]["oicm_cluster"] == "abudhabi"
     assert seen["json"]["model_info"]["oicm_source_name"] == "abudhabi-oicm"
+    assert seen["json"]["model_info"]["oicm_task"] == "Text-to-Speech"
     assert seen["json"]["model_info"]["oicm"] == {"v": 1, "status": "Stopped"}
 
 
@@ -336,6 +337,65 @@ async def test_register_payload_stamps_the_cluster():
     payload = _register_payload(model, None)
 
     assert payload["model_info"]["oicm_cluster"] == "abudhabi"
+
+
+def test_register_payload_stamps_the_declared_task():
+    """The declared task is a row fact, independent of the serving mode.
+
+    A VibeVoice-ASR row is mode=chat but task=Automatic Speech Recognition;
+    losing the task would leave the /endpoints surface inferring from mode.
+    """
+    model = replace(_make_model(), inference_task="Automatic Speech Recognition")
+
+    payload = _register_payload(model, None)
+
+    assert payload["model_info"]["oicm_task"] == "Automatic Speech Recognition"
+
+
+def test_register_payload_omits_the_task_when_undeclared():
+    # No declaration, no key: a source that predates the field must not gain
+    # a null stamp.
+    payload = _register_payload(_make_model(), None)
+    assert "oicm_task" not in payload["model_info"]
+
+
+def test_register_payload_gives_tts_a_pod_accepted_health_voice():
+    """The audio_speech health probe must not send an OpenAI voice name.
+
+    The gateway defaults the probe voice to "alloy"; a task-declared TTS pod on
+    this platform rejects unknown voices with a 400 (Drama 3 accepts only
+    "default", "" or a registered voice), so without this stamp the row flips
+    health-red forever.
+    """
+    model = replace(
+        _make_model(model_id="fishaudio/drama-3"),
+        mode="text_to_speech",
+        inference_task="Text-to-Speech",
+    )
+
+    payload = _register_payload(model, None)
+
+    assert payload["model_info"]["health_check_voice"] == "default"
+
+
+def test_register_payload_keeps_other_tts_voice_contracts():
+    """A path-detected TTS pod keeps the gateway's default probe voice.
+
+    hamsa requires a real speaker name and would 400 on "default"; inception and
+    omnivoice accept "alloy". The stamp is only for task-declared TTS, where the
+    rejection was verified live.
+    """
+    model = replace(_make_model(model_id="hamsa-tts-new"), mode="text_to_speech")
+
+    payload = _register_payload(model, None)
+
+    assert "health_check_voice" not in payload["model_info"]
+
+
+def test_register_payload_does_not_stamp_health_voice_for_chat():
+    # The stamp is scoped to TTS; a chat row keeps its probe body unchanged.
+    payload = _register_payload(_make_model(), None)
+    assert "health_check_voice" not in payload["model_info"]
 
 
 @pytest.mark.asyncio

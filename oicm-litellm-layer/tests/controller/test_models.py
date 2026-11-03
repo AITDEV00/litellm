@@ -7,6 +7,7 @@ from controller.models import (
     detect_api_surface,
     detect_mode,
     detect_mode_from_paths,
+    detect_mode_from_task,
     detect_provider,
     parse_model_list,
     sanitize_model_id,
@@ -319,6 +320,64 @@ class TestToLitellmMode:
     def test_other_modes_passthrough(self):
         assert to_litellm_mode("chat") == "chat"
         assert to_litellm_mode("embedding") == "embedding"
+
+
+class TestDetectModeFromTask:
+    """Tier 0: OICM's declared task, gated on the task's native surface.
+
+    Live evidence driving each pin:
+    - Drama 3 (sglang-omni) mounts chat AND /v1/audio/speech while its task is
+      Text-to-Speech; path detection alone reads it as chat and every health
+      probe 503s.
+    - VibeVoice-ASR declares Automatic Speech Recognition but serves through
+      chat with no transcription path; registering it audio_transcription
+      would make the gateway POST a route the pod does not serve.
+    """
+
+    def test_declared_tts_with_mounted_surface_wins_over_chat(self):
+        # The Drama 3 regression: chat path present, task says TTS, the TTS
+        # surface is mounted. The declaration decides, and path detection
+        # alone would have said chat.
+        paths = frozenset(
+            {"/v1/chat/completions", "/v1/audio/speech", "/v1/audio/transcriptions"}
+        )
+        assert detect_mode_from_task("Text-to-Speech", paths) == "text_to_speech"
+        assert detect_mode_from_paths(paths, "fishaudio/drama-3", "") == "chat"
+
+    def test_declared_asr_without_its_surface_falls_through_to_paths(self):
+        # The VibeVoice contract (live openapi.json: chat, completions,
+        # messages, responses; NO /v1/audio/transcriptions): the task maps
+        # toward audio_transcription, but the native surface is not mounted,
+        # so tier 0 declines and path detection keeps the chat surface.
+        paths = frozenset({"/v1/chat/completions", "/v1/models"})
+        assert detect_mode_from_task("Automatic Speech Recognition", paths) is None
+        assert detect_mode_from_paths(paths, "microsoft/VibeVoice-ASR", "") == "chat"
+
+    def test_declared_asr_with_mounted_surface_decides(self):
+        # A whisper-style pod that actually mounts transcriptions: the task
+        # and the surface agree.
+        paths = frozenset({"/v1/audio/transcriptions"})
+        assert detect_mode_from_task("Automatic Speech Recognition", paths) == "audio_transcription"
+
+    def test_unknown_task_declines_rather_than_guesses(self):
+        # A task OICM adds tomorrow must degrade to the lower tiers, never
+        # crash and never guess a mode.
+        assert detect_mode_from_task("Brand New Task", frozenset()) is None
+
+    def test_absent_task_declines(self):
+        assert detect_mode_from_task(None, frozenset()) is None
+        assert detect_mode_from_task("", frozenset()) is None
+
+    def test_chat_task_needs_no_surface_check(self):
+        # Text Generation's native surface IS chat, so no gate applies and a
+        # chat-capable pod is chat.
+        assert detect_mode_from_task("Text Generation", frozenset()) == "chat"
+
+    def test_embedding_task_with_mounted_surface(self):
+        assert detect_mode_from_task("Text Embedding", frozenset({"/v1/embeddings"})) == "embedding"
+
+    def test_diarization_task_with_mounted_surface(self):
+        assert detect_mode_from_task("Diarization", frozenset({"/v1/diarize"})) == "diarization"
 
 
 class TestDeploymentId:

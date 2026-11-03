@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from typing import Dict, Final, Optional, Tuple
+from typing import Callable, Dict, Final, Optional, Tuple
 
 import httpx
 from kubernetes import client, config
@@ -26,12 +26,18 @@ from ..models import (
     build_model,
     detect_api_surface,
     detect_mode_from_paths,
+    detect_mode_from_task,
     detect_provider,
     parse_model_list,
 )
 from .base import ModelSource
 
 logger = logging.getLogger("oicm-discovery")
+
+# Where discovery reads the operator's declared inference task for a
+# deployment. Injected by the controller (a snapshot lookup), so the source
+# itself stays free of poller knowledge and a test can pin the task directly.
+TaskLookup = Callable[[str], Optional[str]]
 
 # A tiny solid-red 1x1 PNG and a 0.1s 8kHz silent WAV, both under 100 bytes
 # base64-encoded, so the synthetic capability probe costs the backend a few
@@ -61,7 +67,15 @@ def load_kube_config() -> None:
 
 
 class LocalDeploymentSource(ModelSource):
-    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
+    # Class-level default so instances built via __new__ in tests (which skip
+    # __init__) still see "no task lookup" rather than an AttributeError.
+    _task_lookup: Optional["TaskLookup"] = None
+
+    def __init__(
+        self,
+        http_client: Optional[httpx.AsyncClient] = None,
+        task_lookup: Optional[TaskLookup] = None,
+    ):
         try:
             load_kube_config()
         except Exception as e:
@@ -71,6 +85,7 @@ class LocalDeploymentSource(ModelSource):
         self.apps_api = client.AppsV1Api()
         self.core_api = client.CoreV1Api()
         self._client = http_client or httpx.AsyncClient(timeout=PROBE_TIMEOUT_SECONDS)
+        self._task_lookup = task_lookup
         # Synthetic-probe verdicts memoized per deployment for the controller's
         # lifetime: the probe is the only expensive step in discovery (a real
         # inference), so it runs once per deployment per process, never per cycle.
@@ -137,8 +152,14 @@ class LocalDeploymentSource(ModelSource):
             )
 
         # Mode and provider are deployment-level (they depend on the OpenAPI
-        # surface, not the individual model id), so compute them once.
-        mode = detect_mode_from_paths(paths, model_ids[0], extra_args)
+        # surface, not the individual model id), so compute them once. Tier 0:
+        # the operator's declared task decides when its native surface is
+        # mounted; tier 3 (path shape) is the floor and stays unchanged.
+        inference_task = self._task_lookup(uuid) if self._task_lookup else None
+        mode = (
+            detect_mode_from_task(inference_task, paths)
+            or detect_mode_from_paths(paths, model_ids[0], extra_args)
+        )
         provider = detect_provider(owned_by or "", model_ids[0], paths)
         api_surface = detect_api_surface(provider, paths)
 
@@ -155,6 +176,7 @@ class LocalDeploymentSource(ModelSource):
             api_surface=api_surface,
             max_model_len=max_model_len,
             capability_facts=capability_facts,
+            inference_task=inference_task,
         )
         return {model.deployment_id: model}
 

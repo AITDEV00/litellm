@@ -75,6 +75,57 @@ async def test_patch_mode_unchanged_for_chat_model():
 
 
 @pytest.mark.asyncio
+async def test_patch_stamps_task_and_health_voice_for_task_declared_tts():
+    """A task-declared TTS row converges in one patch carrying both stamps.
+
+    The mode correction alone would leave the health probe sending voice=
+    "alloy" (a 400 on Drama 3), and the task stamp alone would leave the
+    /endpoints surface inferring intent from mode.
+    """
+    pricing = MagicMock()
+    pricing.resolve = AsyncMock(return_value=None)
+    reconciler = SyncReconciler(MagicMock(), pricing)
+
+    model = replace(
+        _make_model("tts-uuid", mode="text_to_speech", model_id="fishaudio/drama-3"),
+        inference_task="Text-to-Speech",
+    )
+    litellm_by_key = {
+        "tts-uuid": [_make_litellm_entry("litellm-id-t", model_name="hosted_vllm/fishaudio/drama-3")]
+    }
+
+    plan = await reconciler.compute_plan({"tts-uuid": model}, litellm_by_key)
+
+    assert len(plan.patches) == 1
+    _, _, patch_model_info = plan.patches[0]
+    assert patch_model_info["oicm_task"] == "Text-to-Speech"
+    assert patch_model_info["health_check_voice"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_patch_keeps_path_detected_tts_voice_contract():
+    """Path-detected TTS (hamsa, omnivoice) must not gain the probe voice.
+
+    hamsa 400s a speaker it does not know; "default" is a Drama 3-ism, so the
+    stamp stays scoped to task-declared TTS.
+    """
+    pricing = MagicMock()
+    pricing.resolve = AsyncMock(return_value=None)
+    reconciler = SyncReconciler(MagicMock(), pricing)
+
+    model = _make_model("tts-uuid", mode="text_to_speech", provider="omnivoice", model_id="omnivoice")
+    litellm_by_key = {
+        "tts-uuid": [_make_litellm_entry("litellm-id-o", model_name="omnivoice/omnivoice")]
+    }
+
+    plan = await reconciler.compute_plan({"tts-uuid": model}, litellm_by_key)
+
+    _, _, patch_model_info = plan.patches[0]
+    assert "health_check_voice" not in patch_model_info
+    assert "oicm_task" not in patch_model_info
+
+
+@pytest.mark.asyncio
 async def test_register_uses_corrected_mode_for_tts_model():
     pricing = MagicMock()
     pricing.resolve = AsyncMock(return_value=None)
@@ -670,13 +721,28 @@ async def test_cross_cluster_entry_absent_from_oicm_is_deleted():
     assert plan.deletes == ["id-import"]
 
 
-def _summary(workload_id, serving, cluster="alain"):
+def _summary(workload_id, serving, cluster="alain", inference_task=None):
     return SimpleNamespace(
         workspace_id="ws",
         workload_id=workload_id,
         cluster=cluster,
         serving_available=serving,
+        inference_task=inference_task,
     )
+
+
+def test_oicm_placeholder_carries_the_declared_task():
+    """A Stopped deployment's task must survive into its placeholder record.
+
+    The placeholder is what the reconciler merges when the k8s side is absent,
+    so a row that went Stopped before ever being re-discovered still gains the
+    task stamp on its next write.
+    """
+    models = _summaries_to_models(
+        {"stopped-uuid": _summary("stopped-uuid", False, inference_task="Text-to-Speech")}
+    )
+
+    assert models["stopped-uuid"].inference_task == "Text-to-Speech"
 
 
 @pytest.mark.asyncio

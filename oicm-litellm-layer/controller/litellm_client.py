@@ -95,6 +95,7 @@ class LiteLLMClient:
         blocked: bool,
         cluster: str,
         source_name: str,
+        oicm_task: Optional[str],
         oicm_block: dict,
     ) -> bool:
         """Write a deployment's routing state, origin, and OICM status at once.
@@ -107,7 +108,9 @@ class LiteLLMClient:
 
         `oicm_cluster` and `oicm_source_name` are written here as well as at
         registration so a row that predates either field gains it on its first
-        status write.
+        status write. `oicm_task` follows the same rule: the declared task is
+        a deployment fact, not a status fact, so it is a sibling key rather
+        than inside the replaced-every-write `oicm` block.
         """
         if self.read_only:
             logger.info(
@@ -121,15 +124,18 @@ class LiteLLMClient:
             return False
         async with self._semaphore:
             try:
+                model_info_payload: dict = {
+                    "oicm_cluster": cluster,
+                    "oicm_source_name": source_name,
+                    "oicm": oicm_block,
+                }
+                if oicm_task:
+                    model_info_payload["oicm_task"] = oicm_task
                 resp = await self._client.patch(
                     f"{self.base_url}/model/{litellm_model_id}/update",
                     json={
                         "blocked": blocked,
-                        "model_info": {
-                            "oicm_cluster": cluster,
-                            "oicm_source_name": source_name,
-                            "oicm": oicm_block,
-                        },
+                        "model_info": model_info_payload,
                     },
                     timeout=self._write_timeout,
                 )
@@ -432,6 +438,20 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
         "oicm_namespace": model.namespace,
         "oicm_source": model.source,
     }
+    if model.inference_task:
+        # The declared task rides as its own fact: it survives even when the
+        # mounted surface serves a different mode (a VibeVoice-ASR row is
+        # mode=chat, task=Automatic Speech Recognition).
+        model_info["oicm_task"] = model.inference_task
+    if model.mode == "text_to_speech" and model.inference_task == "Text-to-Speech":
+        # The gateway's audio_speech health probe defaults voice="alloy" (an
+        # OpenAI name). A task-declared TTS pod on this platform rejects
+        # unknown voices with a 400 (Drama 3 accepts only "default", "" or a
+        # registered voice), which would flip the row health-red forever.
+        # Scoped to task-declared TTS: other TTS providers have their own
+        # voice contracts (hamsa requires a real speaker name, inception and
+        # omnivoice accept "alloy"), and they keep the gateway default.
+        model_info["health_check_voice"] = "default"
     # A stored key wins per-key over the gateway's own /v1/models discovery,
     # which would otherwise stamp the context window into every token field.
     # max_tokens is pinned too: it is the legacy output field some clients fall

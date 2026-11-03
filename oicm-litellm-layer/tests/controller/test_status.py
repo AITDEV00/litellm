@@ -23,13 +23,14 @@ from controller.status import (
 _EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "oicm-status" / "evidence"
 
 
-def _summary(status, status_detail=(), replicas=1, error_msg=None):
+def _summary(status, status_detail=(), replicas=1, error_msg=None, inference_task=None):
     return OicmDeploymentSummary.model_validate(
         {
             "deployment_id": "dep1",
             "status": status,
             "replicas": replicas,
             "error_msg": error_msg,
+            "inference_task": inference_task,
             "status_detail": list(status_detail),
             "_updated_at": "2026-09-18T14:06:27Z",
         }
@@ -104,6 +105,16 @@ class TestWireParsing:
         )
         entry = summary.status_detail[0]
         assert entry.metadata.unavailable_replicas == 1
+
+    def test_inference_task_is_parsed(self):
+        # Tier 0's signal arrives on the same payload as status; the DTO must
+        # declare it or extra="allow" silently drops it from the typed surface.
+        summary = _summary("Ready", [_pod(True)], inference_task="Text-to-Speech")
+        assert summary.inference_task == "Text-to-Speech"
+
+    def test_inference_task_absent_is_none(self):
+        # A source that predates the field must parse, not crash.
+        assert _summary("Ready", []).inference_task is None
 
 
 class TestAvailability:
@@ -232,6 +243,17 @@ class TestBuildSnapshot:
     def test_error_msg_is_surfaced(self):
         snap = _build(_summary("Failed", [], error_msg="image pull backoff"))
         assert snap.error_msg == "image pull backoff"
+
+    def test_inference_task_is_threaded_into_the_snapshot(self):
+        # The snapshot is the controller-internal transport for everything the
+        # status layer persists; a task that stops riding it never reaches
+        # the row.
+        snap = _build(_summary("Ready", [_pod(True)], inference_task="Text-to-Speech"))
+        assert snap.inference_task == "Text-to-Speech"
+
+    def test_inference_task_absent_stays_none_in_the_snapshot(self):
+        snap = _build(_summary("Ready", [_pod(True)]))
+        assert snap.inference_task is None
 
 
 class TestEvidenceFixture:

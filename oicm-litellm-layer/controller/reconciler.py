@@ -126,6 +126,7 @@ def _summaries_to_models(
             namespace=NAMESPACE,
             cluster=snap.cluster,
             serving=snap.serving_available,
+            inference_task=snap.inference_task,
         )
         for workload_id, snap in summaries.items()
     }
@@ -279,6 +280,14 @@ class SyncReconciler:
                     # converges in one write (see capabilities.py).
                     **model.capability_stamp,
                 }
+                if model.inference_task:
+                    patch_model_info["oicm_task"] = model.inference_task
+                if model.mode == "text_to_speech" and model.inference_task == "Text-to-Speech":
+                    # Same scope and reason as the registration stamp
+                    # (_register_payload): task-declared TTS rejects the
+                    # gateway's default probe voice; other TTS providers
+                    # keep their own voice contracts.
+                    patch_model_info["health_check_voice"] = "default"
                 if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
                     plan.patches.append((existing_id, patch_params, patch_model_info))
                 # A deployment that came back must be routable again. This is

@@ -100,6 +100,11 @@ class OicmDeploymentSummary(BaseModel):
     error_msg: Optional[str] = None
     replicas: Optional[int] = None
     status_detail: tuple[StatusDetail, ...] = ()
+    # OICM's ModelServerTasks value, picked by the operator at deploy time.
+    # A raw string rather than an enum on purpose: an unknown new task must
+    # survive parsing and ride the row as model_info.oicm_task, and only the
+    # mode-mapping table degrades it to lower tiers.
+    inference_task: Optional[str] = None
 
     @field_validator("status_detail", mode="before")
     @classmethod

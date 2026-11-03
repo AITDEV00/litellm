@@ -89,6 +89,7 @@ def build_snapshot(
         ),
         serving_available=serving_available,
         error_msg=summary.error_msg,
+        inference_task=summary.inference_task,
         status_changed_at=status_changed_at,
         observed_at=observed,
     )

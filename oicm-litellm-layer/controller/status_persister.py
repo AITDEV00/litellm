@@ -104,6 +104,7 @@ class StatusWrite:
     blocked: bool
     cluster: str
     source_name: str
+    task: Optional[str]
     block: dict
 
 
@@ -139,6 +140,13 @@ def plan_writes(
                 and info.get("blocked", False) is blocked
                 and info.get("oicm_cluster") == snapshot.cluster
                 and info.get("oicm_source_name") == snapshot.source_name
+                # The task is absent from the write when the snapshot has none
+                # (a source that predates the field), so comparing it here
+                # would plan a write every cycle that never lands.
+                and (
+                    snapshot.inference_task is None
+                    or info.get("oicm_task") == snapshot.inference_task
+                )
             ):
                 continue
             writes.append(
@@ -147,6 +155,7 @@ def plan_writes(
                     blocked=blocked,
                     cluster=snapshot.cluster,
                     source_name=snapshot.source_name,
+                    task=snapshot.inference_task,
                     block=block,
                 )
             )
@@ -217,6 +226,7 @@ class StatusPersister:
                         w.blocked,
                         w.cluster,
                         w.source_name,
+                        w.task,
                         w.block,
                     )
                     for w in writes

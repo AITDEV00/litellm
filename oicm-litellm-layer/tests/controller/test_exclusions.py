@@ -104,7 +104,9 @@ class TestLoad:
         """Both committed ConfigMaps must parse and carry the current list."""
         prod = Path(__file__).resolve().parents[2] / "deploy" / "oicm" / "exclusions.yaml"
         dev = Path(__file__).resolve().parents[2] / "deploy" / "dev" / "oicm-exclusions-dev.yaml"
-        expected = frozenset({"orcarouter/Qwen3.8-27B-Uncensored-FP8"})
+        # M2 was added to both lists in 07e339ffc6; the lists must stay in
+        # sync with what the committed ConfigMaps actually carry.
+        expected = frozenset({"orcarouter/Qwen3.8-27B-Uncensored-FP8", "M2"})
 
         assert load_exclusions(str(prod), env={}) == expected
         assert load_exclusions(str(dev), env={}) == expected

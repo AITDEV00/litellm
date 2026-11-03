@@ -65,3 +65,8 @@ class OicmStatusSnapshot:
 
     status_changed_at: Optional[str]
     observed_at: str
+
+    # The operator-declared inference task (OICM ModelServerTasks). A fact, not
+    # a mode: it rides the row as model_info.oicm_task and feeds the tier-0
+    # mode decision, but never overwrites what the mounted surface implies.
+    inference_task: Optional[str] = None

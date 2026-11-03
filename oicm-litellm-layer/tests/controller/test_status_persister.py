@@ -40,6 +40,7 @@ def _snapshot(
     error_msg=None,
     desired=1,
     available=1,
+    inference_task=None,
 ):
     return OicmStatusSnapshot(
         workspace_id="ws1",
@@ -52,6 +53,7 @@ def _snapshot(
         unavailable_replicas=None,
         serving_available=serving,
         error_msg=error_msg,
+        inference_task=inference_task,
         status_changed_at=status_changed_at,
         observed_at=observed_at,
     )
@@ -212,6 +214,55 @@ class TestWriteGuard:
         assert len(writes) == 1
         assert writes[0].source_name == "alain"
 
+    def test_missing_task_is_a_change(self):
+        """A row that predates `oicm_task` must gain it on the next write.
+
+        The task is the declaration that feeds the /endpoints surface, so a row
+        without it has to be filled in rather than treated as unchanged.
+        """
+        stored = build_block(_snapshot())
+        writes = plan_writes(
+            {"dep1": _snapshot(inference_task="Text-to-Speech")},
+            {"dep1": [_entry(oicm=stored, blocked=False)]},
+        )
+
+        assert len(writes) == 1
+        assert writes[0].task == "Text-to-Speech"
+
+    def test_matching_task_is_not_a_change(self):
+        """A row already stamped with the same task must not rewrite.
+
+        Every write reloads every replica's router, so the task comparison must
+        not turn a steady-state cycle into a permanent write loop.
+        """
+        stored = build_block(_snapshot())
+        entry = _entry(oicm=stored, blocked=False)
+        entry["model_info"]["oicm_task"] = "Text-to-Speech"
+
+        writes = plan_writes(
+            {"dep1": _snapshot(inference_task="Text-to-Speech")},
+            {"dep1": [entry]},
+        )
+
+        assert writes == ()
+
+    def test_absent_snapshot_task_is_never_a_change(self):
+        """A source without the task field must not plan a write it can't land.
+
+        `patch_status` skips a None task in its payload, so comparing it here
+        would plan a write every cycle that never clears the difference.
+        """
+        stored = build_block(_snapshot())
+        entry = _entry(oicm=stored, blocked=False)
+        entry["model_info"]["oicm_task"] = "Text-to-Speech"
+
+        writes = plan_writes(
+            {"dep1": _snapshot(inference_task=None)},
+            {"dep1": [entry]},
+        )
+
+        assert writes == ()
+
     def test_snapshot_without_a_gateway_row_is_skipped(self):
         """An OICM-only deployment has no row to write, and must not crash."""
         writes = plan_writes({"dep1": _snapshot()}, {})
@@ -254,6 +305,7 @@ async def test_status_and_blocked_ride_one_patch():
         True,
         "alain",
         "alain",
+        None,
         build_block(_snapshot(status="Stopped", serving=False)),
     )
 

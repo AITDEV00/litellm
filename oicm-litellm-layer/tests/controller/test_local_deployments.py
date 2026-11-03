@@ -43,6 +43,85 @@ async def test_single_model_deployment_is_keyed_by_uuid():
 
 
 @pytest.mark.asyncio
+async def test_declared_task_overrides_path_detection_for_chat_shaped_tts():
+    """The Drama 3 regression, end to end through discovery.
+
+    sglang-omni mounts /v1/chat/completions alongside /v1/audio/speech, so
+    path detection alone classifies the pod chat and the health probe then
+    sends a chat completion the pod rejects. OICM declares Text-to-Speech,
+    and the task's native surface is mounted, so tier 0 must decide.
+    """
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(
+        return_value=frozenset(
+            {"/v1/chat/completions", "/v1/audio/speech", "/v1/audio/transcriptions"}
+        )
+    )
+    source._discover_model_ids = AsyncMock(
+        return_value=(["fishaudio/drama-3"], "", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+    source._task_lookup = lambda uuid: "Text-to-Speech" if uuid == "drama" else None
+
+    dep = _make_deployment("drama")
+    models = await source.discover_for_deployment(dep)
+
+    model = models["drama"]
+    assert model.mode == "text_to_speech"
+    assert model.inference_task == "Text-to-Speech"
+
+
+@pytest.mark.asyncio
+async def test_declared_task_rides_the_row_without_overriding_when_surface_absent():
+    """VibeVoice: the task is preserved as a fact, the mode follows the surface.
+
+    The pod declares Automatic Speech Recognition but serves through chat with
+    no native transcription path (live openapi.json mounts chat, completions,
+    messages, responses only). Tier 0 declines, path detection keeps chat, and
+    the declaration still lands on the row as inference_task.
+    """
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(
+        return_value=frozenset({"/v1/chat/completions", "/v1/models"})
+    )
+    source._discover_model_ids = AsyncMock(
+        return_value=(["microsoft/VibeVoice-ASR"], "", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+    source._task_lookup = lambda uuid: "Automatic Speech Recognition"
+
+    dep = _make_deployment("vibe")
+    models = await source.discover_for_deployment(dep)
+
+    model = models["vibe"]
+    assert model.mode == "chat"
+    assert model.inference_task == "Automatic Speech Recognition"
+
+
+@pytest.mark.asyncio
+async def test_no_task_lookup_leaves_path_detection_unchanged():
+    """A controller that predates tier 0 (or a not-yet-polled deployment)
+    discovers exactly what path detection says."""
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(
+        return_value=frozenset({"/v1/chat/completions", "/v1/audio/speech"})
+    )
+    source._discover_model_ids = AsyncMock(
+        return_value=(["some-chat-tts"], "", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+
+    dep = _make_deployment("plain")
+    models = await source.discover_for_deployment(dep)
+
+    assert models["plain"].mode == "chat"
+    assert models["plain"].inference_task is None
+
+
+@pytest.mark.asyncio
 async def test_deployment_advertising_multiple_ids_registers_only_the_first():
     """One deployment is one model, so a multi-id advertisement is truncated.
 
