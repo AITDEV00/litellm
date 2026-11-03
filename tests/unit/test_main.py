@@ -4276,6 +4276,36 @@ def test_speech_mistral_routes_to_configured_api_base(respx_mock: respx.MockRout
     assert response.content == audio_bytes
 
 
+def test_speech_keyless_hosted_vllm_uses_the_resolved_dynamic_api_key(
+    respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+):
+    """A keyless hosted_vllm TTS row must not die at the OpenAI client constructor.
+
+    get_llm_provider resolves hosted_vllm's key to the "fake-api-key"
+    placeholder every other hosted_vllm surface already relies on, but the
+    OpenAI-compat TTS branch re-resolved the key from the OpenAI chain only,
+    so a deployment with no key raised AuthenticationError before the request
+    ever reached the pod. The branch must prefer the provider-resolved
+    dynamic_api_key.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("HOSTED_VLLM_API_KEY", raising=False)
+    audio_bytes: Final = b"ID3-keyless-vllm-bytes"
+    pod_route: Final = respx_mock.post("http://vllm.internal:8080/v1/audio/speech").mock(
+        return_value=httpx.Response(200, content=audio_bytes)
+    )
+
+    response: Final = litellm.speech(
+        model="hosted_vllm/fishaudio/drama-3",
+        input="hello from litellm",
+        voice="default",
+        api_base="http://vllm.internal:8080/v1",
+    )
+
+    assert pod_route.called
+    assert response.content == audio_bytes
+
+
 FOUNDRY_HOST: Final = "https://my-project.services.ai.azure.com"
 
 

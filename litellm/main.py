@@ -8412,8 +8412,14 @@ def speech(
             or "https://api.openai.com/v1"
         )
         # set API KEY
+        # dynamic_api_key is the provider-specific key get_llm_provider already
+        # resolved (e.g. HOSTED_VLLM_API_KEY, or the "fake-api-key" placeholder
+        # keyless openai-compatible deployments use). Without it, a keyless
+        # hosted_vllm TTS row raises AuthenticationError at the OpenAI client
+        # constructor before the request ever reaches the pod.
         api_key = (
             api_key
+            or dynamic_api_key
             or litellm.api_key  # for deepinfra/perplexity/anyscale we check in get_llm_provider and pass in the api key from there
             or litellm.openai_key
             or get_secret("OPENAI_API_KEY")
