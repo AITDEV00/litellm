@@ -81,6 +81,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | OmniVoice logic maps + audit + test methods | `docs/custom-providers/OMNIVOICE_LOGIC_MAPPING.md`, `OMNIVOICE_LOGIC_MAP_v2.md`, `OMNIVOICE_POST_BUILD_LOGIC_MAP.md`, `OMNIVOICE_EXTENSIBILITY_AUDIT.md`, `EXAMPLE_OMNIVOICE_TEST_METHODS.md` |
 | Inception audit / pod parity | `docs/custom-providers/inception-hamsa-audit.md`, `inception-gateway-pod-parity.md` |
 | Gateway field-drop investigation | `docs/custom-providers/gateway-field-drop-investigation.md` |
+| Drama 3 registration diagnosis (mode + field drop) | `docs/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md` |
 
 ## Usage Guides
 
