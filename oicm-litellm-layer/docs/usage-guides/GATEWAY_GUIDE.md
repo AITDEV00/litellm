@@ -12,7 +12,7 @@ All requests use the `Authorization: Bearer <api_key>` header unless otherwise n
 
 ## Available Models
 
-The gateway serves 28 models; this key is scoped to the 12 below. `GET /v1/models`
+The gateway serves 27 models; this key is scoped to the 12 below. `GET /v1/models`
 with this key returns exactly this set.
 
 | Model | Type | Description |

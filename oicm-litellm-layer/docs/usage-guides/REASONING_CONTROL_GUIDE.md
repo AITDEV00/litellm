@@ -20,6 +20,13 @@ straight into the checkpoint's chat template, so each model implements its own
 accepted set. A tier that a sibling model accepts can be ignored or rejected
 here.
 
+The table covers the models that were probed directly. Four other models on the
+gateway also emit reasoning content and are not tabulated above:
+`Qwen/Qwen3.5-122B-A10B-GPTQ-Int4`, `Qwen/Qwen3.6-35B-A3B-FP8`,
+`Qwen3.6-35B-A3B-FP8`, and `deepseek-ai/DeepSeek-V4-Flash-0731`. Their accepted
+tiers have not been measured, so treat the summary as authoritative only for the
+rows listed.
+
 ## Turning thinking off
 
 `reasoning_effort: "none"` disables thinking on every toggle-based model. The

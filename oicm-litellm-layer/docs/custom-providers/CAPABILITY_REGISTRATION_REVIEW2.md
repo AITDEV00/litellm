@@ -95,9 +95,86 @@ So the final rule is not "tier 0 wins, full stop". It is: **tier 0 decides the t
 
 ## Revised recommendation
 
+> **Status (2026-11-03): steps 1 and 2 are shipped and running in prod.** Steps 3
+> and 4 remain open. See [Shipped state](#shipped-state-2026-11-03) at the end of
+> this document for what actually landed and what the live rows look like.
+
 1. **Stop dropping `inference_task`.** Add it to `OicmDeploymentSummary` + `OicmStatusSnapshot` + the persisted `oicm` block, and stamp `model_info.oicm_task`. Pure additive plumbing through tested code, fixes the data availability for everything downstream. Smallest possible first step.
 2. **Task-to-mode mapping as data in the controller.** A static table, degraded by tiers 1-3 where the task is absent or ambiguous. Fix Drama 3 by declaring, not probing.
 3. **Keep the probe table as the last-resort tier only.** For `custom_model_server` deployments whose task is None and whose ConfigMap carries no MODE (coro today registers correctly through path detection, so this tier exists for the *next* unknown pod).
 4. **Path detection stays as the floor.** It already handles Hamsa's native surface and OCR. Reordering `_PATH_MODES` (TTS before transcription) remains a small, correct fix.
 
 This keeps the probe design's real contribution (the three-verdict semantics, method-matched probes, table-as-data) while making the declared task — the strongest, cheapest, already-flowing signal — the primary tier. The gateway keeps its single job: serve what the controller registered, with the mode and the task both in the row.
+
+---
+
+## Shipped state (2026-11-03)
+
+Both controllers run `oicm-discovery-controller:0.1.0-20261103-4d922d8` in prod
+and dev, syncing 26-27 models per cycle.
+
+### What landed
+
+`controller/models.py` holds two tables, and one function consumes them:
+
+| Table | Purpose |
+| --- | --- |
+| `_TASK_MODES` | `inference_task` → controller mode, 8 entries. Data, not code |
+| `_TASK_SURFACE_PATHS` | The path that proves each task's native surface is mounted |
+
+`detect_mode_from_task(task, paths)` returns the task's mode **only when that
+task's native surface path appears in the pod's probed `openapi.json`**.
+Otherwise it returns `None` and discovery falls through to
+`detect_mode_from_paths`. That gate is what keeps VibeVoice on `chat` while
+letting Drama 3 become `audio_speech`, and a test
+(`test_every_non_chat_task_has_a_surface_gate`) fails if a non-chat task is ever
+added without a gate entry.
+
+The declaration is preserved separately as `model_info.oicm_task`, written at
+registration, in the reconciler patch, and in the status write.
+
+### Live rows, prod and dev identical
+
+| Model | `mode` | `oicm_task` | Notes |
+| --- | --- | --- | --- |
+| `fishaudio/drama-3` | `audio_speech` | `Text-to-Speech` | plus `health_check_voice: default` |
+| `microsoft/VibeVoice-ASR` | `chat` | `Automatic Speech Recognition` | surface wins, declaration preserved |
+| `Qwen/Qwen-Image-2.1` | `image_generation` | `Text-to-Image` | was `chat` before this work |
+| `CohereLabs/cohere-transcribe-arabic-07-2026` | `audio_transcription` | `Automatic Speech Recognition` | task and surface agree |
+| `Qwen/Qwen3-Embedding-*` | `embedding` | `Text Embedding` | |
+| chat models (13) | `chat` | `Text Generation` / `Image-Text-to-Text` | |
+
+`PaddlePaddle/PaddleOCR-VL-1.6` declares `Image-Text-to-Text` and stays `chat`,
+which is the surface rule doing its job.
+
+### The probe-voice stamp
+
+A task-declared TTS row also receives `model_info.health_check_voice: "default"`.
+The gateway's `audio_speech` probe otherwise sends `voice="alloy"`, which Drama 3
+rejects with a 400. The stamp is scoped to non-native providers
+(`OicmModel.health_check_stamp`): hamsa resolves `voice` to a speaker name it
+validates, so it must keep the gateway default.
+
+### Deployment notes
+
+Promote a dev-validated controller tag to prod without rebuilding:
+`make controller-deploy-prod BUILD=0 TAG=<tag>` (see
+[Makefile reference](../Makefile-reference.md)).
+
+### Still open
+
+1. **Tier 1, the ConfigMap `MODE` escape hatch.** Not built. Today the only
+   override is editing `_TASK_MODES` and redeploying.
+2. **Tier 2, the probe table.** Not built; [CAPABILITY_REGISTRATION_BY_PROBE.md](CAPABILITY_REGISTRATION_BY_PROBE.md)
+   remains the design of record for it.
+3. **`_PATH_MODES` ordering.** `TRANSCRIPTION_PATH` still precedes `TTS_PATH`, so
+   a path-detected pod serving both would resolve to `audio_transcription`. Tier 0
+   now covers the pods that matter (they declare their task), so this only bites a
+   deployment that mounts both surfaces *and* declares nothing.
+4. **Keyless TTS on hosted_vllm.** Fixed in `87c91acdcc` (`speech()` now prefers
+   the provider-resolved `dynamic_api_key`), but **not yet in a deployed image**.
+   Prod masks the bug because its Deployment sets `HOSTED_VLLM_API_KEY`; dev does
+   not, so `drama-3`'s dev health probe still reports `AuthenticationError`.
+5. **`rerank` and the gateway's mode Literal.** `detect_mode_from_paths` can emit
+   `"rerank"`, which `ModelInfo.mode`'s Literal omits even though the health-check
+   handlers support it. Type-level gap only.

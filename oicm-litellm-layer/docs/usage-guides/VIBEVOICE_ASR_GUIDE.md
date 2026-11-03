@@ -22,6 +22,8 @@ The gateway maps the user-facing model name to the internal pod model. The disco
 
 > **Important**: VibeVoice-ASR is served as a **vLLM chat-completions** model, not through the native `/v1/audio/transcriptions` multipart endpoint. Audio is passed inline as a base64 `input_audio` content part inside a normal chat request. Calling `/v1/audio/transcriptions` returns `404 Not Found` from the upstream.
 
+The pod declares the `Automatic Speech Recognition` task, so the controller records `oicm_task: Automatic Speech Recognition` in the model's `model_info`. It still registers with `mode: chat`, because the controller only adopts an audio mode when the pod actually mounts the matching surface path and this one does not. The declared task is kept as metadata, it does not change how you call the model
+
 ---
 
 ## Model overview

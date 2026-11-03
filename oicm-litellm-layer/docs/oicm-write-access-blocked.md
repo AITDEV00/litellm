@@ -2,7 +2,9 @@
 
 Date: 2026-09-23
 Cluster: ADEO AI Engine (ecouncil.ae), namespace `oicm-keycloak` + `mlops`
-Status: OICM API **read works**, **write blocked** by two independent platform defects. No cluster state was changed (test objects removed).
+Status: resolved 2026-09-28, see the note below. As of 2026-09-23, OICM API
+**read worked** and **write was blocked** by two independent platform defects.
+No cluster state was changed (test objects removed).
 
 > **Resolved (2026-09-28)**: the platform team provisioned `app-admin` / the
 > `application_admin` role. A `POST /api/v1/model_servers` with a malformed body

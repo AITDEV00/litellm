@@ -10,8 +10,11 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | `docs/structure.md` | Full directory map |
 | `docs/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
 | `docs/deployment.md` | Apply / rollout / cluster access |
+| `docs/Makefile-reference.md` | Makefile variables, primitives, and compositions |
 | `docs/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
 | `docs/components/*.md` | Per-component navigation |
+| `edge-litellm/docs/POSTGRES-IN-IMAGE.md` | Bundled-Postgres edge image (outside `docs/`, so not published to this site) |
+| `edge-litellm/docs/EDGE-VM-DEPLOY.md` | Edge VM deployment runbook (outside `docs/`, so not published to this site) |
 
 ## Discovery Controller
 
@@ -76,6 +79,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 |-----|----------|
 | Custom providers README | `docs/custom-providers/README.md` |
 | pyannote diarization provider plan | `docs/custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md` |
+| pyannote speaker embeddings plan | `docs/custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md` |
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
 | HAMSA research / TTS behavior | `docs/custom-providers/HAMSA_RESEARCH.md`, `HAMSA_TTS_BEHAVIOR.md` |
 | OmniVoice logic maps + audit + test methods | `docs/custom-providers/OMNIVOICE_LOGIC_MAPPING.md`, `OMNIVOICE_LOGIC_MAP_v2.md`, `OMNIVOICE_POST_BUILD_LOGIC_MAP.md`, `OMNIVOICE_EXTENSIBILITY_AUDIT.md`, `EXAMPLE_OMNIVOICE_TEST_METHODS.md` |

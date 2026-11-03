@@ -113,8 +113,6 @@ nav:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
-      - Postgres In Image: edge-litellm/docs/POSTGRES-IN-IMAGE.md
-      - Edge VM Deploy: edge-litellm/docs/EDGE-VM-DEPLOY.md
   - TLS / Certificates:
       - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
       - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md
@@ -186,6 +184,7 @@ nav:
       - Capability Registration by Probe: custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md
       - Capability Registration Review 2: custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md
       - pyannote Diarization Provider Plan: custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
+      - pyannote Speaker Embeddings Plan: custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
       - Reasoning Control Guide: usage-guides/REASONING_CONTROL_GUIDE.md

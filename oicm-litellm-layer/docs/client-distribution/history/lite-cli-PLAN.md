@@ -19,7 +19,7 @@ litellm gateway as a vertical slice** (`litellm/proxy/client_distribution/`),
 pinned by the standard drop-detection tests. One deployment, one ingress
 rule, and `/install` becomes a generated artifact that can read the
 gateway's own state (config, DB, request host). See
-[architecture.md](architecture.md) for the decision record.
+[architecture.md](../architecture.md) for the decision record.
 
 ## Revision note (v4)
 
@@ -48,7 +48,7 @@ Ten review decisions folded in. The ones that changed the design:
    already exists). The backend is RustFS, not MinIO, because MinIO
    Community Edition reached end of life (repository archived April 2026,
    Docker Hub images deleted September 2026); RustFS is S3-compatible, which
-   is the only contract LiteLLM depends on. See [rustfs.md](rustfs.md).
+   is the only contract LiteLLM depends on. See [rustfs.md](../rustfs.md).
 9. **`/install` is unauthenticated.** Downloading the binary and reading the
    manifest need no credential; the user supplies their admin-issued key when
    the script prompts for it (used for a `/v1/models` diagnostic and the
@@ -67,20 +67,20 @@ Three decisions from review, folded in:
    storage
    purely to hold a few CLI artifacts, when nothing else uses it beyond logs,
    is overkill. A PVC keeps it simple and matches the repo's existing
-   PVC + CronJob patterns. See [mirror-content.md](mirror-content.md) and
-   [deployment.md](deployment.md).
+   PVC + CronJob patterns. See [mirror-content.md](../mirror-content.md) and
+   [deployment.md](../deployment.md).
 2. **Admin-facing sync API on the gateway.** Because a PVC can be deleted
    accidentally, the slice exposes admin-authenticated CRUD routes so an admin
    with internet access can push, upsert, or delete artifacts over REST,
    idempotently, using the gateway's master key as the bearer token. This
    replaces "admin copies bytes with `kubectl cp`" with a documented API. See
-   [admin-sync.md](admin-sync.md).
+   [admin-sync.md](../admin-sync.md).
 3. **Harness wiring lives in cc-switch, not the install script.** The script
    installs cc-switch-cli and delegates provider registration and per-harness
    config-file writing to it. cc-switch supports 7 harnesses and writes each
    one's native config (including `~/.config/opencode/opencode.json`), which
    the retired `lite` CLI never did for opencode/pi. See
-   [installer-script.md](installer-script.md).
+   [installer-script.md](../installer-script.md).
 
 ## Problem
 
@@ -118,9 +118,9 @@ Non-goals:
   slice's in-app position makes authenticated/personalized variants a
   possible future extension — recorded, not built.
 - No new auth surface in v1. `/install` and the artifact routes are
-  unauthenticated (see [security.md](security.md) for the reasoning and the
+  unauthenticated (see [security.md](../security.md) for the reasoning and the
   bootstrap paradox).
-- No guarantee of literal universality. See [platform-matrix.md](platform-matrix.md)
+- No guarantee of literal universality. See [platform-matrix.md](../platform-matrix.md)
   for the supported matrix and the Android/iOS stance.
 
 ## Design in one paragraph
@@ -145,14 +145,14 @@ line, drop-detection tests.
 
 | Doc | Purpose |
 |-----|---------|
-| [implementation.md](implementation.md) | Phase-by-phase build order, grounded in the live namespace |
-| [architecture.md](architecture.md) | Host model, the in-gateway slice, why in-app won, the full flow |
-| [mirror-content.md](mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
-| [installer-script.md](installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
-| [platform-matrix.md](platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
-| [deployment.md](deployment.md) | RustFS, gateway wiring, admin sync API, rollout |
-| [rustfs.md](rustfs.md) | Object storage deployment, buckets, and the shared S3 client |
-| [admin-sync.md](admin-sync.md) | Admin REST API to push/upsert/delete mirror artifacts idempotently |
-| [security.md](security.md) | Threat model, checksums, signature question, why static unauth is OK |
-| [rollout.md](rollout.md) | Phased rollout: pilot users, success metrics, cut-over |
-| [open-questions.md](open-questions.md) | Unresolved decisions that need a human call |
+| [implementation.md](../implementation.md) | Phase-by-phase build order, grounded in the live namespace |
+| [architecture.md](../architecture.md) | Host model, the in-gateway slice, why in-app won, the full flow |
+| [mirror-content.md](../mirror-content.md) | Exact bytes we must serve: uv artifacts, wheelhouse, Python builds, checksums, manifest |
+| [installer-script.md](../installer-script.md) | Line-by-line design of the generated `/install` script, derived from upstream `scripts/install-cli.sh` |
+| [platform-matrix.md](../platform-matrix.md) | Supported OS/arch matrix and the Android/Termux/iOS stance |
+| [deployment.md](../deployment.md) | RustFS, gateway wiring, admin sync API, rollout |
+| [rustfs.md](../rustfs.md) | Object storage deployment, buckets, and the shared S3 client |
+| [admin-sync.md](../admin-sync.md) | Admin REST API to push/upsert/delete mirror artifacts idempotently |
+| [security.md](../security.md) | Threat model, checksums, signature question, why static unauth is OK |
+| [rollout.md](../rollout.md) | Phased rollout: pilot users, success metrics, cut-over |
+| [open-questions.md](../open-questions.md) | Unresolved decisions that need a human call |

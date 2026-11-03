@@ -246,7 +246,7 @@ whereas raising would stall the controller.
 | `namespace` | Kubernetes namespace |
 | `ready_replicas` | Number of ready replicas (local deployments only; Submariner imports always 1) |
 | `total_replicas` | Total replicas (local deployments only) |
-| `mode` | `chat`, `embedding`, `transcription`, or `tts_skip` |
+| `mode` | One of `chat`, `embedding`, `rerank`, `ocr`, `image_generation`, `text_to_speech`, `audio_transcription`, `diarization`. See [Mode selection](#mode-selection) |
 | `source` | `local` or `submariner:{cluster_name}` |
 | `api_base_override` | For Submariner imports: `http://{globalnet_ip}:{port}/v1`. For local: `None` (computed from uuid) |
 | `extra_args` | Extra args from ConfigMap (used for mode detection) |
@@ -320,6 +320,30 @@ liveness to
 `/health/latest`, `/health/history`, and the Admin UI health column; a source's
 freshness is the `checked_at` of its `oicm-source-<cluster>` row. Retention is
 the native `maximum_health_check_retention_period` knob.
+
+## Mode selection
+
+`mode` decides which surface the gateway exposes for a model, so it is derived
+in two tiers.
+
+Tier 0 reads the inference task OICM declares for the deployment. `_TASK_MODES`
+maps a task to a mode, and `_TASK_SURFACE_PATHS` holds the path that proves the
+task's native surface is actually mounted. The declared task only wins when that
+path is present. A pod that declares `Automatic Speech Recognition` but serves
+audio through chat completions does not mount `/v1/audio/transcriptions`, so it
+stays `chat`. Every non-chat task has a gate entry, and a test enforces that.
+
+Tier 1 inspects the surface paths the model server advertises on `/v1/models`.
+`_PATH_MODES` is an ordered table, first hit wins, with `diarize` ahead of
+`transcriptions` so a coro pod that serves both classifies as `diarization`. A
+server advertising none of the known paths is `chat`.
+
+The declared task is recorded either way as `oicm_task` in `model_info`, so tier
+0 losing to tier 1 is visible rather than silent.
+
+Text-to-speech models on non-native providers also get
+`health_check_voice: default` stamped, because the gateway's probe needs a voice
+name that those servers accept.
 
 ## Running
 

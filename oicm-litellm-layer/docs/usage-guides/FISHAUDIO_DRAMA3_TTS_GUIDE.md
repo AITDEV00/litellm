@@ -32,7 +32,7 @@ The discovery controller registers the model as `fishaudio/drama-3` (upstream `h
 | Input | JSON body with text |
 | Output | Binary audio, **44.1 kHz mono 16-bit** |
 | Provider (upstream) | `hosted_vllm` |
-| Deployed mode | `chat` (see [Mode caveat](#mode-caveat)) |
+| Deployed mode | `audio_speech`, `oicm_task: Text-to-Speech` (see [Mode](#6-mode)) |
 
 ### Audio properties that break clients
 
@@ -183,15 +183,31 @@ Through the gateway the same path returns `405 Method Not Allowed`, because `/v1
 
 ---
 
-## 6. Mode caveat
+## 6. Mode
 
-The deployment is registered with `mode: chat`, not `text_to_speech`. The controller classifies a pod as chat whenever its `openapi.json` exposes `/v1/chat/completions`, and this sglang-omni pod exposes that path. Consequences:
+The deployment registers as `mode: audio_speech` with `oicm_task: Text-to-Speech`
+and `health_check_voice: default`. This was not always the case: before
+2026-11-03 it registered as `chat`, because the controller classified any pod
+whose `openapi.json` exposes `/v1/chat/completions` as a chat model and this
+sglang-omni pod exposes that path.
 
-- `POST /v1/chat/completions` with this model reaches the pod and fails with `Drama 3 request: the speech input must be text or an object with text and references`, because that route lowers `messages` to a list of dicts while the model needs an `input` string.
-- `POST /v1/audio/speech` still works, because the route resolves by model name and the upstream base already ends in `/v1`.
-- Anything that groups models by declared mode (dashboards, capability filters, auto-routers) will classify this model as a chat model.
+The fix came from OICM's declared `inference_task`, which the operator sets at
+deploy time, gated on the pod actually mounting the task's native surface. This
+pod declares `Text-to-Speech` and mounts `/v1/audio/speech`, so the declaration
+wins. A pod that declares a non-chat task but does not mount its surface keeps
+the mounted mode, with the declaration preserved as `model_info.oicm_task`. See
+[CAPABILITY_REGISTRATION_REVIEW2.md](../custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md#shipped-state-2026-11-03).
 
-The fix belongs in the controller's detection: `/v1/chat/completions` leads the pod's path list, so chat wins before `/v1/audio/speech` is considered. A pod that exposes speech should be registered as `text_to_speech` even when it also exposes a chat path it cannot usefully serve.
+Consequences for callers:
+
+- `POST /v1/audio/speech` is the correct route, as documented throughout this
+  guide.
+- `POST /v1/chat/completions` with this model still reaches the pod and still
+  fails with `Drama 3 request: the speech input must be text or an object with
+  text and references`. The mode label does not disable that route; the pod
+  simply cannot serve it.
+- Anything that groups models by declared mode now classifies this model as a
+  speech model.
 
 ---
 

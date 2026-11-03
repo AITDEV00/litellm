@@ -1,5 +1,14 @@
 # Drama 3 registration: why the mode is wrong and why fields are dropped
 
+> **Status (2026-11-03): Defect 1 is FIXED and deployed.** Both controllers run
+> `oicm-discovery-controller:0.1.0-20261103-4d922d8`, and `fishaudio/drama-3`
+> registers as `mode: audio_speech` with `oicm_task: Text-to-Speech` and
+> `health_check_voice: default` on prod and dev. The fix was **not** the
+> chat-precedence change explored below: it came from OICM's declared
+> `inference_task`, used as tier 0 with a mounted-surface gate. See
+> [CAPABILITY_REGISTRATION_REVIEW2.md](CAPABILITY_REGISTRATION_REVIEW2.md#shipped-state-2026-11-03).
+> Defect 2 (dropped request fields) is still open on the gateway.
+
 Two independent defects surfaced while writing the [Drama 3 usage guide](../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md). They have different root causes and need different fixes, so they are recorded separately here.
 
 The short version: `openapi.json` **is** read correctly. The controller's problem is the order in which it consults the paths it reads. The dropped fields are a separate, gateway-side problem that no amount of controller work will fix.

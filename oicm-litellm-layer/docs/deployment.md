@@ -61,17 +61,30 @@ they diverge in any way those patches do not declare.
 
 ## Apply
 
-```bash
-# from oicm-litellm-layer/
-kubectl apply -k deploy/overlays/prod      # gateway
-kubectl apply -f deploy/prod/discovery-controller.yaml
-```
-
-or via the Makefile:
+The Makefile composes deployments from per-object-group primitives, so you never
+have to apply a whole environment when only one piece changed. Each of these
+takes the usual variables (`TAG`, `BUILD`, `NAMESPACE`, `ROLLOUT_TIMEOUT`), see
+[Makefile reference](Makefile-reference.md).
 
 ```bash
-make deploy
+make controller-deploy-prod     # build, push, pin, apply, roll out the controller
+make litellm-src-release        # build, push, pin, and roll out the gateway
 ```
+
+`make deploy` and `make deploy-dev` still work as the convenience compositions
+(`prod-controller prod-gateway` and `dev-controller dev-gateway` respectively).
+Note that `prod-gateway` and `dev-gateway` only apply the overlay, which does not
+restart the gateway, so an unchanged image keeps its running container. Use
+`litellm-src-release` when the image should move too.
+To apply an already-validated controller tag without rebuilding, pass `BUILD=0`
+and the tag:
+
+```bash
+make controller-deploy-prod BUILD=0 TAG=0.1.0-20261103-4d922d8
+```
+
+Gateway and controller roll out independently. Restarting one does not restart
+the other.
 
 To see what an overlay would produce without applying it:
 
@@ -101,8 +114,9 @@ kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller
 ## Cluster access
 
 The cluster API is reached through an SSH tunnel to the VM that has the
-kubeconfig. See `COMMANDS-CONTEXT.txt` at the repo root for the tunnel command
-and the `~/.kube/oicm-alain.conf` kubeconfig.
+kubeconfig. See `COMMANDS-CONTEXT.txt` at the repo root for the tunnel command.
+The kubeconfig on this machine is `~/.kube/alain-oicm.conf`, which is also the
+Makefile default for `ALAIN_KUBECONFIG`.
 
 ## Monitoring
 
