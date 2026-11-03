@@ -49,6 +49,8 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Postgres disk-full (2026-09-08) | `docs/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions) |
 | Kimi-K3 mid-stream stop (2026-09-21) | `docs/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md` |
 | Spend-log cleanup not running (2026-09-21) | `docs/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md` |
+| Gateway token-limits misreported (2026-11-03) | `docs/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md` |
+| Gateway vision capability undeclared (2026-11-03) | `docs/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md` |
 
 ## Admin API
 

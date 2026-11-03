@@ -92,6 +92,8 @@ nav:
       - Postgres Disk Full (2026-09-08) — Resolutions: incidents/2026-09-08-postgres-disk-full/resolutions.md
       - Kimi-K3 Mid-Stream Stop (2026-09-21): incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md
       - Spend-Log Cleanup Not Running (2026-09-21): incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
+      - Gateway Token-Limits Misreported (2026-11-03): incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
+      - Gateway Vision Capability Undeclared (2026-11-03): incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
   - Components:
       - Discovery Controller: components/controller.md
       - Config: components/config.md
