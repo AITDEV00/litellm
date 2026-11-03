@@ -17,13 +17,11 @@ class TestFactsFromSglangModelInfo:
                 "is_generation": True,
             }
         )
-        assert facts == CapabilityFacts(
-            accepts_image=True, accepts_audio=False, is_generation=True
-        )
+        assert facts == CapabilityFacts(accepts_image=True, accepts_audio=False)
 
     def test_missing_or_nonbool_flags_read_as_unknown_not_false(self):
         facts = facts_from_sglang_model_info({"has_image_understanding": "yes"})
-        assert facts == CapabilityFacts(accepts_image=None, accepts_audio=None, is_generation=None)
+        assert facts == CapabilityFacts(accepts_image=None, accepts_audio=None)
 
     def test_non_dict_payload_is_all_unknown(self):
         assert facts_from_sglang_model_info(None) == CapabilityFacts()
@@ -77,23 +75,19 @@ class TestProbeVerdictToFact:
 
 
 class TestCapabilityMetadata:
-    def test_vision_true_stamps_flag_and_modality(self):
+    def test_vision_true_stamps_the_flag(self):
         stamp = capability_metadata(
-            "chat", CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True)
+            "chat", CapabilityFacts(accepts_image=True, accepts_audio=False)
         )
-        assert stamp["supports_vision"] is True
-        assert stamp["supports_audio_input"] is False
-        assert stamp["architecture"]["input_modalities"] == ["text", "image"]
-        assert stamp["architecture"]["output_modalities"] == ["text"]
+        assert stamp == {"supports_vision": True, "supports_audio_input": False}
 
     def test_text_only_model_stamps_explicit_false(self):
         """A definitive negative is stamped, not omitted: clients treat null
         as false anyway, and the explicit value documents the probe verdict."""
         stamp = capability_metadata(
-            "chat", CapabilityFacts(accepts_image=False, accepts_audio=False, is_generation=True)
+            "chat", CapabilityFacts(accepts_image=False, accepts_audio=False)
         )
-        assert stamp["supports_vision"] is False
-        assert stamp["architecture"]["input_modalities"] == ["text"]
+        assert stamp == {"supports_vision": False, "supports_audio_input": False}
 
     def test_unknown_facts_claim_nothing(self):
         assert capability_metadata("chat", None) == {}
@@ -101,12 +95,11 @@ class TestCapabilityMetadata:
             capability_metadata("chat", CapabilityFacts()) == {}
         )
 
-    def test_audio_true_stamps_audio_modality(self):
+    def test_audio_true_stamps_the_audio_flag(self):
         stamp = capability_metadata(
-            "chat", CapabilityFacts(accepts_image=False, accepts_audio=True, is_generation=True)
+            "chat", CapabilityFacts(accepts_image=False, accepts_audio=True)
         )
-        assert stamp["supports_audio_input"] is True
-        assert stamp["architecture"]["input_modalities"] == ["text", "audio"]
+        assert stamp == {"supports_vision": False, "supports_audio_input": True}
 
     def test_non_chat_mode_claims_nothing(self):
         """A transcription or TTS row is not a chat surface; its clients do
@@ -118,12 +111,11 @@ class TestCapabilityMetadata:
             == {}
         )
 
-    def test_image_without_generation_still_stamps_vision(self):
-        """is_generation is the text-output fact; an image-accepting server
-        that did not report it still gets its vision flag, with text input
-        implied by the absence of a generation claim."""
+    def test_no_architecture_block_is_stamped(self):
+        """The litellm extension derives modalities client-side from the
+        supports_ flags and never reads model_info.architecture, so the
+        server-side block would be dead weight."""
         stamp = capability_metadata(
-            "chat", CapabilityFacts(accepts_image=True)
+            "chat", CapabilityFacts(accepts_image=True, accepts_audio=True)
         )
-        assert stamp["supports_vision"] is True
-        assert "image" in stamp["architecture"]["input_modalities"]
+        assert "architecture" not in stamp

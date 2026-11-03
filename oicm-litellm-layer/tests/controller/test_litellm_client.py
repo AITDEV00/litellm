@@ -140,11 +140,11 @@ async def test_register_payload_claims_no_budget_for_unprobed_model():
 
 
 @pytest.mark.asyncio
-async def test_register_payload_stamps_capability_flags_and_architecture():
-    """A probed vision model must register supports_vision true plus the
-    architecture modality block: the litellm extension gates images on the
-    flag, the OAI extension on the block, and both are silent drops when
-    the key is absent."""
+async def test_register_payload_stamps_capability_flags():
+    """A probed vision model must register supports_vision true (and the
+    audio flag): the litellm extension derives its image-input gate from that
+    flag alone and silently drops attached images when it is not exactly
+    true."""
     captured = {}
 
     class _CaptureClient:
@@ -155,7 +155,7 @@ async def test_register_payload_stamps_capability_flags_and_architecture():
     client = LiteLLMClient(read_only=False, client=_CaptureClient())
     model = replace(
         _make_model(),
-        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True),
+        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False),
     )
 
     await client._register_one(model)
@@ -163,8 +163,7 @@ async def test_register_payload_stamps_capability_flags_and_architecture():
     info = captured["json"]["model_info"]
     assert info["supports_vision"] is True
     assert info["supports_audio_input"] is False
-    assert info["architecture"]["input_modalities"] == ["text", "image"]
-    assert info["architecture"]["output_modalities"] == ["text"]
+    assert "architecture" not in info
 
 
 @pytest.mark.asyncio

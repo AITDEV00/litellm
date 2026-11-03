@@ -2,19 +2,20 @@
 each deployment actually accepts, instead of leaving every capability key
 null for clients to guess.
 
-Both vscode extensions gate their wire format on these keys: the litellm
-extension drops an attached image when ``supports_vision`` is not exactly
-``true`` and drops an audio part when ``supports_audio_input`` is not, so an
-unadvertised capability is not merely under-reported, it silently discards
-user content. The OAI-compatible extension reads the ``architecture``
-modality block instead, so both shapes are stamped from one fact set.
+The litellm vscode extension gates its wire format on these keys:
+`mapModelInfoEntry` derives a deployment's input modalities from
+``supports_vision`` and ``supports_audio_input`` being exactly ``true``, and
+the send path drops an attached image (or audio part) when the modality is
+absent, so an unadvertised capability is not merely under-reported, it
+silently discards user content. The extension builds its own
+``architecture`` block client-side from those flags, so the server stamps
+the flags alone.
 
 Facts come from the deployment itself, never a hand-maintained table:
 
 - sglang serves ``/model_info`` with server-computed flags
-  (``has_image_understanding``, ``has_audio_understanding``,
-  ``is_generation``, ``tool_call_parser``, ``reasoning_parser``) derived
-  from the loaded model config, so they cannot disagree with what the
+  (``has_image_understanding``, ``has_audio_understanding``) derived from
+  the loaded model config, so they cannot disagree with what the
   tokenizer/prefill path actually accepts.
 - vLLM and other servers expose no such surface; for those the source sends
   one synthetic image and one synthetic audio chat request directly to the
@@ -29,12 +30,6 @@ stays stamped (verified live on dev across a refresh cycle).
 
 from dataclasses import dataclass
 from typing import Final, Mapping, Optional
-
-# Modality tokens the architecture block advertises, matching the values the
-# OpenRouter-compat schema and both extensions compare against.
-_TEXT_MODALITY: Final[str] = "text"
-_IMAGE_MODALITY: Final[str] = "image"
-_AUDIO_MODALITY: Final[str] = "audio"
 
 # Servers whose /v1/models self-describes as a text-to-image (TI2I) surface
 # report has_image_understanding=true for their DiT's image-edit path, but
@@ -56,7 +51,6 @@ class CapabilityFacts:
 
     accepts_image: Optional[bool] = None
     accepts_audio: Optional[bool] = None
-    is_generation: Optional[bool] = None
 
 
 def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[str] = frozenset()) -> CapabilityFacts:
@@ -81,7 +75,6 @@ def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[s
     return CapabilityFacts(
         accepts_image=flag("has_image_understanding"),
         accepts_audio=flag("has_audio_understanding"),
-        is_generation=flag("is_generation"),
     )
 
 
@@ -118,17 +111,4 @@ def capability_metadata(mode: str, facts: Optional[CapabilityFacts]) -> Mapping[
         metadata["supports_vision"] = facts.accepts_image
     if facts.accepts_audio is not None:
         metadata["supports_audio_input"] = facts.accepts_audio
-
-    input_modalities: list[str] = []
-    if facts.is_generation is not None:
-        input_modalities.append(_TEXT_MODALITY)
-    if facts.accepts_image is True:
-        input_modalities.append(_IMAGE_MODALITY)
-    if facts.accepts_audio is True:
-        input_modalities.append(_AUDIO_MODALITY)
-    if facts.is_generation is not None or input_modalities:
-        metadata["architecture"] = {
-            "input_modalities": input_modalities or [_TEXT_MODALITY],
-            "output_modalities": [_TEXT_MODALITY] if facts.is_generation else [],
-        }
     return metadata

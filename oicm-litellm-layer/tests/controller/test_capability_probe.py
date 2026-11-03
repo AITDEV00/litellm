@@ -46,7 +46,7 @@ _SGLANG_INFO = (
     "http://s-uuid-1.adeo.svc.cluster.local:8080/model_info",
     (
         200,
-        {"has_image_understanding": True, "has_audio_understanding": False, "is_generation": True},
+        {"has_image_understanding": True, "has_audio_understanding": False},
     ),
 )
 
@@ -61,7 +61,7 @@ async def test_sglang_metadata_wins_and_costs_no_inference():
 
     facts = await source._probe_capability_facts("uuid-1", "chat", "m", frozenset())
 
-    assert facts == CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True)
+    assert facts == CapabilityFacts(accepts_image=True, accepts_audio=False)
     assert all(kind == "GET" for kind, _ in client.requests)
     assert ("POST", "http://s-uuid-1.adeo.svc.cluster.local:8080/v1/chat/completions") not in client.requests
 

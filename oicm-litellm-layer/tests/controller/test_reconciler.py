@@ -444,7 +444,7 @@ async def test_rows_without_capability_stamps_are_backfilled():
     reconciler = _reconciler_with_costs(None)
     model = replace(
         _make_model("legacy-caps-uuid"),
-        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True),
+        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False),
     )
     entry = _entry_matching(model, "id-12")
     # A pre-rollout row carries no capability keys at all.
@@ -460,7 +460,6 @@ async def test_rows_without_capability_stamps_are_backfilled():
     _, _, patch_model_info = plan.patches[0]
     assert patch_model_info["supports_vision"] is True
     assert patch_model_info["supports_audio_input"] is False
-    assert patch_model_info["architecture"]["input_modalities"] == ["text", "image"]
 
 
 @pytest.mark.asyncio
@@ -470,7 +469,7 @@ async def test_rows_with_matching_capability_stamps_are_not_repatched():
     reconciler = _reconciler_with_costs(None)
     model = replace(
         _make_model("stable-caps-uuid"),
-        capability_facts=CapabilityFacts(accepts_image=False, accepts_audio=False, is_generation=True),
+        capability_facts=CapabilityFacts(accepts_image=False, accepts_audio=False),
     )
     entry = _entry_matching(model, "id-13")
 
