@@ -26,7 +26,6 @@ Route access is decided per route, not per form field. `/v1/diarize` is listed u
 
 | Key | Calls `/v1/diarize` (with or without `embeddings`) |
 | --- | --- |
-| Master key (`LITELLM_MASTER_KEY`) | Yes. It has `allowed_routes=None` and bypasses the route check entirely, so it cannot be used to prove a customer key works |
 | `key_type=llm_api` virtual key | Yes. Defaults to `allowed_routes=["llm_api_routes"]` |
 | Any key whose `allowed_routes` includes `llm_api_routes`, `litellm_native_routes`, or the literal `"/v1/diarize"` | Yes |
 | `key_type=read_only` (`allowed_routes=["info_routes"]`) | No, 403 |
@@ -35,7 +34,7 @@ Route access is decided per route, not per form field. `/v1/diarize` is listed u
 
 The model gate is separate: the key must also resolve `pyannote/community-1` as a callable model (via its own `models` list, its team's models, or `all-proxy-models`), otherwise the request is rejected before reaching the pod.
 
-Verified live on `https://litellm.ecouncil.ae` with a throwaway `key_type=llm_api` key scoped to `models=["pyannote/community-1"]`: `embeddings=true` returned HTTP 200 with `speakerEmbeddings` for all three detected speakers and the full `embeddingModel` block. The same key with the flag absent returned only `diarization` + `exclusiveDiarization`, and with `embeddings=false` returned only `diarization`. The master key returned the same embeddings payload. A `read_only` key was refused with 403 and an unauthenticated call with 401.
+Verified live on `https://litellm.ecouncil.ae` with a throwaway `key_type=llm_api` key scoped to `models=["pyannote/community-1"]`: `embeddings=true` returned HTTP 200 with `speakerEmbeddings` for all three detected speakers and the full `embeddingModel` block. The same key with the flag absent returned only `diarization` + `exclusiveDiarization`, and with `embeddings=false` returned only `diarization`. A `read_only` key was refused with 403 and an unauthenticated call with 401.
 
 > **Important**: this is the pyannoteAI `/v1/diarize` contract (multipart audio file + form fields), not OpenAI `/v1/audio/transcriptions`. There is no base64, no JSON body, and no chat surface on this model.
 
@@ -297,7 +296,7 @@ Reproduce through-gateway:
 
 ```bash
 kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14000:4000   # dev
-GATEWAY_KEY=$(python3 oicm-litellm-layer/scripts/get_master_key.py) \
+GATEWAY_KEY=<your-api-key> \
 DIARIZE_CONCURRENCY=8 DIARIZE_ROUNDS=5 \
   python3 oicm-litellm-layer/scripts/probes/stress_diarize.py
 ```
