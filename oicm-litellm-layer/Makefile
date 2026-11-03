@@ -57,13 +57,118 @@ MASTER_KEY := $(shell python3 scripts/get_master_key.py 2>/dev/null)
 # only needed for the Tier-B model-contract and scoped-auth tests.
 BASE ?= http://localhost:14001
 
-.PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login deploy clean clean-artifacts \
-	controller-release controller-build-dev controller-push-dev controller-release-dev controller-deploy-dev deploy-dev \
-	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-release litellm-src-deploy \
+# Namespace every workload here lives in. Dev and prod controllers are two
+# Deployments in ONE namespace, so the manifest path is the only thing that
+# separates them; nothing else needs to differ between environments.
+NAMESPACE ?= adeo-litellm
+
+# One kubeconfig prefix for every cluster call, so a target cannot forget it and
+# a relocated kubeconfig is a one-line change.
+KUBECTL := KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl
+
+ROLLOUT_TIMEOUT ?= 300s
+
+# Paths, one variable per environment. Every target below names these instead of
+# repeating a literal path, so moving a manifest is a one-line change and the
+# dev/prod split is visible at a glance rather than buried in each recipe.
+CONTROLLER_MANIFEST_DEV  := deploy/dev/discovery-controller-dev.yaml
+CONTROLLER_MANIFEST_PROD := deploy/prod/discovery-controller.yaml
+CONTROLLER_DEPLOYMENT_DEV  := oicm-discovery-controller-dev
+CONTROLLER_DEPLOYMENT_PROD := oicm-discovery-controller
+
+EXCLUSIONS_DEV  := deploy/dev/oicm-exclusions-dev.yaml
+EXCLUSIONS_PROD := deploy/oicm/exclusions.yaml
+
+OVERLAY_DEV  := deploy/overlays/dev
+OVERLAY_PROD := deploy/overlays/prod
+
+GATEWAY_MANIFEST := deploy/base/gateway/proxy/deployment.yaml
+GATEWAY_DEPLOYMENT_DEV  := litellm-proxy-dev
+GATEWAY_DEPLOYMENT_PROD := litellm-proxy
+SERVICEMONITOR_PROD := deploy/prod/litellm-servicemonitor.yaml
+
+# Build gate for the deploy composites. `make controller-deploy-prod BUILD=0`
+# rolls out whatever $(TAG) names without rebuilding it, which is how a tag
+# already validated in dev reaches prod with the exact bytes that were tested.
+BUILD ?= 1
+
+# Pin an image tag into one or more manifests. $(1) image repo, $(2) tag,
+# $(3) manifest paths. One definition so the sed pattern and the echo cannot
+# drift between environments, which is how the dev and prod pins stayed equal.
+define pin_image
+for f in $(3); do sed -i 's|image: $(1):.*|image: $(1):$(2)|' $$f; echo "  $$f -> $(1):$(2)"; done
+endef
+
+# Roll one Deployment out and wait for it. $(1) deployment, $(2) timeout.
+define rollout
+$(KUBECTL) -n $(NAMESPACE) rollout restart deployment/$(1) && \
+$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(1) --timeout=$(if $(2),$(2),$(ROLLOUT_TIMEOUT))
+endef
+
+# Apply one controller manifest and wait for its rollout.
+# $(1) manifest path, $(2) deployment name.
+define apply_controller
+$(KUBECTL) apply -f $(1) && \
+$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(2) --timeout=$(ROLLOUT_TIMEOUT)
+endef
+
+.PHONY: all pull-discovery pull-litellm pull build push-discovery push-litellm push login \
+	controller-build controller-push controller-build-push \
+	controller-pin controller-pin-dev controller-pin-prod \
+	controller-apply controller-apply-dev controller-apply-prod \
+	controller-release controller-release-dev controller-release-prod \
+	controller-deploy-dev controller-deploy-prod controller-build-dev controller-push-dev \
+	prod-config prod-controller prod-gateway prod-extras deploy \
+	dev-config dev-controller dev-gateway deploy-dev \
+	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-pin \
+	litellm-src-deploy litellm-src-release litellm-src-deploy-dev litellm-src-release-dev \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
 	smoke smoke-fast smoke-models smoke-leaks smoke-leaks-mutate \
+	help clean clean-artifacts \
+	oicm-sa-config oicm-sa-provision oicm-sa-provision-abudhabi oicm-sa-secrets \
+	docs litellm-logo port-forward-datasources
+
+# These composites build a controller (or gateway) image and then apply it, so a
+# failed build must stop the rollout and the pin must land before the apply. A
+# parallel `make -j` would otherwise interleave them.
+.NOTPARALLEL: controller-deploy-dev controller-deploy-prod \
+	litellm-src-deploy litellm-src-deploy-dev
 
 all: pull build push
+
+## List the targets this Makefile offers, with their one-line descriptions.
+help:
+	@echo "Discovery controller + gateway + local dev, for the ADEO LiteLLM layer."
+	@echo ""
+	@echo "Controller, fine-grained. Build/push/pin never touch the cluster."
+	@echo "  controller-build            build $(DISCOVERY_IMG):\$$(TAG)"
+	@echo "  controller-push             push that tag to Harbor"
+	@echo "  controller-pin              point BOTH manifests at that tag"
+	@echo "  controller-pin-dev          point only the dev manifest"
+	@echo "  controller-pin-prod         point only the prod manifest"
+	@echo "  controller-apply-dev        apply the dev manifest as pinned + wait"
+	@echo "  controller-apply-prod       apply the prod manifest as pinned + wait"
+	@echo ""
+	@echo "Controller, composed."
+	@echo "  controller-release[-dev|-prod]   build + push + pin (no cluster)"
+	@echo "  controller-deploy-dev            ... + roll out dev"
+	@echo "  controller-deploy-prod           ... + roll out prod"
+	@echo "  controller-deploy-prod BUILD=0 TAG=<validated-tag>"
+	@echo "                                   roll out existing bytes, no rebuild"
+	@echo "  controller-apply-prod            just apply the pinned manifest"
+	@echo ""
+	@echo "Cluster state, per object group."
+	@echo "  dev-controller / prod-controller  controller manifest + exclusions"
+	@echo "  dev-gateway / prod-gateway         gateway overlay (+ ServiceMonitor)"
+	@echo "  deploy-dev / deploy               both groups, one environment"
+	@echo ""
+	@echo "Gateway image."
+	@echo "  litellm-src-build-push        build + push litellm-src:\$$(LITELLM_SRC_TAG)"
+	@echo "  litellm-src-release-dev       build, push, pin, roll out DEV only"
+	@echo "  litellm-src-release           same for prod"
+	@echo ""
+	@echo "Local + smoke.  make litellm-local-run | litellm-ui-dev | smoke-fast"
+	@echo "Overridable: BASE KEY TAG LITELLM_SRC_TAG BUILD NAMESPACE ROLLOUT_TIMEOUT"
 
 ## Pull base/dependency images
 pull: pull-discovery pull-litellm
@@ -98,50 +203,129 @@ push-litellm:
 ## Build, push, and pin the version tag in the dev and prod manifests. This only
 ## edits the manifest files and pushes the image; it never touches the cluster,
 ## so prod is not upgraded until someone deliberately runs `make deploy`.
-## Use `make controller-release-dev` when only dev should move.
-controller-release: build push-discovery
-	@echo "Pinning $(DISCOVERY_IMG):$(TAG)"
-	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/dev/discovery-controller-dev.yaml
-	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/prod/discovery-controller.yaml
-	@echo "Pinned dev and prod manifests. Prod was NOT applied; run 'make deploy' for that."
+# ---------------------------------------------------------------------------
+# Discovery controller: four primitives, composed per environment.
+#
+# Each primitive does exactly one thing, so a rollout can use the pieces it
+# actually needs. That matters most for prod: rolling out a tag already
+# validated in dev is `make controller-deploy-prod BUILD=0`, which reuses the
+# tested image bytes instead of rebuilding them.
+#
+#   build    podman build at $(TAG)      (BUILD=0 skips it in the composites)
+#   push     push $(TAG) to Harbor
+#   pin      rewrite one environment's manifest to $(TAG)
+#   apply    kubectl apply that manifest + wait for the rollout
+#
+#   controller-release[-dev|-prod]  = build + push + pin   (no cluster access)
+#   controller-deploy-{dev,prod}    = release + apply
+# ---------------------------------------------------------------------------
 
-## Build the discovery controller image for a dev iteration. Same image as
-## `build`; named separately so the dev flow reads as one thing.
-controller-build-dev: build
+## Build the discovery controller image at $(TAG) (version-date-gitsha).
+## Inside the composites this honours BUILD=0, which reuses an already-built and
+## already-pushed tag (the path a dev-validated build takes to prod).
+controller-build:
+ifeq ($(BUILD),1)
+	$(MAKE) build
+else
+	@echo "BUILD=0: reusing existing $(DISCOVERY_IMG):$(TAG) without rebuilding"
+endif
 
-## Push the dev build to Harbor (requires `make login` first)
-controller-push-dev: push-discovery
+## Push the discovery controller image at $(TAG) to Harbor (run `make login`).
+## Honours BUILD=0 the same way: a reused tag is already in the registry.
+controller-push:
+ifeq ($(BUILD),1)
+	$(MAKE) push-discovery
+else
+	@echo "BUILD=0: $(DISCOVERY_IMG):$(TAG) is already pushed; skipping push"
+endif
 
-## Build, push, and pin the tag in the DEV manifest only. Prod's manifest is
-## left untouched, so a dev iteration can never move production. Follow with
-## `make deploy-dev`. This is the dev counterpart of `controller-release`.
-controller-release-dev: build push-discovery
-	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in the dev manifest only"
-	sed -i 's|image: $(DISCOVERY_IMG):.*|image: $(DISCOVERY_IMG):$(TAG)|' deploy/dev/discovery-controller-dev.yaml
-	@echo "Pinned deploy/dev/discovery-controller-dev.yaml. Prod manifest untouched."
+controller-build-push: controller-build controller-push
 
-## Build, push, pin the dev manifest, and roll the dev controller out. One
-## command for the whole dev loop. Prod is never touched.
-controller-deploy-dev: controller-release-dev deploy-dev
+## Point one environment's manifest at $(TAG) without touching the cluster.
+## Targets below take ENV=dev or ENV=prod.
+controller-pin-dev:
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in $(CONTROLLER_MANIFEST_DEV)"
+	$(call pin_image,$(DISCOVERY_IMG),$(TAG),$(CONTROLLER_MANIFEST_DEV))
+	@echo "Prod manifest untouched."
 
-## Apply the dev controller manifest and the dev gateway overlay. Also applies the
-## oicm-sources ConfigMap the controller mounts, so the target is self-contained
-## rather than depending on a ConfigMap someone applied by hand.
-deploy-dev:
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/oicm-exclusions-dev.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/dev/discovery-controller-dev.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
+controller-pin-prod:
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in $(CONTROLLER_MANIFEST_PROD)"
+	$(call pin_image,$(DISCOVERY_IMG),$(TAG),$(CONTROLLER_MANIFEST_PROD))
+	@echo "Dev manifest untouched."
 
-## Deploy all prod manifests to the cluster. Applies the prod overlay; note this
-## does NOT restart the gateway, so it keeps serving its running container.
-## Use `litellm-src-deploy` when the image should move too.
-deploy:
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
+## Point both manifests at $(TAG). Useful when both environments run one build.
+controller-pin:
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in both manifests"
+	$(call pin_image,$(DISCOVERY_IMG),$(TAG),$(CONTROLLER_MANIFEST_DEV) $(CONTROLLER_MANIFEST_PROD))
+	@echo "Pinned dev and prod manifests. Nothing was applied."
+
+## Apply the dev controller manifest at whatever tag it currently pins.
+controller-apply-dev:
+	$(call apply_controller,$(CONTROLLER_MANIFEST_DEV),$(CONTROLLER_DEPLOYMENT_DEV))
+
+## Apply the prod controller manifest at whatever tag it currently pins.
+controller-apply-prod:
+	$(call apply_controller,$(CONTROLLER_MANIFEST_PROD),$(CONTROLLER_DEPLOYMENT_PROD))
+
+## Build, push, and pin BOTH manifests; no cluster access.
+controller-release: controller-build controller-push controller-pin
+
+## Build, push, and pin the DEV manifest only.
+controller-release-dev: controller-build controller-push controller-pin-dev
+
+## Build, push, and pin the PROD manifest only.
+controller-release-prod: controller-build controller-push controller-pin-prod
+
+## Build, push, pin, and roll the dev controller out. Prod is never touched.
+controller-deploy-dev: controller-release-dev dev-controller
+
+## Build, push, pin, and roll the prod controller out.
+## Reuse an already-validated tag instead of rebuilding: BUILD=0
+controller-deploy-prod: controller-release-prod prod-controller
+
+## Dev counterparts kept under their original names, so an existing muscle
+## memory or script keeps working; they are aliases, not separate code paths.
+controller-build-dev: controller-build
+controller-push-dev: controller-push
+
+# ---------------------------------------------------------------------------
+# Cluster state, one primitive per object group and environment.
+#
+# `deploy` used to be one monolithic apply, so shipping a controller change also
+# re-applied the gateway overlay. These split that apart: prod-controller touches
+# only the controller, prod-gateway only the gateway.
+# ---------------------------------------------------------------------------
+
+## ConfigMaps both environments mount (the OICM sources list). Idempotent.
+prod-config dev-config:
+	$(KUBECTL) apply -f deploy/oicm/sources.yaml
+
+## Roll the dev controller (manifest as pinned). Then apply the dev exclusion list.
+dev-controller: dev-config
+	$(call apply_controller,$(CONTROLLER_MANIFEST_DEV),$(CONTROLLER_DEPLOYMENT_DEV))
+	$(KUBECTL) apply -f $(EXCLUSIONS_DEV)
+
+## Roll the prod controller (manifest as pinned), then the prod exclusion list.
+prod-controller: prod-config
+	$(call apply_controller,$(CONTROLLER_MANIFEST_PROD),$(CONTROLLER_DEPLOYMENT_PROD))
+	$(KUBECTL) apply -f $(EXCLUSIONS_PROD)
+
+## Apply the dev gateway overlay. Does NOT restart the gateway, so an unchanged
+## image keeps its running container.
+dev-gateway:
+	$(KUBECTL) apply -k $(OVERLAY_DEV)
+
+## Apply the prod gateway overlay plus its ServiceMonitor. Does NOT restart the
+## gateway; use litellm-src-deploy-prod when the image should move too.
+prod-gateway:
+	$(KUBECTL) apply -k $(OVERLAY_PROD)
+	$(KUBECTL) apply -f $(SERVICEMONITOR_PROD)
+
+## Everything prod: config, controller, gateway overlay, ServiceMonitor.
+deploy: prod-controller prod-gateway
+
+## Everything dev: config, controller, gateway overlay, exclusion list.
+deploy-dev: dev-controller dev-gateway
 
 ## Build the ConfigMap that carries the service-account provisioner script.
 ## Both cluster Jobs mount it, so the script lives in exactly one place.
@@ -214,49 +398,38 @@ litellm-src-push:
 ## Build then push the LiteLLM source image in one step
 litellm-src-build-push: litellm-src-build litellm-src-push
 
-## Build, push, update the deploy manifest image tag, and apply to the cluster.
-## Uses LITELLM_SRC_TAG (defaults to current git branch name).
+## Point the gateway deployment at $(LITELLM_SRC_TAG), no cluster access.
+## The image lives in deploy/base/gateway/proxy/deployment.yaml, which BOTH
+## overlays build on, so this repins dev and prod together.
+litellm-src-pin:
+	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in $(GATEWAY_MANIFEST)"
+	$(call pin_image,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_TAG),$(GATEWAY_MANIFEST))
+
+## Apply all prod manifests, then move the prod gateway to the pinned image.
+## Build first with litellm-src-build-push (or use litellm-src-release).
+litellm-src-deploy: litellm-src-pin prod-gateway
+	@echo "Restarting $(GATEWAY_DEPLOYMENT_PROD) to pull the freshly tagged image"
+	$(call rollout,$(GATEWAY_DEPLOYMENT_PROD))
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
+
+## Build, pin, and roll the prod gateway out.
 ## e.g. make litellm-src-release  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0)
 litellm-src-release: litellm-src-build-push litellm-src-deploy
 
-## Update the prod overlay's image to the current LITELLM_SRC_TAG, then apply all
-## deploy manifests. The image lives in deploy/base/gateway/proxy/deployment.yaml,
-## which both overlays build on, so pinning it moves prod and dev together.
-litellm-src-deploy:
-	@echo "Updating image tag to $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/base/gateway/proxy/deployment.yaml"
-	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/base/gateway/proxy/deployment.yaml
-	@echo "Deploying to cluster"
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/sources.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/oicm/exclusions.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/discovery-controller.yaml
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/prod
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -f deploy/prod/litellm-servicemonitor.yaml
-	@echo "Restarting litellm-proxy to pull the freshly tagged image"
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy --timeout=300s
-	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
+## Apply the dev gateway overlay, then move it to the pinned image.
+litellm-src-deploy-dev: litellm-src-pin dev-gateway
+	@echo "Restarting $(GATEWAY_DEPLOYMENT_DEV) to pull the freshly tagged image"
+	$(call rollout,$(GATEWAY_DEPLOYMENT_DEV))
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod overlay untouched."
 
 ## Build, push, then roll the DEV gateway out. The dev counterpart of
 ## `litellm-src-release`, and the ONLY safe way to ship the gateway to dev.
 ##
-## CAVEAT: dev and prod reference the SAME tag (`litellm-src:$(LITELLM_SRC_TAG)`),
-## so a build overwrites the bytes behind that tag for both. This target only
-## restarts the dev Deployment, so prod keeps serving its already-running
-## container until prod is deliberately restarted. Treat the tag as a dev
-## channel until prod is moved to its own tag.
+## CAVEAT: dev and prod reference the SAME tag, so a build overwrites the bytes
+## behind it for both. This target only restarts the dev Deployment, so prod
+## keeps serving its already-running container until prod is deliberately
+## restarted. Treat the tag as a dev channel until prod is moved to its own tag.
 litellm-src-release-dev: litellm-src-build-push litellm-src-deploy-dev
-
-## Pin the current LITELLM_SRC_TAG in the DEV overlay and roll it out.
-## Prod's overlay and Deployment are never touched.
-litellm-src-deploy-dev:
-	@echo "Pinning image tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in deploy/base/gateway/proxy/deployment.yaml"
-	sed -i 's|image: $(LITELLM_SRC_HARBOR_IMG):.*|image: $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)|' deploy/base/gateway/proxy/deployment.yaml
-	@echo "Deploying dev gateway"
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl apply -k deploy/overlays/dev
-	@echo "Restarting litellm-proxy-dev to pull the freshly tagged image"
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout restart deployment/litellm-proxy-dev
-	KUBECONFIG=$${KUBECONFIG:-$(ALAIN_KUBECONFIG)} kubectl -n adeo-litellm rollout status deployment/litellm-proxy-dev --timeout=300s
-	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod overlay untouched."
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
 ## requirements-docs.txt). Used by the rotation runbook in docs/credentials.md
