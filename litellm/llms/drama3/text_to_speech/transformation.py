@@ -15,6 +15,7 @@ from litellm.llms.drama3.common_utils import (
     DRAMA3_INTERNAL_PARAMS,
     Drama3ModelInfo,
 )
+from litellm.types.utils import is_litellm_owned_kwarg
 
 # Fields the sglang-omni Drama 3 request schema accepts at the top level of
 # /v1/audio/speech (sglang_omni/serve/protocol.py CreateSpeechRequest), beyond
@@ -72,6 +73,8 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
             for key, value in kwargs.items():
                 if value is None or key in DRAMA3_INTERNAL_PARAMS:
                     continue
+                if is_litellm_owned_kwarg(key):
+                    continue
                 if key in mapped_params:
                     continue
                 if key in ("extra_body", "extra_headers"):
@@ -80,6 +83,8 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
 
         for key, value in optional_params.items():
             if value is None or key in DRAMA3_INTERNAL_PARAMS:
+                continue
+            if is_litellm_owned_kwarg(key):
                 continue
             if key in mapped_params:
                 continue
@@ -129,6 +134,8 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
 
         for key, value in optional_params.items():
             if value is None or key in DRAMA3_INTERNAL_PARAMS:
+                continue
+            if is_litellm_owned_kwarg(key):
                 continue
             if key in request_body:
                 continue

@@ -243,3 +243,61 @@ def test_drama3_tts_kwargs_path_forwards_pod_schema_fields():
     assert mapped["language"] == "en"
     assert mapped["seed"] == 42
     assert mapped["task_type"] == "Base"
+
+
+def test_drama3_tts_deployment_litellm_params_never_leak_to_pod():
+    """The router merges the deployment's ENTIRE litellm_params dict into the
+    speech() kwargs (router.py _aspeech: {**data, **kwargs}), so any key on the
+    model row rides into map_openai_params. The hand-copied internal frozenset
+    missed allow_client_keepalive_override and keepalive_seconds, and the
+    deployed pod 400'd every request with "unknown speech request field" the
+    moment the provider went live. The canonical is_litellm_owned_kwarg
+    inventory filters the whole litellm-owned family, present and future.
+
+    These are the REAL keys from the live dev row's litellm_params, plus the
+    generic owned set a deployment can carry.
+    """
+    config = Drama3TextToSpeechConfig()
+    kwargs = {
+        "allow_client_keepalive_override": False,
+        "keepalive_seconds": 20.0,
+        "use_in_pass_through": True,
+        "use_litellm_proxy": True,
+        "use_xai_oauth": False,
+        "merge_reasoning_content_in_choices": False,
+        "stream": True,
+        "references": [{"audio_path": "https://x/r.wav", "text": "t"}],
+        "top_k": 30,
+    }
+    voice, mapped = config.map_openai_params(
+        model="fishaudio/drama-3",
+        optional_params={},
+        voice="default",
+        drop_params=False,
+        kwargs=kwargs,
+    )
+    for leaked in (
+        "allow_client_keepalive_override",
+        "keepalive_seconds",
+        "use_in_pass_through",
+        "use_litellm_proxy",
+        "use_xai_oauth",
+        "merge_reasoning_content_in_choices",
+    ):
+        assert leaked not in mapped, f"{leaked} leaked to the pod body"
+    assert mapped["stream"] is True
+    assert mapped["references"]
+    assert mapped["top_k"] == 30
+
+    request_data = config.transform_text_to_speech_request(
+        model="fishaudio/drama-3",
+        input="probe",
+        voice="default",
+        optional_params=dict(mapped),
+        litellm_params={},
+        headers={},
+    )
+    body = request_data["dict_body"]
+    assert "allow_client_keepalive_override" not in body
+    assert "keepalive_seconds" not in body
+    assert body["stream"] is True

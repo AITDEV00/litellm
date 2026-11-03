@@ -3,71 +3,49 @@ import os
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
 
-# Internal litellm keys that must never reach the pod's request body. Mirrors
-# HAMSA_INTERNAL_PARAMS in litellm/llms/hamsa/common_utils.py, minus the keys
-# that are real top-level fields of the pod's CreateSpeechRequest (language,
-# temperature): copying those from hamsa silently dropped them again, the same
-# defect this provider exists to fix.
+# Keys that must never reach the pod's request body but are NOT covered by
+# is_litellm_owned_kwarg: the request-shape fields the transform builds itself
+# (model/voice/input), the OpenAI-core fields it handles explicitly
+# (response_format/speed), and prompt, which litellm does not own. Everything
+# else litellm-owned is filtered via is_litellm_owned_kwarg, the canonical
+# inventory in types/utils.py: the first cut used a hand-copied frozenset and
+# the pod 400'd on allow_client_keepalive_override, a deployment litellm_params
+# key the router merges into every call.
 DRAMA3_INTERNAL_PARAMS: frozenset[str] = frozenset(
     {
-        "model",
-        "voice",
-        "input",
-        "response_format",
-        "speed",
-        "prompt",
-        "timestamp_granularities",
-        "extra_body",
-        "extra_headers",
-        "user",
-        "api_key",
-        "api_base",
-        "api_version",
-        "max_retries",
-        "timeout",
-        "litellm_call_id",
-        "litellm_logging_obj",
-        "proxy_server_request",
-        "proxy_logging_obj",
-        "model_info",
-        "metadata",
-        "preset_cache_key",
-        "cache",
-        "provider_specific_params",
         "additional_drop_params",
-        "drop_params",
         "aspeech",
-        "custom_llm_provider",
-        "client",
-        "shared_session",
-        "headers",
-        "base_model",
-        "base_url",
-        "tags",
-        "original_function",
-        "specific_deployment",
-        "user_api_key",
-        "user_api_key_user_id",
-        "user_api_key_team_id",
-        "user_api_key_alias",
-        "user_api_key_team_alias",
-        "user_api_end_user_id",
-        "user_api_key_team_max_budget",
-        "user_api_key_team_spend",
-        "user_api_key_spend",
-        "user_api_key_max_budget",
-        "user_api_key_models",
-        "user_api_key_allowed_cache_controls",
-        "request_timeout",
         "assistant",
         "async_mode",
-        "litellm_session_id",
-        "litellm_trace_id",
-        "use_in_pass_through",
-        "use_litellm_proxy",
-        "use_xai_oauth",
-        "use_chat_completions_api",
-        "merge_reasoning_content_in_choices",
+        "base_url",
+        "drop_params",
+        "extra_body",
+        "extra_headers",
+        "input",
+        "model",
+        "original_function",
+        "prompt",
+        "provider_specific_params",
+        "proxy_logging_obj",
+        "response_format",
+        "specific_deployment",
+        "speed",
+        "timeout",
+        "timestamp_granularities",
+        "user",
+        "user_api_end_user_id",
+        "user_api_key",
+        "user_api_key_alias",
+        "user_api_key_allowed_cache_controls",
+        "user_api_key_max_budget",
+        "user_api_key_models",
+        "user_api_key_spend",
+        "user_api_key_team_alias",
+        "user_api_key_team_id",
+        "user_api_key_team_max_budget",
+        "user_api_key_team_spend",
+        "user_api_key_user_id",
+        "voice",
     }
 )
 
