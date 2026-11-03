@@ -39,6 +39,23 @@ _DRAMA3_TTS_FIELDS: tuple[str, ...] = (
 )
 
 
+def _forwards_to_pod(key: str, value: object, body: dict[str, Any]) -> bool:
+    """Whether a caller-supplied entry belongs in the pod request body.
+
+    One predicate for the three copies of the filter (kwargs, optional_params,
+    request-body tail) so they cannot drift apart: the leaked
+    allow_client_keepalive_override was exactly two lists maintained
+    separately, one of them stale.
+    """
+    if value is None or key in DRAMA3_INTERNAL_PARAMS:
+        return False
+    if is_litellm_owned_kwarg(key):
+        return False
+    if key in body:
+        return False
+    return key not in ("extra_body", "extra_headers")
+
+
 class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
     def get_supported_openai_params(self, model: str) -> list:
         return [
@@ -71,24 +88,12 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
 
         if kwargs is not None:
             for key, value in kwargs.items():
-                if value is None or key in DRAMA3_INTERNAL_PARAMS:
-                    continue
-                if is_litellm_owned_kwarg(key):
-                    continue
-                if key in mapped_params:
-                    continue
-                if key in ("extra_body", "extra_headers"):
-                    continue
-                mapped_params[key] = value
+                if _forwards_to_pod(key, value, mapped_params):
+                    mapped_params[key] = value
 
         for key, value in optional_params.items():
-            if value is None or key in DRAMA3_INTERNAL_PARAMS:
-                continue
-            if is_litellm_owned_kwarg(key):
-                continue
-            if key in mapped_params:
-                continue
-            mapped_params[key] = value
+            if _forwards_to_pod(key, value, mapped_params):
+                mapped_params[key] = value
 
         return voice, mapped_params
 
@@ -133,13 +138,8 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
                 request_body[key] = value
 
         for key, value in optional_params.items():
-            if value is None or key in DRAMA3_INTERNAL_PARAMS:
-                continue
-            if is_litellm_owned_kwarg(key):
-                continue
-            if key in request_body:
-                continue
-            request_body[key] = value
+            if _forwards_to_pod(key, value, request_body):
+                request_body[key] = value
 
         return TextToSpeechRequestData(
             dict_body=request_body,

@@ -301,3 +301,24 @@ def test_drama3_tts_deployment_litellm_params_never_leak_to_pod():
     assert "allow_client_keepalive_override" not in body
     assert "keepalive_seconds" not in body
     assert body["stream"] is True
+
+
+def test_drama3_tts_direct_sdk_path_filters_extra_body_envelope():
+    """transform_text_to_speech_request can be called without map_openai_params
+    first (direct SDK path). The three filter copies used to drift: the
+    request-tail loop lacked the extra_body/extra_headers exclusion, so the
+    ENVELOPE key itself could ride to the pod as a literal field. The shared
+    _forwards_to_pod predicate makes that impossible in any path."""
+    config = Drama3TextToSpeechConfig()
+    request_data = config.transform_text_to_speech_request(
+        model="fishaudio/drama-3",
+        input="probe",
+        voice="default",
+        optional_params={"top_k": 30, "extra_body": {"seed": 42}},
+        litellm_params={},
+        headers={},
+    )
+    body = request_data["dict_body"]
+    assert "extra_body" not in body
+    assert "extra_headers" not in body
+    assert body["top_k"] == 30
