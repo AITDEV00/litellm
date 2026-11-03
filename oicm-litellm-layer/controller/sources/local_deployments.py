@@ -139,12 +139,20 @@ class LocalDeploymentSource(ModelSource):
         """Return (model_ids, owned_by, max_model_len) for a deployment.
 
         Precedence: an explicit ConfigMap MODEL_ID (single, backward compat)
-        wins; otherwise the model ids advertised by the backend's `/v1/models`.
-        Returns empty list if neither is available.
+        wins over the ids the backend advertises, but the backend is still
+        probed for its advertised window, because the token-budget stamp is
+        derived from it and a ConfigMap-selected id says nothing about the
+        window. A probe failure degrades to no window (no budgets stamped),
+        never to a wrong one.
         """
         cm_model_id = await self._get_configmap_field(uuid, "MODEL_ID")
         if cm_model_id and cm_model_id.strip():
-            return [cm_model_id.strip()], None, None
+            try:
+                _, _, max_model_len = await self._query_v1_models(uuid)
+            except Exception as e:
+                logger.debug("Failed to query /v1/models for %s: %s", uuid, e)
+                max_model_len = None
+            return [cm_model_id.strip()], None, max_model_len
 
         try:
             return await self._query_v1_models(uuid)

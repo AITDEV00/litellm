@@ -115,10 +115,30 @@ async def test_discover_model_ids_configmap_takes_precedence():
     model_ids, _, max_model_len = await source._discover_model_ids("doc-uuid")
 
     # ConfigMap MODEL_ID overrides the /v1/models fan-out (backward compat),
-    # and a ConfigMap-sourced id carries no advertised window.
+    # but the backend is still probed for its advertised window so the
+    # token-budget stamp can be derived from it.
     assert model_ids == ["PP-DocLayoutV3"]
+    assert max_model_len == 4096
+    source._query_v1_models.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_configmap_id_with_failed_probe_degrades_to_no_window():
+    """A ConfigMap-selected id whose backend probe fails must not invent a
+    window; no window means no budgets stamped."""
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value="org/model")
+
+    async def _boom(uuid):
+        raise RuntimeError("probe failed")
+
+    source._query_v1_models = AsyncMock(side_effect=_boom)
+
+    model_ids, owned_by, max_model_len = await source._discover_model_ids("uuid-1")
+
+    assert model_ids == ["org/model"]
+    assert owned_by is None
     assert max_model_len is None
-    source._query_v1_models.assert_not_awaited()
 
 
 @pytest.mark.asyncio
