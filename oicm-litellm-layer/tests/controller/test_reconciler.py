@@ -126,6 +126,32 @@ async def test_patch_keeps_path_detected_tts_voice_contract():
 
 
 @pytest.mark.asyncio
+async def test_patch_never_stamps_a_voice_the_provider_rejects():
+    """The patch lane has the same provider scope as registration.
+
+    A hamsa row whose OICM declaration says Text-to-Speech must not gain
+    "default" through a backfill patch any more than through registration.
+    """
+    pricing = MagicMock()
+    pricing.resolve = AsyncMock(return_value=None)
+    reconciler = SyncReconciler(MagicMock(), pricing)
+
+    model = replace(
+        _make_model("tts-uuid", mode="text_to_speech", provider="hamsa", model_id="hamsa-tts-new"),
+        inference_task="Text-to-Speech",
+    )
+    litellm_by_key = {
+        "tts-uuid": [_make_litellm_entry("litellm-id-h", model_name="hamsa/hamsa-tts-new")]
+    }
+
+    plan = await reconciler.compute_plan({"tts-uuid": model}, litellm_by_key)
+
+    _, _, patch_model_info = plan.patches[0]
+    assert patch_model_info["oicm_task"] == "Text-to-Speech"
+    assert "health_check_voice" not in patch_model_info
+
+
+@pytest.mark.asyncio
 async def test_register_uses_corrected_mode_for_tts_model():
     pricing = MagicMock()
     pricing.resolve = AsyncMock(return_value=None)

@@ -282,12 +282,9 @@ class SyncReconciler:
                 }
                 if model.inference_task:
                     patch_model_info["oicm_task"] = model.inference_task
-                if model.mode == "text_to_speech" and model.inference_task == "Text-to-Speech":
-                    # Same scope and reason as the registration stamp
-                    # (_register_payload): task-declared TTS rejects the
-                    # gateway's default probe voice; other TTS providers
-                    # keep their own voice contracts.
-                    patch_model_info["health_check_voice"] = "default"
+                # Probe overrides ride the same patch so a backfill converges
+                # in one write (see OicmModel.health_check_stamp).
+                patch_model_info.update(model.health_check_stamp)
                 if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
                     plan.patches.append((existing_id, patch_params, patch_model_info))
                 # A deployment that came back must be routable again. This is

@@ -397,6 +397,25 @@ def test_register_payload_keeps_other_tts_voice_contracts():
     assert "health_check_voice" not in payload["model_info"]
 
 
+def test_register_payload_never_stamps_a_voice_the_provider_rejects():
+    """A hamsa pod that OICM declares Text-to-Speech must not gain "default".
+
+    The task declaration says TTS, but the provider's voice contract is what the
+    probe must satisfy: hamsa resolves voice to a speaker name and rejects one it
+    does not know. The stamp is scoped to the OpenAI-compatible family, where the
+    rejection of "alloy" and the acceptance of "default" were verified live.
+    """
+    model = replace(
+        _make_model(model_id="hamsa-tts-new", provider="hamsa"),
+        mode="text_to_speech",
+        inference_task="Text-to-Speech",
+    )
+
+    payload = _register_payload(model, None)
+
+    assert "health_check_voice" not in payload["model_info"]
+
+
 def test_register_payload_does_not_stamp_health_voice_for_chat():
     # The stamp is scoped to TTS; a chat row keeps its probe body unchanged.
     payload = _register_payload(_make_model(), None)

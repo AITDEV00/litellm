@@ -139,6 +139,27 @@ class OicmModel:
         """The model_info capability keys to stamp for this deployment."""
         return capability_metadata(self.mode, self.capability_facts)
 
+    @property
+    def health_check_stamp(self) -> Mapping[str, str]:
+        """The model_info probe keys this deployment's health check needs.
+
+        The gateway's audio_speech probe defaults voice="alloy" (an OpenAI
+        name), which a task-declared TTS pod on this platform rejects with a
+        400 (Drama 3 accepts only "default", "" or a registered voice),
+        flipping the row health-red forever. Scoped to the hosted_vllm
+        family: other TTS providers have their own voice contracts (hamsa
+        requires a real speaker name, inception and omnivoice accept
+        "alloy"), and a provider-scoped row that later gains a TTS task
+        declaration must not silently inherit a voice its pod rejects.
+        """
+        if (
+            self.mode == "text_to_speech"
+            and self.inference_task == "Text-to-Speech"
+            and self.provider not in NATIVE_BASE_PROVIDERS
+        ):
+            return {"health_check_voice": "default"}
+        return {}
+
 
 def parse_model_list(resp: dict) -> List[str]:
     """Normalize a `/v1/models` response into a flat list of model ids.

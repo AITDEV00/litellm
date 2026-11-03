@@ -446,15 +446,9 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
         # mounted surface serves a different mode (a VibeVoice-ASR row is
         # mode=chat, task=Automatic Speech Recognition).
         model_info["oicm_task"] = model.inference_task
-    if model.mode == "text_to_speech" and model.inference_task == "Text-to-Speech":
-        # The gateway's audio_speech health probe defaults voice="alloy" (an
-        # OpenAI name). A task-declared TTS pod on this platform rejects
-        # unknown voices with a 400 (Drama 3 accepts only "default", "" or a
-        # registered voice), which would flip the row health-red forever.
-        # Scoped to task-declared TTS: other TTS providers have their own
-        # voice contracts (hamsa requires a real speaker name, inception and
-        # omnivoice accept "alloy"), and they keep the gateway default.
-        model_info["health_check_voice"] = "default"
+    # Probe overrides the gateway's defaults would reject (see
+    # OicmModel.health_check_stamp).
+    model_info.update(model.health_check_stamp)
     # A stored key wins per-key over the gateway's own /v1/models discovery,
     # which would otherwise stamp the context window into every token field.
     # max_tokens is pinned too: it is the legacy output field some clients fall
