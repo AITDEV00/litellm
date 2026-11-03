@@ -82,6 +82,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Inception audit / pod parity | `docs/custom-providers/inception-hamsa-audit.md`, `inception-gateway-pod-parity.md` |
 | Gateway field-drop investigation | `docs/custom-providers/gateway-field-drop-investigation.md` |
 | Drama 3 registration diagnosis (mode + field drop) | `docs/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md` |
+| Drama 3 robust fix design (pass-through + declared mode) | `docs/custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md` |
 
 ## Usage Guides
 

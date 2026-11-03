@@ -120,10 +120,12 @@ One wrinkle worth deciding before implementation: `detect_provider` matches on a
 
 ## Recommendation
 
+**Superseded.** The ordered recommendation below was the first pass; [FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md](FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md) replaces it after live verification falsified parts of it (the pod publishes no `supported_task_types`, so the serve-intent probe had no data source, and VibeVoice-ASR shows the chat-first rule protects a real case). Kept for the record of what was considered.
+
 Land them in this order:
 
 1. **Provider slice for fishaudio (gateway).** This is what restores streaming and voice cloning, which are the features people actually want from Drama 3. It also removes the `voice` requirement, which is the first thing every caller trips over.
 2. **`_PATH_MODES` reorder (controller).** Small, self-contained, and fixes the mislabel for every pod that serves both speech and transcription.
-3. **Chat-precedence fix (controller).** Needs the serve-intent probe and a careful test, because the current rule exists to prevent a real 404 failure mode. Do not weaken it without covering the transcription-with-chat case it protects.
+3. **Chat-precedence fix (controller).** Needs the serve-intent probe and a careful test, because the current rule exists to prevent a real 404 failure mode. Do not weaken it without covering the transcription-with-chat case it protects. *(Verification note: this probe cannot be built today; this pod publishes no `supported_task_types`. The robust-fix design replaces this step with a declared ConfigMap `MODE` override.)*
 
 Until step 1 lands, the usage guide documents the current behaviour accurately, so callers are not surprised by a 200 with the wrong audio.
