@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Final, FrozenSet, List, Optional, Tuple
+from typing import Final, FrozenSet, List, Mapping, Optional, Tuple
 
 from .config import CLUSTER_DOMAIN, CLUSTER_NAME, MODEL_PORT, NAMESPACE
+from .token_limits import token_budgets
 
 # A Submariner import namespaces its uuid as `submariner:<cluster>:<uuid>` to
 # keep it unique in the k8s EndpointSlice. The owning OICM reports the bare
@@ -83,6 +84,10 @@ class OicmModel:
     # visible but is paused, because leaving it routable would send every
     # request at a Service that no longer exists.
     serving: bool = True
+    # The window the backend advertised in /v1/models (``max_model_len``), or
+    # None when the backend does not expose one. Drives the token-budget
+    # metadata this controller stamps; see token_limits.py.
+    max_model_len: Optional[int] = None
 
     @property
     def deployment_id(self) -> str:
@@ -112,6 +117,11 @@ class OicmModel:
         if self.provider in NATIVE_BASE_PROVIDERS:
             return base
         return f"{base}/v1"
+
+    @property
+    def token_budgets(self) -> Mapping[str, int]:
+        """The model_info token keys to stamp for this deployment."""
+        return token_budgets(self.max_model_len, self.mode)
 
 
 def parse_model_list(resp: dict) -> List[str]:
@@ -242,6 +252,7 @@ def build_model(
     api_base_override: Optional[str] = None,
     api_surface: Optional[str] = None,
     namespace: str = NAMESPACE,
+    max_model_len: Optional[int] = None,
 ) -> OicmModel:
     """Assemble an OicmModel, deriving model_name from the raw id.
 
@@ -262,6 +273,7 @@ def build_model(
         cluster=cluster,
         api_base_override=api_base_override,
         api_surface=api_surface,
+        max_model_len=max_model_len,
     )
 
 

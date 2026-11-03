@@ -24,7 +24,7 @@ async def test_single_model_deployment_is_keyed_by_uuid():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(return_value=frozenset({"/v1/chat/completions"}))
-    source._discover_model_ids = AsyncMock(return_value=(["llama-3-8b"], "openai"))
+    source._discover_model_ids = AsyncMock(return_value=(["llama-3-8b"], "openai", 131072))
 
     dep = _make_deployment("uuid-1")
     models = await source.discover_for_deployment(dep)
@@ -34,6 +34,9 @@ async def test_single_model_deployment_is_keyed_by_uuid():
     assert model.model_id == "llama-3-8b"
     assert model.mode == "chat"
     assert model.provider == "hosted_vllm"
+    assert model.max_model_len == 131072
+    assert model.token_budgets["max_output_tokens"] == 16384
+    assert model.token_budgets["max_input_tokens"] == 131072 - 16384
 
 
 @pytest.mark.asyncio
@@ -50,7 +53,7 @@ async def test_deployment_advertising_multiple_ids_registers_only_the_first():
         return_value=frozenset({"/v1/convert/source", "/health"})
     )
     source._discover_model_ids = AsyncMock(
-        return_value=(["PP-DocLayoutV3", "PP-StructureV3"], "")
+        return_value=(["PP-DocLayoutV3", "PP-StructureV3"], "", None)
     )
 
     dep = _make_deployment("doc-uuid")
@@ -73,7 +76,7 @@ async def test_ocr_path_deployment_registers_as_paddlex_ocr():
         return_value=frozenset({"/v1/ocr", "/health"})
     )
     source._discover_model_ids = AsyncMock(
-        return_value=(["PP-DocLayoutV3"], "")
+        return_value=(["PP-DocLayoutV3"], "", None)
     )
 
     dep = _make_deployment("ocr-uuid")
@@ -93,7 +96,7 @@ async def test_configmap_model_id_wins_and_stays_single():
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(return_value=frozenset({"/v1/convert/source"}))
     # _discover_model_ids returns a single id when the ConfigMap MODEL_ID wins
-    source._discover_model_ids = AsyncMock(return_value=(["PP-DocLayoutV3"], ""))
+    source._discover_model_ids = AsyncMock(return_value=(["PP-DocLayoutV3"], "", None))
 
     dep = _make_deployment("doc-uuid")
     models = await source.discover_for_deployment(dep)
@@ -107,13 +110,40 @@ async def test_configmap_model_id_wins_and_stays_single():
 async def test_discover_model_ids_configmap_takes_precedence():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value="PP-DocLayoutV3")
-    source._query_v1_models = AsyncMock(return_value=(["PP-DocLayoutV3", "PP-StructureV3"], ""))
+    source._query_v1_models = AsyncMock(return_value=(["PP-DocLayoutV3", "PP-StructureV3"], "", 4096))
 
-    model_ids, _ = await source._discover_model_ids("doc-uuid")
+    model_ids, _, max_model_len = await source._discover_model_ids("doc-uuid")
 
-    # ConfigMap MODEL_ID overrides the /v1/models fan-out (backward compat)
+    # ConfigMap MODEL_ID overrides the /v1/models fan-out (backward compat),
+    # and a ConfigMap-sourced id carries no advertised window.
     assert model_ids == ["PP-DocLayoutV3"]
+    assert max_model_len is None
     source._query_v1_models.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_query_v1_models_reads_max_model_len():
+    """The window the backend advertises is captured for the budget stamp."""
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+
+    class _Client:
+        async def get(self, url):
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [{"id": "org/model", "owned_by": "sglang", "max_model_len": 524288}],
+                },
+                request=httpx.Request("GET", url),
+            )
+
+    source._client = _Client()
+    model_ids, owned_by, max_model_len = await source._query_v1_models("uuid-1")
+
+    assert model_ids == ["org/model"]
+    assert owned_by == "sglang"
+    assert max_model_len == 524288
 
 
 @pytest.mark.asyncio
@@ -121,7 +151,7 @@ async def test_no_model_id_falls_back_to_uuid():
     source = LocalDeploymentSource.__new__(LocalDeploymentSource)
     source._get_configmap_field = AsyncMock(return_value=None)
     source._probe_openapi_paths = AsyncMock(return_value=frozenset())
-    source._discover_model_ids = AsyncMock(return_value=([], None))
+    source._discover_model_ids = AsyncMock(return_value=([], None, None))
 
     dep = _make_deployment("uuid-fallback")
     models = await source.discover_for_deployment(dep)
@@ -145,7 +175,7 @@ class TestDiscoverFanOut:
         source = self._source([_make_deployment("uuid-1"), _make_deployment("uuid-2")])
         source._get_configmap_field = AsyncMock(return_value=None)
         source._probe_openapi_paths = AsyncMock(return_value=frozenset())
-        source._discover_model_ids = AsyncMock(return_value=(["m"], None))
+        source._discover_model_ids = AsyncMock(return_value=(["m"], None, None))
 
         models = await source.discover()
 
@@ -166,7 +196,7 @@ class TestDiscoverFanOut:
 
         async def slow_discover(uuid):
             await asyncio.sleep(0.05)
-            return ([uuid], None)
+            return ([uuid], None, None)
 
         source._discover_model_ids = AsyncMock(side_effect=slow_discover)
 
@@ -184,7 +214,7 @@ class TestDiscoverFanOut:
         source = self._source([_make_deployment("uuid-1"), no_label])
         source._get_configmap_field = AsyncMock(return_value=None)
         source._probe_openapi_paths = AsyncMock(return_value=frozenset())
-        source._discover_model_ids = AsyncMock(return_value=(["m"], None))
+        source._discover_model_ids = AsyncMock(return_value=(["m"], None, None))
 
         models = await source.discover()
 

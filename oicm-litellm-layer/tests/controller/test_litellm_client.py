@@ -101,6 +101,44 @@ async def test_register_payload_omits_api_surface_when_unset():
 
 
 @pytest.mark.asyncio
+async def test_register_payload_stamps_the_token_budget_split():
+    """A probed chat model must register a usable budget split.
+
+    The gateway's own /v1/models discovery fills unset token fields with the
+    raw context window, which makes clients send max_tokens == window and 400
+    on every request. A stored key wins per-key, so the payload must stamp the
+    split, including max_tokens (the legacy field the discovery refresh would
+    otherwise re-poison).
+    """
+    captured = {}
+
+    class _CaptureClient:
+        async def post(self, url, **kwargs):
+            captured["json"] = kwargs["json"]
+            return httpx.Response(200, json={"model_id": "mid-3"}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False, client=_CaptureClient())
+    model = replace(_make_model(), max_model_len=524288)
+
+    await client._register_one(model)
+
+    info = captured["json"]["model_info"]
+    assert info["max_output_tokens"] == 64000
+    assert info["max_input_tokens"] == 524288 - 64000
+    assert info["context_length"] == 524288
+    assert info["max_tokens"] == 64000
+
+
+@pytest.mark.asyncio
+async def test_register_payload_claims_no_budget_for_unprobed_model():
+    """No advertised window means no token claims; the payload keeps only
+    the provenance fields, leaving the gateway's discovery in charge."""
+    payload = _register_payload(_make_model(), None)
+    for key in ("max_tokens", "max_input_tokens", "max_output_tokens", "context_length"):
+        assert key not in payload["model_info"]
+
+
+@pytest.mark.asyncio
 async def test_batch_preserves_none_placeholders_for_failed_registers():
     """batch() must keep None for a failed register so callers can align ids to
     inputs by position.

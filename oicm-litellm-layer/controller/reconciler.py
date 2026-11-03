@@ -269,7 +269,13 @@ class SyncReconciler:
                 inherited = pricing_to_params(pricing)
                 if inherited:
                     patch_params.update(inherited)
-                patch_model_info: dict = {"mode": to_litellm_mode(model.mode)}
+                patch_model_info: dict = {
+                    "mode": to_litellm_mode(model.mode),
+                    # Stamped so the stored row wins per-key over the gateway's
+                    # /v1/models discovery, which fills unset token fields with
+                    # the raw context window (see token_limits.py).
+                    **model.token_budgets,
+                }
                 if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
                     plan.patches.append((existing_id, patch_params, patch_model_info))
                 # A deployment that came back must be routable again. This is

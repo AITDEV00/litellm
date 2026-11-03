@@ -425,14 +425,21 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
         for k, v in inherited_params.items():
             if k not in litellm_params and v is not None:
                 litellm_params[k] = v
+    model_info: dict = {
+        "mode": to_litellm_mode(model.mode),
+        "oicm_uuid": model.uuid,
+        "oicm_cluster": model.cluster,
+        "oicm_namespace": model.namespace,
+        "oicm_source": model.source,
+    }
+    # A stored key wins per-key over the gateway's own /v1/models discovery,
+    # which would otherwise stamp the context window into every token field.
+    # max_tokens is pinned too: it is the legacy output field some clients fall
+    # back to, and leaving it unset lets the discovery refresh stamp the window
+    # back into it.
+    model_info.update(model.token_budgets)
     return {
         "model_name": model.model_name,
         "litellm_params": litellm_params,
-        "model_info": {
-            "mode": to_litellm_mode(model.mode),
-            "oicm_uuid": model.uuid,
-            "oicm_cluster": model.cluster,
-            "oicm_namespace": model.namespace,
-            "oicm_source": model.source,
-        },
+        "model_info": model_info,
     }

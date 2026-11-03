@@ -102,7 +102,7 @@ class LocalDeploymentSource(ModelSource):
         extra_args = await self._get_configmap_field(uuid, "EXTRA_ARGS") or ""
         paths = await self._probe_openapi_paths(uuid)
 
-        model_ids, owned_by = await self._discover_model_ids(uuid)
+        model_ids, owned_by, max_model_len = await self._discover_model_ids(uuid)
         if not model_ids:
             model_ids = [uuid]
             logger.warning("Could not discover MODEL_ID for %s, using fallback", uuid)
@@ -131,11 +131,12 @@ class LocalDeploymentSource(ModelSource):
             provider=provider,
             extra_args=extra_args,
             api_surface=api_surface,
+            max_model_len=max_model_len,
         )
         return {model.deployment_id: model}
 
-    async def _discover_model_ids(self, uuid: str) -> tuple[list[str], Optional[str]]:
-        """Return (model_ids, owned_by) for a deployment.
+    async def _discover_model_ids(self, uuid: str) -> tuple[list[str], Optional[str], Optional[int]]:
+        """Return (model_ids, owned_by, max_model_len) for a deployment.
 
         Precedence: an explicit ConfigMap MODEL_ID (single, backward compat)
         wins; otherwise the model ids advertised by the backend's `/v1/models`.
@@ -143,14 +144,14 @@ class LocalDeploymentSource(ModelSource):
         """
         cm_model_id = await self._get_configmap_field(uuid, "MODEL_ID")
         if cm_model_id and cm_model_id.strip():
-            return [cm_model_id.strip()], None
+            return [cm_model_id.strip()], None, None
 
         try:
             return await self._query_v1_models(uuid)
         except Exception as e:
             logger.debug("Failed to query /v1/models for %s: %s", uuid, e)
 
-        return [], None
+        return [], None, None
 
     async def _get_configmap_field(self, uuid: str, field: str) -> Optional[str]:
         cm_name = f"configmap-{uuid}-main"
@@ -167,22 +168,26 @@ class LocalDeploymentSource(ModelSource):
             logger.debug("Failed to read ConfigMap %s: %s", cm_name, e)
             return None
 
-    async def _query_v1_models(self, uuid: str) -> tuple[list[str], Optional[str]]:
+    async def _query_v1_models(self, uuid: str) -> tuple[list[str], Optional[str], Optional[int]]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/v1/models"
         resp = await self._client.get(url)
         if resp.status_code == 405:
             logger.info(
                 "Model %s returned 405 on /v1/models, non-OpenAI, skipping", uuid
             )
-            return [], None
+            return [], None, None
         resp.raise_for_status()
         data = resp.json()
         model_ids = parse_model_list(data)
         owned_by = None
+        max_model_len: Optional[int] = None
         openai_data = data.get("data") if isinstance(data, dict) else None
         if isinstance(openai_data, list) and openai_data and isinstance(openai_data[0], dict):
             owned_by = openai_data[0].get("owned_by", "")
-        return model_ids, owned_by
+            raw_len = openai_data[0].get("max_model_len")
+            if isinstance(raw_len, int) and not isinstance(raw_len, bool) and raw_len > 0:
+                max_model_len = raw_len
+        return model_ids, owned_by, max_model_len
 
     async def _probe_openapi_paths(self, uuid: str) -> frozenset[str]:
         url = f"http://s-{uuid}.{NAMESPACE}.{CLUSTER_DOMAIN}:{MODEL_PORT}/openapi.json"

@@ -246,6 +246,40 @@ class TestModelListing:
         scoped_ids = {m["id"] for m in scoped.body["data"]}
         assert scoped_ids <= master_ids, "scoped key sees models master does not"
 
+    def test_chat_models_advertise_a_usable_token_budget(self, gw: Gateway) -> None:
+        """Every chat row must describe a real completion budget, never the
+        raw context window in every field.
+
+        The gateway's own /v1/models discovery fills unset token fields with
+        max_model_len; a client that adopts max_output_tokens as its request
+        default then overflows prompt + max_tokens on every request, so a
+        one-word chat 400s with a misleading "conversation too long" error.
+        The discovery controller stamps a split so this holds on any gateway
+        it manages; this pins it so a regression fails the smoke suite.
+        """
+        result = gw.get("/model/info")
+        assert isinstance(result, Success), f"/model/info failed: {error_detail(result)}"
+        problems = []
+        for item in result.body.get("data", []):
+            info = item.get("model_info", {})
+            if info.get("mode") != "chat":
+                continue
+            name = item.get("model_name", "?")
+            context = info.get("context_length") or info.get("max_input_tokens")
+            output = info.get("max_output_tokens")
+            inp = info.get("max_input_tokens")
+            legacy = info.get("max_tokens")
+            if output is None or context is None:
+                problems.append(f"{name}: no usable budget split (ctx={context}, out={output})")
+                continue
+            if output >= context:
+                problems.append(f"{name}: output {output} >= window {context}")
+            if inp is not None and inp + output > context:
+                problems.append(f"{name}: in+out {inp + output} > window {context}")
+            if legacy is not None and legacy >= context:
+                problems.append(f"{name}: legacy max_tokens {legacy} >= window {context}")
+        assert not problems, "chat models misreporting token budgets:\n" + "\n".join(problems)
+
 
 # ---------------------------------------------------------------------------
 # /model/performance + /model/metrics

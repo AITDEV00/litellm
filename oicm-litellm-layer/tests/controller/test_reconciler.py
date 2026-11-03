@@ -224,6 +224,7 @@ def _entry_matching(model, model_id, costs=None):
         "oicm_uuid": model.uuid,
         "oicm_source": "local",
     }
+    info.update(model.token_budgets)
     return {
         "model_id": model_id,
         "model_name": model.model_name,
@@ -364,6 +365,73 @@ async def test_missing_stored_params_is_patched():
 
     assert len(plan.patches) == 1
     assert plan.patches[0][0] == "id-7"
+
+
+@pytest.mark.asyncio
+async def test_rows_without_token_budgets_are_backfilled():
+    """Every existing chat row predates the budget stamp, so the first cycle
+    after rollout must patch the split in (one write per model, one time).
+
+    The stored listing carries discovery-merged window values in the token
+    fields, so the guard comparing desired-vs-stored must see a difference
+    and plan the patch.
+    """
+    reconciler = _reconciler_with_costs(None)
+    model = replace(_make_model("legacy-uuid"), max_model_len=524288)
+    entry = _entry_matching(model, "id-9")
+    # A pre-rollout row: stored token fields hold the discovery-merged window.
+    entry["model_info"].update(
+        {
+            "max_tokens": 524288,
+            "max_input_tokens": 524288,
+            "max_output_tokens": 524288,
+        }
+    )
+
+    plan = await reconciler.compute_plan(
+        {"legacy-uuid": model}, {"legacy-uuid": [entry]}
+    )
+
+    assert len(plan.patches) == 1
+    _, _, patch_model_info = plan.patches[0]
+    assert patch_model_info["max_output_tokens"] == 64000
+    assert patch_model_info["max_input_tokens"] == 524288 - 64000
+    assert patch_model_info["context_length"] == 524288
+    assert patch_model_info["max_tokens"] == 64000
+
+
+@pytest.mark.asyncio
+async def test_rows_with_matching_budgets_are_not_repatched():
+    """Steady state after the backfill: a row already carrying the split must
+    not be rewritten (every write reloads every model on every replica)."""
+    reconciler = _reconciler_with_costs(None)
+    model = replace(_make_model("stable-budget-uuid"), max_model_len=524288)
+    entry = _entry_matching(model, "id-10")
+
+    plan = await reconciler.compute_plan(
+        {"stable-budget-uuid": model}, {"stable-budget-uuid": [entry]}
+    )
+
+    assert plan.patches == []
+
+
+@pytest.mark.asyncio
+async def test_unprobed_model_never_receives_a_budget_patch():
+    """A chat model with no advertised window must not be churned: the patch
+    guard compares only the keys the controller would write, and with no
+    window there are no token keys to compare."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("unprobed-uuid")  # max_model_len defaults to None
+    entry = _entry_matching(model, "id-11")
+    entry["model_info"].update(
+        {"max_tokens": 131072, "max_input_tokens": 131072, "max_output_tokens": 131072}
+    )
+
+    plan = await reconciler.compute_plan(
+        {"unprobed-uuid": model}, {"unprobed-uuid": [entry]}
+    )
+
+    assert plan.patches == []
 
 
 def _entry_blocked(model, model_id, blocked):
