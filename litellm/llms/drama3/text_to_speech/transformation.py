@@ -31,6 +31,7 @@ _DRAMA3_TTS_FIELDS: tuple[str, ...] = (
     "stream_format",
     "speed",
     "response_format",
+    "instructions",
     "seed",
     "language",
     "task_type",
@@ -60,10 +61,6 @@ class Drama3TextToSpeechConfig(Drama3ModelInfo, BaseTextToSpeechConfig):
             value = optional_params.pop(key, None)
             if value is not None:
                 mapped_params[key] = value
-
-        # The pod rejects `instructions`; dropping it here keeps the request
-        # valid rather than surfacing an upstream 400 for an OpenAI-ism.
-        optional_params.pop("instructions", None)
 
         extra_body = optional_params.pop("extra_body", None)
         if isinstance(extra_body, dict):

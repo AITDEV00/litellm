@@ -15,7 +15,6 @@ DRAMA3_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "input",
         "response_format",
         "speed",
-        "instructions",
         "prompt",
         "timestamp_granularities",
         "extra_body",

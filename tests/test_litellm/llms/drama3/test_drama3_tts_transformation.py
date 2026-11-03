@@ -121,8 +121,12 @@ def test_drama3_tts_maps_references_and_sampling_params():
     assert body["stream_format"] == "sse"
 
 
-def test_drama3_tts_instructions_dropped():
-    """The pod rejects instructions; the config strips it instead of 400ing."""
+def test_drama3_tts_instructions_forwards_to_pod_validator():
+    """instructions is a schema field of the pod's CreateSpeechRequest and the
+    old hosted_vllm path forwarded it (it is one of speech()'s three whitelisted
+    params), so drama-3's own per-model 400 is the honest answer. The first cut
+    of this config silently dropped it, turning that 400 into a 200 with the
+    style request ignored, a regression against the pre-provider behavior."""
     config = Drama3TextToSpeechConfig()
     voice, mapped = config.map_openai_params(
         model="fishaudio/drama-3",
@@ -131,7 +135,7 @@ def test_drama3_tts_instructions_dropped():
         drop_params=False,
         kwargs={},
     )
-    assert "instructions" not in mapped
+    assert mapped["instructions"] == "speak slowly"
 
 
 def test_drama3_tts_extra_body_forwarded():
