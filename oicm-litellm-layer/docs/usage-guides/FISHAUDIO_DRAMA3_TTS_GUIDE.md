@@ -166,6 +166,22 @@ the gateway. A pod 400 with a gateway 200 proves the field never arrived.
 `instructions` is the exception that proves the rule. It is on the gateway's
 forwarding list, so the pod's rejection reaches you intact.
 
+### Buffering, measured
+
+`stream: true` is accepted and returns `200` with `content-type: audio/pcm`, which
+makes it look like it worked. Time to first byte gives it away. Sending the same
+`stream: true` request at three input lengths:
+
+| Input length | TTFB | Total | Response |
+| ------------ | ---- | ----- | -------- |
+| one word | 0.43 s | 0.55 s | 69 KB |
+| one sentence | 1.12 s | 1.50 s | 459 KB |
+| one paragraph | 4.15 s | 5.34 s | 2.6 MB |
+
+A streamed response has near-constant TTFB and a total that grows. Here TTFB grows
+with the amount of audio generated, which means nothing is sent until generation
+finishes. There is also no `transfer-encoding: chunked` header.
+
 ### The mechanism
 
 `fishaudio/drama-3` is registered as `hosted_vllm`, and LiteLLM resolves no
@@ -247,10 +263,17 @@ Direction: icy calm, as if you already accepted it. Put the rise on "goodbye".
 Line: So this is goodbye.
 ```
 
-Verification that tags are performed rather than read aloud: the two-sentence
-input `[sighs] Fine. If we miss it, it is on you. [laughs] Well, maybe that is
-fair.` produced **9.38 s** of audio, where the same words without tags produce
-about 4 s. The extra time is the sigh and the laugh.
+Verification that tags are performed rather than read aloud, measured through the
+gateway on the same sentence with and without tags, three runs each:
+
+| Input | Audio duration |
+| ----- | -------------- |
+| `[sighs] Fine. If we miss it, it is on you. [laughs] Well, maybe that is fair.` | 8.73 - 9.80 s |
+| `Fine. If we miss it, it is on you. Well, maybe that is fair.` | 7.06 - 7.80 s |
+
+The tags add roughly 1.5 s of non-speech audio and the wording is identical, so
+the sigh and the laugh are performed. The comparison is the evidence, not the
+absolute durations, which vary between runs.
 
 ---
 
@@ -346,10 +369,27 @@ them and a pod replacement does not.
 
 ### Through the gateway
 
-`/v1/audio/voices` returns `405 Method Not Allowed` at the gateway: the route is
-claimed by the gateway's own voice-management router rather than proxied to the
-pod. Since `references` is dropped as well, the practical position through the
-gateway is **use `default`**. Any other name reaches the pod and is rejected:
+Every voice-management verb fails at the gateway, and the two verbs fail
+differently, which is worth knowing before you read a status code as "the pod is
+down".
+
+| Verb | Result | Why |
+| ---- | ------ | --- |
+| `GET /v1/audio/voices` | `405 Method Not Allowed` | The gateway's own voice router owns the path and has no GET |
+| `POST /v1/audio/voices` (multipart) | `500 Internal server error` | The gateway's handler reads the body as JSON, so a multipart upload fails with `RuntimeError: Stream consumed` |
+| `POST /v1/audio/speech/batch` | `404 Not Found` | Not a route the gateway exposes |
+
+The `500` is a gateway defect, not a bad request: `litellm/proxy/voice_routes.py`
+calls `await request.body()` and then `orjson.loads(body)`, so only a JSON body
+can ever be parsed. A browser or curl multipart upload, which is what the pod
+itself accepts, cannot work through the gateway at all.
+
+The gateway's voice router is also a different feature from the pod's registry. It
+forwards a JSON body to a provider-side `acreate_voice` action, so it does not
+manage this pod's safetensors voices even when it succeeds.
+
+Since `references` is dropped as well, the practical position through the gateway
+is **use `default`**. Any other name reaches the pod and is rejected:
 
 ```json
 {"error":{"message":"litellm.BadRequestError: Hosted_vllmException - Drama 3 request: unknown voice 'alloy'; use default or an uploaded voice ..."}}
@@ -431,6 +471,9 @@ stateful `WS /v1/audio/speech/stream`. None are proxied by the gateway.
 | `instructions` set | 400 | `Drama 3 request: instructions is not supported by this model` |
 | Reference longer than 60 s | 400 | `references.N: reference audio lasts X s, longer than the 60 s limit` |
 | Speaker tag other than 0 | 400 | `Drama 3 request: only speaker 0 is supported; got speaker tags [...]` |
+| `POST /v1/audio/voices` with multipart | 500 | `Internal server error` (gateway bug, see §5) |
+| `GET /v1/audio/voices` | 405 | `{"detail":"Method Not Allowed"}` |
+| `POST /v1/audio/speech/batch` | 404 | `{"detail":"Not Found"}` |
 
 Per-field validation errors pass through from the pod wrapped in `Hosted_vllmException`, with the pod's original message intact inside `error.message`. Unlike the diarize route, there is no unwrapping to a spec-shaped body; read the text inside the wrapper.
 
