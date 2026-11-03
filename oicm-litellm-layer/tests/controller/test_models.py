@@ -379,6 +379,38 @@ class TestDetectModeFromTask:
     def test_diarization_task_with_mounted_surface(self):
         assert detect_mode_from_task("Diarization", frozenset({"/v1/diarize"})) == "diarization"
 
+    def test_image_task_with_mounted_surface(self):
+        # Live Qwen-Image pod: /v1/images/generations mounted, no chat path.
+        # Without tier 0 it registered as mode=chat (path detection has no
+        # images entry), so /v1/images/generations 404'd at the pod.
+        assert (
+            detect_mode_from_task("Text-to-Image", frozenset({"/v1/images/generations", "/v1/models"}))
+            == "image_generation"
+        )
+
+    def test_image_task_without_its_surface_falls_through(self):
+        # The gate applies to image generation like every other non-chat
+        # task: a declaration without the mounted surface must not re-route
+        # the row.
+        assert detect_mode_from_task("Text-to-Image", frozenset({"/v1/chat/completions"})) is None
+
+    def test_every_non_chat_task_has_a_surface_gate(self):
+        """Table cross-check: no task may fire tier 0 ungated.
+
+        A task mapping to a non-chat mode with no surface path would
+        re-route a chat-shaped pod on the declaration alone, which is the
+        exact misregistration this tier exists to prevent. Pins the
+        _TASK_MODES <-> _TASK_SURFACE_PATHS coverage contract.
+        """
+        from controller.models import _TASK_MODES, _TASK_SURFACE_PATHS
+
+        ungated = {
+            task
+            for task, mode in _TASK_MODES.items()
+            if mode != "chat" and task not in _TASK_SURFACE_PATHS
+        }
+        assert ungated == set()
+
 
 class TestDeploymentId:
     def test_deployment_id_is_the_uuid(self):

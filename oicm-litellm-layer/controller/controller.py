@@ -48,11 +48,12 @@ class DiscoveryController:
         if sources is not None:
             self.sources = sources
         else:
-            # The task lookup closes over `self` and reads `self.status_poller`
-            # at discovery time, not construction time, because the poller is
-            # created below and injection order must not constrain it.
+            # A bound-method reference, not a lambda: the lookup must read
+            # `self.status_poller` at discovery time, not construction time,
+            # because the poller is created below and injection order must
+            # not constrain it.
             self.sources: List[ModelSource] = [
-                LocalDeploymentSource(task_lookup=lambda uuid: self._declared_task(uuid))
+                LocalDeploymentSource(task_lookup=self._declared_task)
             ]
             if ENABLE_SUBMARINER_IMPORTS:
                 self.sources.append(SubmarinerImportSource())

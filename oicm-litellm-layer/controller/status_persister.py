@@ -28,6 +28,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Optional
 
 from .config import HEARTBEAT_INTERVAL
 from .litellm_client import LiteLLMClient
@@ -226,8 +227,8 @@ class StatusPersister:
                         w.blocked,
                         w.cluster,
                         w.source_name,
-                        w.task,
-                        w.block,
+                        oicm_task=w.task,
+                        oicm_block=w.block,
                     )
                     for w in writes
                 )

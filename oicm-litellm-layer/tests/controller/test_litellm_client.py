@@ -312,7 +312,12 @@ async def test_patch_status_sends_blocked_cluster_and_the_block_in_one_body():
 
     client = LiteLLMClient(read_only=False, client=_PatchClient())
     ok = await client.patch_status(
-        "mid-1", True, "abudhabi", "abudhabi-oicm", "Text-to-Speech", {"v": 1, "status": "Stopped"}
+        "mid-1",
+        True,
+        "abudhabi",
+        "abudhabi-oicm",
+        oicm_task="Text-to-Speech",
+        oicm_block={"v": 1, "status": "Stopped"},
     )
 
     assert ok is True

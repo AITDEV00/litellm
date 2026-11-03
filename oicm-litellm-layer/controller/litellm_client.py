@@ -95,6 +95,7 @@ class LiteLLMClient:
         blocked: bool,
         cluster: str,
         source_name: str,
+        *,
         oicm_task: Optional[str],
         oicm_block: dict,
     ) -> bool:
@@ -110,7 +111,9 @@ class LiteLLMClient:
         registration so a row that predates either field gains it on its first
         status write. `oicm_task` follows the same rule: the declared task is
         a deployment fact, not a status fact, so it is a sibling key rather
-        than inside the replaced-every-write `oicm` block.
+        than inside the replaced-every-write `oicm` block. The trailing keys
+        are keyword-only so a caller cannot silently swap block and task, two
+        values a positional call site could transpose without a test noticing.
         """
         if self.read_only:
             logger.info(

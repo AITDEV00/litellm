@@ -305,8 +305,8 @@ async def test_status_and_blocked_ride_one_patch():
         True,
         "alain",
         "alain",
-        None,
-        build_block(_snapshot(status="Stopped", serving=False)),
+        oicm_task=None,
+        oicm_block=build_block(_snapshot(status="Stopped", serving=False)),
     )
 
 

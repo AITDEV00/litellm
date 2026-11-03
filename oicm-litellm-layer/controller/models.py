@@ -176,6 +176,7 @@ TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 TTS_PATH = "/v1/audio/speech"
 EMBEDDING_PATH = "/v1/embeddings"
 OCR_PATH = "/v1/ocr"
+IMAGE_GENERATION_PATH = "/v1/images/generations"
 RERANK_PATHS: FrozenSet[str] = frozenset({"/v1/rerank", "/v2/rerank"})
 
 # Native (non-OpenAI) REST paths exposed by Hamsa pods.
@@ -233,12 +234,15 @@ _TASK_MODES: Final[Mapping[str, str]] = MappingProxyType(
 
 # The path(s) that prove a task's native surface is actually mounted. Tier 0
 # only overrides when one of these is present; otherwise the mounted surface
-# wins (a VibeVoice-ASR serves through chat and stays chat).
+# wins (a VibeVoice-ASR serves through chat and stays chat). Every non-chat
+# task MUST have a gate entry: a task firing without its surface evidence is
+# exactly the misregistration this tier exists to prevent.
 _TASK_SURFACE_PATHS: Final[Mapping[str, Tuple[str, ...]]] = MappingProxyType(
     {
         "Text-to-Speech": (TTS_PATH,),
         "Automatic Speech Recognition": (TRANSCRIPTION_PATH,),
         "Text Embedding": (EMBEDDING_PATH,),
+        "Text-to-Image": (IMAGE_GENERATION_PATH,),
         "Diarization": (DIARIZE_PATH,),
     }
 )
