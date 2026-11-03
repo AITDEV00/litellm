@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from controller.capabilities import CapabilityFacts
 from controller.models import OicmModel, build_model, to_litellm_mode
 from controller.pricing.models import PricingResult
 from controller.reconciler import SyncPlan, SyncReconciler, _summaries_to_models
@@ -225,6 +226,7 @@ def _entry_matching(model, model_id, costs=None):
         "oicm_source": "local",
     }
     info.update(model.token_budgets)
+    info.update(model.capability_stamp)
     return {
         "model_id": model_id,
         "model_name": model.model_name,
@@ -429,6 +431,70 @@ async def test_unprobed_model_never_receives_a_budget_patch():
 
     plan = await reconciler.compute_plan(
         {"unprobed-uuid": model}, {"unprobed-uuid": [entry]}
+    )
+
+    assert plan.patches == []
+
+
+@pytest.mark.asyncio
+async def test_rows_without_capability_stamps_are_backfilled():
+    """Every existing chat row predates the capability stamp, so the first
+    cycle after rollout must patch the flags in (one write per model, one
+    time, riding the same patch as the token backfill)."""
+    reconciler = _reconciler_with_costs(None)
+    model = replace(
+        _make_model("legacy-caps-uuid"),
+        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True),
+    )
+    entry = _entry_matching(model, "id-12")
+    # A pre-rollout row carries no capability keys at all.
+    entry["model_info"].pop("supports_vision", None)
+    entry["model_info"].pop("supports_audio_input", None)
+    entry["model_info"].pop("architecture", None)
+
+    plan = await reconciler.compute_plan(
+        {"legacy-caps-uuid": model}, {"legacy-caps-uuid": [entry]}
+    )
+
+    assert len(plan.patches) == 1
+    _, _, patch_model_info = plan.patches[0]
+    assert patch_model_info["supports_vision"] is True
+    assert patch_model_info["supports_audio_input"] is False
+    assert patch_model_info["architecture"]["input_modalities"] == ["text", "image"]
+
+
+@pytest.mark.asyncio
+async def test_rows_with_matching_capability_stamps_are_not_repatched():
+    """Steady state after the backfill: a row already carrying the stamp
+    must not be rewritten (every write reloads every model on every replica)."""
+    reconciler = _reconciler_with_costs(None)
+    model = replace(
+        _make_model("stable-caps-uuid"),
+        capability_facts=CapabilityFacts(accepts_image=False, accepts_audio=False, is_generation=True),
+    )
+    entry = _entry_matching(model, "id-13")
+
+    plan = await reconciler.compute_plan(
+        {"stable-caps-uuid": model}, {"stable-caps-uuid": [entry]}
+    )
+
+    assert plan.patches == []
+
+
+@pytest.mark.asyncio
+async def test_unprobed_model_never_receives_a_capability_patch():
+    """A chat model whose probe returned nothing must not be churned: with
+    no verdict there are no capability keys to write, and the guard must not
+    interpret stored values as a difference."""
+    reconciler = _reconciler_with_costs(None)
+    model = _make_model("unprobed-caps-uuid")  # capability_facts defaults to None
+    entry = _entry_matching(model, "id-14")
+    # Even a row someone patched by hand (e.g. during a round-trip test) holds
+    # values the controller would not write; it must not be churned.
+    entry["model_info"]["supports_vision"] = True
+
+    plan = await reconciler.compute_plan(
+        {"unprobed-caps-uuid": model}, {"unprobed-caps-uuid": [entry]}
     )
 
     assert plan.patches == []

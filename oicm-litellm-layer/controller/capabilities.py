@@ -1,0 +1,134 @@
+"""Capability metadata the controller stamps so the gateway advertises what
+each deployment actually accepts, instead of leaving every capability key
+null for clients to guess.
+
+Both vscode extensions gate their wire format on these keys: the litellm
+extension drops an attached image when ``supports_vision`` is not exactly
+``true`` and drops an audio part when ``supports_audio_input`` is not, so an
+unadvertised capability is not merely under-reported, it silently discards
+user content. The OAI-compatible extension reads the ``architecture``
+modality block instead, so both shapes are stamped from one fact set.
+
+Facts come from the deployment itself, never a hand-maintained table:
+
+- sglang serves ``/model_info`` with server-computed flags
+  (``has_image_understanding``, ``has_audio_understanding``,
+  ``is_generation``, ``tool_call_parser``, ``reasoning_parser``) derived
+  from the loaded model config, so they cannot disagree with what the
+  tokenizer/prefill path actually accepts.
+- vLLM and other servers expose no such surface; for those the source sends
+  one synthetic image and one synthetic audio chat request directly to the
+  pod and classifies the verdict (200 -> accepts, an explicit 400 -> rejects,
+  anything else -> unknown). The probe result is memoized per deployment for
+  the controller's lifetime, so the cost is one request pair per restart.
+
+A stored ``model_info`` key wins per-key over the gateway's discovery, and
+the gateway's own refresh only fills token fields, so a stamped capability
+stays stamped (verified live on dev across a refresh cycle).
+"""
+
+from dataclasses import dataclass
+from typing import Final, Mapping, Optional
+
+# Modality tokens the architecture block advertises, matching the values the
+# OpenRouter-compat schema and both extensions compare against.
+_TEXT_MODALITY: Final[str] = "text"
+_IMAGE_MODALITY: Final[str] = "image"
+_AUDIO_MODALITY: Final[str] = "audio"
+
+# Servers whose /v1/models self-describes as a text-to-image (TI2I) surface
+# report has_image_understanding=true for their DiT's image-edit path, but
+# their "chat" endpoint generates images; stamping supports_vision would
+# route understanding-style image chats to a diffusion server. A served
+# task-type list that names TI2I without a generate/chat task suppresses the
+# capability stamp entirely: claiming nothing is the honest answer.
+_IMAGE_GEN_TASK_TYPES: Final[frozenset[str]] = frozenset({"TI2I", "T2I", "I2I", "image_generation"})
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityFacts:
+    """The tri-state facts one deployment's probe produced.
+
+    ``None`` means unknown: the probe did not run (non-chat mode, stopped
+    deployment) or could not classify the deployment, and every derived key
+    is omitted rather than guessed.
+    """
+
+    accepts_image: Optional[bool] = None
+    accepts_audio: Optional[bool] = None
+    is_generation: Optional[bool] = None
+
+
+def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[str] = frozenset()) -> CapabilityFacts:
+    """Derive the fact set from an sglang ``/model_info`` response.
+
+    Non-bool values read as unknown rather than false: a field the runtime
+    omits is a fact the runtime did not compute, not a negative. A TI2I
+    surface (per its own served task types) suppresses every claim, because
+    its image flag describes image *editing*, not image understanding.
+    """
+    if not isinstance(payload, dict):
+        return CapabilityFacts()
+    if served_task_types and served_task_types <= _IMAGE_GEN_TASK_TYPES:
+        return CapabilityFacts()
+
+    def flag(key: str) -> Optional[bool]:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        return None
+
+    return CapabilityFacts(
+        accepts_image=flag("has_image_understanding"),
+        accepts_audio=flag("has_audio_understanding"),
+        is_generation=flag("is_generation"),
+    )
+
+
+def probe_verdict_to_fact(status_code: int) -> Optional[bool]:
+    """Classify one synthetic-content probe's HTTP verdict.
+
+    A 200 is acceptance (the server tokenized and processed the content), an
+    explicit 400 is rejection (the server looked at the content and refused
+    it), and anything else (5xx, timeout, connection error surfacing as a
+    non-classifiable code) is unknown: the request failed, which says nothing
+    about the capability, so no claim is made and the probe retries next
+    cycle.
+    """
+    if status_code == 200:
+        return True
+    if 400 <= status_code < 500:
+        return False
+    return None
+
+
+def capability_metadata(mode: str, facts: Optional[CapabilityFacts]) -> Mapping[str, object]:
+    """The ``model_info`` capability keys to stamp for a discovered deployment.
+
+    Returns an empty mapping when there is nothing safe to claim: non-chat
+    modes never carry these keys (a transcription or TTS row is not a chat
+    surface and its clients do not read them), and unknown facts claim
+    nothing so clients keep falling back to their own conservative gating.
+    """
+    if mode != "chat" or facts is None:
+        return {}
+
+    metadata: dict[str, object] = {}
+    if facts.accepts_image is not None:
+        metadata["supports_vision"] = facts.accepts_image
+    if facts.accepts_audio is not None:
+        metadata["supports_audio_input"] = facts.accepts_audio
+
+    input_modalities: list[str] = []
+    if facts.is_generation is not None:
+        input_modalities.append(_TEXT_MODALITY)
+    if facts.accepts_image is True:
+        input_modalities.append(_IMAGE_MODALITY)
+    if facts.accepts_audio is True:
+        input_modalities.append(_AUDIO_MODALITY)
+    if facts.is_generation is not None or input_modalities:
+        metadata["architecture"] = {
+            "input_modalities": input_modalities or [_TEXT_MODALITY],
+            "output_modalities": [_TEXT_MODALITY] if facts.is_generation else [],
+        }
+    return metadata

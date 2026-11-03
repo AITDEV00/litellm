@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from controller.capabilities import CapabilityFacts
 from controller.litellm_client import LiteLLMClient, _register_payload
 from controller.models import OicmModel
 
@@ -135,6 +136,43 @@ async def test_register_payload_claims_no_budget_for_unprobed_model():
     the provenance fields, leaving the gateway's discovery in charge."""
     payload = _register_payload(_make_model(), None)
     for key in ("max_tokens", "max_input_tokens", "max_output_tokens", "context_length"):
+        assert key not in payload["model_info"]
+
+
+@pytest.mark.asyncio
+async def test_register_payload_stamps_capability_flags_and_architecture():
+    """A probed vision model must register supports_vision true plus the
+    architecture modality block: the litellm extension gates images on the
+    flag, the OAI extension on the block, and both are silent drops when
+    the key is absent."""
+    captured = {}
+
+    class _CaptureClient:
+        async def post(self, url, **kwargs):
+            captured["json"] = kwargs["json"]
+            return httpx.Response(200, json={"model_id": "mid-4"}, request=httpx.Request("POST", url))
+
+    client = LiteLLMClient(read_only=False, client=_CaptureClient())
+    model = replace(
+        _make_model(),
+        capability_facts=CapabilityFacts(accepts_image=True, accepts_audio=False, is_generation=True),
+    )
+
+    await client._register_one(model)
+
+    info = captured["json"]["model_info"]
+    assert info["supports_vision"] is True
+    assert info["supports_audio_input"] is False
+    assert info["architecture"]["input_modalities"] == ["text", "image"]
+    assert info["architecture"]["output_modalities"] == ["text"]
+
+
+@pytest.mark.asyncio
+async def test_register_payload_claims_no_capability_for_unprobed_model():
+    """No probe verdict means no capability claims; the payload must not
+    invent a false any more than a true."""
+    payload = _register_payload(_make_model(), None)
+    for key in ("supports_vision", "supports_audio_input", "architecture"):
         assert key not in payload["model_info"]
 
 

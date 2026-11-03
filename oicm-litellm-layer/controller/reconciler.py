@@ -275,6 +275,9 @@ class SyncReconciler:
                     # /v1/models discovery, which fills unset token fields with
                     # the raw context window (see token_limits.py).
                     **model.token_budgets,
+                    # Capability flags ride the same patch so a backfill
+                    # converges in one write (see capabilities.py).
+                    **model.capability_stamp,
                 }
                 if not _patch_is_noop(existing_entry, patch_params, patch_model_info):
                     plan.patches.append((existing_id, patch_params, patch_model_info))

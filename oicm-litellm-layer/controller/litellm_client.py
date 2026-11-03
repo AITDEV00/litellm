@@ -437,7 +437,10 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
     # max_tokens is pinned too: it is the legacy output field some clients fall
     # back to, and leaving it unset lets the discovery refresh stamp the window
     # back into it.
-    model_info.update(model.token_budgets)
+    model_info.update(model.token_budgets)    # Capability flags are stamped for the same reason: a stored null-capability
+    # row makes compliant clients silently drop attached images/audio, and the
+    # gateway's discovery never fills these keys (see capabilities.py).
+    model_info.update(model.capability_stamp)
     return {
         "model_name": model.model_name,
         "litellm_params": litellm_params,
