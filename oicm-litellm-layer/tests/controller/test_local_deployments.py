@@ -36,7 +36,7 @@ async def test_single_model_deployment_is_keyed_by_uuid():
     assert model.provider == "hosted_vllm"
     assert model.max_model_len == 131072
     assert model.token_budgets["max_output_tokens"] == 16384
-    assert model.token_budgets["max_input_tokens"] == 131072 - 16384
+    assert model.token_budgets["max_input_tokens"] == 131072 - 16384 - 64
 
 
 @pytest.mark.asyncio

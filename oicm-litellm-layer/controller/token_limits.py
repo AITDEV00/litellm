@@ -30,6 +30,12 @@ CHAT_OUTPUT_TOKENS: Final[int] = 64000
 # budget scales down with the window instead.
 SCALED_OUTPUT_DIVISOR: Final[int] = 8
 
+# The backend folds chat-template overhead (~32 tokens, measured live) into
+# prompt_tokens, so a prompt exactly filling the advertised input budget
+# still overflows the window by the template's size. Reserving it keeps
+# input + output strictly below the window instead of at its exact boundary.
+TEMPLATE_RESERVE_TOKENS: Final[int] = 64
+
 
 def token_budgets(max_model_len: Optional[int], mode: str) -> Mapping[str, int]:
     """The ``model_info`` token keys to stamp for a discovered deployment.
@@ -45,9 +51,17 @@ def token_budgets(max_model_len: Optional[int], mode: str) -> Mapping[str, int]:
     if not isinstance(max_model_len, int) or isinstance(max_model_len, bool) or max_model_len <= 0:
         return {}
     output = min(CHAT_OUTPUT_TOKENS, max_model_len // SCALED_OUTPUT_DIVISOR)
+    input_budget = max_model_len - output - TEMPLATE_RESERVE_TOKENS
+    if output <= 0 or input_budget <= 0:
+        # A window too small to split would advertise a zero-token completion
+        # budget (which a client may put on the wire as max_tokens=0, an
+        # invalid request) or no input room at all. Claiming nothing is the
+        # safe answer: clients fall back to their own conservative, capped
+        # guess.
+        return {}
     return {
         "max_tokens": output,
-        "max_input_tokens": max_model_len - output,
+        "max_input_tokens": input_budget,
         "max_output_tokens": output,
         "context_length": max_model_len,
     }

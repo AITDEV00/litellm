@@ -124,7 +124,7 @@ async def test_register_payload_stamps_the_token_budget_split():
 
     info = captured["json"]["model_info"]
     assert info["max_output_tokens"] == 64000
-    assert info["max_input_tokens"] == 524288 - 64000
+    assert info["max_input_tokens"] == 524288 - 64000 - 64
     assert info["context_length"] == 524288
     assert info["max_tokens"] == 64000
 

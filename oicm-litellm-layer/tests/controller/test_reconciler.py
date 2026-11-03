@@ -395,7 +395,7 @@ async def test_rows_without_token_budgets_are_backfilled():
     assert len(plan.patches) == 1
     _, _, patch_model_info = plan.patches[0]
     assert patch_model_info["max_output_tokens"] == 64000
-    assert patch_model_info["max_input_tokens"] == 524288 - 64000
+    assert patch_model_info["max_input_tokens"] == 524288 - 64000 - 64
     assert patch_model_info["context_length"] == 524288
     assert patch_model_info["max_tokens"] == 64000
 

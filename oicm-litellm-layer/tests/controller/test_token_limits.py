@@ -8,14 +8,18 @@ legacy `max_tokens` pinned to the same budget so the gateway's discovery
 refresh cannot reintroduce the window through it.
 """
 
-from controller.token_limits import token_budgets
+from controller.token_limits import (
+    SCALED_OUTPUT_DIVISOR,
+    TEMPLATE_RESERVE_TOKENS,
+    token_budgets,
+)
 
 
 def test_large_window_gets_the_full_chat_budget():
     budgets = token_budgets(524288, "chat")
     assert budgets == {
         "max_tokens": 64000,
-        "max_input_tokens": 524288 - 64000,
+        "max_input_tokens": 524288 - 64000 - TEMPLATE_RESERVE_TOKENS,
         "max_output_tokens": 64000,
         "context_length": 524288,
     }
@@ -26,24 +30,39 @@ def test_small_window_scales_the_budget_down():
     # divides the window instead.
     budgets = token_budgets(65536, "chat")
     assert budgets["max_output_tokens"] == 65536 // 8
-    assert budgets["max_input_tokens"] == 65536 - 65536 // 8
+    assert budgets["max_input_tokens"] == 65536 - 65536 // 8 - TEMPLATE_RESERVE_TOKENS
     assert budgets["context_length"] == 65536
 
 
-def test_output_is_always_strictly_below_the_window():
-    # Headroom for chat-template overhead and client token-estimate error: the
-    # exact-sum boundary (input + output == window) must never be reachable.
-    for window in (1 << 16, 1 << 17, 1 << 18, 131072, 262144, 524288, 1000000):
+def test_input_plus_output_stays_strictly_below_the_window():
+    # The backend folds chat-template overhead (~32 tokens, measured live)
+    # into prompt_tokens, so a prompt exactly filling the advertised input
+    # budget still overflows by the template's size. The advertised sum must
+    # keep the reserve below the window instead of sitting at its boundary.
+    for window in (65536, 131072, 262144, 524288, 1000000):
         budgets = token_budgets(window, "chat")
         assert budgets["max_output_tokens"] < window
-        assert budgets["max_input_tokens"] + budgets["max_output_tokens"] <= window
+        assert (
+            budgets["max_input_tokens"] + budgets["max_output_tokens"]
+            <= window - TEMPLATE_RESERVE_TOKENS
+        )
         assert budgets["context_length"] == window
 
 
+def test_output_is_always_strictly_below_the_window():
+    for window in (1 << 16, 1 << 17, 1 << 18, 131072, 262144, 524288):
+        budgets = token_budgets(window, "chat")
+        assert budgets["max_output_tokens"] < window
+        assert budgets["max_input_tokens"] > 0
+
+
 def test_budget_never_exceeds_the_window_on_odd_sizes():
-    budgets = token_budgets(7, "chat")
-    assert budgets["max_output_tokens"] == 0 or budgets["max_input_tokens"] >= 0
-    assert budgets["max_output_tokens"] + budgets["max_input_tokens"] <= 7
+    # A window too small to divide claims nothing at all: a zero-token
+    # completion budget would put max_tokens=0 on the wire for some clients,
+    # and reserving the template can starve the input on small windows too.
+    assert token_budgets(7, "chat") == {}
+    assert token_budgets(SCALED_OUTPUT_DIVISOR - 1, "chat") == {}
+    assert token_budgets(SCALED_OUTPUT_DIVISOR, "chat") == {}
 
 
 def test_non_chat_modes_carry_no_budget():
