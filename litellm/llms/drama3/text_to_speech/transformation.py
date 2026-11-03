@@ -31,6 +31,9 @@ _DRAMA3_TTS_FIELDS: tuple[str, ...] = (
     "stream_format",
     "speed",
     "response_format",
+    "seed",
+    "language",
+    "task_type",
 )
 
 

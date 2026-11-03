@@ -1,6 +1,10 @@
 # Drama 3 through the gateway: the three gaps, and who owns them
 
-Status: diagnosis complete, fix not started. Written 2026-11-03.
+Status: fixed. The drama3 provider slice (litellm/llms/drama3) owns the TTS
+param surface and voice management, the create_voice route parses multipart,
+and the code smell detection pass (oicm-litellm-layer/docs/techniques/
+code_smell_detection_technique.md) audited the slice after implementation.
+Written 2026-11-03.
 
 Drama 3 is served by an sglang-omni pod that supports voice cloning, persistent
 voices, streaming, batch synthesis, and full sampling control. Through the LiteLLM

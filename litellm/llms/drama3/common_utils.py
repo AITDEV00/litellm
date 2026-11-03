@@ -4,7 +4,10 @@ from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.types.utils import ProviderSpecificModelInfo
 
 # Internal litellm keys that must never reach the pod's request body. Mirrors
-# HAMSA_INTERNAL_PARAMS in litellm/llms/hamsa/common_utils.py.
+# HAMSA_INTERNAL_PARAMS in litellm/llms/hamsa/common_utils.py, minus the keys
+# that are real top-level fields of the pod's CreateSpeechRequest (language,
+# temperature): copying those from hamsa silently dropped them again, the same
+# defect this provider exists to fix.
 DRAMA3_INTERNAL_PARAMS: frozenset[str] = frozenset(
     {
         "model",
@@ -13,9 +16,7 @@ DRAMA3_INTERNAL_PARAMS: frozenset[str] = frozenset(
         "response_format",
         "speed",
         "instructions",
-        "language",
         "prompt",
-        "temperature",
         "timestamp_granularities",
         "extra_body",
         "extra_headers",

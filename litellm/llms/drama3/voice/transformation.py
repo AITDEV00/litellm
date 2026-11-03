@@ -84,8 +84,11 @@ class Drama3VoiceConfig(Drama3ModelInfo, BaseVoiceConfig):
     ``/v1/voices/profiles/{profile_id}`` route also works for this provider.
     """
 
+    # "load" is deliberately absent: the pod has no load endpoint (only list,
+    # upload, delete), and no gateway route produces that action, so declaring
+    # it would make _resolve_voice_model route a load request to this pod.
     SUPPORTED_VOICE_ACTIONS: frozenset[str] = frozenset(
-        {"register", "load", "list", "delete_profile"}
+        {"register", "list", "delete_profile"}
     )
 
     def validate_environment(

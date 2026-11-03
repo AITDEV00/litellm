@@ -77,6 +77,10 @@ _VOICE_DATA_KEYS = frozenset(
         "ref_text",
         "profile_id",
         "overwrite",
+        # The sglang-omni voice upload endpoint requires a consent string
+        # alongside the sample; without this key the register action can never
+        # carry it through voice_data and the pod rejects the upload.
+        "consent",
     }
 )
 
@@ -345,8 +349,27 @@ async def create_voice(
 
     data: Dict = {}
     try:
-        body = await request.body()
-        data = orjson.loads(body)
+        # The sglang-omni voice upload is a multipart request (audio file plus
+        # name/consent form fields). Parsing the raw body as JSON 500s on any
+        # multipart call, so branch on the content type the same way
+        # _route_voice_management below does; voice upload is the one action
+        # whose callers genuinely send files.
+        content_type = request.headers.get("content-type", "")
+        if "multipart/form-data" in content_type:
+            form_data = await get_form_data(request)
+            raw = {key: value for key, value in form_data.items() if key != "ref_audio"}
+            ref_audio_upload = form_data.get("ref_audio")
+            if ref_audio_upload is not None and hasattr(ref_audio_upload, "read"):
+                file_content = await ref_audio_upload.read()
+                raw["ref_audio"] = (
+                    ref_audio_upload.filename or "ref_audio.wav",
+                    file_content,
+                    ref_audio_upload.content_type or "audio/wav",
+                )
+            data = raw
+        else:
+            body = await request.body()
+            data = orjson.loads(body) if body else {}
 
         data = await add_litellm_data_to_request(
             data=data,

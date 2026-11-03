@@ -211,3 +211,31 @@ def test_drama3_tts_kwargs_path_forwards_stream_and_references():
     assert mapped["stream"] is True
     assert mapped["stream_format"] == "sse"
     assert mapped["references"] == REFERENCES
+
+
+def test_drama3_tts_kwargs_path_forwards_pod_schema_fields():
+    """language, temperature, seed, and task_type are top-level fields of the
+    pod's CreateSpeechRequest, but the proxy delivers them via **kwargs. The
+    first cut of this provider copied HAMSA_INTERNAL_PARAMS wholesale, which
+    lists language and temperature as internal chat params, and the kwargs
+    loop silently dropped them again: the exact defect the provider exists to
+    fix, alive in two fields. Verified on the wire before the fix:
+    aspeech(..., temperature=0.8, language="en") sent neither.
+    """
+    config = Drama3TextToSpeechConfig()
+    voice, mapped = config.map_openai_params(
+        model="fishaudio/drama-3",
+        optional_params={},
+        voice="default",
+        drop_params=False,
+        kwargs={
+            "temperature": 0.8,
+            "language": "en",
+            "seed": 42,
+            "task_type": "Base",
+        },
+    )
+    assert mapped["temperature"] == 0.8
+    assert mapped["language"] == "en"
+    assert mapped["seed"] == 42
+    assert mapped["task_type"] == "Base"
