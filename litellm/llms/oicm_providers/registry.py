@@ -34,7 +34,7 @@ from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
 def get_provider_voice_config(
     provider: LlmProviders,
 ) -> BaseVoiceConfig | None:
-    """Voice-management config for OICM providers (Hamsa, OmniVoice)."""
+    """Voice-management config for OICM providers (Hamsa, OmniVoice, Drama 3)."""
     if provider == litellm.LlmProviders.HAMSA:
         from litellm.llms.hamsa.voice.transformation import HamsaVoiceConfig
 
@@ -43,6 +43,10 @@ def get_provider_voice_config(
         from litellm.llms.omnivoice.voice.transformation import OmniVoiceVoiceConfig
 
         return OmniVoiceVoiceConfig()
+    if provider == litellm.LlmProviders.DRAMA3:
+        from litellm.llms.drama3.voice.transformation import Drama3VoiceConfig
+
+        return Drama3VoiceConfig()
     return None
 
 
@@ -98,6 +102,12 @@ def get_provider_text_to_speech_config(
         )
 
         return OmniVoiceTextToSpeechConfig()
+    if provider == litellm.LlmProviders.DRAMA3:
+        from litellm.llms.drama3.text_to_speech.transformation import (
+            Drama3TextToSpeechConfig,
+        )
+
+        return Drama3TextToSpeechConfig()
     return None
 
 

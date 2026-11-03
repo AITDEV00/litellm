@@ -88,6 +88,38 @@ def test_oicm_provider_dispatch_reachable_through_utils() -> None:
     assert voice.__class__.__name__ == "OmniVoiceVoiceConfig"
 
 
+def test_drama3_provider_dispatch_wired() -> None:
+    """The drama3 provider slice must stay dispatched through utils after a merge."""
+    from litellm.utils import ProviderConfigManager
+
+    voice = ProviderConfigManager.get_provider_voice_config(litellm.LlmProviders.DRAMA3)
+    assert voice is not None, "DRAMA3 voice config dispatch was dropped"
+    assert voice.__class__.__name__ == "Drama3VoiceConfig"
+
+    tts = ProviderConfigManager.get_provider_text_to_speech_config(
+        model="drama3/fishaudio/drama-3",
+        provider=litellm.LlmProviders.DRAMA3,
+    )
+    assert tts is not None, "DRAMA3 TTS config dispatch was dropped"
+    assert tts.__class__.__name__ == "Drama3TextToSpeechConfig"
+
+
+def test_drama3_speech_dispatch_tail_wired() -> None:
+    """speech() must keep dispatching drama3 through the provider-config branch.
+
+    The tail's elif tuple is inline in litellm/main.py, so a merge that drops
+    'drama3' from it routes requests to the OpenAI branch and silently strips
+    references again. Assert the source text rather than behavior: this is a
+    drop-detection test, not a behavioral one.
+    """
+    from pathlib import Path
+
+    main_py = Path(litellm.__file__).parent / "main.py"
+    source = main_py.read_text()
+    assert '"drama3"' in source, "drama3 was dropped from the speech() dispatch tail"
+    assert '"omnivoice",\n        "drama3",' in source or '"hamsa",\n        "inception",\n        "omnivoice",\n        "drama3",' in source
+
+
 # ---------------------------------------------------------------------------
 # Slice: Prometheus in-flight deployment gauge
 # ---------------------------------------------------------------------------

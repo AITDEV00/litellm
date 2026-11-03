@@ -30,7 +30,13 @@ def strip_source_prefix(uuid: str) -> str:
 # Providers recognized by substring in the deployment's owned_by / model id.
 # Substring (not exact) matching, so suffixed ids like "hamsa-tts-new" still
 # resolve to the "hamsa" provider.
-KNOWN_PROVIDERS: Final[Tuple[str, ...]] = ("inception", "hamsa", "omnivoice", "pyannote")
+KNOWN_PROVIDERS: Final[Tuple[str, ...]] = (
+    "inception",
+    "hamsa",
+    "omnivoice",
+    "pyannote",
+    "drama3",
+)
 
 # Providers whose pods serve a native REST surface instead of an OpenAI /v1
 # API. Their LiteLLM config classes append their own paths to api_base (e.g.
@@ -450,6 +456,13 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
 
     if "k2-fsa" in owner_lower or "k2fsa" in mid_lower:
         return "omnivoice"
+
+    # The drama-3 id carries a hyphen, so the KNOWN_PROVIDERS substring loop
+    # cannot match it; both spellings are handled here. The owner string
+    # (sglang-omni) is deliberately not matched: that serving stack also hosts
+    # other models (cosyvoice, moss, fish-speech), which would mislabel.
+    if "drama-3" in mid_lower or "drama3" in mid_lower:
+        return "drama3"
 
     if DIARIZE_PATH in paths and CHAT_PATH not in paths:
         return "pyannote"

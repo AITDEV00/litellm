@@ -8783,6 +8783,7 @@ def speech(
         "hamsa",
         "inception",
         "omnivoice",
+        "drama3",
     ):
         if api_base is not None:
             litellm_params_dict["api_base"] = api_base

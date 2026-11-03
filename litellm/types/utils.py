@@ -4333,6 +4333,7 @@ class LlmProviders(str, Enum):
     OMNIVOICE = "omnivoice"
     PYANNOTE = "pyannote"
     PADDLEX = "paddlex"
+    DRAMA3 = "drama3"
 
 
 # Create a set of all provider values for quick lookup

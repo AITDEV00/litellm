@@ -93,6 +93,18 @@ class TestDoclingDetection:
     def test_detect_provider_suffixed_inception(self):
         assert detect_provider("", "inception-tts-new") == "inception"
 
+    def test_detect_provider_drama3_from_model_id(self):
+        # The live row: model id fishaudio/drama-3, owner sglang-omni. The id is
+        # the signal; the owner is deliberately not matched because other
+        # sglang-omni models would mislabel.
+        assert detect_provider("sglang-omni", "fishaudio/drama-3") == "drama3"
+        assert detect_provider("", "fishaudio/drama-3") == "drama3"
+
+    def test_detect_provider_drama3_owner_string_alone_does_not_trigger(self):
+        # Another model served by the same sglang-omni stack must not flip to
+        # the drama3 provider.
+        assert detect_provider("sglang-omni", "funaudio/cosyvoice2") == "hosted_vllm"
+
     def test_detect_provider_unrelated_ids_stay_hosted_vllm(self):
         # Guard the substring match: ids merely containing similar letters must
         # not flip providers.
