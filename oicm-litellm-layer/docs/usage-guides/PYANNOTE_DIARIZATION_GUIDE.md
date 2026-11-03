@@ -62,6 +62,7 @@ Multipart form data, pyannoteAI `DiarizeRequest` field names. Supported fields:
 | `file` | yes | The audio file part (WAV/FLAC/OGG/MP3) |
 | `model` | no* | Must be `pyannote/community-1` |
 | `exclusive` | no | `true` -> also fill `output.exclusiveDiarization` (non-overlapping turns only) |
+| `embeddings` | no | `true` -> also fill `output.speakerEmbeddings` + `output.embeddingModel` (see §1.1) — a coro extension, NOT part of the pyannoteAI spec |
 
 \* omitting `model` works only when the gateway has exactly one diarization deployment registered; the gateway then defaults it. Unknown spec fields are silently dropped by the gateway route (they never reach the pod), so check field names carefully.
 
@@ -104,9 +105,59 @@ A pyannoteAI `DiarizationJob`, returned inline and already `succeeded` (coro run
 | `status` | string | `succeeded` on success |
 | `output.diarization` | array | Speaker turns, overlaps preserved |
 | `output.exclusiveDiarization` | array | Present when `exclusive=true`: non-overlapping turns only |
+| `output.speakerEmbeddings` | object | Present when `embeddings=true`: label -> 256-float vector (see §1.1) |
+| `output.embeddingModel` | object | Present when `embeddings=true`: `{id, revision, dim}` of the weights that produced the vectors |
 | `output.warning` | string | Pod-side warnings (e.g. clipping detection) |
 
 Every segment is `{"speaker": "SPEAKER_XX", "start": <sec>, "end": <sec>}` with `end > start`. Speaker labels are stable within a job; no metadata about the speakers is provided beyond ordinal labels.
+
+### 1.1 Per-speaker embeddings (`embeddings=true`) — voice-ID flow
+
+Add `-F embeddings=true` and the output gains two fields:
+
+```json
+"output": {
+  "diarization": [ ... ],
+  "exclusiveDiarization": [ ... ],
+  "speakerEmbeddings": {
+    "SPEAKER_00": [0.0312, -0.1147, "... 256 floats total ..."],
+    "SPEAKER_01": [0.0498, 0.0733, "... 256 floats total ..."],
+    "SPEAKER_02": null
+  },
+  "embeddingModel": {
+    "id": "pyannote/speaker-diarization-community-1",
+    "revision": "67f963b6a1d94fcd4678948237b3cc8bd69bf1d8",
+    "dim": 256
+  }
+}
+```
+
+Contract rules (pinned by the pod's conformance suite):
+
+- **Keys are exactly the speaker labels** that appear in the same job's
+  `diarization`/`exclusiveDiarization` — one vector per diarized speaker.
+- **Each value is 256 floats** — the posterior-weighted centroid of that
+  speaker's WeSpeaker (ResNet34) embeddings across the recording — or
+  `null` when the speaker is a padded row with no actual speech (rare;
+  happens when the estimator's speaker count exceeds the kept clusters).
+- **`embeddingModel.revision` is the pinned weights commit** — vectors are
+  only comparable within the same revision.
+- **Without the flag the keys are absent entirely** (not `null`), so the
+  default response stays byte-identical to the official pyannoteAI
+  contract and the official `pyannoteai-sdk` client keeps working
+  unchanged. The flag is a coro extension and must never collide with a
+  future upstream field (pinned by test).
+
+Voice-ID usage notes:
+
+- The vectors are **not L2-normalized**; normalize before cosine
+  similarity, or use dot products on your own normalized copies.
+- They are **stable for a given `revision`**: the same audio + weights
+  produce the same vectors (deterministic inference), so enrolled
+  voice IDs remain valid across requests.
+- **A speakrs upgrade changes `revision`**: vectors from different
+  revisions are NOT comparable — re-enrol stored voice IDs after any
+  upgrade that changes the returned `revision`.
 
 ---
 
