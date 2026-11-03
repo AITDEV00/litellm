@@ -406,7 +406,7 @@ The `allowed_routes` field on keys restricts which HTTP endpoints the key can ca
 | `admin_viewer_routes` | Read-only admin routes: user/team/tag activity, audit, customer list, spend logs, config/callbacks read, budget settings, guardrails/policies read, MCP semantic filter settings, model cost map status |
 | `master_key_only_routes` | Routes restricted to the master key only: `/global/spend/reset`, `/memory-usage-in-mem-cache`, `/memory-usage-in-mem-cache-items` |
 | `public_routes` | Unauthenticated public routes: `/health/liveness`, `/health/readiness`, `/test`, `/config/yaml`, `/.well-known/litellm-ui-config`, `/public/model_hub`, `/public/agent_hub`, `/public/mcp_hub`, `/public/skill_hub`, `/public/litellm_model_cost_map` |
-| `litellm_native_routes` | LiteLLM-native routes: `/rag/ingest`, `/rag/query` |
+| `litellm_native_routes` | LiteLLM-native routes. Upstream: `/rag/ingest`, `/rag/query`. This deployment also adds the OICM fork slices here, which is what makes them reachable for `key_type=llm_api` keys: `/v1/diarize`, `/v1/audio/speech/clone`, `/v1/voices*`, `/v1/audio/script`, `/v1/audio/models*`, `/lens*`, and `/v1/traces*` |
 | `mapped_pass_through_routes` | Provider pass-through root paths (`/bedrock`, `/vertex-ai`, `/cohere`, `/anthropic`, `/azure`, `/openai`, `/vllm`, `/mistral`, `/watsonx`, etc.) |
 | `passthrough_routes_wildcard` | Wildcard pass-through routes (`/bedrock/*`, `/anthropic/*`, `/vllm/*`, etc.) |
 | `openai_route_names` | Logical names of OpenAI route groups (used for reference, not direct matching) |
@@ -464,6 +464,8 @@ curl -sk -X POST "$PROXY_BASE_URL/key/update" \
 4. If any entry matches, the request is allowed. If none match, the request returns `403`.
 5. For `llm_api_routes`, registered pass-through endpoints are also checked, and a method-aware carve-out allows `GET` on MCP server discovery endpoints (`/v1/mcp/server`, `/v1/mcp/server/{id}`) so restricted keys can still list/inspect MCP servers.
 6. The master key bypasses `allowed_routes` checks entirely.
+
+**Adding a new fork route:** a route that is mounted but absent from every `LiteLLMRoutes` group is invisible to `llm_api_routes` and returns 403 for every `key_type=llm_api` key, while still working for the master key. That asymmetry is easy to miss when testing with the master key, so add new inference paths to `litellm_native_routes` in `litellm/proxy/_types.py` and verify with a real scoped key. `tests/unit/proxy/test_oicm_drop_detection.py` walks every path the fork routers serve and fails on a route that is neither authorized nor explicitly declared ops-only.
 
 **Verify a key's allowed_routes:**
 

@@ -20,6 +20,23 @@ Authorization: Bearer <your-api-key>
 
 The gateway maps the user-facing model name to the internal deployment. The discovery controller registers the model as `pyannote/community-1` (mode `diarization`), and the coro pod accepts and expects exactly that id. Send `model=pyannote/community-1`; omit it only if exactly one diarization deployment is registered.
 
+### Which keys can call it, including `embeddings=true`
+
+Route access is decided per route, not per form field. `/v1/diarize` is listed under `LiteLLMRoutes.litellm_native_routes`, which is part of `llm_api_routes`, so a key needs `/v1/diarize` inside the route groups it is allowed to call. `embeddings=true` adds no authorization requirement of its own: any key that can diarize can also request embeddings.
+
+| Key | Calls `/v1/diarize` (with or without `embeddings`) |
+| --- | --- |
+| Master key (`LITELLM_MASTER_KEY`) | Yes. It has `allowed_routes=None` and bypasses the route check entirely, so it cannot be used to prove a customer key works |
+| `key_type=llm_api` virtual key | Yes. Defaults to `allowed_routes=["llm_api_routes"]` |
+| Any key whose `allowed_routes` includes `llm_api_routes`, `litellm_native_routes`, or the literal `"/v1/diarize"` | Yes |
+| `key_type=read_only` (`allowed_routes=["info_routes"]`) | No, 403 |
+| `key_type=management` (no `llm_api_routes`) | No, 403 |
+| No key / bad key | No, 401 |
+
+The model gate is separate: the key must also resolve `pyannote/community-1` as a callable model (via its own `models` list, its team's models, or `all-proxy-models`), otherwise the request is rejected before reaching the pod.
+
+Verified live on `https://litellm.ecouncil.ae` with a throwaway `key_type=llm_api` key scoped to `models=["pyannote/community-1"]`: `embeddings=true` returned HTTP 200 with `speakerEmbeddings` for all three detected speakers and the full `embeddingModel` block. The same key with the flag absent returned only `diarization` + `exclusiveDiarization`, and with `embeddings=false` returned only `diarization`. The master key returned the same embeddings payload. A `read_only` key was refused with 403 and an unauthenticated call with 401.
+
 > **Important**: this is the pyannoteAI `/v1/diarize` contract (multipart audio file + form fields), not OpenAI `/v1/audio/transcriptions`. There is no base64, no JSON body, and no chat surface on this model.
 
 ---
@@ -64,7 +81,9 @@ Multipart form data, pyannoteAI `DiarizeRequest` field names. Supported fields:
 | `exclusive` | no | `true` -> also fill `output.exclusiveDiarization` (non-overlapping turns only) |
 | `embeddings` | no | `true` -> also fill `output.speakerEmbeddings` + `output.embeddingModel` (see §1.1) — a coro extension, NOT part of the pyannoteAI spec |
 
-\* omitting `model` works only when the gateway has exactly one diarization deployment registered; the gateway then defaults it. Unknown spec fields are silently dropped by the gateway route (they never reach the pod), so check field names carefully.
+\* omitting `model` works only when the gateway has exactly one diarization deployment registered; the gateway then defaults it. Unknown form fields are ignored, not rejected: the pod's FastAPI handler declares only the fields above, so anything else never reaches the engine and cannot change the result. Check field names carefully, because a typo behaves exactly like an omitted field (`embeddingss=true` silently returns no vectors).
+
+Invalid values for a known field ARE rejected, by the pod, with a 422 surfaced through the gateway as `litellm.BadRequestError: PyannoteException` wrapping the pod's Pydantic detail, e.g. `embeddings=maybe` -> `bool_parsing` on `body.embeddings`.
 
 All other pyannoteAI request fields are REJECTED by the pod with a 400 spec-shaped `ValidationErrorResponse` (never silently honored): `numSpeakers`, `minSpeakers`, `maxSpeakers`, `confidence`, `turnLevelConfidence`, `transcription`, `transcriptionConfig`, `vadSensitivity`, `crosstalkSensitivity`, `speechProbability`, `crosstalkProbability`, `speakerProbability`, `webhook`, `webhookStatusOnly`. The engine detects the speaker count itself (threshold-based clustering) and jobs are synchronous, so webhooks cannot fire.
 
@@ -115,6 +134,15 @@ Every segment is `{"speaker": "SPEAKER_XX", "start": <sec>, "end": <sec>}` with 
 
 Add `-F embeddings=true` and the output gains two fields:
 
+```bash
+curl -s "https://litellm.ecouncil.ae/v1/diarize" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -F "model=pyannote/community-1" \
+  -F "embeddings=true" \
+  -F "exclusive=true" \
+  -F "file=@meeting.wav"
+```
+
 ```json
 "output": {
   "diarization": [ ... ],
@@ -159,6 +187,30 @@ Voice-ID usage notes:
   revisions are NOT comparable — re-enrol stored voice IDs after any
   upgrade that changes the returned `revision`.
 
+Checking a response from the shell:
+
+```bash
+curl -s "https://litellm.ecouncil.ae/v1/diarize" \
+  -H "Authorization: Bearer $KEY" \
+  -F "model=pyannote/community-1" \
+  -F "embeddings=true" \
+  -F "file=@meeting.wav" \
+| jq '{
+    status,
+    speakers: [.output.diarization[].speaker] | unique,
+    vectors: (.output.speakerEmbeddings | to_entries | map({(.key): (.value | length)})) | add,
+    model: .output.embeddingModel
+  }'
+```
+
+`vectors` should show one entry per speaker, each `256` (or `null` for a
+padded row), and `model.revision` should be the pinned commit above.
+
+Note on how the flag reaches the pod: the gateway route forwards every
+multipart field except `file` and `model` verbatim, so `embeddings` needs
+no gateway-side allowlist entry. Only the small set of spec fields listed
+in §1 is read by the gateway itself for logging and model resolution.
+
 ---
 
 ## 2. Error contracts (verified live)
@@ -166,9 +218,10 @@ Voice-ID usage notes:
 | Case | HTTP | Body |
 | ---- | ---- | ---- |
 | Missing/invalid gateway key | 401 | LiteLLM auth error |
-| Well-typed but unsupported field (`numSpeakers=2`) | 400 | `litellm.BadRequestError: PyannoteException` wrapping the pod's spec-shaped `{"detail":[{"field":"numSpeakers","message":"..."}]}` |
-| Wrong-typed field (`numSpeakers=not-a-number`) | 422 | Pod's FastAPI `int_parsing` validation `{"detail":[...]}` |
-| Unknown field (`bogus=1`) | 200 | Silently dropped by the gateway route; request proceeds |
+| Key without `/v1/diarize` in its `allowed_routes` (e.g. `read_only`) | 403 | `Virtual key is not allowed to call this route. Only allowed to call routes: ['info_routes']. Tried to call route: /v1/diarize` |
+| Well-typed but unsupported field (`numSpeakers=2`) | 400 | `litellm.BadRequestError: PyannoteException` wrapping the pod's spec-shaped `{"message":"Invalid request","errors":[{"field":"numSpeakers","message":"..."}]}` |
+| Wrong-typed field (`embeddings=maybe`) | 422 | The pod's FastAPI validation detail (`bool_parsing`), wrapped by the gateway error handler |
+| Unknown field (`zzz=1`) | 200 | Ignored by the pod's handler; the request proceeds unchanged |
 
 ```bash
 # per-field 400 example: engine does not accept numSpeakers
