@@ -59,11 +59,23 @@ class TestProbeVerdictToFact:
     def test_200_is_acceptance(self):
         assert probe_verdict_to_fact(200) is True
 
-    def test_400_is_rejection(self):
-        assert probe_verdict_to_fact(400) is False
+    def test_content_refusal_codes_are_rejection(self):
+        for code in (400, 406, 413, 415, 422):
+            assert probe_verdict_to_fact(code) is False, code
 
-    def test_422_is_rejection(self):
-        assert probe_verdict_to_fact(422) is False
+    def test_404_route_or_model_missing_is_unknown(self):
+        """A 404 means the route or model id was missing, not that the
+        content was refused; freezing it as False would hide a working
+        capability behind a routing mistake."""
+        assert probe_verdict_to_fact(404) is None
+
+    def test_429_rate_limit_is_unknown(self):
+        """A rate-limited probe says nothing about the capability; it must
+        retry, not freeze a permanent negative."""
+        assert probe_verdict_to_fact(429) is None
+
+    def test_408_timeout_is_unknown(self):
+        assert probe_verdict_to_fact(408) is None
 
     def test_500_is_unknown_not_rejection(self):
         """A server error says nothing about the capability; claiming

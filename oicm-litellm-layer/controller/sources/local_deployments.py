@@ -208,10 +208,13 @@ class LocalDeploymentSource(ModelSource):
 
         Precedence: the backend's own modality metadata (sglang serves
         ``/model_info`` with server-computed flags; free and authoritative),
-        then one synthetic image + audio chat request for servers that expose
-        no metadata (vLLM). Both degrade to unknown (claim nothing) on failure;
-        only the synthetic verdicts are memoized, since the metadata probe is
-        as cheap as the /v1/models one already running each cycle.
+        then one synthetic image + audio chat request for servers whose
+        metadata surface is absent or silent (vLLM). A metadata probe that
+        fails or reports nothing falls through to the synthetic probe; a
+        synthetic probe that cannot classify leaves the facts unknown, which
+        claims nothing. Only the synthetic verdicts are memoized, since the
+        metadata probe is as cheap as the /v1/models one already running each
+        cycle.
         """
         if mode != "chat":
             return None
@@ -250,9 +253,10 @@ class LocalDeploymentSource(ModelSource):
         """One minimal chat request carrying one synthetic image or audio part.
 
         Sent straight to the pod, never through the gateway: no key, no spend
-        row, no router reload. A 200 is acceptance, an explicit 4xx is
-        rejection, anything else is unknown and retried on a later cycle (the
-        memoization only lands once both probes have a definitive verdict).
+        row, no router reload. A 200 is acceptance, a content refusal (400,
+        406, 413, 415, 422) is rejection, anything else is unknown and retried
+        on a later cycle (the memoization only lands once both probes have a
+        definitive verdict).
         """
         if kind == "image":
             content = [

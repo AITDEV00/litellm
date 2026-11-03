@@ -29,7 +29,8 @@ stays stamped (verified live on dev across a refresh cycle).
 """
 
 from dataclasses import dataclass
-from typing import Final, Mapping, Optional
+from typing import Final
+from collections.abc import Mapping
 
 # Servers whose /v1/models self-describes as a text-to-image (TI2I) surface
 # report has_image_understanding=true for their DiT's image-edit path, but
@@ -49,8 +50,8 @@ class CapabilityFacts:
     is omitted rather than guessed.
     """
 
-    accepts_image: Optional[bool] = None
-    accepts_audio: Optional[bool] = None
+    accepts_image: bool | None = None
+    accepts_audio: bool | None = None
 
 
 def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[str] = frozenset()) -> CapabilityFacts:
@@ -66,7 +67,7 @@ def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[s
     if served_task_types and served_task_types <= _IMAGE_GEN_TASK_TYPES:
         return CapabilityFacts()
 
-    def flag(key: str) -> Optional[bool]:
+    def flag(key: str) -> bool | None:
         value = payload.get(key)
         if isinstance(value, bool):
             return value
@@ -78,24 +79,32 @@ def facts_from_sglang_model_info(payload: object, served_task_types: frozenset[s
     )
 
 
-def probe_verdict_to_fact(status_code: int) -> Optional[bool]:
+# HTTP verdicts that mean "the server examined the content and refused it":
+# malformed-content refusals (400, 422), modality/encoding negotiation (406,
+# 415), content-too-large (413). Codes outside this set say something else:
+# 404 is a missing route or model id, 429 is rate limiting, 408 is a timeout,
+# and none of those are verdicts about the content, so they must not freeze
+# a permanent negative.
+_CONTENT_REFUSAL_CODES: Final[frozenset[int]] = frozenset({400, 406, 413, 415, 422})
+
+
+def probe_verdict_to_fact(status_code: int) -> bool | None:
     """Classify one synthetic-content probe's HTTP verdict.
 
-    A 200 is acceptance (the server tokenized and processed the content), an
-    explicit 400 is rejection (the server looked at the content and refused
-    it), and anything else (5xx, timeout, connection error surfacing as a
-    non-classifiable code) is unknown: the request failed, which says nothing
-    about the capability, so no claim is made and the probe retries next
-    cycle.
+    A 200 is acceptance (the server tokenized and processed the content), a
+    content refusal is rejection (the server looked at the content and
+    refused it), and anything else (5xx, 404, 429, timeout, connection error)
+    is unknown: the request failed in a way that says nothing about the
+    capability, so no claim is made and the probe retries next cycle.
     """
     if status_code == 200:
         return True
-    if 400 <= status_code < 500:
+    if status_code in _CONTENT_REFUSAL_CODES:
         return False
     return None
 
 
-def capability_metadata(mode: str, facts: Optional[CapabilityFacts]) -> Mapping[str, object]:
+def capability_metadata(mode: str, facts: CapabilityFacts | None) -> Mapping[str, object]:
     """The ``model_info`` capability keys to stamp for a discovered deployment.
 
     Returns an empty mapping when there is nothing safe to claim: non-chat
