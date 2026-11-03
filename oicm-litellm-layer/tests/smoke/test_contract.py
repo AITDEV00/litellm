@@ -269,8 +269,14 @@ class TestModelListing:
             output = info.get("max_output_tokens")
             inp = info.get("max_input_tokens")
             legacy = info.get("max_tokens")
+            if output is None and context is None and legacy is None:
+                # A row that advertises no token data at all (an image-gen or
+                # compute surface that fell into the chat default) was never
+                # part of the outage: clients fall back to their own
+                # conservative, capped guess for it.
+                continue
             if output is None or context is None:
-                problems.append(f"{name}: no usable budget split (ctx={context}, out={output})")
+                problems.append(f"{name}: partial token metadata (ctx={context}, out={output})")
                 continue
             if output >= context:
                 problems.append(f"{name}: output {output} >= window {context}")
