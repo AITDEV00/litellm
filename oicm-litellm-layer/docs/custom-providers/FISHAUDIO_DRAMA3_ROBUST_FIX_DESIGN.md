@@ -1,5 +1,7 @@
 # Drama 3 registration: a robust fix, and the patterns behind it
 
+> **Superseded for the registration half by [CAPABILITY_REGISTRATION_BY_PROBE.md](CAPABILITY_REGISTRATION_BY_PROBE.md).** That document replaces the mode-detection ideas here (Patterns 2 and 3) with behavior probing, after verification showed path shape cannot distinguish VibeVoice-ASR (correctly `chat`) from Drama 3 (incorrectly `chat`). Pattern 1, the `hosted_vllm` TTS pass-through config, still stands and is now independent.
+
 Follow-up to [FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md](FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md). That document correctly identified the two defects but proposed detection heuristics as the fix. This one replaces those proposals with an established-pattern design, after live verification falsified part of the earlier plan.
 
 ## Why the earlier plan was not robust

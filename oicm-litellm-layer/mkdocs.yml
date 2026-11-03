@@ -183,6 +183,7 @@ nav:
       - Gateway Field-Drop Investigation: custom-providers/gateway-field-drop-investigation.md
       - Drama 3 Registration Diagnosis: custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md
       - Drama 3 Robust Fix Design: custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md
+      - Capability Registration by Probe: custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md
       - pyannote Diarization Provider Plan: custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
