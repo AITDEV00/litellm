@@ -83,7 +83,8 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Gateway field-drop investigation | `docs/custom-providers/gateway-field-drop-investigation.md` |
 | Drama 3 registration diagnosis (mode + field drop) | `docs/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md` |
 | Drama 3 robust fix design (pass-through + declared mode) | `docs/custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md` |
-| Capability registration by probe (supersedes the above) | `docs/custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md` |
+| Capability registration by probe (superseded by review 2) | `docs/custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md` |
+| Capability registration review 2 (task tier + probes as fallback) | `docs/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md` |
 
 ## Usage Guides
 

@@ -1,5 +1,7 @@
 # Capability registration: probe the deployment, don't trust the route table
 
+> **Demoted to last-resort tier by [CAPABILITY_REGISTRATION_REVIEW2.md](CAPABILITY_REGISTRATION_REVIEW2.md).** Verification found that OICM's `deployment_summary` already carries an `inference_task` declaration (HF-derived enum) that the controller's wire DTO silently drops. Declared task beats probing as the primary tier; the probe table survives as tier 2 for deployments that declare nothing. The three-verdict semantics and method-matched probing below remain correct and are the part worth keeping.
+
 Supersedes the detection proposals in [FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md](FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md). The framing there was wrong: it treated registration as a *path-shape inference* problem and proposed ever-better heuristics. The right framing is that a deployment's capability is a fact you can **ask it for**, and `openapi.json` is a poor proxy for that fact.
 
 Parent direction: the gateway's only job is to serve registered models correctly. OICM and Kubernetes own deployment. So the controller's job is to register each deployment's capabilities *accurately*, not to hardcode `if` conditions that encode one vendor's path list.
