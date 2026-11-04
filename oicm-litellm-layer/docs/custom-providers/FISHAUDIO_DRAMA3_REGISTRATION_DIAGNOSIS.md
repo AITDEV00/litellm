@@ -7,7 +7,10 @@
 > chat-precedence change explored below: it came from OICM's declared
 > `inference_task`, used as tier 0 with a mounted-surface gate. See
 > [CAPABILITY_REGISTRATION_REVIEW2.md](CAPABILITY_REGISTRATION_REVIEW2.md#shipped-state-2026-11-03).
-> Defect 2 (dropped request fields) is still open on the gateway.
+> **Defect 2 is FIXED too (2026-11-04)**: the `drama3` provider slice
+> (`litellm/llms/drama3/`) forwards the Drama 3 schema fields, verified live
+> against dev with a 10-point sentinel suite. The exploration below is kept as
+> the record of the root cause.
 
 Two independent defects surfaced while writing the [Drama 3 usage guide](../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md). They have different root causes and need different fixes, so they are recorded separately here.
 

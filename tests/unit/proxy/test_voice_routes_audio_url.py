@@ -10,10 +10,15 @@ even though the routes were registered.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Final
+from typing import Any, Final
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
+from litellm.proxy import proxy_server, voice_routes
 from litellm.proxy.voice_routes import (
     _audio_speech_chunk_generator,
     _join_audio_url,
@@ -286,3 +291,150 @@ def test_voice_management_falls_back_to_none_when_no_provider_supports_voice() -
     )
 
     assert _resolve_voice_model(router, action="register") is None
+
+
+_HIDDEN: Final = {
+    "_hidden_params": {
+        "model_id": "9cf166e2-02b5-497e-8ec6-4dcd48a58b4e",
+        "litellm_call_id": "call-abc",
+        "additional_headers": {"x-litellm-model-group": "fishaudio/drama-3"},
+    }
+}
+
+
+def _json_request(path: str, payload: bytes = b"") -> Request:
+    request = Request(
+        {
+            "type": "http",
+            "method": "DELETE" if path.endswith("/x") else ("POST" if "/script" in path or "/audio/voices" in path else "GET"),
+            "path": path,
+            "headers": Headers({"content-type": "application/json"}).raw,
+            "query_string": b"",
+        }
+    )
+
+    async def _receive() -> dict:
+        return {"type": "http.request", "body": payload, "more_body": False}
+
+    request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
+    return request
+
+
+def _patched_route(monkeypatch: pytest.MonkeyPatch, pod_response: dict) -> None:
+    """Replace the network edges of a voice route; the router-injected metadata stays on the dict."""
+
+    async def _route_request(**kwargs: Any) -> Any:
+        async def _completed() -> dict:
+            pod_response.setdefault("_hidden_params", _HIDDEN["_hidden_params"])
+            return pod_response
+
+        return _completed()
+
+    async def _identity(**kwargs: Any) -> Any:
+        return kwargs["data"]
+
+    monkeypatch.setattr(voice_routes, "route_request", _route_request)
+    monkeypatch.setattr(voice_routes, "add_litellm_data_to_request", _identity)
+
+    logging_obj = MagicMock()
+    logging_obj.pre_call_hook = AsyncMock(side_effect=lambda **kwargs: kwargs["data"])
+    logging_obj.update_request_status = AsyncMock()
+    logging_obj.post_call_failure_hook = AsyncMock()
+    logging_obj.post_call_response_headers_hook = AsyncMock(return_value={})
+    monkeypatch.setattr(proxy_server, "proxy_logging_obj", logging_obj)
+    monkeypatch.setattr(proxy_server, "user_model", None, raising=False)
+    monkeypatch.setattr(proxy_server, "llm_router", None, raising=False)
+    monkeypatch.setattr(proxy_server, "general_settings", {}, raising=False)
+    monkeypatch.setattr(proxy_server, "version", "0.0.0-test", raising=False)
+    monkeypatch.setattr(proxy_server, "proxy_config", None, raising=False)
+
+
+def _body_of(result: object) -> dict:
+    import orjson
+
+    assert isinstance(result, JSONResponse)
+    return orjson.loads(bytes(result.body))
+
+
+class TestHiddenParamsNeverReachVoiceClients:
+    """The router attaches ``_hidden_params`` (model ids, call ids, routing
+    headers) to every dict response via ``set_response_headers``. The voice
+    routes return those dicts verbatim, so the metadata leaked to clients in
+    list, upload and delete responses."""
+
+    @pytest.mark.asyncio
+    async def test_list_voices_strips_hidden_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patched_route(monkeypatch, {"voices": ["default"], "uploaded_voices": []})
+
+        result = await voice_routes.list_voices(
+            request=_json_request("/v1/voices"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
+        )
+
+        body = _body_of(result)
+        assert "_hidden_params" not in body
+        assert body["voices"] == ["default"]
+
+    @pytest.mark.asyncio
+    async def test_voice_profile_actions_strip_hidden_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patched_route(monkeypatch, {"voices": []})
+
+        result = await voice_routes.list_voice_profiles(
+            request=_json_request("/v1/voices/profiles"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
+        )
+
+        assert "_hidden_params" not in _body_of(result)
+
+    @pytest.mark.asyncio
+    async def test_delete_profile_strips_hidden_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patched_route(monkeypatch, {"success": True, "message": "Voice 'x' deleted successfully"})
+
+        result = await voice_routes.delete_voice_profile(
+            request=_json_request("/v1/voices/profiles/x"),
+            fastapi_response=MagicMock(),
+            profile_id="x",
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
+        )
+
+        assert "_hidden_params" not in _body_of(result)
+
+    @pytest.mark.asyncio
+    async def test_create_voice_upload_strips_hidden_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patched_route(monkeypatch, {"name": "Narrator_01", "consent": "ok"})
+
+        result = await voice_routes.create_voice(
+            request=_json_request("/v1/audio/voices"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
+        )
+
+        body = _body_of(result)
+        assert "_hidden_params" not in body
+        assert body["name"] == "Narrator_01"
+
+    @pytest.mark.asyncio
+    async def test_audio_script_dict_branch_strips_hidden_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patched_route(monkeypatch, {"script": []})
+        payload: Final = b'{"model": "omnivoice", "script": []}'
+
+        result = await voice_routes.audio_script(
+            request=_json_request("/v1/audio/script", payload),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
+        )
+
+        assert isinstance(result, JSONResponse)
+        assert "_hidden_params" not in _body_of(result)

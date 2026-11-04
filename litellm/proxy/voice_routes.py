@@ -437,6 +437,9 @@ async def create_voice(
             hidden_params=hidden_params,
         )
 
+        if isinstance(response, dict):
+            response.pop("_hidden_params", None)
+
         return JSONResponse(content=response, headers=custom_headers)
 
     except Exception as e:
@@ -530,6 +533,9 @@ async def _route_voice_management(
             request_data=data,
             hidden_params=hidden_params,
         )
+
+        if isinstance(response, dict):
+            response.pop("_hidden_params", None)
 
         return JSONResponse(content=response, headers=custom_headers)
 
@@ -711,6 +717,7 @@ async def audio_script(
         )
 
         if isinstance(response, dict):
+            response.pop("_hidden_params", None)
             return JSONResponse(content=response, headers=custom_headers)
 
         return StreamingResponse(
