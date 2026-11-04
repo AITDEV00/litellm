@@ -12,32 +12,50 @@ Every route below was exercised against the production gateway
 (`https://litellm.ecouncil.ae`) with a `key_type=llm_api` virtual key, not the
 master key, so the status codes are what a customer sees.
 
-| Method | Path | Purpose | Verified |
-| ------ | ---- | ------- | -------- |
-| `POST` | `/v1/audio/speech` | Synthesize speech (all formats, streaming, cloning) | 200 |
-| `POST` | `/v1/audio/voices` | Upload a voice (multipart) | 200 |
-| `DELETE` | `/v1/voices/profiles/{name}` | Delete an uploaded voice | 200 |
-| `GET` | `/v1/voices` | List voices (see caveat below) | 200 |
-| `GET` | `/v1/voices/profiles` | Alias of the same listing | 200 |
-| `GET` | `/v1/voices/profiles/{name}` | Fetch one profile | 200 |
-| `GET` | `/v1/models` | Confirm the model is visible to your key | 200 |
-| `POST` | `/v1/audio/speech/batch` | Batch synthesis | **404**, not proxied |
+| Method     | Path                           | Purpose                                             | Verified                   |
+| ---------- | ------------------------------ | --------------------------------------------------- | -------------------------- |
+| `POST`   | `/v1/audio/speech`           | Synthesize speech (all formats, streaming, cloning) | 200                        |
+| `POST`   | `/v1/audio/voices`           | Upload a voice (multipart)                          | 200                        |
+| `DELETE` | `/v1/voices/profiles/{name}` | Delete an uploaded voice                            | 200                        |
+| `GET`    | `/v1/voices`                 | List voices (see caveat below)                      | 200                        |
+| `GET`    | `/v1/voices/profiles`        | Alias of the same listing                           | 200                        |
+| `GET`    | `/v1/voices/profiles/{name}` | Fetch one profile                                   | 200                        |
+| `GET`    | `/v1/models`                 | Confirm the model is visible to your key            | 200                        |
+| `POST`   | `/v1/audio/speech/batch`     | Batch synthesis                                     | **404**, not proxied |
 
 Base URL for every example: `https://litellm.ecouncil.ae`.
 
-### The one real trap: GET voice routes cannot be model-scoped
+### Scoping the listing: `?model=` works, and unscoped now returns Drama 3
 
-`GET /v1/voices` and its aliases read the model from the request body, which a
-`GET` does not have. A `?model=` query parameter is **ignored** by the gateway,
-so a no-model GET resolves to whichever voice-capable deployment the router picks
-first. On production that is OmniVoice, whose registry returns 31 entries
-(`auto`, `design:<attributes>`, OpenAI presets like `alloy`, and `clone:adeo_*`
-profiles) rather than Drama 3's single `default` voice:
+`GET /v1/voices` reads the model from `?model=` in the query string (body on a
+GET was never read). Two patterns matter:
 
-```bash
-curl -s "https://litellm.ecouncil.ae/v1/voices" -H "Authorization: Bearer $KEY"
-# {"voices":[{"id":"auto",...},{"id":"alloy",...},{"id":"clone:adeo_ahmed",...}]}
-```
+- **explicit scope (recommended).** `?model=fishaudio/drama-3` returns your
+  drama3 registry including uploaded voices:
+
+  ```bash
+  curl -s "https://litellm.ecouncil.ae/v1/voices?model=fishaudio/drama-3" \
+    -H "Authorization: Bearer $KEY"
+  # {"voices":["default","jensen","musk","trump"],
+  #  "uploaded_voices":[{"name":"jensen","created_at":1793783481,...}],
+  #  "cache_stats":{...}}
+  ```
+
+- **unscoped.** With no query parameter the router picks the first
+  voice-capable deployment in priority order, which after the controller
+  reconciled the prefix is Drama 3. Verified live on production this returns
+  Drama 3's catalogue (`auto`, `design:<attributes>`, `alloy` preset), not
+  OmniVoice's registry:
+
+  ```bash
+  curl -s "https://litellm.ecouncil.ae/v1/voices" -H "Authorization: Bearer $KEY"
+  # {"design_attributes":[...],"total":11,"voices":[{"id":"auto",...}]}
+  ```
+
+The earlier behavior (unscoped returning OmniVoice's registry) was the
+pre-reconciliation quirk: when the DB row still had a `hosted_vllm/` prefix
+the gateway routed it through OpenAI's TTS config, which happened to land on
+OmniVoice first. The controller fix in `reconciler.py` flipped the default.
 
 Do not read that as Drama 3 state. To inspect Drama 3's registry, probe it through
 a request that carries a body (`POST /v1/audio/voices` upload, or a speech request
@@ -57,17 +75,17 @@ The discovery controller registers the model as `fishaudio/drama-3` (upstream `h
 
 ## Model overview
 
-| Property | Value |
-| -------- | ----- |
-| Model ID | `fishaudio/drama-3` |
-| Underlying engine | sglang-omni `0.2.0-cu130-amd64`, stages `preprocessing` + `tts_engine` + `vocoder` |
-| Type | Text to speech (35B MoE, 3B active, 10-codebook audio decoder) |
-| Input | JSON body with text; direction tags inline (§5) |
-| Output | Binary audio, **44.1 kHz mono 16-bit** |
-| Provider (upstream) | `hosted_vllm` |
-| Deployed mode | `audio_speech`, `oicm_task: Text-to-Speech` (see [Mode](#9-mode)) |
-| Capabilities on the pod | voice cloning, persistent voices, direction tags, streaming, batch, sampling control |
-| Capabilities through the gateway | all of them except batch (§4, §6, §7) |
+| Property                         | Value                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| Model ID                         | `fishaudio/drama-3`                                                                      |
+| Underlying engine                | sglang-omni `0.2.0-cu130-amd64`, stages `preprocessing` + `tts_engine` + `vocoder` |
+| Type                             | Text to speech (35B MoE, 3B active, 10-codebook audio decoder)                             |
+| Input                            | JSON body with text; direction tags inline (§5)                                           |
+| Output                           | Binary audio, **44.1 kHz mono 16-bit**                                               |
+| Provider (upstream)              | `hosted_vllm`                                                                            |
+| Deployed mode                    | `audio_speech`, `oicm_task: Text-to-Speech` (see [Mode](#9-mode))                       |
+| Capabilities on the pod          | voice cloning, persistent voices, direction tags, streaming, batch, sampling control       |
+| Capabilities through the gateway | all of them except batch (§4, §6, §7)                                                   |
 
 ### Audio properties that break clients
 
@@ -87,16 +105,16 @@ ffprobe -hide_banner out.wav   # expect 44100 Hz, 1 channel, 16-bit
 
 JSON body posted to `/v1/audio/speech`:
 
-| Field | Required | Notes |
-| ----- | -------- | ----- |
-| `model` | yes | Must be `fishaudio/drama-3` |
-| `input` | yes | The text to speak, **as a plain string**. Direction tags go inline (§5). Long text is chunked automatically by the pod |
-| `voice` | no | Defaults to the default voice when omitted. `"default"`, or a registered uploaded voice name (§6). OpenAI voice names such as `alloy` are rejected by the pod |
-| `response_format` | no | `wav` (default), `mp3`, `flac`, `pcm`, `aac`, `opus` |
-| `speed` | no | Playback speed multiplier, honored end to end |
-| `instructions` | no | Forwarded, but Drama 3 does not support it: the pod returns 400 |
-| `stream` | no | Forwarded; requires `response_format: "pcm"` (the pod rejects stream with a container format). Delivery is chunked (§7) |
-| `references` | no | Forwarded; inline voice cloning (§6) |
+| Field               | Required | Notes                                                                                                                                                              |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `model`           | yes      | Must be `fishaudio/drama-3`                                                                                                                                      |
+| `input`           | yes      | The text to speak, **as a plain string**. Direction tags go inline (§5). Long text is chunked automatically by the pod                                      |
+| `voice`           | no       | Defaults to the default voice when omitted. `"default"`, or a registered uploaded voice name (§6). OpenAI voice names such as `alloy` are rejected by the pod |
+| `response_format` | no       | `wav` (default), `mp3`, `flac`, `pcm`, `aac`, `opus`                                                                                                   |
+| `speed`           | no       | Playback speed multiplier, honored end to end                                                                                                                      |
+| `instructions`    | no       | Forwarded, but Drama 3 does not support it: the pod returns 400                                                                                                    |
+| `stream`          | no       | Forwarded; requires `response_format: "pcm"` (the pod rejects stream with a container format). Delivery is chunked (§7)                                         |
+| `references`      | no       | Forwarded; inline voice cloning (§6)                                                                                                                              |
 
 The gateway dispatches this model through its `drama3` provider path, which forwards every non-LiteLLM field to the pod. The pod is strict about unknown fields, so a misspelled field is a 400 (`unknown speech request field`), never a silent drop. See §4 for the forwarding contract.
 
@@ -119,23 +137,23 @@ The response body is raw audio, so always redirect it to a file rather than lett
 
 ### Response shape
 
-| Aspect | Value |
-| ------ | ----- |
-| HTTP status | `200` on success |
+| Aspect           | Value                                                                                                           |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| HTTP status      | `200` on success                                                                                              |
 | `Content-Type` | Matches the format: `audio/wav`, `audio/mpeg`, `audio/flac`, `audio/pcm`, `audio/aac`, `audio/opus` |
-| Body | Raw audio bytes. No JSON envelope |
+| Body             | Raw audio bytes. No JSON envelope                                                                               |
 
 All six formats verified on production with a virtual key, same input
 (`"Hello there."`), correct container magic in every case:
 
-| `response_format` | HTTP | Bytes | Content-Type | Magic |
-| ----------------- | ---- | ----- | ------------ | ----- |
-| `wav` | 200 | 73,772 | `audio/wav` | `RIFF` |
-| `mp3` | 200 | 9,839 | `audio/mpeg` | `ID3` |
-| `flac` | 200 | 54,128 | `audio/flac` | `fLaC` |
-| `pcm` | 200 | 81,920 | `audio/pcm` | raw samples |
-| `aac` | 200 | 8,271 | `audio/aac` | ADTS `FFF1` |
-| `opus` | 200 | 7,802 | `audio/opus` | `OggS` |
+| `response_format` | HTTP | Bytes  | Content-Type   | Magic         |
+| ------------------- | ---- | ------ | -------------- | ------------- |
+| `wav`             | 200  | 73,772 | `audio/wav`  | `RIFF`      |
+| `mp3`             | 200  | 9,839  | `audio/mpeg` | `ID3`       |
+| `flac`            | 200  | 54,128 | `audio/flac` | `fLaC`      |
+| `pcm`             | 200  | 81,920 | `audio/pcm`  | raw samples   |
+| `aac`             | 200  | 8,271  | `audio/aac`  | ADTS `FFF1` |
+| `opus`            | 200  | 7,802  | `audio/opus` | `OggS`      |
 
 An unknown `response_format` is rejected by the pod rather than silently
 defaulted, consistent with the strict-field behaviour in §4.
@@ -162,11 +180,11 @@ Honored all the way to the engine. The same sentence measured 2.83-3.62 s of aud
 
 Verified on production as a monotonic size response to the same input string:
 
-| `speed` | Bytes | Relative |
-| ------- | ----- | -------- |
-| `0.5` | 499,756 | 2.07x |
-| `1.0` | 241,708 | 1.00x |
-| `2.0` | 139,308 | 0.58x |
+| `speed` | Bytes   | Relative |
+| --------- | ------- | -------- |
+| `0.5`   | 499,756 | 2.07x    |
+| `1.0`   | 241,708 | 1.00x    |
+| `2.0`   | 139,308 | 0.58x    |
 
 Audio length scales with `1/speed` as expected, so the field reaches the engine
 rather than being dropped and re-defaulted.
@@ -298,7 +316,10 @@ curl -s -X DELETE "$BASE/v1/voices/profiles/Narrator_01" \
 # fetch one profile
 curl -s "$BASE/v1/voices/profiles/Narrator_01" -H "$KEY"
 
-# listing caveat: ?model= is ignored, so this answers with another pod's registry
+# listing: explicit scope (drama3 registry incl. uploads)
+curl -s "$BASE/v1/voices?model=fishaudio/drama-3" -H "$KEY"
+
+# unscoped also returns drama3 now (post-reconciler default)
 curl -s "$BASE/v1/voices" -H "$KEY"
 ```
 
@@ -323,21 +344,22 @@ curl -s -X POST http://localhost:8080/v1/audio/speech/batch \
 Every mode above was run against `https://litellm.ecouncil.ae` with a
 `key_type=llm_api` virtual key:
 
-| Mode | Result |
-| ---- | ------ |
-| A basic wav | 200, 73,772 B, `RIFF` |
-| B all six formats | 200 each, correct magic |
-| C `speed` 0.5 / 1.0 / 2.0 | 200, 499,756 / 241,708 / 139,308 B |
-| D direction tags | 200, 9.85 s vs 6.22 s untagged |
-| E sampling | 200 |
-| F streaming pcm | 200, TTFB 0.41 s vs total 1.34 s |
-| G inline URL clone | 400 on unreachable host (forwarding proven), 200 on reachable |
-| H inline base64 clone | 200, 208,940 B, `RIFF` |
-| I register + speak | 200 upload, 200 speech at 44.1 kHz |
-| J delete + probe | 200 delete, 400 on the deleted voice |
-| K `/v1/models` | model listed for the key |
-| L batch | 404 via gateway (pod-direct only) |
-
+| Mode                        | Result                                                        |
+| --------------------------- | ------------------------------------------------------------- |
+| A basic wav                 | 200, 73,772 B, `RIFF`                                       |
+| B all six formats           | 200 each, correct magic                                       |
+| C `speed` 0.5 / 1.0 / 2.0 | 200, 499,756 / 241,708 / 139,308 B                            |
+| D direction tags            | 200, 9.85 s vs 6.22 s untagged                                |
+| E sampling                  | 200                                                           |
+| F streaming pcm             | 200, TTFB 0.41 s vs total 1.34 s                              |
+| G inline URL clone          | 400 on unreachable host (forwarding proven), 200 on reachable |
+| H inline base64 clone       | 200, 208,940 B, `RIFF`                                      |
+| I register + speak          | 200 upload, 200 speech at 44.1 kHz                            |
+| J delete + probe            | 200 delete, 400 on the deleted voice                          |
+| K `/v1/models`            | model listed for the key                                      |
+| L batch                     | 404 via gateway (pod-direct only)                             |
+| scoping `?model=fishaudio/drama-3` | voices registry returns drama3 voices incl. uploads |
+| unscoped fallback           | returns drama3 catalogue (auto / design:<attributes> / alloy), not OmniVoice |
 
 ---
 
@@ -351,15 +373,15 @@ The observable consequence: the pod's validation reaches you intact. A field the
 
 Probe with a value the pod rejects; if the pod's error comes back through the gateway, the field arrived. All of these were run through the gateway and returned the pod's own 400:
 
-| Request | Through the gateway |
-| ------- | ------------------- |
+| Request                                                | Through the gateway                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------- |
 | `references` at `https://example.invalid/nope.wav` | `400 Could not resolve media URL hostname: example.invalid` |
-| `repetition_penalty: 1.5` | `400 Drama 3 request: repetition_penalty must be 1.0` |
-| `task_type: "VoiceDesign"` | `400 only Base is` |
-| `seed: 42` | `400 seed not supported` |
-| `language: "English"` | `400 language not supported` |
-| `instructions: "whisper"` | `400 instructions is not supported by this model` |
-| `stream: true` with `response_format: "wav"` | `400 stream=true requires response_format='pcm'` |
+| `repetition_penalty: 1.5`                            | `400 Drama 3 request: repetition_penalty must be 1.0`       |
+| `task_type: "VoiceDesign"`                           | `400 only Base is`                                          |
+| `seed: 42`                                           | `400 seed not supported`                                    |
+| `language: "English"`                                | `400 language not supported`                                |
+| `instructions: "whisper"`                            | `400 instructions is not supported by this model`           |
+| `stream: true` with `response_format: "wav"`       | `400 stream=true requires response_format='pcm'`            |
 
 Before the provider slice existed, every row except `instructions` returned `200` with valid default-voice audio: the gateway silently dropped the field. That is the failure mode the sentinel method detects, and the one this contract now prevents.
 
@@ -370,10 +392,10 @@ Fields the pod refuses outright with `unknown speech request field` are likewise
 `stream: true` with `response_format: "pcm"` delivers incrementally. Measured on
 production:
 
-| Input length | TTFB | Total | Size |
-| ------------ | ---- | ----- | ---- |
-| one word (`Hi.`) | 0.41 s | 0.53 s | 72 KB |
-| one sentence | 0.40 s | 1.34 s | 564 KB |
+| Input length       | TTFB   | Total  | Size   |
+| ------------------ | ------ | ------ | ------ |
+| one word (`Hi.`) | 0.41 s | 0.53 s | 72 KB  |
+| one sentence       | 0.40 s | 1.34 s | 564 KB |
 
 Time to first byte stays flat around 0.4 s while the total grows with the audio,
 so audio reaches the client while generation continues. A buffered response would
@@ -436,10 +458,10 @@ Line: So this is goodbye.
 Verification that tags are performed rather than read aloud, measured through the
 gateway on the same sentence with and without tags:
 
-| Input | Audio duration |
-| ----- | -------------- |
-| `[sighs] Fine. If we miss it, it is on you. [laughs] Well, maybe that is fair.` | 8.73 - 9.85 s |
-| `Fine. If we miss it, it is on you. Well, maybe that is fair.` | 6.22 - 7.80 s |
+| Input                                                                             | Audio duration |
+| --------------------------------------------------------------------------------- | -------------- |
+| `[sighs] Fine. If we miss it, it is on you. [laughs] Well, maybe that is fair.` | 8.73 - 9.85 s  |
+| `Fine. If we miss it, it is on you. Well, maybe that is fair.`                  | 6.22 - 7.80 s  |
 
 Reproduced on production (9.85 s tagged vs 6.22 s plain for one pair), so the tags
 add roughly 2-3 s of non-speech audio while the wording is identical: the sigh and
@@ -461,11 +483,11 @@ stays a plain string; this is the single most common mistake, and it fails with
 Each reference supplies the audio and its transcript. Three source forms are
 accepted:
 
-| Form | Field |
-| ---- | ----- |
-| HTTP(S) URL or pod-local path | `audio_path` |
-| Inline base64 | `data` (or `base64`) plus `media_type` |
-| Pre-encoded codes | `vq_codes`, skipping the encode step entirely |
+| Form                          | Field                                           |
+| ----------------------------- | ----------------------------------------------- |
+| HTTP(S) URL or pod-local path | `audio_path`                                  |
+| Inline base64                 | `data` (or `base64`) plus `media_type`    |
+| Pre-encoded codes             | `vq_codes`, skipping the encode step entirely |
 
 ```bash
 curl -s "https://litellm.ecouncil.ae/v1/audio/speech" \
@@ -520,10 +542,10 @@ a 1 MB body inline on the command line hits `Argument list too long`.
 
 Reference limits, all enforced before encoding:
 
-| Limit | Value | Error |
-| ----- | ----- | ----- |
-| Per-reference duration | 60 s | `reference audio lasts 75.0 s, longer than the 60 s limit` |
-| Prompt rows | 8192 (about 21.5 rows per second of reference audio) | `a prompt of 8193 rows exceeds the maximum allowed length` |
+| Limit                  | Value                                                | Error                                                        |
+| ---------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| Per-reference duration | 60 s                                                 | `reference audio lasts 75.0 s, longer than the 60 s limit` |
+| Prompt rows            | 8192 (about 21.5 rows per second of reference audio) | `a prompt of 8193 rows exceeds the maximum allowed length` |
 
 The 60 s cap is raised at server start with
 `--preprocessing.factory.max_reference_audio_seconds`, which also needs a matching
@@ -538,9 +560,12 @@ proxy it. Two details decide whether the call targets Drama 3 or the wrong pod:
 - the file field is named **`ref_audio`** (the gateway forwards it to the pod as
   `audio_sample`), and sending `audio_sample` instead fails with
   `'ref_audio' is required for Drama 3 voice registration`
-- the model must ride **`model=` as a form field** on the upload. Without it the
-  router picks the first voice-capable deployment, which on production is
-  OmniVoice, and the voice lands in the wrong registry
+- the model must ride **`model=` as a form field** on the upload. Without it
+  the router picks the first voice-capable deployment. After the DB row's prefix
+  was reconciled to `drama3/` that fallback is Drama 3 itself, so omitting
+  `model=` now lands on the right pod — keep the field anyway, because it is
+  the load-bearing wire the gateway uses to disambiguate uploads between
+  voice-capable deployments
 
 ```bash
 KEY="Authorization: Bearer <your-api-key>"
@@ -569,12 +594,12 @@ curl -s -X DELETE "$BASE/v1/voices/profiles/Narrator_01" \
 
 Verified end to end on production:
 
-| Step | Result |
-| ---- | ------ |
-| upload | `200` with `{"name","consent","created_at","file_size","mime_type","ref_text"}`, `model_id` = the Drama 3 row |
-| speech naming the voice | `200`, `audio/wav`, 44.1 kHz mono, 3.02 s |
-| delete | `200` `{"success":true,"message":"Voice 'Narrator_01' deleted successfully"}` |
-| speech naming the deleted voice | `400` `unknown voice` (proof the delete took effect) |
+| Step                            | Result                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| upload                          | `200` with `{"name","consent","created_at","file_size","mime_type","ref_text"}`, `model_id` = the Drama 3 row |
+| speech naming the voice         | `200`, `audio/wav`, 44.1 kHz mono, 3.02 s                                                                       |
+| delete                          | `200` `{"success":true,"message":"Voice 'Narrator_01' deleted successfully"}`                                   |
+| speech naming the deleted voice | `400` `unknown voice` (proof the delete took effect)                                                            |
 
 The delete response is also how you can confirm which model handled the call: its
 `_hidden_params` names the model group, and the speech probe above is the
@@ -587,13 +612,13 @@ a GET.
 
 Upload constraints (enforced by the pod):
 
-| Constraint | Value |
-| ---------- | ----- |
-| Duration | 1 s to 30 s, mono, non-silent |
-| Max voices | 1000 (`SPEAKER_MAX_UPLOADED`) |
-| Name | `[A-Za-z0-9_.-]+`, at least one alphanumeric, `default` is reserved |
-| Formats | wav, mp3, flac, ogg, opus, aac, m4a/mp4, webm |
-| `consent` | Required, no default |
+| Constraint  | Value                                                                   |
+| ----------- | ----------------------------------------------------------------------- |
+| Duration    | 1 s to 30 s, mono, non-silent                                           |
+| Max voices  | 1000 (`SPEAKER_MAX_UPLOADED`)                                         |
+| Name        | `[A-Za-z0-9_.-]+`, at least one alphanumeric, `default` is reserved |
+| Formats     | wav, mp3, flac, ogg, opus, aac, m4a/mp4, webm                           |
+| `consent` | Required, no default                                                    |
 
 Uploaded voices persist across restarts as safetensors files under
 `~/.cache/sglang-omni/speakers`, so a `restartPolicy`-driven pod restart keeps
@@ -611,14 +636,14 @@ Omitting `voice` entirely is fine; the request synthesizes with the default voic
 
 ## 7. Sampling parameters and limits
 
-| Parameter | Default | Notes |
-| --------- | ------- | ----- |
-| `temperature` | 1.0 | Forwarded |
-| `top_p` | 0.9 | Forwarded |
-| `top_k` | no cap on the main token | The codebook heads cap at 30 regardless, because wider caps cost speaker similarity. A main-token cap of 30 makes a stream fall silent after its first phrase |
-| `max_new_tokens` | model default | Forwarded |
-| `repetition_penalty` | 1.0 | Forwarded. **Must be 1.0**; anything else is a 400 |
-| `speed` | 1.0 | 0.25 to 4.0 |
+| Parameter              | Default                  | Notes                                                                                                                                                         |
+| ---------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `temperature`        | 1.0                      | Forwarded                                                                                                                                                     |
+| `top_p`              | 0.9                      | Forwarded                                                                                                                                                     |
+| `top_k`              | no cap on the main token | The codebook heads cap at 30 regardless, because wider caps cost speaker similarity. A main-token cap of 30 makes a stream fall silent after its first phrase |
+| `max_new_tokens`     | model default            | Forwarded                                                                                                                                                     |
+| `repetition_penalty` | 1.0                      | Forwarded. **Must be 1.0**; anything else is a 400                                                                                                      |
+| `speed`              | 1.0                      | 0.25 to 4.0                                                                                                                                                   |
 
 Rejected outright, with the pod naming the field: `seed`, `language`,
 `instructions`, `task_type` other than `Base`, `x_vector_only_mode`,
@@ -679,28 +704,28 @@ All rows below were reproduced against the production gateway with a
 `key_type=llm_api` virtual key. Error text is the pod's own, wrapped in
 `Drama3Exception`.
 
-| Case | HTTP | Body |
-| ---- | ---- | ---- |
-| Missing or invalid gateway key | 401 | `Authentication Error, No api key passed in.` |
-| Key without the route in its `allowed_routes` | 403 | `Virtual key is not allowed to call this route. ...` |
-| `model` omitted | 400 | `{"detail":{"error":"/audio/speech: Invalid model name passed in model=. Call \`/v1/models\` to view available models for your key."}}` |
-| `voice` unregistered (e.g. `alloy` on Drama 3) | 400 | `Drama 3 request: unknown voice 'alloy'; use default or an uploaded voice` |
-| `input` is an object rather than a string | 400 | `input must be a string` |
-| `repetition_penalty` other than 1.0 | 400 | `Drama 3 request: repetition_penalty must be 1.0; got 1.5` |
-| `instructions` set | 400 | `instructions is not supported by this model` |
-| `seed` set | 400 | `seed is not supported by this model` |
-| `language` set | 400 | `language is not supported by this model` |
-| Unknown field (e.g. `bogus_field`) | 400 | `unknown speech request field: bogus_field` |
-| `stream: true` without `response_format: "pcm"` | 400 | `Drama 3 request: stream=true requires response_format='pcm'` |
-| Unresolvable `references` URL | 400 | `Could not resolve media URL hostname: example.invalid` (`param: references.audio_path`) |
-| Reference longer than 60 s | 400 | `references.N: reference audio lasts X s, longer than the 60 s limit` |
-| Speaker tag other than 0 | 400 | `Drama 3 request: only speaker 0 is supported; got speaker tags [...]` |
-| Upload without the audio file | 400 | `'ref_audio' is required for Drama 3 voice registration. Provide the reference audio file.` |
-| Upload with `audio_sample` instead of `ref_audio` | 400 | same as above (the gateway reads `ref_audio`) |
-| `POST /v1/audio/speech/batch` | 404 | `{"detail":"Not Found"}` (route not proxied) |
-| `GET /v1/audio/voices` | 405 | `{"detail":"Method Not Allowed"}` (use `GET /v1/voices`) |
-| `GET /v1/audio/health`, `/v1/audio/metrics` | 403 | ops-only routes, not on the `llm_api` allowlist |
-| `DELETE /v1/audio/voices/{name}` | 404 | `{"detail":"Not Found"}` (use `DELETE /v1/voices/profiles/{name}`) |
+| Case                                                  | HTTP | Body                                                                                                                                      |
+| ----------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Missing or invalid gateway key                        | 401  | `Authentication Error, No api key passed in.`                                                                                           |
+| Key without the route in its `allowed_routes`       | 403  | `Virtual key is not allowed to call this route. ...`                                                                                    |
+| `model` omitted                                     | 400  | `{"detail":{"error":"/audio/speech: Invalid model name passed in model=. Call \`/v1/models\` to view available models for your key."}}` |
+| `voice` unregistered (e.g. `alloy` on Drama 3)    | 400  | `Drama 3 request: unknown voice 'alloy'; use default or an uploaded voice`                                                              |
+| `input` is an object rather than a string           | 400  | `input must be a string`                                                                                                                |
+| `repetition_penalty` other than 1.0                 | 400  | `Drama 3 request: repetition_penalty must be 1.0; got 1.5`                                                                              |
+| `instructions` set                                  | 400  | `instructions is not supported by this model`                                                                                           |
+| `seed` set                                          | 400  | `seed is not supported by this model`                                                                                                   |
+| `language` set                                      | 400  | `language is not supported by this model`                                                                                               |
+| Unknown field (e.g. `bogus_field`)                  | 400  | `unknown speech request field: bogus_field`                                                                                             |
+| `stream: true` without `response_format: "pcm"`   | 400  | `Drama 3 request: stream=true requires response_format='pcm'`                                                                           |
+| Unresolvable `references` URL                       | 400  | `Could not resolve media URL hostname: example.invalid` (`param: references.audio_path`)                                              |
+| Reference longer than 60 s                            | 400  | `references.N: reference audio lasts X s, longer than the 60 s limit`                                                                   |
+| Speaker tag other than 0                              | 400  | `Drama 3 request: only speaker 0 is supported; got speaker tags [...]`                                                                  |
+| Upload without the audio file                         | 400  | `'ref_audio' is required for Drama 3 voice registration. Provide the reference audio file.`                                             |
+| Upload with `audio_sample` instead of `ref_audio` | 400  | same as above (the gateway reads `ref_audio`)                                                                                           |
+| `POST /v1/audio/speech/batch`                       | 404  | `{"detail":"Not Found"}` (route not proxied)                                                                                            |
+| `GET /v1/audio/voices`                              | 405  | `{"detail":"Method Not Allowed"}` (use `GET /v1/voices`)                                                                              |
+| `GET /v1/audio/health`, `/v1/audio/metrics`       | 403  | ops-only routes, not on the `llm_api` allowlist                                                                                         |
+| `DELETE /v1/audio/voices/{name}`                    | 404  | `{"detail":"Not Found"}` (use `DELETE /v1/voices/profiles/{name}`)                                                                    |
 
 Per-field validation errors pass through with the pod's original message intact
 inside `error.message`, wrapped in `Drama3Exception`. Unlike the diarize route
@@ -734,8 +759,7 @@ Consequences for callers:
   guide.
 - `POST /v1/chat/completions` with this model no longer reaches the pod: the
   gateway's chat path resolves the `drama3` provider, which has no chat config,
-  and returns `Unmapped LLM provider for this endpoint. You passed
-  model=fishaudio/drama-3, custom_llm_provider=drama3`. Use the speech route.
+  and returns `Unmapped LLM provider for this endpoint. You passed model=fishaudio/drama-3, custom_llm_provider=drama3`. Use the speech route.
 - Anything that groups models by declared mode now classifies this model as a
   speech model.
 
@@ -745,12 +769,12 @@ Consequences for callers:
 
 Measured on the Al Ain H200 through the gateway, single request, serial:
 
-| Input | Output audio | Wall time | Notes |
-| ----- | ------------ | --------- | ----- |
-| 25 chars (`Hello, how are you today?`) | 1.67-2.18 s | 0.72-0.84 s | Three runs; length varies per generation |
-| 52 chars (`speed: 1.0`) | 3.30 s | ~1.1 s | |
-| Same at `speed: 2.0` | 1.53 s | ~1.1 s | |
-| 1,220 chars | 95.11 s | 15.1 s | ~6.3x faster than realtime |
+| Input                                    | Output audio | Wall time   | Notes                                    |
+| ---------------------------------------- | ------------ | ----------- | ---------------------------------------- |
+| 25 chars (`Hello, how are you today?`) | 1.67-2.18 s  | 0.72-0.84 s | Three runs; length varies per generation |
+| 52 chars (`speed: 1.0`)                | 3.30 s       | ~1.1 s      |                                          |
+| Same at `speed: 2.0`                   | 1.53 s       | ~1.1 s      |                                          |
+| 1,220 chars                              | 95.11 s      | 15.1 s      | ~6.3x faster than realtime               |
 
 Generation length varies between identical requests, so compare durations as ranges rather than exact values. The pod's own benchmark notes (single H200, default placement) report 88.9 ms TTFA at concurrency 1 and 927 frames/s at concurrency 16. Non-streaming requests through the gateway return all audio at once once generation finishes; use `stream: true` with `response_format: "pcm"` (§7) when time to first audio matters.
 
