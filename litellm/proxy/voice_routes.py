@@ -176,7 +176,7 @@ VOICE_RESOLUTION_HEADER: Final = "x-litellm-voice-resolution"
 VOICE_RESOLVED_MODEL_HEADER: Final = "x-litellm-voice-resolved-model"
 
 
-def _voice_resolution_headers(resolved_model: str | None, fallback: bool) -> dict:
+def _voice_resolution_headers(resolved_model: str | None, fallback: bool) -> dict[str, str]:
     """Headers telling the caller whether we served their explicit model or fell back.
 
     `explicit` means the caller passed ?model= or a body model field. `fallback`

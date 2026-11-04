@@ -325,12 +325,6 @@ def _mnemonic_request(path: str, payload: bytes = b"", query_string: bytes = b""
     request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
     return request
 
-    async def _receive() -> dict:
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
-    return request
-
 
 class TestVoiceManagementModelScoping:
     """A no-model voice call must be scopable with ?model=, not silently fall
@@ -501,8 +495,8 @@ class TestVoiceResolutionHeaders:
 
         assert isinstance(result, JSONResponse)
         headers: Final = dict(result.headers)
-        assert headers.get("x-litellm-voice-resolution") == "fallback"
-        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+        assert headers.get(voice_routes.VOICE_RESOLUTION_HEADER) == "fallback"
+        assert headers.get(voice_routes.VOICE_RESOLVED_MODEL_HEADER) == "omnivoice"
 
     @pytest.mark.asyncio
     async def test_scoped_list_voices_marks_explicit(
@@ -521,8 +515,8 @@ class TestVoiceResolutionHeaders:
 
         assert isinstance(result, JSONResponse)
         headers: Final = dict(result.headers)
-        assert headers.get("x-litellm-voice-resolution") == "explicit"
-        assert headers.get("x-litellm-voice-resolved-model") == "drama3"
+        assert headers.get(voice_routes.VOICE_RESOLUTION_HEADER) == "explicit"
+        assert headers.get(voice_routes.VOICE_RESOLVED_MODEL_HEADER) == "drama3"
 
     @pytest.mark.asyncio
     async def test_unscoped_delete_profile_marks_fallback(
@@ -544,8 +538,8 @@ class TestVoiceResolutionHeaders:
 
         assert isinstance(result, JSONResponse)
         headers: Final = dict(result.headers)
-        assert headers.get("x-litellm-voice-resolution") == "fallback"
-        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+        assert headers.get(voice_routes.VOICE_RESOLUTION_HEADER) == "fallback"
+        assert headers.get(voice_routes.VOICE_RESOLVED_MODEL_HEADER) == "omnivoice"
 
     @pytest.mark.asyncio
     async def test_no_resolvable_model_omits_both_headers(
@@ -562,8 +556,8 @@ class TestVoiceResolutionHeaders:
 
         assert isinstance(result, JSONResponse)
         headers: Final = dict(result.headers)
-        assert "x-litellm-voice-resolution" not in headers
-        assert "x-litellm-voice-resolved-model" not in headers
+        assert voice_routes.VOICE_RESOLUTION_HEADER not in headers
+        assert voice_routes.VOICE_RESOLVED_MODEL_HEADER not in headers
 
 
 class TestAudioModelsProviderScopeHeaders:
@@ -624,8 +618,8 @@ class TestAudioModelsProviderScopeHeaders:
         )
 
         headers: Final = dict(result.headers)
-        assert headers.get("x-litellm-voice-resolution") == "fallback"
-        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+        assert headers.get(voice_routes.VOICE_RESOLUTION_HEADER) == "fallback"
+        assert headers.get(voice_routes.VOICE_RESOLVED_MODEL_HEADER) == "omnivoice"
 
     @pytest.mark.asyncio
     async def test_scoped_audio_models_marks_explicit(
@@ -652,8 +646,8 @@ class TestAudioModelsProviderScopeHeaders:
         )
 
         headers: Final = dict(result.headers)
-        assert headers.get("x-litellm-voice-resolution") == "explicit"
-        assert headers.get("x-litellm-voice-resolved-model") == "drama3"
+        assert headers.get(voice_routes.VOICE_RESOLUTION_HEADER) == "explicit"
+        assert headers.get(voice_routes.VOICE_RESOLVED_MODEL_HEADER) == "drama3"
 
 
 class TestAudioModelsProviderScope:
