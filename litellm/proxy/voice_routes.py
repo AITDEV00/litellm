@@ -386,7 +386,14 @@ async def create_voice(
         if proxy_server_mod.user_model:
             data["model"] = proxy_server_mod.user_model
 
-        model = data.pop("model", None) or proxy_server_mod.user_model
+        # Same query-param scoping as _route_voice_management: the route resolves
+        # the deployment from a body/form field, but ?model= is the natural way
+        # to name it and was being ignored.
+        model = (
+            request.query_params.get("model")
+            or data.pop("model", None)
+            or proxy_server_mod.user_model
+        )
 
         if model is None and proxy_server_mod.llm_router is not None:
             model = _resolve_voice_model(proxy_server_mod.llm_router, action="register")
@@ -490,7 +497,14 @@ async def _route_voice_management(
         if data.get("user", None) is None and user_api_key_dict.user_id is not None:
             data["user"] = user_api_key_dict.user_id
 
-        model = data.pop("model", None) or proxy_server_mod.user_model
+        # GET routes carry no body, so a caller scoping with ?model= would
+        # otherwise silently fall through to _resolve_voice_model, which returns
+        # the first voice-capable deployment regardless of what was requested.
+        model = (
+            request.query_params.get("model")
+            or data.pop("model", None)
+            or proxy_server_mod.user_model
+        )
 
         if model is None and proxy_server_mod.llm_router is not None:
             model = _resolve_voice_model(proxy_server_mod.llm_router, action=action)
@@ -795,10 +809,18 @@ async def _proxy_to_audio_pod(
             param=None,
         )
 
-    target_url: Final = _resolve_audio_target_url(llm_router, provider, path)
+    # The provider is a routing hint from the caller. A hardcoded "omnivoice"
+    # default would always win the truthy slot in an `or` chain, so it cannot be
+    # used as the fallback. The caller's explicit query param takes precedence,
+    # and only when both are absent do we drop to the single-default behavior.
+    provider_hint: Final = (
+        request.query_params.get("provider") or provider or "omnivoice"
+    )
+
+    target_url: Final = _resolve_audio_target_url(llm_router, provider_hint, path)
     if target_url is None:
         raise ProxyException(
-            message="No {} deployment found".format(provider),
+            message="No {} deployment found".format(provider_hint),
             code=503,
             type="server_error",
             param=None,
@@ -809,7 +831,7 @@ async def _proxy_to_audio_pod(
     for deployment in llm_router.model_list:
         litellm_params = deployment.get("litellm_params", {})
         model_str = litellm_params.get("model", "")
-        if f"{provider}/" in model_str or f"/{provider}" in model_str:
+        if f"{provider_hint}/" in model_str or f"/{provider_hint}" in model_str:
             ssl_verify = litellm_params.get("ssl_verify", True)
             request_timeout = litellm_params.get("request_timeout")
             if request_timeout is not None:
@@ -820,7 +842,12 @@ async def _proxy_to_audio_pod(
         headers = {
             k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length", "authorization")
         }
-        resp = await client.get(target_url, headers=headers, params=dict(request.query_params))
+        # `provider` is consumed for resolution above; it is not a pod parameter,
+        # so forwarding it would name a query key the pod does not understand.
+        forward_params: Final = {
+            k: v for k, v in request.query_params.items() if k != "provider"
+        }
+        resp = await client.get(target_url, headers=headers, params=forward_params)
 
     return Response(
         content=resp.content,

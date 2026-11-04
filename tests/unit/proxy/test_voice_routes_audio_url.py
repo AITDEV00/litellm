@@ -302,14 +302,20 @@ _HIDDEN: Final = {
 }
 
 
-def _json_request(path: str, payload: bytes = b"") -> Request:
+def _mnemonic_request(path: str, payload: bytes = b"", query_string: bytes = b"") -> Request:
+    """A request with the shape _route_voice_management actually reads.
+
+    The route resolves model from body or form, then from the query string, so a
+    regression test that mirrors only the body cannot catch a scope bug. This
+    helper exposes the query string the same way Starlette does.
+    """
     request = Request(
         {
             "type": "http",
-            "method": "DELETE" if path.endswith("/x") else ("POST" if "/script" in path or "/audio/voices" in path else "GET"),
+            "method": "POST" if payload else "GET",
             "path": path,
             "headers": Headers({"content-type": "application/json"}).raw,
-            "query_string": b"",
+            "query_string": query_string,
         }
     )
 
@@ -318,6 +324,218 @@ def _json_request(path: str, payload: bytes = b"") -> Request:
 
     request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
     return request
+
+    async def _receive() -> dict:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
+    return request
+
+
+class TestVoiceManagementModelScoping:
+    """A no-model voice call must be scopable with ?model=, not silently fall
+    through to the first voice-capable deployment.
+
+    Without the fix the resolver ignores the query string, so a GET /v1/voices
+    returns whatever provider _resolve_voice_model picks first (OmniVoice on a
+    multi-provider gateway), and the caller's intent is lost.
+    """
+
+    def _patch_router(self, monkeypatch: pytest.MonkeyPatch, models: list[dict]) -> Any:
+        # keep a live deployment list; the scoping assertions only mean anything
+        # if _resolve_voice_model could have picked the OTHER deployment
+        router: Final = _FakeRouter(models)
+        return router
+
+    def _route_ready(
+        self, monkeypatch: pytest.MonkeyPatch, router: Any, resolved: dict[str, Any]
+    ) -> None:
+        async def _route(**kwargs: Any) -> Any:
+            resolved["model"] = kwargs["data"]["model"]
+
+            async def _done() -> dict:
+                return {"voices": []}
+
+            return _done()
+
+        async def _add_data(**kwargs: Any) -> Any:
+            return kwargs["data"]
+
+        monkeypatch.setattr(voice_routes, "route_request", _route)
+        monkeypatch.setattr(voice_routes, "add_litellm_data_to_request", _add_data)
+        monkeypatch.setattr("litellm.proxy.proxy_server.llm_router", router, raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.user_model", None, raising=False)
+
+        logging_obj = MagicMock()
+        logging_obj.pre_call_hook = AsyncMock(side_effect=lambda **kw: kw["data"])
+        logging_obj.update_request_status = AsyncMock()
+        logging_obj.post_call_failure_hook = AsyncMock()
+        logging_obj.post_call_response_headers_hook = AsyncMock(return_value={})
+        monkeypatch.setattr("litellm.proxy.proxy_server.proxy_logging_obj", logging_obj)
+        monkeypatch.setattr("litellm.proxy.proxy_server.general_settings", {}, raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.version", "0.0.0-test", raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.proxy_config", None, raising=False)
+
+    @pytest.mark.asyncio
+    async def test_list_voices_honors_the_query_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"}},
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech"}},
+        ]
+        router: Final = self._patch_router(monkeypatch, models)
+        resolved: dict[str, Any] = {}
+        self._route_ready(monkeypatch, router, resolved)
+
+        # omnivoice is registered first, so a query-less request would pick it.
+        # With ?model=drama3 the caller's explicit scope must win.
+        request = _mnemonic_request("/v1/voices", query_string=b"model=drama3")
+        await voice_routes.list_voices(
+            request=request,
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert resolved.get("model") == "drama3"
+
+    @pytest.mark.asyncio
+    async def test_create_voice_honors_the_query_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"}},
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech"}},
+        ]
+        router: Final = self._patch_router(monkeypatch, models)
+        resolved: dict[str, Any] = {}
+        self._route_ready(monkeypatch, router, resolved)
+
+        request = _mnemonic_request("/v1/audio/voices", query_string=b"model=drama3")
+        await voice_routes.create_voice(
+            request=request,
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert resolved.get("model") == "drama3"
+
+    @pytest.mark.asyncio
+    async def test_list_voices_without_a_scope_still_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # the convenience path must keep working or we break unscoped callers
+        _patched_route(monkeypatch, {"voices": []})
+        resolved: dict[str, Any] = {}
+
+        async def _route(**kwargs: Any) -> Any:
+            resolved["model"] = kwargs["data"]["model"]
+
+            async def _done() -> dict:
+                return {"voices": []}
+
+            return _done()
+
+        monkeypatch.setattr(voice_routes, "route_request", _route)
+        monkeypatch.setattr("litellm.proxy.proxy_server.llm_router", None, raising=False)
+
+        request = _mnemonic_request("/v1/voices")
+        await voice_routes.list_voices(
+            request=request,
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        # model=py_server.user_model is None -> _resolve_voice_model with no router -> None
+        assert resolved.get("model") is None
+
+
+class TestAudioModelsProviderScope:
+    """?provider= on /v1/audio/models must scope the pod and must not leak the
+    selection key back to the pod as a query parameter it cannot understand."""
+
+    def _request(self, query: bytes = b"provider=drama3") -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/audio/models",
+                "headers": Headers({}).raw,
+                "query_string": query,
+            }
+        )
+
+    def _patch(
+        self, monkeypatch: pytest.MonkeyPatch, models: list[dict], captured: dict[str, Any]
+    ) -> None:
+        monkeypatch.setattr(
+            "litellm.proxy.proxy_server.llm_router",
+            _FakeRouter(models),
+            raising=False,
+        )
+        import httpx as _httpx
+
+        class _Resp:
+            def __init__(self, content: bytes = b"{}", code: int = 200) -> None:
+                self.content = content
+                self.status_code = code
+                self.headers: dict[str, str] = {"content-type": "application/json"}
+
+        class _Client:
+            def __init__(self, **kwargs: Any) -> None:
+                captured["init_kwargs"] = kwargs
+
+            async def __aenter__(self) -> Any:
+                return self
+
+            async def __aexit__(self, *_: Any) -> None:
+                pass
+
+            async def get(self, *args: Any, **kwargs: Any) -> Any:
+                captured["get_args"] = args
+                captured["get_kwargs"] = kwargs
+                return _Resp()
+
+        monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+
+    @pytest.mark.asyncio
+    async def test_provider_scopes_the_target_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech", "api_base": "http://omni:8080/v1"}},
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech", "api_base": "http://drama:8080/v1"}},
+        ]
+        captured: dict[str, Any] = {}
+        self._patch(monkeypatch, models, captured)
+
+        await voice_routes.audio_models(
+            request=self._request(),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None),
+        )
+
+        # The request was scoped to drama3, so it must have hit drama3's base.
+        assert captured["get_args"][0] == "http://drama:8080/v1/models"
+
+    @pytest.mark.asyncio
+    async def test_provider_is_not_forwarded_as_a_query_param(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech", "api_base": "http://drama:8080/v1"}},
+        ]
+        captured: dict[str, Any] = {}
+        self._patch(monkeypatch, models, captured)
+
+        await voice_routes.audio_models(
+            request=self._request(),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None),
+        )
+
+        forwarded: Final = captured["get_kwargs"].get("params") or {}
+        assert "provider" not in forwarded
 
 
 def _patched_route(monkeypatch: pytest.MonkeyPatch, pod_response: dict) -> None:
@@ -369,7 +587,7 @@ class TestHiddenParamsNeverReachVoiceClients:
         _patched_route(monkeypatch, {"voices": ["default"], "uploaded_voices": []})
 
         result = await voice_routes.list_voices(
-            request=_json_request("/v1/voices"),
+            request=_mnemonic_request("/v1/voices"),
             fastapi_response=MagicMock(),
             user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
         )
@@ -385,7 +603,7 @@ class TestHiddenParamsNeverReachVoiceClients:
         _patched_route(monkeypatch, {"voices": []})
 
         result = await voice_routes.list_voice_profiles(
-            request=_json_request("/v1/voices/profiles"),
+            request=_mnemonic_request("/v1/voices/profiles"),
             fastapi_response=MagicMock(),
             user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
         )
@@ -399,7 +617,7 @@ class TestHiddenParamsNeverReachVoiceClients:
         _patched_route(monkeypatch, {"success": True, "message": "Voice 'x' deleted successfully"})
 
         result = await voice_routes.delete_voice_profile(
-            request=_json_request("/v1/voices/profiles/x"),
+            request=_mnemonic_request("/v1/voices/profiles/x"),
             fastapi_response=MagicMock(),
             profile_id="x",
             user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
@@ -414,7 +632,7 @@ class TestHiddenParamsNeverReachVoiceClients:
         _patched_route(monkeypatch, {"name": "Narrator_01", "consent": "ok"})
 
         result = await voice_routes.create_voice(
-            request=_json_request("/v1/audio/voices"),
+            request=_mnemonic_request("/v1/audio/voices"),
             fastapi_response=MagicMock(),
             user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
         )
@@ -431,7 +649,7 @@ class TestHiddenParamsNeverReachVoiceClients:
         payload: Final = b'{"model": "omnivoice", "script": []}'
 
         result = await voice_routes.audio_script(
-            request=_json_request("/v1/audio/script", payload),
+            request=_mnemonic_request("/v1/audio/script", payload),
             fastapi_response=MagicMock(),
             user_api_key_dict=MagicMock(user_id=None, allowed_model_region=""),
         )
