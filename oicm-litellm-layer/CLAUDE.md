@@ -2,6 +2,24 @@
 
 Layer-specific rules on top of the repo-root `CLAUDE.md` and `AGENTS.md`.
 
+## Discover knowledge here, do not carry it in context
+
+Everything about this layer is documented under `oicm-litellm-layer/docs/` and
+indexed in `mkdocs.yml`. Treat the site as the source of truth and look things up
+when a task needs them, instead of holding cluster facts, runbook commands, or
+provider contracts in memory or in any agent instruction file.
+
+- **Find it:** read the `nav:` block of `mkdocs.yml` for structure, then
+  `docs/docs-map.md` for a one-line purpose per file. Both are short; grep the
+  `docs/` tree for a symptom before concluding something is undocumented.
+- **Keep it there:** when you learn a durable fact (a command, a constraint, a
+  live-verified contract), write it into the owning doc and link it from the nav.
+  Never duplicate it into `AGENTS.md`, `CLAUDE.md`, or a code comment.
+- **Entry points:** cluster access and rollout is `docs/deployment.md`, the
+  master key contract is `docs/credentials.md`, per-provider request contracts
+  are `docs/usage-guides/`, and Kubernetes debugging is
+  `docs/techniques/debug_pod_technique.md`.
+
 ## Docs: navigation starts with mkdocs
 
 The source of truth for documentation structure in this layer is

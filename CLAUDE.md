@@ -8,6 +8,8 @@ Do not write comments unless they are any of:
 
 Explanation: The point of this rule is to keep out AI slop comments. AI writes way too many and way too verbose comments. Code comments are, in a way, a violation of DRY code. You must update logic in two locations to change the code, and "hard to change" is literally the definition of tech debt. We should instead aim to write code that is intuitive and clear, even at a glance, to the reader, being both easy to maintain and high performance
 
+Knowledge about the OICM layer lives in its docs site, not in these instructions. `oicm-litellm-layer/mkdocs.yml` `nav:` is the structure and `oicm-litellm-layer/docs/docs-map.md` is a one-line purpose per file; read those, then the owning doc, before acting. Cluster access, deploys, credentials, and per-provider request contracts are all documented there, and durable facts belong back in the owning doc rather than appended here
+
 Don't assume that the existing code is correct or the right way of doing things / good coding patterns. In fact, there are a lot of bad coding practices, overly complex code, code smells, etc. If something doesn't look right, speak up. Feel free to break existing patterns or question weird existing code to make new code high quality, as in:
 
 - correct

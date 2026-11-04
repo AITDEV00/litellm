@@ -113,8 +113,14 @@ kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller
 
 ## Cluster access
 
-The cluster API is reached through an SSH tunnel to the VM that has the
-kubeconfig. See `COMMANDS-CONTEXT.txt` at the repo root for the tunnel command.
+The cluster API is reached through an SSH tunnel to the bastion, which is the
+only host that can reach the API server. Corporate DNS resolves
+`api.adeoaiengine.ecouncil.ae` to `127.0.0.1` on purpose: the name works only
+while the tunnel is up. When kubectl fails with
+`dial tcp 127.0.0.1:6443: connection refused`, the tunnel has died; re-open it
+with the command in
+[Datasource Local Validation](runbooks/DATASOURCE-LOCAL-VALIDATION.md#step-1-open-the-ssh-tunnel).
+
 The kubeconfig on this machine is `~/.kube/alain-oicm.conf`, which is also the
 Makefile default for `ALAIN_KUBECONFIG`.
 
