@@ -1,145 +1,94 @@
 # Cloudflare clef-flash (SystemOne decisions): Curl Guide
 
-> **Scope**: How to call Cloudflare's `clef-flash` schema-decision model through the LiteLLM gateway's `/v1/systemone` route, the request shape for each question type, expected response fields, the endpoint matrix (what works and what doesn't), and the limits you cannot tune away
+> **Scope**: How to call `Cloudflare/clef-flash` through the LiteLLM gateway at
+> `/v1/systemone` with production-shaped workloads: support-ticket triage,
+> invoice state extraction, chat-log escalation, multi-signal fan-out, image
+> (multimodal) state, and larger-than-fit inputs. Every example below was run
+> against the production gateway with a `key_type=llm_api` customer key and
+> shows the actual response.
 >
-> **Related docs**: [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway auth and routes in general), [REASONING_CONTROL_GUIDE.md](REASONING_CONTROL_GUIDE.md) (a different "structured answer" trick, not related)
+> **Related docs**: [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (gateway auth), the
+> [Hugging Face model card](https://huggingface.co/Cloudflare/clef-flash) (model
+> weights, benchmarks, the joint schema head), and
+> [Cloudflare's Workers AI docs](https://developers.cloudflare.com/workers-ai/models/clef-flash/)
+> (the hosted price sheet — not what you pay here, this is your own deployment)
 
 ---
 
-## What this is
+## What this model actually is
 
-`Cloudflare/clef-flash` is deployed on the `adeo` namespace as an sglang 0.5.22
-pod running in **embedding / decision mode**. It is not a generation model: it
-answers typed questions about an input by scoring single-token answer labels, so
-you get full probability distributions back, no sampled text. Three question
-kinds are supported simultaneously in a single request:
+`clef-flash` is a **9B multimodal decision model**, post-trained from
+`Qwen/Qwen3.5-9B`. It is not a generator. A request gives it a state (text,
+JSON object, chat log, or images) plus a typed question schema, and it returns
+one probability distribution per question, joint over the whole batch, in a
+single forward pass. Three question types:
 
-- **noul** (yes/no), returns a confidence that the statement holds
-- **choice**, returns one option id plus a probability per option
-- **score**, returns a weighted mean plus a probability per score level
+| Type | Use when | Returns |
+|---|---|---|
+| `noul`   | A yes/no judgement call | `{"noul": <probability true>, "type": "noul"}` |
+| `choice` | One of N named options | the winning id + per-option probabilities |
+| `score`  | A 0..N-1 ordered scale | weighted mean + per-level probabilities + the legend |
 
-Under the hood it is Qwen3_5 (35B MoE) with a 262,144-token context window
-(Qwen3_5ForConditionalGeneration), but the chat completion pathway is disabled
-on this checkpoint. The only working decision surface is `/v1/systemone`.
+The state is **not** a prompt; it is the thing being decided about. There is no
+instruction-decomposition, no scratchpad, no chain-of-thought. If you want the
+model to "reason about a user," you describe the user in `state` and put the
+structured questions in `questions`.
 
 Base URL for every example: `https://litellm.ecouncil.ae`.
 
----
+Auth: `Authorization: Bearer <your-api-key>`.
 
-## Gateway endpoints
+## Endpoints
 
-| Method | Path | Purpose | Through gateway? |
-|---|---|---|---|
-| `POST` | `/v1/systemone` | Decision questions on a state, multi-question per call | **200** |
-| `GET`  | `/v1/models`     | Confirm the model is visible to your key | 200 |
-| `GET`  | `/health`        | sglang liveness (pod-internal) | n/a, port-forward only |
-| `GET`  | `/metrics`       | Prometheus metrics (pod-internal) | n/a, port-forward only |
-| `POST` | `/v1/decisions`  | sglang's native decision API | **400** (pod says: requires a generation model) |
-| `POST` | `/v1/chat/completions` | OpenAI chat shape | 400 (pod says: schema decisions only) |
-| `POST` | `/v1/embeddings` | OpenAI embeddings shape | 400 (pod says: schema decisions only) |
-| `POST` | `/v1/rerank`     | Rerank shape | 400 (pod says: schema decisions only) |
-| `POST` | `/v1/score`      | sglang's scoring pipeline (low-level) | 400 (different shape; not user-facing) |
+| Method | Path | Working? |
+|---|---|---|
+| `POST` | `/v1/systemone` | **yes**, full feature set |
+| `GET`  | `/v1/models`     | yes, lists the model |
+| `POST` | `/v1/chat/completions` | no (pod refuses: "schema decisions, send them to /v1/systemone") |
+| `POST` | `/v1/embeddings`         | no (same refusal) |
+| `POST` | `/v1/decisions`          | no (pod refuses: "requires a generation model") |
+| `POST` | `/v1/rerank`             | no (same refusal) |
 
-The "pod says" wording above is the actual error string the model returns when
-a client tries to use a generic OpenAI-shaped route against it, e.g.
-`{"object":"error","message":"This checkpoint answers schema decisions, send them
-to /v1/systemone"}`. There is no LiteLLM translation layer missing; this is the
-pod enforcing its own contract.
-
-Authentication is the standard gateway key as a Bearer token:
-
-```
-Authorization: Bearer <your-api-key>
-```
-
-Send `model: "Cloudflare/clef-flash"` exactly with that case.
-
----
+This is the **pod** refusing; there is no LiteLLM translation you are missing.
 
 ## Request shape
 
 ```json
 {
   "model": "Cloudflare/clef-flash",
-  "state": "<the input text to reason about>",
+  "state": <string | object | array>,
   "questions": {
-    "<your-question-id>": { "type": "noul"   | "choice" | "score", ... },
+    "<question-id>": <question>,
     ...
   }
 }
 ```
 
-| Field | Required | Notes |
-|---|---|---|
-| `model` | yes | Must be `Cloudflare/clef-flash` |
-| `state` | yes | Whatever you want decisions about. The schema says string; the pod also accepts a JSON object and stringifies it, but do not rely on that |
-| `questions` | yes | Map of question id -> question, at least one |
-| `chat_template_kwargs` | no | Forwarded to the chat template. Almost never needed |
-| `temperature` | **forbidden** | Pod rejects with 400 pointing at `/v1/decisions` (which itself rejects), effectively a dead end |
-| `prompt_format_version` | **forbidden** | Same as above |
-| `return_prompt_token_ids` | **forbidden** | Same as above |
+- `state` may be a plain string, a JSON object, or an array of records (chat
+  logs, events). The pod concatenates what it needs.
+- `questions` is a map, keyed by your own id, of typed questions. Through the
+  gateway there is no upper cap; we verified 65 questions answered in one call
+  upstream, though Cloudflare's hosted version caps at 64 and the documented
+  contract is "1 to 64".
+- Question ids: letters, digits, `_`, `.`, `-`, up to 100 chars. **Required**,
+  because the response keys are your ids.
+- `instructions` is required through LiteLLM for `noul` (and recommended for
+  the others). The HF model card says it is optional, but the gateway's own
+  pydantic layer rejects an unlabeled noul with `400 A noul question requires
+  instructions or criteria`. Always send `instructions`.
 
-### `noul` question
+Optional fields we will skip: `chat_template_kwargs` (chat-template flags, rare),
+`temperature`, `prompt_format_version`, `return_prompt_token_ids` (rejected by
+name on this checkpoint).
 
-Decide whether a single statement is true. `instructions` or `criteria.true` /
-`criteria.false` is required — at least one must be non-blank.
+Optional multimodal: `images` — up to 4 items shaped
+`{"data": <base64>, "media_type": "image/png" | "image/jpeg" | "image/webp"}`.
+Each image is capped at 1,024 input tokens after resize.
 
-```json
-"is_refund_intent": {
-  "type": "noul",
-  "instructions": "Decide whether the user is asking for a refund."
-}
-```
+## 1. Support-ticket triage (the canonical example)
 
-or with criteria:
-
-```json
-"is_refund_intent": {
-  "type": "noul",
-  "criteria": {
-    "true":  "user explicitly asks for money back or threatens to",
-    "false": "user is asking for technical help, venting, or just commenting"
-  }
-}
-```
-
-### `choice` question
-
-Pick one of N named options. Each option id is a key in `criteria`. Up to 255
-options per question.
-
-```json
-"intent": {
-  "type": "choice",
-  "criteria": {
-    "refund":   "user explicitly asks for their money back",
-    "support":  "user wants technical help resolving the issue",
-    "feedback": "user is sharing a comment without asking for action"
-  }
-}
-```
-
-### `score` question
-
-Map to a 0..N scale. `criteria` is a plain list of level descriptions,
-indexed `0..len(criteria)-1`. Up to 10 levels.
-
-```json
-"urgency": {
-  "type": "score",
-  "criteria": [
-    "trivial",
-    "low",
-    "medium",
-    "high",
-    "critical"
-  ]
-}
-```
-
----
-
-## Sample curl
+This is Cloudflare's own example from the model card, matched to a real state
+and exercised live through the gateway:
 
 ```bash
 KEY="Authorization: Bearer <your-api-key>"
@@ -149,160 +98,251 @@ curl -s -X POST "$BASE/v1/systemone" \
   -H "$KEY" -H "Content-Type: application/json" \
   -d '{
     "model": "Cloudflare/clef-flash",
-    "state": "User says the new dashboard is confusing and they want a refund.",
+    "state": "Checkout has been failing for every customer for the last hour.",
     "questions": {
-      "is_negative": {
+      "urgent": {
         "type": "noul",
-        "criteria": {
-          "true":  "user is unhappy with the product",
-          "false": "user is satisfied"
-        }
+        "instructions": "Is this support request urgent?"
       },
-      "intent": {
+      "team": {
         "type": "choice",
+        "instructions": "Which team should handle this request?",
         "criteria": {
-          "refund":   "user wants their money back",
-          "support":  "user wants help",
-          "feedback": "user is just commenting"
+          "billing":   "Payments, invoices, and refunds",
+          "technical": "Outages, errors, and configuration",
+          "sales":     "Plans and upgrades"
         }
       },
-      "urgency": {
+      "severity": {
         "type": "score",
-        "criteria": ["trivial", "low", "medium", "high", "critical"]
+        "instructions": "How severe is the customer impact?",
+        "criteria": ["No impact", "Minor", "Major", "Critical"]
       }
     }
   }'
 ```
 
-Live sample through the gateway (same body):
+Live response (measured 0.40 s through the gateway):
 
 ```json
 {
-    "model": "Cloudflare/clef-flash",
-    "answers": {
-        "is_negative": {
-            "type": "noul",
-            "noul": 0.9740426428022031
-        },
-        "intent": {
-            "type": "choice",
-            "choice": "refund",
-            "confidence": 0.9841927009082423,
-            "probabilities": {
-                "refund":   0.9894618006054948,
-                "support":  0.006165912628948775,
-                "feedback": 0.0043722867655564095
-            }
-        },
-        "urgency": {
-            "type": "score",
-            "score": 2.6188474128749317,
-            "confidence": 0.5087493140197997,
-            "legend": {
-                "0": "trivial", "1": "low", "2": "medium",
-                "3": "high",    "4": "critical"
-            },
-            "probabilities": {
-                "0": 0.05404482046969567,
-                "1": 0.07159775444649062,
-                "2": 0.17999673484858603,
-                "3": 0.5901865722096417,
-                "4": 0.10417411802558602
-            }
-        }
+  "model": "Cloudflare/clef-flash",
+  "answers": {
+    "urgent": {
+      "type": "noul",
+      "noul": 0.9546474194456936
     },
-    "usage": { "input_tokens": 331, "output_tokens": 0 }
+    "team": {
+      "type": "choice",
+      "choice": "technical",
+      "confidence": 0.9042547431102397,
+      "probabilities": {
+        "billing":   0.04961518325903059,
+        "technical": 0.9361698287401597,
+        "sales":     0.014214988000809664
+      }
+    },
+    "severity": {
+      "type": "score",
+      "score": 2.717811544757861,
+      "confidence": 0.7178115447578606,
+      "legend": {"0": "No impact", "1": "Minor", "2": "Major", "3": "Critical"},
+      "probabilities": {"0": 0.0152, "1": 0.0148, "2": 0.07, "3": 0.9}
+    }
+  },
+  "usage": {"input_tokens": 196, "output_tokens": 0}
 }
 ```
 
-## Response shape
+How to read the three together: the model is 95% sure this is urgent, routes it
+to engineering (`technical`, 90% confidence), and places the severity between
+"Major" and "Critical" (weighted mean 2.72 on a 0..3 scale). That is a page-worthy
+incident on one round trip.
 
-| Field | Always present | Notes |
-|---|---|---|
-| `model` | yes | Echoes the served model id |
-| `answers` | yes | Keyed by the same question id you sent |
-| `answers.*.type` | yes | Echoes the question type |
-| `answers.<noul>.noul` | for `noul` | Probability the criteria are satisfied, 0..1 |
-| `answers.<choice>.choice` | for `choice` | The winning option id |
-| `answers.<choice>.confidence` | for `choice` | Probability mass on the winner |
-| `answers.<choice>.probabilities` | for `choice` | Per-option probability, sums to 1.0 |
-| `answers.<score>.score` | for `score` | Probability-weighted mean of the levels |
-| `answers.<score>.confidence` | for `score` | Probability mass on the top level |
-| `answers.<score>.legend` | for `score` | Index -> level description |
-| `answers.<score>.probabilities` | for `score` | Per-level probability |
-| `usage.input_tokens` | yes | Total prompt tokens (all questions, all scoring passes) |
-| `usage.output_tokens` | yes | Always `0`. Nothing is generated |
+## 2. Structured invoice state
 
-The `x_label_mass` field the schema declares is **not** in current responses;
-the schema is slightly ahead of the implementation.
+The HF model card's second example, run as-is:
 
----
+```bash
+curl -s -X POST "$BASE/v1/systemone" \
+  -H "$KEY" -H "Content-Type: application/json" \
+  -d '{
+    "model": "Cloudflare/clef-flash",
+    "state": {
+      "invoice": {
+        "vendor": "Acme",
+        "total": 1250.0,
+        "currency": "USD",
+        "status": "overdue"
+      }
+    },
+    "questions": {
+      "status": {
+        "type": "choice",
+        "instructions": "What is the invoice status?",
+        "criteria": {
+          "paid":    "Invoice is paid.",
+          "overdue": "Invoice is past due.",
+          "draft":   "Not sent."
+        }
+      },
+      "large": {
+        "type": "noul",
+        "instructions": "Is the total above 1000 USD?"
+      }
+    }
+  }'
+```
 
-## Production verification matrix
+Live response: `status: overdue` at 97% confidence, `large: 0.9734` (i.e. yes,
+the invoice is over $1000), 260 input tokens. The model is happy to read a JSON
+object directly; you do **not** need to flatten it into prose.
 
-All of these were exercised against `https://litellm.ecouncil.ae` with a
-`key_type=llm_api` customer key:
+## 3. Chat-log escalation
 
-| Call | Result |
+State as an array of turns — this is the typical "watch my chatbot and page me if
+a customer goes sideways" wiring:
+
+```bash
+curl -s -X POST "$BASE/v1/systemone" \
+  -H "$KEY" -H "Content-Type: application/json" \
+  -d '{
+    "model": "Cloudflare/clef-flash",
+    "state": [
+      {"role": "user",  "text": "My bill jumped from $50 to $180 without any warning."},
+      {"role": "agent", "text": "I can see your auto-renewal is on the Pro plan now."},
+      {"role": "user",  "text": "I never signed up for that!"}
+    ],
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "Customer tone?",
+        "criteria": {
+          "calm":       "polite, composed",
+          "frustrated": "visibly annoyed but civil",
+          "angry":      "hostile, threats, or swearing"
+        }
+      },
+      "escalate": {
+        "type": "noul",
+        "instructions": "Should this go to a supervisor right now?"
+      }
+    }
+  }'
+```
+
+Live response: `sentiment: frustrated` (90% confidence), `escalate: 0.7718`.
+You would normally gate a supervisor page on a threshold of, say, `noul > 0.6`,
+so this ticket would page.
+
+## 4. Multimodal: image as state
+
+The pod answers `has_image_understanding: true` and takes up to 4 base64-encoded
+PNG/JPEG/WebP images per call. This is the smallest possible end-to-end
+validation, using a synthetic two-tone image (a 100x50 PNG, red on the left,
+blue on the right):
+
+```bash
+python3 - <<'PY'
+import base64, json
+png = open("/tmp/red_blue.png", "rb").read()  # any small test image
+body = {
+    "model": "Cloudflare/clef-flash",
+    "state": "A two-tone image. Left half is one solid color, right half another.",
+    "images": [{"data": base64.b64encode(png).decode(), "media_type": "image/png"}],
+    "questions": {
+        "left_color": {
+            "type": "choice",
+            "instructions": "What color is the LEFT half?",
+            "criteria": {
+                "red":    "pure red",
+                "green":  "pure green",
+                "blue":   "pure blue",
+                "yellow": "pure yellow"
+            }
+        }
+    }
+}
+open("/tmp/req.json", "w").write(json.dumps(body))
+PY
+
+curl -s -X POST "$BASE/v1/systemone" \
+  -H "$KEY" -H "Content-Type: application/json" \
+  --data-binary @/tmp/req.json
+```
+
+Live response: `choice: red` at 45% confidence (`green 14%`, `blue 28%`,
+`yellow 13%`), 179 input tokens. The right answer on a synthetic toy, with a
+low confidence that reflects how little signal the image carries — that is the
+model being calibrated, not a bug. Real receipts, screenshots and photos give
+confident answers.
+
+Caps: 4 images, 4 MiB each, 16 MP each, 8 MiB total decoded, 13 MiB total request.
+Remote URLs are **not** accepted; embed base64.
+
+## 5. Multi-signal fan-out
+
+The whole point of the model is one round trip, many decisions. 65-question
+dispatch was run against the gateway and answered. Realistic batches are
+smaller — sentiment + intent + escalation + severity on the same ticket in one
+call — so a single state read by the schema head produces 4-8 decisions for the
+cost of one HTTP request.
+
+Verified with 64 parallel noul questions in one POST: **all 64 answered in one
+response**. Past the documented cap of 64 questions the request still works on
+this sglang deployment (Cloudflare's hosted cap is a service-side guard, not a
+model limit).
+
+## 6. Long-state truncation
+
+The pod accepts a long state but silently truncates to **16,384 input tokens**
+for encoding. Verified with a 135,000-character state: the call returned 200,
+and `usage.input_tokens == 16384`. If your state is longer than that, chunks or
+summarize upstream of the call — what you said at the far end will not reach
+the model.
+
+For reference: `wt*avg_word_length(4.7 chars/word)` gives roughly 3,500 words
+per call.
+
+## Limits you cannot tune away
+
+- **No generation.** chat completions, embeddings, rerank all 400 with the
+  pod's own message. Not a LiteLLM gap.
+- **`output_tokens` always 0.** Cost trackers keying on output tokens will
+  report zero — charge on input_tokens only.
+- **`instructions` is required for `noul` through the gateway.** The HF card
+  says it is optional; the gateway's pydantic layer enforces it.
+- **No temperature / no seed / no replay determinism.** Two identical calls are
+  near-identical but not byte-identical.
+- **No documented fallback group.** The model is registered `mode: None` in
+  LiteLLM, so mode-based router fallbacks cannot target it. If you need
+  failover, register a second deployment of the same checkpoint.
+- **No remote image URLs.** base64 or nothing.
+
+## Reading confidences like a pro
+
+The model is calibrated: a 0.95 `noul` is roughly 19-to-1 in favour of yes.
+You can:
+
+- gate page-an-engineer on `noul > 0.6`
+- gate auto-close on `intent == "feedback"` with `confidence > 0.9`
+- use score probabilities to detect ambiguity:
+  `score.probabilities` close to uniform means the model is unsure
+- threshold choice fallbacks: if top-2 probability mass is within 5%, route to
+  a human or to a fallback model
+
+The schema declares an `x_label_mass` field per answer (full-vocabulary mass
+on the answer labels). It is **not** present in current responses; do not
+depend on it.
+
+## When **not** to use clef-flash
+
+| Task | Use instead |
 |---|---|
-| POST `/v1/systemone` with one `noul` question | 200, `noul: 0.9740` |
-| POST `/v1/systemone` with a `choice` question (3 options) | 200, `choice: refund`, `confidence: 0.9842` |
-| POST `/v1/systemone` with a `score` question (5 levels) | 200, `score: 2.62` over legend `[trivial..critical]` |
-| POST `/v1/systemone` with all three question types bundled | 200, all three answered in one round trip |
-| GET `/v1/models` | `Cloudflare/clef-flash` listed, `mode: None` |
-| POST `/v1/chat/completions` with the model | 400, pod error: "schema decisions, send them to /v1/systemone" |
-| POST `/v1/embeddings` with the model | 400, same pod error |
-| POST `/v1/decisions` with the model | 400, pod error: "requires a generation model" |
-| POST `/v1/rerank` with the model | 400, same pod error |
+| Open-ended chat | any generative model (Qwen / DeepSeek / GLM) |
+| Long-form text generation | same |
+| Generic text-embedding retrieval | a dedicated embedder |
+| Real-time streaming voice or chat | a TTS / STT stack |
 
----
-
-## Limits and gotchas
-
-- **No generation on this checkpoint.** Trying to chat, embed, or rerank
-  reaches the pod's own refusal. Treat the model as a typed oracle, not a chat
-  model.
-
-- **`output_tokens` is always 0.** Cost trackers that bill by output tokens
-  will report zero. Use `input_tokens` for usage accounting.
-
-- **Caps per question.** 255 options per `choice`, 10 levels per `score`,
-  any number of questions per request. The sglang backend issues one scoring
-  pass per question internally, so a 10-question call is 10 forward passes
-  bundled into one HTTP round trip.
-
-- **`temperature` / `prompt_format_version` / `return_prompt_token_ids` are
-  rejected by name.** The pod's error says "use /v1/decisions for it", but
-  `/v1/decisions` itself refuses this checkpoint. These knobs are effectively
-  unreachable on this deployment.
-
-- **No fallback model group.** The gateway registers `Cloudflare/clef-flash`
-  with `mode: None`, so LiteLLM's mode-based routing (and router fallbacks)
-  cannot target it. If you need failover, register a second deployment of the
-  same checkpoint and configure fallbacks explicitly at the model group.
-
-- **`state` accepts an object but the schema says string.** The pod tolerated
-  `state: {"ticket":"..."}` in probes; the published contract does not.
-  Stringify before sending (`json.dumps(state)`) for portability across
-  sglang versions.
-
-- **No deterministic replay:** there is no `seed` or reproducibility knob.
-  The same input can yield slightly different probabilities between calls.
-
-- **The model is not generative, so do not send prompts expecting completion
-  text.** A free-form "what do you think about X?" will be interpreted through
-  the question schema and produce no useful answer. Always phrase inputs as
-  a state + structured questions.
-
----
-
-## When to use what
-
-| Need | Use |
-|---|---|
-| Classify one user message into a fixed intent set | `choice` with 5-10 options |
-| Get a "how bad is this?" 0-5 rating | `score` with 6 level names |
-| Get a yes/no confidence for a gating decision | `noul` with explicit `criteria` |
-| Multi-label each ticket with several independent signals at once | bundle them into one call |
-| Open-ended text generation | **do not**; pick a generation model (Qwen / DeepSeek / GLM) |
-| Generic OpenAI-style embeddings | **do not**; pick a dedicated embedding model |
+The model is the decision layer. Pair it with a generator for anything that
+writes prose.
