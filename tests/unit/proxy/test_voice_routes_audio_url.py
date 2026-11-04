@@ -450,6 +450,212 @@ class TestVoiceManagementModelScoping:
         assert resolved.get("model") is None
 
 
+class TestVoiceResolutionHeaders:
+    """Unscoped voice calls must surface that they fell back and which model
+    actually served them, in headers, so callers do not have to read the
+    response body shape to find out which pod answered."""
+
+    def _patch_full(
+        self, monkeypatch: pytest.MonkeyPatch, router: Any, body: dict[str, Any]
+    ) -> None:
+        """Wire a route that returns the given pod body."""
+
+        async def _route(**kwargs: Any) -> Any:
+            async def _done() -> dict:
+                return body
+
+            return _done()
+
+        async def _add_data(**kwargs: Any) -> Any:
+            return kwargs["data"]
+
+        monkeypatch.setattr(voice_routes, "route_request", _route)
+        monkeypatch.setattr(voice_routes, "add_litellm_data_to_request", _add_data)
+        monkeypatch.setattr("litellm.proxy.proxy_server.llm_router", router, raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.user_model", None, raising=False)
+
+        logging_obj = MagicMock()
+        logging_obj.pre_call_hook = AsyncMock(side_effect=lambda **kw: kw["data"])
+        logging_obj.update_request_status = AsyncMock()
+        logging_obj.post_call_failure_hook = AsyncMock()
+        logging_obj.post_call_response_headers_hook = AsyncMock(return_value={})
+        monkeypatch.setattr("litellm.proxy.proxy_server.proxy_logging_obj", logging_obj)
+        monkeypatch.setattr("litellm.proxy.proxy_server.general_settings", {}, raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.version", "0.0.0-test", raising=False)
+        monkeypatch.setattr("litellm.proxy.proxy_server.proxy_config", None, raising=False)
+
+    @pytest.mark.asyncio
+    async def test_unscoped_list_voices_marks_fallback_and_names_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"}},
+        ]
+        self._patch_full(monkeypatch, _FakeRouter(models), {"voices": ["default"]})
+
+        result = await voice_routes.list_voices(
+            request=_mnemonic_request("/v1/voices"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert isinstance(result, JSONResponse)
+        headers: Final = dict(result.headers)
+        assert headers.get("x-litellm-voice-resolution") == "fallback"
+        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+
+    @pytest.mark.asyncio
+    async def test_scoped_list_voices_marks_explicit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech"}},
+        ]
+        self._patch_full(monkeypatch, _FakeRouter(models), {"voices": ["default"]})
+
+        result = await voice_routes.list_voices(
+            request=_mnemonic_request("/v1/voices", query_string=b"model=drama3"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert isinstance(result, JSONResponse)
+        headers: Final = dict(result.headers)
+        assert headers.get("x-litellm-voice-resolution") == "explicit"
+        assert headers.get("x-litellm-voice-resolved-model") == "drama3"
+
+    @pytest.mark.asyncio
+    async def test_unscoped_delete_profile_marks_fallback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech"}},
+        ]
+        self._patch_full(
+            monkeypatch, _FakeRouter(models), {"success": True, "message": "deleted"}
+        )
+
+        result = await voice_routes.delete_voice_profile(
+            request=_mnemonic_request("/v1/voices/profiles/x"),
+            fastapi_response=MagicMock(),
+            profile_id="x",
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert isinstance(result, JSONResponse)
+        headers: Final = dict(result.headers)
+        assert headers.get("x-litellm-voice-resolution") == "fallback"
+        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+
+    @pytest.mark.asyncio
+    async def test_no_resolvable_model_omits_both_headers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # no router + no explicit model -> nothing to advertise
+        self._patch_full(monkeypatch, None, {"voices": []})
+
+        result = await voice_routes.list_voices(
+            request=_mnemonic_request("/v1/voices"),
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None, allowed_model_region="", models=None, team_models=None),
+        )
+
+        assert isinstance(result, JSONResponse)
+        headers: Final = dict(result.headers)
+        assert "x-litellm-voice-resolution" not in headers
+        assert "x-litellm-voice-resolved-model" not in headers
+
+
+class TestAudioModelsProviderScopeHeaders:
+    """The same signal must reach callers of /v1/audio/models et al, which
+    proxy raw pod responses, so the header rides on the Response object."""
+
+    def _patch(self, monkeypatch: pytest.MonkeyPatch, models: list[dict]) -> None:
+        monkeypatch.setattr(
+            "litellm.proxy.proxy_server.llm_router",
+            _FakeRouter(models),
+            raising=False,
+        )
+        import httpx as _httpx
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.content = b"{}"
+                self.status_code = 200
+                self.headers: dict[str, str] = {"content-type": "application/json"}
+
+        class _Client:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+            async def __aenter__(self) -> Any:
+                return self
+
+            async def __aexit__(self, *_: Any) -> None:
+                pass
+
+            async def get(self, *args: Any, **kwargs: Any) -> Any:
+                return _Resp()
+
+        monkeypatch.setattr(_httpx, "AsyncClient", _Client)
+
+    @pytest.mark.asyncio
+    async def test_unscoped_audio_models_marks_fallback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "omnivoice", "litellm_params": {"model": "omnivoice/omnivoice", "mode": "audio_speech", "api_base": "http://omni:8080/v1"}},
+        ]
+        self._patch(monkeypatch, models)
+
+        request: Final = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/audio/models",
+                "headers": Headers({}).raw,
+                "query_string": b"",
+            }
+        )
+        result = await voice_routes.audio_models(
+            request=request,
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None),
+        )
+
+        headers: Final = dict(result.headers)
+        assert headers.get("x-litellm-voice-resolution") == "fallback"
+        assert headers.get("x-litellm-voice-resolved-model") == "omnivoice"
+
+    @pytest.mark.asyncio
+    async def test_scoped_audio_models_marks_explicit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        models: Final = [
+            {"model_name": "drama3", "litellm_params": {"model": "drama3/drama-3", "mode": "audio_speech", "api_base": "http://drama:8080/v1"}},
+        ]
+        self._patch(monkeypatch, models)
+
+        request: Final = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/audio/models",
+                "headers": Headers({}).raw,
+                "query_string": b"provider=drama3",
+            }
+        )
+        result = await voice_routes.audio_models(
+            request=request,
+            fastapi_response=MagicMock(),
+            user_api_key_dict=MagicMock(user_id=None),
+        )
+
+        headers: Final = dict(result.headers)
+        assert headers.get("x-litellm-voice-resolution") == "explicit"
+        assert headers.get("x-litellm-voice-resolved-model") == "drama3"
+
+
 class TestAudioModelsProviderScope:
     """?provider= on /v1/audio/models must scope the pod and must not leak the
     selection key back to the pod as a query parameter it cannot understand."""

@@ -167,6 +167,33 @@ def _resolve_voice_model(router_instance: Any, action: str) -> str | None:
     return None
 
 
+# Upstream LiteLLM surfaces routing/fallback decisions as x-litellm-* headers
+# (see router_utils/add_retry_fallback_headers.py for the retry/fallback set).
+# Follow the same convention: a caller that does not pass ?model= should be
+# able to tell which model actually served the response without reading the
+# response body's pod-native shape.
+VOICE_RESOLUTION_HEADER: Final = "x-litellm-voice-resolution"
+VOICE_RESOLVED_MODEL_HEADER: Final = "x-litellm-voice-resolved-model"
+
+
+def _voice_resolution_headers(resolved_model: str | None, fallback: bool) -> dict:
+    """Headers telling the caller whether we served their explicit model or fell back.
+
+    `explicit` means the caller passed ?model= or a body model field. `fallback`
+    means we picked the first voice-capable deployment for the action, which is
+    almost never what an end-user request intends, but is kept for backward
+    compatibility with pre-scoping clients. Explicit callers see the resolved
+    model name echoed; fallback callers see it plus the `fallback` marker, so
+    an absent ?model= never goes silently to a different pod than expected.
+    """
+    if resolved_model is None:
+        return {}
+    return {
+        VOICE_RESOLUTION_HEADER: "fallback" if fallback else "explicit",
+        VOICE_RESOLVED_MODEL_HEADER: resolved_model,
+    }
+
+
 def _resolve_audio_api_base(router_instance: Any, provider: str | None = None) -> str | None:
     for deployment in _audio_deployments_by_priority(router_instance, provider):
         api_base = deployment.get("litellm_params", {}).get("api_base")
@@ -389,21 +416,29 @@ async def create_voice(
         # Same query-param scoping as _route_voice_management: the route resolves
         # the deployment from a body/form field, but ?model= is the natural way
         # to name it and was being ignored.
-        model = (
+        explicit_model: Final = (
             request.query_params.get("model")
             or data.pop("model", None)
             or proxy_server_mod.user_model
         )
+        used_fallback: Final = explicit_model is None
 
-        if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_voice_model(proxy_server_mod.llm_router, action="register")
+        resolved_model: Final = (
+            explicit_model
+            if explicit_model is not None
+            else (
+                _resolve_voice_model(proxy_server_mod.llm_router, action="register")
+                if proxy_server_mod.llm_router is not None
+                else None
+            )
+        )
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         # The route owns the action. Without this a client could POST here with
         # action="delete_profile" and drive a different pod operation through
         # the create endpoint.
         voice_data["action"] = "register"
-        data = {"model": model, "voice_data": voice_data, **data}
+        data = {"model": resolved_model, "voice_data": voice_data, **data}
 
         data = await proxy_server_mod.proxy_logging_obj.pre_call_hook(
             user_api_key_dict=user_api_key_dict, data=data, call_type="acreate_voice"
@@ -447,7 +482,10 @@ async def create_voice(
         if isinstance(response, dict):
             response.pop("_hidden_params", None)
 
-        return JSONResponse(content=response, headers=custom_headers)
+        return JSONResponse(
+            content=response,
+            headers={**custom_headers, **_voice_resolution_headers(resolved_model, used_fallback)},
+        )
 
     except Exception as e:
         await proxy_server_mod.proxy_logging_obj.post_call_failure_hook(
@@ -500,20 +538,28 @@ async def _route_voice_management(
         # GET routes carry no body, so a caller scoping with ?model= would
         # otherwise silently fall through to _resolve_voice_model, which returns
         # the first voice-capable deployment regardless of what was requested.
-        model = (
+        explicit_model: Final = (
             request.query_params.get("model")
             or data.pop("model", None)
             or proxy_server_mod.user_model
         )
+        used_fallback: Final = explicit_model is None
 
-        if model is None and proxy_server_mod.llm_router is not None:
-            model = _resolve_voice_model(proxy_server_mod.llm_router, action=action)
+        resolved_model: Final = (
+            explicit_model
+            if explicit_model is not None
+            else (
+                _resolve_voice_model(proxy_server_mod.llm_router, action=action)
+                if proxy_server_mod.llm_router is not None
+                else None
+            )
+        )
 
         voice_data = {k: data.pop(k) for k in list(data.keys()) if k in _VOICE_DATA_KEYS}
         voice_data["action"] = action
         if profile_id is not None:
             voice_data["profile_id"] = profile_id
-        data = {"model": model, "voice_data": voice_data, **data}
+        data = {"model": resolved_model, "voice_data": voice_data, **data}
 
         data = await proxy_server_mod.proxy_logging_obj.pre_call_hook(
             user_api_key_dict=user_api_key_dict, data=data, call_type=route_type
@@ -551,7 +597,10 @@ async def _route_voice_management(
         if isinstance(response, dict):
             response.pop("_hidden_params", None)
 
-        return JSONResponse(content=response, headers=custom_headers)
+        return JSONResponse(
+            content=response,
+            headers={**custom_headers, **_voice_resolution_headers(resolved_model, used_fallback)},
+        )
 
     except Exception as e:
         await proxy_server_mod.proxy_logging_obj.post_call_failure_hook(
@@ -813,9 +862,9 @@ async def _proxy_to_audio_pod(
     # default would always win the truthy slot in an `or` chain, so it cannot be
     # used as the fallback. The caller's explicit query param takes precedence,
     # and only when both are absent do we drop to the single-default behavior.
-    provider_hint: Final = (
-        request.query_params.get("provider") or provider or "omnivoice"
-    )
+    explicit_provider: Final = request.query_params.get("provider")
+    used_fallback: Final = explicit_provider is None
+    provider_hint: Final = explicit_provider or provider or "omnivoice"
 
     target_url: Final = _resolve_audio_target_url(llm_router, provider_hint, path)
     if target_url is None:
@@ -849,9 +898,20 @@ async def _proxy_to_audio_pod(
         }
         resp = await client.get(target_url, headers=headers, params=forward_params)
 
+    # Surface the provider actually hit. `x-litellm-voice-resolution` names
+    # whether the caller asked for this provider or we defaulted; the resolved
+    # header names the provider itself (not a model id, because these routes
+    # proxy the pod's generic models/health/metrics endpoints).
+    resolution_headers: Final = {
+        VOICE_RESOLUTION_HEADER: "fallback" if used_fallback else "explicit",
+        VOICE_RESOLVED_MODEL_HEADER: provider_hint,
+    }
     return Response(
         content=resp.content,
         status_code=resp.status_code,
         media_type=resp.headers.get("content-type", "application/json"),
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+        headers={
+            **{k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+            **resolution_headers,
+        },
     )
