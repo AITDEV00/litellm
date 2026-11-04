@@ -25,10 +25,10 @@ master key, so the status codes are what a customer sees.
 
 Base URL for every example: `https://litellm.ecouncil.ae`.
 
-### Scoping the listing: `?model=` works, and unscoped now returns Drama 3
+### Scoping the listing: `?model=` works (post-fix), unscoped picks one provider
 
-`GET /v1/voices` reads the model from `?model=` in the query string (body on a
-GET was never read). Two patterns matter:
+`GET /v1/voices` reads the model from `?model=` in the query string (bodies on
+GETs are never read). Two patterns matter:
 
 - **explicit scope (recommended).** `?model=fishaudio/drama-3` returns your
   drama3 registry including uploaded voices:
@@ -42,26 +42,22 @@ GET was never read). Two patterns matter:
   ```
 
 - **unscoped.** With no query parameter the router picks the first
-  voice-capable deployment in priority order, which after the controller
-  reconciled the prefix is Drama 3. Verified live on production this returns
-  Drama 3's catalogue (`auto`, `design:<attributes>`, `alloy` preset), not
-  OmniVoice's registry:
+  voice-capable deployment by priority order. Verified live on production this
+  is OmniVoice, returning its 31-entry catalogue (`auto`, `design:<attributes>`,
+  OpenAI presets like `alloy`, and `clone:*` profiles):
 
   ```bash
   curl -s "https://litellm.ecouncil.ae/v1/voices" -H "Authorization: Bearer $KEY"
-  # {"design_attributes":[...],"total":11,"voices":[{"id":"auto",...}]}
+  # {"design_attributes":[...],"total":31,"voices":[{"id":"auto","type":"auto",...},...]}
   ```
 
-The earlier behavior (unscoped returning OmniVoice's registry) was the
-pre-reconciliation quirk: when the DB row still had a `hosted_vllm/` prefix
-the gateway routed it through OpenAI's TTS config, which happened to land on
-OmniVoice first. The controller fix in `reconciler.py` flipped the default.
-
-Do not read that as Drama 3 state. To inspect Drama 3's registry, probe it through
-a request that carries a body (`POST /v1/audio/voices` upload, or a speech request
-naming a voice), or call the pod directly (§12). The `DELETE` route does carry a
-body, so `-d '{"model":"fishaudio/drama-3"}'` scopes it correctly and is what the
-example in §6 uses.
+The two shapes are not interchangeable: drama3's `voices` is a list of plain
+strings plus a parallel `uploaded_voices` list of objects, while OmniVoice's
+`voices` is a list of typed objects. Scope explicitly if you want a specific
+pod's registry. To inspect Drama 3's registry without scoping, probe it through
+a request that carries a body (`POST /v1/audio/voices` upload, or a speech
+request naming a voice), or call the pod directly (§12). The `DELETE` route does
+carry a body, so `-d '{"model":"fishaudio/drama-3"}'` scopes it correctly.
 
 Authentication is the standard LiteLLM gateway key passed as a Bearer token. The sglang-omni pod itself does not require auth, but the gateway always requires it:
 
@@ -319,7 +315,7 @@ curl -s "$BASE/v1/voices/profiles/Narrator_01" -H "$KEY"
 # listing: explicit scope (drama3 registry incl. uploads)
 curl -s "$BASE/v1/voices?model=fishaudio/drama-3" -H "$KEY"
 
-# unscoped also returns drama3 now (post-reconciler default)
+# unscoped returns OmniVoice's catalogue (different shape; see Gateway endpoints)
 curl -s "$BASE/v1/voices" -H "$KEY"
 ```
 
@@ -358,8 +354,8 @@ Every mode above was run against `https://litellm.ecouncil.ae` with a
 | J delete + probe            | 200 delete, 400 on the deleted voice                          |
 | K `/v1/models`            | model listed for the key                                      |
 | L batch                     | 404 via gateway (pod-direct only)                             |
-| scoping `?model=fishaudio/drama-3` | voices registry returns drama3 voices incl. uploads |
-| unscoped fallback           | returns drama3 catalogue (auto / design:<attributes> / alloy), not OmniVoice |
+| scoping `?model=fishaudio/drama-3` | drama3 registry: string voices + `uploaded_voices` + `cache_stats` |
+| unscoped fallback           | OmniVoice catalogue (`auto` / `design:<attributes>` / preset / `clone:*` objects) |
 
 ---
 
