@@ -380,10 +380,18 @@ clean-artifacts:
 ## Build the LiteLLM source image (with the enterprise dev override) from the
 ## upstream Dockerfile at the repo root. Tag is the sanitized git branch name,
 ## e.g. jya0-v1.89.3. Override with: make litellm-src-build LITELLM_SRC_TAG=foo
+## SOURCE_DATE_EPOCH pins every layer tar's file mtimes to one value, so a
+## rebuild after a one-line change re-digests ONLY the layers whose content
+## actually changed. Without it, uv's reinstall + COPY parent dirs stamp fresh
+## mtimes into unchanged layers and the registry push re-uploads ~700MB.
+## Any fixed value works; the pin is what matters, not the date.
+SOURCE_DATE_EPOCH ?= 1700000000
+
 litellm-src-build:
 	@echo "Building $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 	podman build \
 		$(LITELLM_SRC_BUILD_ARGS) \
+		--timestamp $(SOURCE_DATE_EPOCH) \
 		--tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) \
 		--file $(LITELLM_DOCKERFILE) \
 		$(LITELLM_SRC_DIR)
