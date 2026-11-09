@@ -1,5 +1,8 @@
 # OICM `POST /api/v1/model_servers` blocked (403) — root-cause findings
 
+For the current registration, offboarding, and access-list procedure, see the
+[model-server operations runbook](runbooks/OICM-MODEL-SERVER-ONBOARDING.md).
+
 Date: 2026-09-23
 Cluster: ADEO AI Engine (ecouncil.ae), namespace `oicm-keycloak` + `mlops`
 Status: resolved 2026-09-28, see the note below. As of 2026-09-23, OICM API

@@ -205,6 +205,7 @@ than hand-edit; each file states its generation date.
 
 | Doc | Location |
 |-----|----------|
+| OICM model-server registration and access-list maintenance | `docs/runbooks/OICM-MODEL-SERVER-ONBOARDING.md` |
 | MkDocs setup | `docs/runbooks/MKDOCS-SETUP.md` |
 | Datasource local validation | `docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md` |
 
