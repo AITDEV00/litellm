@@ -162,6 +162,7 @@ oicm-litellm-layer/
 │   │   └── copy-prod-db-to-dev.sh  ← prod DB copy for dev analysis
 │   ├── models/             ← model access-list and per-deployment settings
 │   │   ├── add_model_if_has_refs.sh ← add model only if price refs exist
+│   │   ├── model_aliases.sh       ← list/add/remove global model-group aliases
 │   │   ├── remove_dangling_model_refs.sh ← clean dangling model references
 │   │   └── set_reasoning_effort_default.sh ← set a deployment's default reasoning effort
 │   ├── spend/              ← spend-log backfill and rollups

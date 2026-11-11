@@ -1631,6 +1631,54 @@ curl -X GET 'http://localhost:4000/router/settings' \
 | `model_group_retry_policy` | `Optional[dict]` | Per-model-group retry policy. |
 | `model_group_alias` | `Optional[Dict[str, Union[str, Dict]]]` | Model group aliases. |
 
+### Model-group aliases
+
+Use `model_group_alias` when callers should reach one existing model group
+under another request-body model id. The key is the alias and the target is a
+registered LiteLLM `model_name`. The target is not the `litellm_params.model`
+upstream identifier and neither id is the deployment UUID.
+
+The alias map is replaced as a whole, not patched per entry. Preserve existing
+aliases and use a proxy-admin key. Config-file-owned maps are read-only through
+the Admin API. These aliases are global and separate from key/team-scoped
+aliases. Nested aliases are not resolved: use the underlying registered model
+as the target. A routing group without deployments cannot be used as an alias
+target and alias-only names are not separate deployment groups in `/v1/models`.
+
+```json
+{
+  "router_settings": {
+    "model_group_alias": {
+      "Qwen3.6-35B-A3B-FP8": "Qwen/Qwen3.6-35B-A3B-FP8"
+    }
+  }
+}
+```
+
+Value objects may use `{"model": "Qwen/Qwen3.6-35B-A3B-FP8", "hidden": true}`
+when the alias should be omitted from normal model listings.
+
+The helper [model_aliases.sh](../../scripts/models/model_aliases.sh) validates
+the target, preserves existing entries, refuses ambiguous/conflicting edits,
+and reads back the whole alias map after a write. It requires Bash, curl, and
+jq. Add/remove are dry-run by default:
+
+```bash
+export PROXY_BASE_URL="https://litellm.ecouncil.ae"
+export LITELLM_API_KEY="{{ master_key }}"
+./scripts/models/model_aliases.sh list
+./scripts/models/model_aliases.sh add Qwen3.6-35B-A3B-FP8 Qwen/Qwen3.6-35B-A3B-FP8
+./scripts/models/model_aliases.sh add Qwen3.6-35B-A3B-FP8 Qwen/Qwen3.6-35B-A3B-FP8 --apply
+./scripts/models/model_aliases.sh remove Qwen3.6-35B-A3B-FP8 --apply
+```
+
+The script has no effect on any key's `models` access allowlist. Do not run
+alias and router settings writers concurrently: a read/merge/write by two
+writers can overwrite the other writer's alias map. TLS verification stays on;
+opt in to `GATEWAY_INSECURE_TLS=1` only for a self-signed endpoint that you
+deliberately trust. `NO_PROXY`/`no_proxy` are honored for trusted private
+gateways that must bypass a corporate proxy.
+
 **Example:**
 
 ```bash
