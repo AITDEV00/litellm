@@ -109,6 +109,8 @@ class DeploymentResolver:
             auth_headers["Authorization"] = f"Bearer {api_key}"
         deployment_id = deployment.model_info.id or logical_model_name
         model_info = deployment.model_info.model_dump(exclude_none=True)
+        if litellm_params.custom_llm_provider:
+            model_info["custom_llm_provider"] = litellm_params.custom_llm_provider
         return DeploymentDescriptor(
             deployment_id=deployment_id,
             logical_model_name=logical_model_name,

@@ -363,6 +363,130 @@ def test_proxy_admin_viewer_allowed_management_reads(allowed_read_route):
     )
 
 
+def _viewer_backed_auth() -> tuple[LiteLLM_UserTable, UserAPIKeyAuth]:
+    user_obj = LiteLLM_UserTable(
+        user_id="viewer_user",
+        user_email="viewer@example.com",
+        user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+    )
+    valid_token = UserAPIKeyAuth(
+        user_id="viewer_user",
+        user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+    )
+    return user_obj, valid_token
+
+
+def _route_check_request(method: str) -> MagicMock:
+    request = MagicMock(spec=Request)
+    request.method = method
+    request.query_params = {}
+    return request
+
+
+@pytest.mark.parametrize(
+    "inference_route",
+    [
+        "/chat/completions",
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/v1/responses",
+        "/v1/messages",
+        "/v1/audio/transcriptions",
+        "/v1/audio/speech",
+        "/v1/images/generations",
+        "/v1/rerank",
+        "/v1/realtime",
+        "/v1/diarize",
+        "/anthropic/v1/messages",
+        "/gemini/v1beta/models/gemini-2.0-flash:generateContent",
+        "/v1/engines/gpt-4/chat/completions",
+        "/openai/deployments/gpt-4o/chat/completions",
+    ],
+)
+def test_proxy_admin_viewer_cannot_infer_via_llm_api_routes(inference_route: str) -> None:
+    """Regression: PROXY_ADMIN_VIEW_ONLY callers must never reach inference.
+
+    The route gate used to short-circuit every LLM API route with a bare
+    ``pass`` before the viewer role branch ran, so a viewer-backed key could
+    call /v1/chat/completions and incur spend (live-confirmed HTTP 200 on dev).
+    The viewer contract blocks every cost-incurring route with 403."""
+    user_obj, valid_token = _viewer_backed_auth()
+    with pytest.raises(HTTPException) as exc_info:
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=user_obj,
+            _user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+            route=inference_route,
+            request=_route_check_request("POST"),
+            valid_token=valid_token,
+            request_data={},
+        )
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "read_route",
+    [
+        "/models",
+        "/v1/models",
+        "/api/v1/models",
+        "/model/info",
+        "/v1/model/info",
+        "/model_group/info",
+    ],
+)
+def test_proxy_admin_viewer_keeps_llm_surface_read_parity(read_route: str) -> None:
+    """The doc read-parity contract keeps model listing readable by viewers
+    even though those routes live inside the LLM API surface."""
+    user_obj, valid_token = _viewer_backed_auth()
+    RouteChecks.non_proxy_admin_allowed_routes_check(
+        user_obj=user_obj,
+        _user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+        route=read_route,
+        request=_route_check_request("GET"),
+        valid_token=valid_token,
+        request_data={},
+    )
+
+
+def test_proxy_admin_viewer_cannot_infer_on_get_shaped_llm_routes() -> None:
+    """GET-shaped LLM routes that still cost money (realtime session setup,
+    utils/token_counter on chat-completions bodies) must 403 for viewers too."""
+    user_obj, valid_token = _viewer_backed_auth()
+    with pytest.raises(HTTPException) as exc_info:
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=user_obj,
+            _user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+            route="/utils/token_counter",
+            request=_route_check_request("POST"),
+            valid_token=valid_token,
+            request_data={},
+        )
+    assert exc_info.value.status_code == 403
+
+
+def test_internal_user_llm_api_routes_still_pass() -> None:
+    """Ordinary keys must keep working: the fix only routes viewers into the
+    viewer gate, it must not change LLM route handling for other roles."""
+    user_obj = LiteLLM_UserTable(
+        user_id="regular_user",
+        user_email="regular@example.com",
+        user_role=LitellmUserRoles.INTERNAL_USER.value,
+    )
+    valid_token = UserAPIKeyAuth(
+        user_id="regular_user",
+        user_role=LitellmUserRoles.INTERNAL_USER.value,
+    )
+    RouteChecks.non_proxy_admin_allowed_routes_check(
+        user_obj=user_obj,
+        _user_role=LitellmUserRoles.INTERNAL_USER.value,
+        route="/v1/chat/completions",
+        request=_route_check_request("POST"),
+        valid_token=valid_token,
+        request_data={},
+    )
+
+
 def test_virtual_key_allowed_routes_with_litellm_routes_member_name_allowed():
     """Test that virtual key is allowed to call routes when allowed_routes contains LiteLLMRoutes member name"""
 

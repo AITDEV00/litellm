@@ -20,6 +20,9 @@ from litellm.proxy.openrouter_compat.domain.provenance import (
     ModelProvenance,
     RuntimeInfo,
 )
+from litellm.proxy.openrouter_compat.enrichment.litellm_metadata import (
+    LiteLLMMetadataEnricher,
+)
 from litellm.proxy.openrouter_compat.enrichment.pricing import Pricing, PricingResolver
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
 from litellm.proxy.openrouter_compat.openrouter_schema.base import UNSET_SENTINEL
@@ -214,6 +217,70 @@ def test_supported_parameters_placeholder_covers_full_openrouter_set(monkeypatch
         "web_search_options",
         "verbosity",
     ]
+
+
+def test_supported_parameters_resolve_via_provider_hint() -> None:
+    """Regression: a provider-backed deployment whose upstream model id is not
+    in the litellm cost map must still advertise real capabilities.
+
+    Live case (dev): Qwen/Qwen3-Next-80B-A3B-Instruct served by hosted-vLLM
+    listed valid /api/v1/models endpoints but supported_parameters=[] because
+    the registry lookup never passed the deployment's custom_llm_provider, and
+    the unmapped id missed. The provider-aware fallback must fill the params
+    the provider config actually supports."""
+    model = _aggregated(logical="qwen-hosted")
+    deployment = model.deployments[0].model_copy(
+        update={
+            "model_info": {"custom_llm_provider": "hosted_vllm"},
+            "identity": model.deployments[0].identity.model_copy(
+                update={"upstream_model_id": "Qwen/Qwen3-Next-80B-A3B-Instruct"}
+            ),
+        }
+    )
+    aggregated = model.model_copy(update={"deployments": [deployment]})
+
+    params = LiteLLMMetadataEnricher().supported_parameters(aggregated)
+    assert params, "provider-backed deployment must not advertise zero supported parameters"
+    assert "temperature" in params
+    assert "tools" in params
+    assert "reasoning_effort" in params
+
+
+def test_supported_parameters_stay_empty_for_unknown_provider() -> None:
+    """No provider hint and no cost-map match must remain honestly empty
+    rather than fabricating a capability list."""
+    model = _aggregated()
+    deployment = model.deployments[0].model_copy(
+        update={
+            "model_info": {"custom_llm_provider": "not_a_real_provider"},
+            "identity": model.deployments[0].identity.model_copy(
+                update={"upstream_model_id": "Qwen/Qwen3-Next-80B-A3B-Instruct"}
+            ),
+        }
+    )
+    aggregated = model.model_copy(update={"deployments": [deployment]})
+
+    params = LiteLLMMetadataEnricher().supported_parameters(aggregated)
+    assert params == []
+
+
+def test_mapper_emits_provider_supported_parameters() -> None:
+    """End-to-end through the mapper: the public Model response must carry
+    the provider-resolved supported_parameters list."""
+    model = _aggregated(logical="qwen-hosted")
+    deployment = model.deployments[0].model_copy(
+        update={
+            "model_info": {"custom_llm_provider": "hosted_vllm"},
+            "identity": model.deployments[0].identity.model_copy(
+                update={"upstream_model_id": "Qwen/Qwen3-Next-80B-A3B-Instruct"}
+            ),
+        }
+    )
+    mapped = OpenRouterModelMapper(details_base_url="http://proxy:4000").map_model(
+        model.model_copy(update={"deployments": [deployment]})
+    )
+    assert [str(p) for p in mapped.supported_parameters] != []
+    assert "reasoning_effort" in [str(p) for p in mapped.supported_parameters]
 
 
 def test_mapper_omits_nullable_optionals_when_unset():

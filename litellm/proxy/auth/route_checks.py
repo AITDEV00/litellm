@@ -302,7 +302,13 @@ class RouteChecks:
                 jwt_team_allowed_routes=RouteChecks._jwt_team_allowed_routes(valid_token=valid_token),
             )
         elif RouteChecks.is_llm_api_route(route=route):
-            pass
+            if _user_role == LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value:
+                RouteChecks._check_proxy_admin_viewer_access(
+                    route=route,
+                    _user_role=_user_role,
+                    request_data=request_data,  # pyright: ignore[reportUnknownArgumentType]  # legacy dict flows from non_proxy_admin_allowed_routes_check
+                    request=request,
+                )
         elif RouteChecks.is_info_route(route=route):
             # check if user allowed to call an info route
             if route == "/key/info":
@@ -342,7 +348,7 @@ class RouteChecks:
             RouteChecks._check_proxy_admin_viewer_access(
                 route=route,
                 _user_role=_user_role,
-                request_data=request_data,
+                request_data=request_data,  # pyright: ignore[reportUnknownArgumentType]  # legacy dict flows from non_proxy_admin_allowed_routes_check
                 request=request,
             )
         elif (
@@ -913,6 +919,20 @@ class RouteChecks:
     # write-allowlist below.
     _SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+    # LLM-surface routes that cost money even on a GET: the realtime/live
+    # WebSocket upgrades meter a session from the moment the handshake lands,
+    # so the safe-method read rule must not admit them.
+    _VIEWER_BLOCKED_LLM_GET_ROUTES = frozenset(
+        {
+            "/realtime",
+            "/v1/realtime",
+            "/openai/v1/realtime",
+            "/live/sessions",
+            "/v1/live/sessions",
+            "/openai/v1/live/sessions",
+        }
+    )
+
     # Explicit write routes that PROXY_ADMIN_VIEW_ONLY must NEVER call. The
     # role-principle is "no writes, ever" — the management_routes list is the
     # authoritative source for which non-llm routes are writes; we just need
@@ -949,7 +969,7 @@ class RouteChecks:
     def _check_proxy_admin_viewer_access(
         route: str,
         _user_role: str,
-        request_data: dict,
+        request_data: dict[str, object] | None,
         request: Request | None = None,
     ) -> None:
         """
@@ -975,6 +995,9 @@ class RouteChecks:
              - Else 403.
         """
         if RouteChecks.is_llm_api_route(route=route):
+            llm_route_method: Final = RouteChecks.get_request_method(request) or "POST"
+            if llm_route_method in RouteChecks._SAFE_HTTP_METHODS and route not in RouteChecks._VIEWER_BLOCKED_LLM_GET_ROUTES:
+                return
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"user not allowed to access this OpenAI routes, role= {_user_role}",
@@ -985,7 +1008,7 @@ class RouteChecks:
             # For management routes, only allow read operations or specific allowed updates
             if route == "/user/update":
                 # Check the Request params are valid for PROXY_ADMIN_VIEW_ONLY
-                if request_data is not None and isinstance(request_data, dict):
+                if request_data is not None:
                     _params_updated: Final = request_data.keys()
                     for param in _params_updated:
                         if param != "user_email":
@@ -1012,7 +1035,7 @@ class RouteChecks:
         # ── Unsafe HTTP method: explicit checks ──────────────────────────
         # Allow `/user/update` for self-service email change.
         if route == "/user/update":
-            if request_data is not None and isinstance(request_data, dict):
+            if request_data is not None:
                 for param in request_data:
                     if param != "user_email":
                         raise HTTPException(
