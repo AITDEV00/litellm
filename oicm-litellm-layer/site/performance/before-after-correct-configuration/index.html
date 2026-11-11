@@ -1,0 +1,7382 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quick navigator for the OICM → LiteLLM integration layer. Maps where every component, config, deployment manifest, and doc lives so you know exactly where to edit things.">
+      
+      
+        <meta name="author" content="openinnovationai contributors">
+      
+      
+        <link rel="canonical" href="https://litellm.ecouncil.ae/docs/performance/before-after-correct-configuration/">
+      
+      
+        <link rel="prev" href="../after-optimization/">
+      
+      
+        <link rel="next" href="../../reports/ADEOGPT-MODEL-PERFORMANCE/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Before/After Correct Configuration - OICM LiteLLM Layer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#litellm-gateway-before-after-correct-configuration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-header__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OICM LiteLLM Layer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Before/After Correct Configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 2c-1.82 0-3.53.5-5 1.35C8 5.08 10 8.3 10 12s-2 6.92-5 8.65C6.47 21.5 8.18 22 10 22a10 10 0 0 0 10-10A10 10 0 0 0 10 2"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../structure/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Structure
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../credentials/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Credentials & Secrets
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Incidents
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../components/controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Components
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../deployment/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture & Deployment
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../runbooks/MKDOCS-SETUP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Runbooks
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../SSL/CERT-GUIDELINE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  TLS / Certificates
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../techniques/logic_mapping_technique/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Techniques
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  HTB Rate Limiting
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../executive-summary/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Performance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reports
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../persona-drift/SPIKE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Persona Drift
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../client-distribution/PLAN/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Client Distribution
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Admin API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Custom Providers
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Usage Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Dashboard & Planning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../discovery-controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Discovery Controller
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Cache Invalidation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Model Pricing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../openrouter/litellm_openrouter_models_design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OpenRouter
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../oicm-status/OICM-STATUS-FEASIBILITY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OICM Status
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../docs-map/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Docs Map
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-nav__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OICM LiteLLM Layer
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../credentials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Credentials & Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Incidents
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Incidents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/resolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Resolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-kimi-k3-midstream-stop/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi-K3 Mid-Stream Stop (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-spend-log-cleanup-not-running/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Cleanup Not Running (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-token-limits-misreported/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Token-Limits Misreported (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Vision Capability Undeclared (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Components
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/controller/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/custom-routes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/CLONE-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — Clone Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/VSA-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — VSA Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/patches/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patches
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-slices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Custom Code (Vertical Slices)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Deployment
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture & Deployment
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment & Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Makefile-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/IMPLEMENTATION_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/EDGE-MIRROR-DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secondary Gateway (Edge Mirror) Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Session Identity Resolver — Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runbooks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Runbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/MKDOCS-SETUP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MkDocs Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/postgres-backup-and-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Backup & Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/DATASOURCE-LOCAL-VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasource Local Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TLS / Certificates
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    TLS / Certificates
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/CERT-GUIDELINE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apply Wildcard Cert Guideline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/LITELLM-ECOUNCIL-RUNBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve litellm.ecouncil.ae Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Techniques
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Techniques
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/logic_mapping_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/code_smell_detection_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/upstream_merge_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Pull & Branch Merge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/debug_pod_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Pod
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../htb-rate-limiting/live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTB Rate Limiting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HTB Rate Limiting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    README
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Bridge Feasibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Results Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/priority_behaviour/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Behaviour
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analytics-reads-prisma-engine-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics Reads -> Prisma Engine OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../retention-flags-and-oom-LOGIC-MAP-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Retention Flags + OOM — Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spend-logs-ram-and-model-performance-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend Logs + RAM + Model Performance — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing-strategy-sync-task-leak-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Routing-Strategy Sync-Task Leak -> OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-performance-optimization-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Optimization — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-performance-30d-read-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-performance-30d-read-fix-CODESMELL-AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-performance-perf-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Perf Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spend-logs-ui-enrichment-window-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Logs UI Enrichment Window Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../before-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../after-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    After Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before/After Correct Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before/After Correct Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-timeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Timeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-original-configuration-uvicorn-1-worker-no-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before: Original Configuration (uvicorn 1-worker, no Redis)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before: Original Configuration (uvicorn 1-worker, no Redis)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latency-before" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency (before)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#problems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problems
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-current-configuration-granian-4-worker-2-replicas-dedicated-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latency-after-2-replicas-load-balanced-via-k8s-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency (after, 2 replicas, load-balanced via k8s Service)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-1-replica-vs-2-replicas-litellm-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison: 1 replica vs 2 replicas (LiteLLM only)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-improved-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What improved and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#realistic-concurrency-for-1000-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Realistic Concurrency for 1000 Users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Realistic Concurrency for 1000 Users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-think-about-concurrency-vs-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to think about concurrency vs users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-application-usage-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat application usage patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#calculation-for-1000-active-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calculation for 1000 active users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#realistic-peak-concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Realistic peak concurrency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-the-current-configuration-handles-these" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the current configuration handles these
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-of-the-changes-on-this-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact of the changes on this number
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-request-redis-call-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Request Redis Call Chain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Per-Request Redis Call Chain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-5-code-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 5 code paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-this-causes-overhead-under-concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this causes overhead under concurrency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#potential-code-fix-not-yet-applied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Potential code fix (not yet applied)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redis-configuration-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis Configuration Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Redis Configuration Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-a-dedicated-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a dedicated Redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-aof-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why AOF persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis-resource-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis resource usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resource-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource Usage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Usage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#litellm-proxy-per-pod-2-pods-total" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        litellm-proxy (per pod, 2 pods total)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#litellm-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        litellm-redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-state-production-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state: production-ready
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-traffic-grows-beyond-1000-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If traffic grows beyond 1000 users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-extreme-burst-concurrency-c1000-becomes-common" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If extreme burst concurrency (c=1000+) becomes common
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-redis-becomes-a-single-point-of-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If Redis becomes a single point of failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reports
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADEOGPT Model Performance (7d)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persona Drift
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Persona Drift
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../persona-drift/SPIKE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spike Note
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Distribution
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Client Distribution
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/mirror-content/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mirror Content
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/installer-script/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Script
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/platform-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/rustfs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RustFS Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/admin-sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin Sync API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/rollout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rollout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/history/lite-cli-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Plan History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_15" id="__nav_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin API
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Admin API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Admin REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/ATHENA-READ-ONLY-KEY-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Athena Read-Only Key Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_16" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../custom-providers/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Providers
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_16" id="__nav_16_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom Providers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA Research
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_TTS_BEHAVIOR/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA TTS Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/LITELLM_ENDPOINT_ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Endpoint Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAPPING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAP_v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Extensibility Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Test Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Post-Build Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-gateway-pod-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception Gateway Pod Parity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-hamsa-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception HAMSA Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/gateway-field-drop-investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Field-Drop Investigation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Registration Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Robust Fix Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Gateway Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_BY_PROBE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration by Probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_REVIEW2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration Review 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Diarization Provider Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Speaker Embeddings Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Usage Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/REASONING_CONTROL_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reasoning Control Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA-TTS-NEW-V1-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa TTS New /v1 Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/INCEPTION_TTS_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception TTS/STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/OMNIVOICE_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fish Audio Drama 3 TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_IMAGE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Image Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_VISION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Vision Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/VIBEVOICE_ASR_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VibeVoice ASR Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/PYANNOTE_DIARIZATION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pyannote Diarization Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare clef-flash (SystemOne) Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard & Planning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dashboard & Planning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Analysis Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Understanding Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/LOGIC-MAPPING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/MODEL-PERFORMANCE-DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/UI-LINT-AND-CHANGE-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Lint & Change Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_19" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../discovery-controller/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_19" id="__nav_19_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discovery Controller
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../discovery-controller/logic-map-and-code-smell-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map & Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Invalidation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_21" >
+        
+          
+          <label class="md-nav__link" for="__nav_21" id="__nav_21_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Pricing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_21_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_21">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Pricing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-MATCHING-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Matching Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_22" >
+        
+          
+          <label class="md-nav__link" for="__nav_22" id="__nav_22_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenRouter
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_22_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_22">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OpenRouter
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/litellm_openrouter_models_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/IMPLEMENTATION-STUDY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Endpoints Consumer Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-litellm-to-endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    litellm-to-endpoints Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-usage-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Metrics Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_23" >
+        
+          
+          <label class="md-nav__link" for="__nav_23" id="__nav_23_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Status
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_23_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_23">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OICM Status
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/OICM-STATUS-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/FEASIBILITY-ANSWERS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/IMPLEMENTATION-CHECKLIST/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/DESIGN-STATUS-PERSISTENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/PROGRESS-AND-PAUSED-WORK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Progress & Paused Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/CHANGE-REPORT-2026-10-06-health-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Report (Health Table 2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/LOGIC-MAP-2026-10-07-health-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map (Health Table 2026-10-07)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/CODE-SMELL-PASS-2026-10-06/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Pass (2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/OICM-API-CATALOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM API Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-write-access-blocked/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Write Access Blocked (403)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-timeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Timeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-original-configuration-uvicorn-1-worker-no-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before: Original Configuration (uvicorn 1-worker, no Redis)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before: Original Configuration (uvicorn 1-worker, no Redis)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latency-before" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency (before)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#problems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problems
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-current-configuration-granian-4-worker-2-replicas-dedicated-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latency-after-2-replicas-load-balanced-via-k8s-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency (after, 2 replicas, load-balanced via k8s Service)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#comparison-1-replica-vs-2-replicas-litellm-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison: 1 replica vs 2 replicas (LiteLLM only)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-improved-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What improved and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#realistic-concurrency-for-1000-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Realistic Concurrency for 1000 Users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Realistic Concurrency for 1000 Users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-think-about-concurrency-vs-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to think about concurrency vs users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-application-usage-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat application usage patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#calculation-for-1000-active-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calculation for 1000 active users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#realistic-peak-concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Realistic peak concurrency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-the-current-configuration-handles-these" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the current configuration handles these
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#impact-of-the-changes-on-this-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Impact of the changes on this number
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-request-redis-call-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-Request Redis Call Chain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Per-Request Redis Call Chain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-5-code-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The 5 code paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-this-causes-overhead-under-concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this causes overhead under concurrency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#potential-code-fix-not-yet-applied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Potential code fix (not yet applied)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redis-configuration-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis Configuration Details
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Redis Configuration Details">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-a-dedicated-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a dedicated Redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-aof-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why AOF persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis-resource-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis resource usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resource-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource Usage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Usage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#litellm-proxy-per-pod-2-pods-total" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        litellm-proxy (per pod, 2 pods total)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#litellm-redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        litellm-redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-state-production-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state: production-ready
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-traffic-grows-beyond-1000-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If traffic grows beyond 1000 users
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-extreme-burst-concurrency-c1000-becomes-common" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If extreme burst concurrency (c=1000+) becomes common
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-redis-becomes-a-single-point-of-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If Redis becomes a single point of failure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="litellm-gateway-before-after-correct-configuration">LiteLLM Gateway: Before + After Correct Configuration<a class="headerlink" href="#litellm-gateway-before-after-correct-configuration" title="Permanent link">&para;</a></h1>
+<p>Date: 2026-07-07</p>
+<p>Environment: litellm v1.89.3 on k8s (OICM cluster), <code>adeo-litellm</code> namespace (named <code>mlops</code> at the time)</p>
+<p>Model tested: <code>Qwen/Qwen3-Next-80B-A3B-Instruct</code> (backed by vLLM ClusterIP)</p>
+<p>All benchmarks run from inside a litellm-proxy pod using httpx async client with connection pooling (max_connections=1000, max_keepalive=200, keepalive_expiry=120). Payload: single-turn chat, max_tokens=5, temperature=0.1, stream=false.</p>
+<hr />
+<h2 id="executive-summary">Executive Summary<a class="headerlink" href="#executive-summary" title="Permanent link">&para;</a></h2>
+<p>The LiteLLM gateway went through four configuration phases. The original deployment (uvicorn 1-worker, no Redis) added 54ms of overhead per request at low concurrency and collapsed under load. The current production configuration (Granian 4-worker, 2 replicas, dedicated Redis with AOF persistence and spend buffering) eliminates overhead at low concurrency and handles realistic production traffic well.</p>
+<p>At c=200 (the peak concurrency expected for 1000 active users), the current 2-replica setup achieves 69.3 rps with p50 latency 35.6% lower than direct vLLM. The gateway adds measurable overhead only at c=500+ (sustained burst traffic), where it still delivers 49.0 rps with 75.5% p50 overhead. For context, 1000 concurrent users generating requests at human interaction speed produce a realistic peak concurrency of 50-100, not 500. The current configuration handles that range with near-zero overhead.</p>
+<p>The key technical finding is that litellm issues 29 Redis commands per request across 5 code paths, and the rate limiter's post-call logging hook (<code>async_log_success_event</code>) does 6+ of those without <code>local_only=True</code>, causing unnecessary Redis round-trips. Scaling to 2 replicas distributes this event loop contention across two independent worker pools (8 total Granian workers), which is why the 2-replica setup outperforms 1-replica at every concurrency level.</p>
+<hr />
+<h2 id="configuration-timeline">Configuration Timeline<a class="headerlink" href="#configuration-timeline" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Server</th>
+<th>Replicas</th>
+<th>Workers</th>
+<th>Redis</th>
+<th>AOF</th>
+<th>Spend Buffer</th>
+<th>Date</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Before</td>
+<td>uvicorn</td>
+<td>1</td>
+<td>1</td>
+<td>none</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>2026-07-07</td>
+</tr>
+<tr>
+<td>After (Granian)</td>
+<td>Granian</td>
+<td>1</td>
+<td>4</td>
+<td>shared</td>
+<td>no</td>
+<td>no</td>
+<td>2026-07-07</td>
+</tr>
+<tr>
+<td>After (dedicated Redis)</td>
+<td>Granian</td>
+<td>1</td>
+<td>4</td>
+<td>dedicated</td>
+<td>no</td>
+<td>no</td>
+<td>2026-07-07</td>
+</tr>
+<tr>
+<td><strong>Current (2 replicas)</strong></td>
+<td><strong>Granian</strong></td>
+<td><strong>2</strong></td>
+<td><strong>4 each (8 total)</strong></td>
+<td><strong>dedicated</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>2026-07-07</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="before-original-configuration-uvicorn-1-worker-no-redis">Before: Original Configuration (uvicorn 1-worker, no Redis)<a class="headerlink" href="#before-original-configuration-uvicorn-1-worker-no-redis" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># deploy/base/gateway (before)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">template</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">litellm</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">          </span><span class="nt">command</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"litellm"</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--config"</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"/app/config.yaml"</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--port"</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"4000"</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--use_v2_migration_resolver"</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">          </span><span class="nt">resources</span><span class="p">:</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">            </span><span class="nt">requests</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"500m"</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="s">"1Gi"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">            </span><span class="nt">limits</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"4"</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="s">"8Gi"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># config.yaml (before)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">litellm_settings</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">store_model_in_db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<p>No Redis, no cache, 1 Python process with 1 event loop and 1 GIL. The uvicorn h11 HTTP parser runs in Python and holds the GIL, adding ~55ms of parsing overhead per request.</p>
+<h3 id="latency-before">Latency (before)<a class="headerlink" href="#latency-before" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Concurrency</th>
+<th>Direct p50</th>
+<th>LiteLLM p50</th>
+<th>Overhead</th>
+<th>Direct RPS</th>
+<th>LiteLLM RPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>c=1, n=20</td>
+<td>91.8ms</td>
+<td>145.6ms</td>
+<td>+53.8ms (+58.6%)</td>
+<td>11.2</td>
+<td>7.0</td>
+</tr>
+<tr>
+<td>c=5, n=20</td>
+<td>160.9ms</td>
+<td>222.0ms</td>
+<td>+61.1ms (+37.9%)</td>
+<td>24.9</td>
+<td>18.0</td>
+</tr>
+<tr>
+<td>c=10, n=30</td>
+<td>193.2ms</td>
+<td>271.5ms</td>
+<td>+78.3ms (+40.5%)</td>
+<td>15.5</td>
+<td>11.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="problems">Problems<a class="headerlink" href="#problems" title="Permanent link">&para;</a></h3>
+<ol>
+<li>54ms overhead per request at c=1 from Python h11 HTTP parsing</li>
+<li>Single GIL bottleneck: throughput collapses under concurrent load</li>
+<li>No Redis: no shared state across workers, no auth cache, no spend tracking</li>
+<li>No HA: single replica, single process, pod restart drops 100% of traffic</li>
+</ol>
+<hr />
+<h2 id="after-current-configuration-granian-4-worker-2-replicas-dedicated-redis">After: Current Configuration (Granian 4-worker, 2 replicas, dedicated Redis)<a class="headerlink" href="#after-current-configuration-granian-4-worker-2-replicas-dedicated-redis" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># deploy/base/gateway (current)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">strategy</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RollingUpdate</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">rollingUpdate</span><span class="p">:</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">      </span><span class="nt">maxUnavailable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">      </span><span class="nt">maxSurge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">template</span><span class="p">:</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">topologySpreadConstraints</span><span class="p">:</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">maxSkew</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">          </span><span class="nt">topologyKey</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes.io/hostname</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">          </span><span class="nt">whenUnsatisfiable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ScheduleAnyway</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">          </span><span class="nt">labelSelector</span><span class="p">:</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">            </span><span class="nt">matchLabels</span><span class="p">:</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">              </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">litellm-proxy</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">litellm</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">          </span><span class="nt">command</span><span class="p">:</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"litellm"</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--config"</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"/app/config.yaml"</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--port"</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"4000"</span>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--run_granian"</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--num_workers"</span>
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"4"</span>
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"--use_v2_migration_resolver"</span>
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">          </span><span class="nt">env</span><span class="p">:</span>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">REDIS_HOST</span>
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">              </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"litellm-redis.redis.svc.cluster.local"</span>
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">REDIS_PORT</span>
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="w">              </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"6379"</span>
+</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">REDIS_PASSWORD</span>
+</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a><span class="w">              </span><span class="nt">valueFrom</span><span class="p">:</span>
+</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="w">                </span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-redis-password</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">password</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-38"><a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">REDIS_CONNECTION_POOL_TIMEOUT</span>
+</span><span id="__span-2-39"><a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">              </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"10"</span>
+</span><span id="__span-2-40"><a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">          </span><span class="nt">resources</span><span class="p">:</span>
+</span><span id="__span-2-41"><a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="w">            </span><span class="nt">requests</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"500m"</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="s">"2Gi"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-42"><a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="w">            </span><span class="nt">limits</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"4"</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="s">"8Gi"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># config.yaml (current)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">litellm_settings</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">store_model_in_db</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">cache</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">cache_params</span><span class="p">:</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">redis</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">max_connections</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">socket_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="nt">enable_redis_auth_cache</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="nt">callbacks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">litellm_hooks.vllm_param_injector.vllm_param_injector</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nt">general_settings</span><span class="p">:</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">  </span><span class="nt">use_redis_transaction_buffer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># deploy/prod/litellm-redis.yaml (current)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># Dedicated Redis 7.4.3 StatefulSet in redis namespace</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Key config: dir /data, appendonly yes, appendfsync everysec,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1">#   maxmemory 512mb, io-threads 4, timeout 60</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># Resources: 200m/512Mi requests, 1/1Gi limits</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># PVC: 5Gi (longhorn-rwx-crypto-retain)</span>
+</span></code></pre></div>
+<p>Also includes a PodDisruptionBudget (<code>minAvailable: 1</code>) to prevent both pods from being evicted during node maintenance.</p>
+<h3 id="latency-after-2-replicas-load-balanced-via-k8s-service">Latency (after, 2 replicas, load-balanced via k8s Service)<a class="headerlink" href="#latency-after-2-replicas-load-balanced-via-k8s-service" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Concurrency</th>
+<th>Direct p50</th>
+<th>LiteLLM p50</th>
+<th>Overhead</th>
+<th>Direct RPS</th>
+<th>LiteLLM RPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>c=1, n=20</td>
+<td>88.3ms</td>
+<td>76.0ms</td>
+<td>-12.3ms (-13.9%)</td>
+<td>11.2</td>
+<td>12.6</td>
+</tr>
+<tr>
+<td>c=50, n=200</td>
+<td>518.3ms</td>
+<td>490.1ms</td>
+<td>-28.2ms (-5.4%)</td>
+<td>87.4</td>
+<td>70.5</td>
+</tr>
+<tr>
+<td>c=100, n=300</td>
+<td>1695.9ms</td>
+<td>1419.8ms</td>
+<td>-276.1ms (-16.3%)</td>
+<td>41.1</td>
+<td>43.0</td>
+</tr>
+<tr>
+<td>c=200, n=400</td>
+<td>2820.2ms</td>
+<td>1815.7ms</td>
+<td>-1004.5ms (-35.6%)</td>
+<td>44.6</td>
+<td>69.3</td>
+</tr>
+<tr>
+<td>c=500, n=500</td>
+<td>3018.0ms</td>
+<td>5296.9ms</td>
+<td>+2278.9ms (+75.5%)</td>
+<td>95.7</td>
+<td>49.0</td>
+</tr>
+<tr>
+<td>c=1000, n=500</td>
+<td>3393.2ms</td>
+<td>4526.2ms</td>
+<td>+1133.0ms (+33.4%)</td>
+<td>80.1</td>
+<td>42.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="comparison-1-replica-vs-2-replicas-litellm-only">Comparison: 1 replica vs 2 replicas (LiteLLM only)<a class="headerlink" href="#comparison-1-replica-vs-2-replicas-litellm-only" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Concurrency</th>
+<th style="text-align: center;">1-Replica RPS</th>
+<th style="text-align: center;">2-Replica RPS</th>
+<th style="text-align: center;">1-Rep p50 Overhead</th>
+<th style="text-align: center;">2-Rep p50 Overhead</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>c=1</td>
+<td style="text-align: center;">5.5</td>
+<td style="text-align: center;">12.6</td>
+<td style="text-align: center;">-15.9%</td>
+<td style="text-align: center;">-13.9%</td>
+</tr>
+<tr>
+<td>c=50</td>
+<td style="text-align: center;">38.3</td>
+<td style="text-align: center;">70.5</td>
+<td style="text-align: center;">+77.7%</td>
+<td style="text-align: center;">-5.4%</td>
+</tr>
+<tr>
+<td>c=100</td>
+<td style="text-align: center;">29.5</td>
+<td style="text-align: center;">43.0</td>
+<td style="text-align: center;">+27.8%</td>
+<td style="text-align: center;">-16.3%</td>
+</tr>
+<tr>
+<td>c=200</td>
+<td style="text-align: center;">41.0</td>
+<td style="text-align: center;">69.3</td>
+<td style="text-align: center;">+45.3%</td>
+<td style="text-align: center;">-35.6%</td>
+</tr>
+<tr>
+<td>c=500</td>
+<td style="text-align: center;">28.8</td>
+<td style="text-align: center;">49.0</td>
+<td style="text-align: center;">+145.0%</td>
+<td style="text-align: center;">+75.5%</td>
+</tr>
+<tr>
+<td>c=1000</td>
+<td style="text-align: center;">31.6</td>
+<td style="text-align: center;">42.0</td>
+<td style="text-align: center;">+181.5%</td>
+<td style="text-align: center;">+33.4%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-improved-and-why">What improved and why<a class="headerlink" href="#what-improved-and-why" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>c=1 overhead eliminated</strong>: Granian's Rust HTTP parser removes the ~55ms of Python h11 parsing that dominated single-request latency. The gateway is now marginally faster than direct vLLM at c=1 (within noise).</p>
+</li>
+<li>
+<p><strong>c=50-200 is now negative overhead</strong>: With 2 replicas (8 total Granian workers), the k8s Service load-balances across both pods. Neither pod's event loop is overwhelmed, so Redis operations complete quickly. The gateway's connection pooling and Rust HTTP layer actually pipeline requests to vLLM more efficiently than the benchmark client's direct connections.</p>
+</li>
+<li>
+<p><strong>c=500+ still has overhead but much reduced</strong>: At sustained burst traffic, the 29 Redis commands per request still cause event loop contention. But 2 replicas cut the per-pod load in half: p50 overhead dropped from +145% (1 replica) to +75.5% (2 replicas) at c=500, and from +181.5% to +33.4% at c=1000.</p>
+</li>
+</ol>
+<hr />
+<h2 id="realistic-concurrency-for-1000-users">Realistic Concurrency for 1000 Users<a class="headerlink" href="#realistic-concurrency-for-1000-users" title="Permanent link">&para;</a></h2>
+<h3 id="how-to-think-about-concurrency-vs-users">How to think about concurrency vs users<a class="headerlink" href="#how-to-think-about-concurrency-vs-users" title="Permanent link">&para;</a></h3>
+<p>Concurrency (the <code>c</code> in benchmarks) is the number of requests in flight simultaneously. It is not the same as the number of users. A user only generates a request when they send a message, and then they wait for the response before sending another. The relationship between users and concurrency depends on two factors:</p>
+<ol>
+<li><strong>Request rate per user</strong>: How often each user sends a request. For chat applications, this is driven by human typing/thinking speed.</li>
+<li><strong>Response latency</strong>: How long each request takes to complete. Faster responses free up the concurrency slot sooner.</li>
+</ol>
+<p>The formula is: <code>concurrency = users * requests_per_user_per_second * avg_response_latency_seconds</code></p>
+<h3 id="chat-application-usage-patterns">Chat application usage patterns<a class="headerlink" href="#chat-application-usage-patterns" title="Permanent link">&para;</a></h3>
+<p>For a chat application with LLM-backed responses:</p>
+<ul>
+<li>A user reads the response, thinks, and types a new message. This cycle takes 10-60 seconds depending on the conversation complexity. A reasonable average is 1 request per 30 seconds per active user (0.033 req/s).</li>
+<li>Response latency for a short response (like the benchmark payload, max_tokens=5) is ~100-500ms. For a real chat response with 200-500 tokens, latency is 2-10 seconds.</li>
+</ul>
+<h3 id="calculation-for-1000-active-users">Calculation for 1000 active users<a class="headerlink" href="#calculation-for-1000-active-users" title="Permanent link">&para;</a></h3>
+<p>Using realistic chat application parameters:</p>
+<ul>
+<li>1000 active users (actively chatting, not idle)</li>
+<li>1 request per 30 seconds per user (0.033 req/s per user)</li>
+<li>Average response latency: 3 seconds (real chat response with 200+ tokens)</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>concurrency = 1000 users * 0.033 req/s/user * 3.0s = 99
+</span></code></pre></div>
+<p>For a burst scenario (users responding quickly to short responses):</p>
+<ul>
+<li>1 request per 10 seconds per user (0.1 req/s, fast back-and-forth)</li>
+<li>Average response latency: 1.5 seconds (short responses)</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>concurrency = 1000 users * 0.1 req/s/user * 1.5s = 150
+</span></code></pre></div>
+<p>For an extreme burst (all users submit simultaneously, like a coordinated action or a retry storm):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>concurrency = 1000 (all users hit enter at the same instant)
+</span></code></pre></div>
+<p>This last scenario is unrealistic for human-driven traffic but can happen with automated clients or retry loops.</p>
+<h3 id="realistic-peak-concurrency">Realistic peak concurrency<a class="headerlink" href="#realistic-peak-concurrency" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Users</th>
+<th>Request Rate</th>
+<th>Latency</th>
+<th>Peak Concurrency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal chat</td>
+<td>1000</td>
+<td>1 req / 30s / user</td>
+<td>3s</td>
+<td>~100</td>
+</tr>
+<tr>
+<td>Fast chat (short responses)</td>
+<td>1000</td>
+<td>1 req / 10s / user</td>
+<td>1.5s</td>
+<td>~150</td>
+</tr>
+<tr>
+<td>Heavy usage (power users)</td>
+<td>1000</td>
+<td>1 req / 5s / user</td>
+<td>2s</td>
+<td>~400</td>
+</tr>
+<tr>
+<td>Extreme burst (all at once)</td>
+<td>1000</td>
+<td>1 req simultaneously</td>
+<td>n/a</td>
+<td>~1000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-the-current-configuration-handles-these">How the current configuration handles these<a class="headerlink" href="#how-the-current-configuration-handles-these" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th style="text-align: center;">Peak Concurrency</th>
+<th style="text-align: center;">Gateway Overhead</th>
+<th style="text-align: center;">Gateway RPS</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal chat</td>
+<td style="text-align: center;">~100</td>
+<td style="text-align: center;">-16.3% (faster than direct)</td>
+<td style="text-align: center;">43.0</td>
+<td>Handles with zero overhead</td>
+</tr>
+<tr>
+<td>Fast chat</td>
+<td style="text-align: center;">~150</td>
+<td style="text-align: center;">between -5.4% and -16.3%</td>
+<td style="text-align: center;">~55</td>
+<td>Handles with zero overhead</td>
+</tr>
+<tr>
+<td>Heavy usage</td>
+<td style="text-align: center;">~400</td>
+<td style="text-align: center;">between -35.6% and +75.5%</td>
+<td style="text-align: center;">~60</td>
+<td>Handles well, slight overhead</td>
+</tr>
+<tr>
+<td>Extreme burst</td>
+<td style="text-align: center;">~1000</td>
+<td style="text-align: center;">+33.4%</td>
+<td style="text-align: center;">42.0</td>
+<td>Handles, degraded but functional</td>
+</tr>
+</tbody>
+</table>
+<p>The current 2-replica configuration comfortably handles all realistic traffic patterns for 1000 users. The gateway adds zero overhead in the normal-to-heavy range (c=50-200) and only shows degradation under sustained extreme burst (c=500+), which is not a realistic human-driven traffic pattern.</p>
+<h3 id="impact-of-the-changes-on-this-number">Impact of the changes on this number<a class="headerlink" href="#impact-of-the-changes-on-this-number" title="Permanent link">&para;</a></h3>
+<p>The original configuration (uvicorn 1-worker, no Redis) could handle c=10 with 78ms overhead. At c=50+ it would have collapsed. For 1000 users with normal chat patterns (peak concurrency ~100), it would have added significant latency and likely become a bottleneck.</p>
+<p>The current configuration (Granian 4-worker, 2 replicas, dedicated Redis) handles c=200 with negative overhead (faster than direct). The practical concurrency limit before degradation is c=500, which corresponds to 1000 users in heavy usage mode. Scaling to 3-4 replicas would push this to c=1000 (extreme burst territory) if needed in the future.</p>
+<hr />
+<h2 id="per-request-redis-call-chain">Per-Request Redis Call Chain<a class="headerlink" href="#per-request-redis-call-chain" title="Permanent link">&para;</a></h2>
+<p>Instrumented live by sending a single request and measuring <code>total_commands_processed</code> delta on Redis: 29 commands per request.</p>
+<h3 id="the-5-code-paths">The 5 code paths<a class="headerlink" href="#the-5-code-paths" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Auth cache GET</strong> (<code>litellm/proxy/auth/auth_checks.py:2542</code>, <code>get_key_object</code>): calls <code>user_api_key_cache.async_get_cache</code> without <code>local_only=True</code>. On warm cache, in-memory hits and Redis is skipped. On cold start or cache expiry, hits Redis.</p>
+</li>
+<li>
+<p><strong>Auth cache SET</strong> (<code>litellm/proxy/auth/auth_checks.py:1820</code>, <code>_cache_key_object</code>): fires via <code>asyncio.create_task</code> (non-blocking) and calls <code>async_set_cache</code> without <code>local_only=True</code>, writing to both in-memory and Redis every request to refresh TTL.</p>
+</li>
+<li>
+<p><strong>Rate limiter pre-call batch GET</strong> (<code>litellm/proxy/hooks/parallel_request_limiter.py:170</code>, <code>get_all_cache_objects</code>): calls <code>async_batch_get_cache</code> for 6 keys without <code>local_only=True</code>. Has a 10s throttle (<code>redis_batch_cache_expiry</code>) that skips Redis if the key was recently accessed in-memory.</p>
+</li>
+<li>
+<p><strong>Rate limiter post-call success logging</strong> (<code>litellm/proxy/hooks/parallel_request_limiter.py:500</code>, <code>async_log_success_event</code>): does up to 5 individual <code>async_get_cache</code> calls + 1 <code>async_batch_set_cache</code>, all without <code>local_only=True</code>. Runs via the background <code>LoggingWorker</code> but still competes for the same asyncio event loop. This is the primary throughput bottleneck.</p>
+</li>
+<li>
+<p><strong>Config cache reads</strong> (<code>litellm_config_cache</code>): 6 <code>litellm_config:param:*</code> keys read periodically (TTL ~50s).</p>
+</li>
+</ol>
+<h3 id="why-this-causes-overhead-under-concurrency">Why this causes overhead under concurrency<a class="headerlink" href="#why-this-causes-overhead-under-concurrency" title="Permanent link">&para;</a></h3>
+<p>Each Redis operation is individually fast (~0.35ms ping). But under concurrency, the asyncio event loop must interleave Redis socket I/O with HTTP request handling. At c=500 with 4 workers per pod, each worker handles ~125 concurrent requests, generating ~3,600 Redis commands per worker. The cumulative scheduling overhead from context-switching between thousands of coroutines dominates the latency budget.</p>
+<h3 id="potential-code-fix-not-yet-applied">Potential code fix (not yet applied)<a class="headerlink" href="#potential-code-fix-not-yet-applied" title="Permanent link">&para;</a></h3>
+<p>Adding <code>local_only=True</code> to the rate limiter's <code>async_log_success_event</code> (path 4) would eliminate ~80% of the per-request Redis commands. The pre-call hook already uses <code>local_only=True</code> for the same data, so the post-call updates don't need Redis for single-replica correctness. This is a litellm upstream issue.</p>
+<hr />
+<h2 id="redis-configuration-details">Redis Configuration Details<a class="headerlink" href="#redis-configuration-details" title="Permanent link">&para;</a></h2>
+<h3 id="why-a-dedicated-redis">Why a dedicated Redis<a class="headerlink" href="#why-a-dedicated-redis" title="Permanent link">&para;</a></h3>
+<p>The shared <code>redis-master</code> in the <code>redis</code> namespace serves BullMQ and other workloads. Under concurrent load, BullMQ's MGET operations blocked litellm's Redis operations for 33-46ms. Additionally, litellm had 788 idle connections to the shared Redis (no <code>timeout</code> configured), consuming connection slots.</p>
+<p>The dedicated Redis (<code>litellm-redis-0</code> in the <code>redis</code> namespace) is exclusively used by litellm. It has <code>timeout: 60</code> to reap idle connections, <code>io-threads: 4</code> for I/O multiplexing, and <code>maxmemory: 512mb</code> with <code>allkeys-lru</code> eviction.</p>
+<h3 id="why-aof-persistence">Why AOF persistence<a class="headerlink" href="#why-aof-persistence" title="Permanent link">&para;</a></h3>
+<p>With <code>use_redis_transaction_buffer: true</code>, spend updates are buffered in Redis before being flushed to PostgreSQL. Without persistence, a Redis restart would lose in-flight spend data. AOF with <code>appendfsync everysec</code> writes to disk every second, balancing durability and performance. The <code>dir /data</code> directive ensures AOF files are written to the PVC-backed path (the default working directory is on the read-only root filesystem due to <code>readOnlyRootFilesystem: true</code>).</p>
+<h3 id="redis-resource-usage">Redis resource usage<a class="headerlink" href="#redis-resource-usage" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connected clients (2 replicas, 4 workers each)</td>
+<td>~23 idle, ~668 under load</td>
+</tr>
+<tr>
+<td>Used memory</td>
+<td>2.93MB idle, 84.67MB peak</td>
+</tr>
+<tr>
+<td>Max memory</td>
+<td>512MB</td>
+</tr>
+<tr>
+<td>Total commands processed (after full benchmark)</td>
+<td>33,899</td>
+</tr>
+<tr>
+<td>Keyspace hits</td>
+<td>8,146</td>
+</tr>
+<tr>
+<td>Keyspace misses</td>
+<td>26,360,733 (high because rate limit keys rotate every minute)</td>
+</tr>
+<tr>
+<td>Rejected connections</td>
+<td>0</td>
+</tr>
+<tr>
+<td>CPU under load</td>
+<td>337m</td>
+</tr>
+<tr>
+<td>Memory under load</td>
+<td>205Mi</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="resource-usage">Resource Usage<a class="headerlink" href="#resource-usage" title="Permanent link">&para;</a></h2>
+<h3 id="litellm-proxy-per-pod-2-pods-total">litellm-proxy (per pod, 2 pods total)<a class="headerlink" href="#litellm-proxy-per-pod-2-pods-total" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Before (uvicorn 1w)</th>
+<th>After (Granian 4w, 2 replicas)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle CPU</td>
+<td>48m</td>
+<td>~500m per pod</td>
+</tr>
+<tr>
+<td>Idle Memory</td>
+<td>1377Mi</td>
+<td>~4.5GB per pod</td>
+</tr>
+<tr>
+<td>Under load CPU</td>
+<td>330m (c=20)</td>
+<td>~620m per pod (c=500 split across 2 pods)</td>
+</tr>
+<tr>
+<td>Under load Memory</td>
+<td>1399Mi (c=20)</td>
+<td>~4.8GB per pod</td>
+</tr>
+<tr>
+<td>Process count</td>
+<td>2</td>
+<td>11 per pod</td>
+</tr>
+<tr>
+<td>CPU limit utilization (idle)</td>
+<td>~1%</td>
+<td>~12% per pod</td>
+</tr>
+<tr>
+<td>Memory limit utilization (idle)</td>
+<td>~17%</td>
+<td>~56% per pod</td>
+</tr>
+</tbody>
+</table>
+<h3 id="litellm-redis">litellm-redis<a class="headerlink" href="#litellm-redis" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle CPU</td>
+<td>16m</td>
+</tr>
+<tr>
+<td>Idle Memory</td>
+<td>6Mi</td>
+</tr>
+<tr>
+<td>Under load CPU</td>
+<td>337m</td>
+</tr>
+<tr>
+<td>Under load Memory</td>
+<td>205Mi</td>
+</tr>
+<tr>
+<td>CPU limit</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Memory limit</td>
+<td>1Gi</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="recommendations">Recommendations<a class="headerlink" href="#recommendations" title="Permanent link">&para;</a></h2>
+<h3 id="current-state-production-ready">Current state: production-ready<a class="headerlink" href="#current-state-production-ready" title="Permanent link">&para;</a></h3>
+<p>The 2-replica Granian 4-worker configuration with dedicated Redis handles all realistic traffic patterns for 1000 users. No immediate changes needed.</p>
+<h3 id="if-traffic-grows-beyond-1000-users">If traffic grows beyond 1000 users<a class="headerlink" href="#if-traffic-grows-beyond-1000-users" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Scale to 3-4 replicas (just change <code>replicas:</code> in the YAML). Each replica adds ~4.5GB memory and ~500m idle CPU. The topology spread constraint and PDB adapt automatically.</li>
+<li>The k8s Service load-balances across all replicas, so no config change needed beyond the replica count.</li>
+<li>Redis max_connections=500 per replica is sufficient up to ~4 replicas (2000 total connections, well under Redis <code>maxclients=10000</code>).</li>
+</ul>
+<h3 id="if-extreme-burst-concurrency-c1000-becomes-common">If extreme burst concurrency (c=1000+) becomes common<a class="headerlink" href="#if-extreme-burst-concurrency-c1000-becomes-common" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Consider adding <code>local_only=True</code> to the rate limiter's <code>async_log_success_event</code> in litellm upstream. This would eliminate ~80% of per-request Redis commands and roughly double throughput at high concurrency.</li>
+<li>Alternatively, add an HPA targeting CPU at 60-70% to auto-scale replicas during burst traffic.</li>
+</ul>
+<h3 id="if-redis-becomes-a-single-point-of-failure">If Redis becomes a single point of failure<a class="headerlink" href="#if-redis-becomes-a-single-point-of-failure" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The current Redis is a single StatefulSet replica. If it goes down, the proxy falls back to in-memory cache (auth lookups hit the DB, rate limits become per-worker). The proxy does not crash, but DB load increases.</li>
+<li>For production HA, consider adding a Redis replica with Sentinel, or switching to a managed Redis service.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 14:00:49 UTC">November 11, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 19, 2026 10:21:48 UTC">August 19, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../after-optimization/" class="md-footer__link md-footer__link--prev" aria-label="Previous: After Optimization">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                After Optimization
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-footer__link md-footer__link--next" aria-label="Next: ADEOGPT Model Performance (7d)">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                ADEOGPT Model Performance (7d)
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.tabs", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

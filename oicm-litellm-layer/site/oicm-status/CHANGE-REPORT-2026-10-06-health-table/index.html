@@ -1,0 +1,7048 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quick navigator for the OICM → LiteLLM integration layer. Maps where every component, config, deployment manifest, and doc lives so you know exactly where to edit things.">
+      
+      
+        <meta name="author" content="openinnovationai contributors">
+      
+      
+        <link rel="canonical" href="https://litellm.ecouncil.ae/docs/oicm-status/CHANGE-REPORT-2026-10-06-health-table/">
+      
+      
+        <link rel="prev" href="../PROGRESS-AND-PAUSED-WORK/">
+      
+      
+        <link rel="next" href="../LOGIC-MAP-2026-10-07-health-table/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Change Report (Health Table 2026-10-06) - OICM LiteLLM Layer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#change-report-oicm-status-into-the-native-health-table-2026-10-06" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-header__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OICM LiteLLM Layer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Change Report (Health Table 2026-10-06)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 2c-1.82 0-3.53.5-5 1.35C8 5.08 10 8.3 10 12s-2 6.92-5 8.65C6.47 21.5 8.18 22 10 22a10 10 0 0 0 10-10A10 10 0 0 0 10 2"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../structure/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Structure
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../credentials/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Credentials & Secrets
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Incidents
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../components/controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Components
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../deployment/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture & Deployment
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../runbooks/MKDOCS-SETUP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Runbooks
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../SSL/CERT-GUIDELINE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  TLS / Certificates
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../techniques/logic_mapping_technique/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Techniques
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  HTB Rate Limiting
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../performance/executive-summary/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Performance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reports
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../persona-drift/SPIKE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Persona Drift
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../client-distribution/PLAN/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Client Distribution
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Admin API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Custom Providers
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Usage Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Dashboard & Planning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../discovery-controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Discovery Controller
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Cache Invalidation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Model Pricing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../openrouter/litellm_openrouter_models_design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OpenRouter
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../OICM-STATUS-FEASIBILITY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OICM Status
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../docs-map/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Docs Map
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-nav__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OICM LiteLLM Layer
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../credentials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Credentials & Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Incidents
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Incidents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/resolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Resolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-kimi-k3-midstream-stop/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi-K3 Mid-Stream Stop (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-spend-log-cleanup-not-running/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Cleanup Not Running (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-token-limits-misreported/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Token-Limits Misreported (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Vision Capability Undeclared (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Components
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/controller/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/custom-routes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/CLONE-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — Clone Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/VSA-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — VSA Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/patches/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patches
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-slices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Custom Code (Vertical Slices)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Deployment
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture & Deployment
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment & Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Makefile-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/IMPLEMENTATION_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/EDGE-MIRROR-DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secondary Gateway (Edge Mirror) Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Session Identity Resolver — Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runbooks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Runbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/MKDOCS-SETUP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MkDocs Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/postgres-backup-and-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Backup & Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/DATASOURCE-LOCAL-VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasource Local Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TLS / Certificates
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    TLS / Certificates
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/CERT-GUIDELINE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apply Wildcard Cert Guideline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/LITELLM-ECOUNCIL-RUNBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve litellm.ecouncil.ae Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Techniques
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Techniques
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/logic_mapping_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/code_smell_detection_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/upstream_merge_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Pull & Branch Merge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/debug_pod_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Pod
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../htb-rate-limiting/live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTB Rate Limiting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HTB Rate Limiting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    README
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Bridge Feasibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Results Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/priority_behaviour/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Behaviour
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../performance/live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/analytics-reads-prisma-engine-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics Reads -> Prisma Engine OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/retention-flags-and-oom-LOGIC-MAP-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Retention Flags + OOM — Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/spend-logs-ram-and-model-performance-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend Logs + RAM + Model Performance — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Routing-Strategy Sync-Task Leak -> OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-optimization-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Optimization — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-30d-read-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-30d-read-fix-CODESMELL-AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-perf-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Perf Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Logs UI Enrichment Window Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/before-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/after-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    After Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/before-after-correct-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before/After Correct Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reports
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADEOGPT Model Performance (7d)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persona Drift
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Persona Drift
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../persona-drift/SPIKE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spike Note
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Distribution
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Client Distribution
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/mirror-content/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mirror Content
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/installer-script/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Script
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/platform-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/rustfs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RustFS Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/admin-sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin Sync API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/rollout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rollout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client-distribution/history/lite-cli-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Plan History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_15" id="__nav_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin API
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Admin API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Admin REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/ATHENA-READ-ONLY-KEY-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Athena Read-Only Key Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_16" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../custom-providers/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Providers
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_16" id="__nav_16_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom Providers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA Research
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_TTS_BEHAVIOR/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA TTS Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/LITELLM_ENDPOINT_ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Endpoint Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAPPING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAP_v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Extensibility Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Test Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Post-Build Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-gateway-pod-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception Gateway Pod Parity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-hamsa-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception HAMSA Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/gateway-field-drop-investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Field-Drop Investigation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Registration Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Robust Fix Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Gateway Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_BY_PROBE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration by Probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_REVIEW2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration Review 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Diarization Provider Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Speaker Embeddings Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Usage Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/REASONING_CONTROL_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reasoning Control Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA-TTS-NEW-V1-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa TTS New /v1 Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/INCEPTION_TTS_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception TTS/STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/OMNIVOICE_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fish Audio Drama 3 TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_IMAGE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Image Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_VISION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Vision Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/VIBEVOICE_ASR_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VibeVoice ASR Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/PYANNOTE_DIARIZATION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pyannote Diarization Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare clef-flash (SystemOne) Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard & Planning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dashboard & Planning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Analysis Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Understanding Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/LOGIC-MAPPING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/MODEL-PERFORMANCE-DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/UI-LINT-AND-CHANGE-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Lint & Change Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_19" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../discovery-controller/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_19" id="__nav_19_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discovery Controller
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../discovery-controller/logic-map-and-code-smell-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map & Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Invalidation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_21" >
+        
+          
+          <label class="md-nav__link" for="__nav_21" id="__nav_21_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Pricing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_21_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_21">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Pricing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-MATCHING-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Matching Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_22" >
+        
+          
+          <label class="md-nav__link" for="__nav_22" id="__nav_22_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenRouter
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_22_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_22">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OpenRouter
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/litellm_openrouter_models_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/IMPLEMENTATION-STUDY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Endpoints Consumer Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-litellm-to-endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    litellm-to-endpoints Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-usage-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Metrics Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_23" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_23" id="__nav_23_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Status
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_23_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_23">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OICM Status
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OICM-STATUS-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FEASIBILITY-ANSWERS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPLEMENTATION-CHECKLIST/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DESIGN-STATUS-PERSISTENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROGRESS-AND-PAUSED-WORK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Progress & Paused Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Report (Health Table 2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Report (Health Table 2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-why-this-change-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Why this change exists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-architecture-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Architecture at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gateway-changes-the-litellm-fork" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gateway changes (the LiteLLM fork)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gateway changes (the LiteLLM fork)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-new-file-litellmproxyoicm_routespy-184-lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 New file: litellm/proxy/oicm_routes.py (184 lines)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-modified-litellmproxyproxy_serverpy-6-lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Modified: litellm/proxy/proxy_server.py (+6 lines)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-modified-litellmproxyutilspy-the-prisma-json-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Modified: litellm/proxy/utils.py (the Prisma Json fix)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-new-tests-teststest_litellmproxyoicm_routes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 New tests: tests/test_litellm/proxy/oicm_routes/
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-controller-changes-oicm-litellm-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Controller changes (oicm-litellm-layer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Controller changes (oicm-litellm-layer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-controllerlitellm_clientpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 controller/litellm_client.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-controllerstatus_persisterpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 controller/status_persister.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-controllercontrollerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 controller/controller.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-controllerreadmemd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 controller/README.md
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-config-and-manifests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Config and manifests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Config and manifests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-deployoverlaysdevgatewayconfigyaml-dev-configmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 deploy/overlays/dev/gateway/config.yaml (dev ConfigMap)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-deploydevdiscovery-controller-devyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 deploy/dev/discovery-controller-dev.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-deploy-mechanics-used-and-the-gap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Deploy mechanics used (and the gap)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-live-verification-on-dev-2026-10-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Live verification on dev (2026-10-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-files-changed-complete-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Files changed (complete list)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-data-model-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Data model reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-route-contract-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Route contract reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-how-to-continue-open-threads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. How to continue (open threads)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-reproduce-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Reproduce / verify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-commit-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Commit log
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../LOGIC-MAP-2026-10-07-health-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map (Health Table 2026-10-07)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CODE-SMELL-PASS-2026-10-06/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Pass (2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OICM-API-CATALOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM API Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-write-access-blocked/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Write Access Blocked (403)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-why-this-change-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Why this change exists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-architecture-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Architecture at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gateway-changes-the-litellm-fork" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gateway changes (the LiteLLM fork)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gateway changes (the LiteLLM fork)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-new-file-litellmproxyoicm_routespy-184-lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 New file: litellm/proxy/oicm_routes.py (184 lines)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-modified-litellmproxyproxy_serverpy-6-lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Modified: litellm/proxy/proxy_server.py (+6 lines)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-modified-litellmproxyutilspy-the-prisma-json-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Modified: litellm/proxy/utils.py (the Prisma Json fix)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-new-tests-teststest_litellmproxyoicm_routes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 New tests: tests/test_litellm/proxy/oicm_routes/
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-controller-changes-oicm-litellm-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Controller changes (oicm-litellm-layer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Controller changes (oicm-litellm-layer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-controllerlitellm_clientpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 controller/litellm_client.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-controllerstatus_persisterpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 controller/status_persister.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-controllercontrollerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 controller/controller.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-controllerreadmemd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 controller/README.md
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-config-and-manifests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Config and manifests
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Config and manifests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-deployoverlaysdevgatewayconfigyaml-dev-configmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 deploy/overlays/dev/gateway/config.yaml (dev ConfigMap)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-deploydevdiscovery-controller-devyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 deploy/dev/discovery-controller-dev.yaml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-deploy-mechanics-used-and-the-gap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Deploy mechanics used (and the gap)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-live-verification-on-dev-2026-10-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Live verification on dev (2026-10-06)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-files-changed-complete-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Files changed (complete list)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-data-model-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Data model reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-route-contract-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Route contract reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-how-to-continue-open-threads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. How to continue (open threads)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-reproduce-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Reproduce / verify
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-commit-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Commit log
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="change-report-oicm-status-into-the-native-health-table-2026-10-06">Change report: OICM status into the native health table (2026-10-06)<a class="headerlink" href="#change-report-oicm-status-into-the-native-health-table-2026-10-06" title="Permanent link">&para;</a></h1>
+<p>This is the complete record of the change that moved OICM per-model health and
+per-source liveness into LiteLLM's native <code>LiteLLM_HealthCheckTable</code>, replacing
+the old controller-owned heartbeat model rows. It is written so a future reader
+can pick up the work with no other context. Read it top to bottom for the story,
+or jump to a section for the artifact.</p>
+<p>Scope of this report: commits <code>31409b80db</code> (feature), <code>9ccd60de39</code> (Prisma fix),
+<code>08f54c344a</code> (docs + pinned dev manifest), all on branch <code>jya0-v1.102.0</code> of
+<code>github.com/AITDEV00/litellm.git</code>, all deployed to dev only. Prod was not touched.</p>
+<blockquote>
+<p>Update (2026-10-08): prod has since been rolled to the same bytes dev verified,
+so this change is live in both environments. See the "Prod rollout: done"
+section of <code>PROGRESS-AND-PAUSED-WORK.md</code>.</p>
+</blockquote>
+<h2 id="1-why-this-change-exists">1. Why this change exists<a class="headerlink" href="#1-why-this-change-exists" title="Permanent link">&para;</a></h2>
+<p>The previous design recorded per-source liveness as a <em>model row</em>: a synthetic
+<code>oicm-heartbeat-&lt;cluster&gt;</code> entry with <code>blocked = true</code>, carrying a
+<code>model_info.oicm_heartbeat</code> timestamp. Three problems drove the rewrite:</p>
+<ol>
+<li>A cluster-scoped fact was wearing a model row's clothes. The liveness
+   timestamp is per source, but storing it on a model row duplicates it across
+   that source's models conceptually and puts a non-model into the model list.</li>
+<li>There was no per-model home for OICM truth. <code>/health/latest</code>,
+   <code>/health/history</code>, the Admin UI health column, and native retention all
+   already existed and were consumed, but OICM had no way to feed them.</li>
+<li>A probe would have to reconstruct OICM's answer, badly. OICM's REST API is
+   the authoritative source for whether a deployment can serve, and it carries
+   richer status (lifecycle word, replicas, error message, status-change time,
+   cluster) than a probe would. The decision was to reuse OICM truth rather than
+   probe.</li>
+</ol>
+<p>The chosen design: keep LiteLLM's native health table and every native reader,
+and add two admin-only gateway routes the controller POSTs to. Nothing about
+routing changes, because the router's health cache is fed only by the background
+probe loop, which stays off.</p>
+<h2 id="2-architecture-at-a-glance">2. Architecture at a glance<a class="headerlink" href="#2-architecture-at-a-glance" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>OICM REST API  (authoritative)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>      |
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>      v
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Discovery controller (poll every 10s)
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>      |  reconcile: register/delete/patch model rows        (unchanged)
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>      |  status writer:
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>      |    - PATCH model_info.oicm + blocked  (on change)     (unchanged)
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>      |    - POST /oicm/v1/status-reports     (on change, else hourly)
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>      |    - POST /oicm/v1/heartbeats         (every 30s)
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>      v
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>LiteLLM proxy (dev / prod)
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>      |  native save_health_check_result -&gt; LiteLLM_HealthCheckTable
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>      v
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>Native readers (unchanged):
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  GET /health/latest, GET /health/history, Admin UI health column,
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  native retention (maximum_health_check_retention_period)
+</span></code></pre></div>
+<p>Key invariant: the two new routes only <em>write</em> the append-only health table.
+They never touch a model row, never reload the router, and never feed the
+routing health cache. The health table is presentation-only.</p>
+<h2 id="3-gateway-changes-the-litellm-fork">3. Gateway changes (the LiteLLM fork)<a class="headerlink" href="#3-gateway-changes-the-litellm-fork" title="Permanent link">&para;</a></h2>
+<h3 id="31-new-file-litellmproxyoicm_routespy-184-lines">3.1 New file: <code>litellm/proxy/oicm_routes.py</code> (184 lines)<a class="headerlink" href="#31-new-file-litellmproxyoicm_routespy-184-lines" title="Permanent link">&para;</a></h3>
+<p>A self-contained vertical slice, co-located next to <code>proxy_server.py</code> like
+<code>voice_routes.py</code>. Module constants:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_HEALTHY</code></td>
+<td><code>"healthy"</code></td>
+<td>native vocabulary word</td>
+</tr>
+<tr>
+<td><code>_UNHEALTHY</code></td>
+<td><code>"unhealthy"</code></td>
+<td>native vocabulary word</td>
+</tr>
+<tr>
+<td><code>_DEFAULT_CHECKED_BY</code></td>
+<td><code>"oicm-controller"</code></td>
+<td>default <code>checked_by</code> / reporter</td>
+</tr>
+<tr>
+<td><code>_SOURCE_ROW_PREFIX</code></td>
+<td><code>"oicm-source-"</code></td>
+<td>reserved model_name prefix for liveness rows</td>
+</tr>
+</tbody>
+</table>
+<p>Pydantic request models (all <code>ConfigDict(protected_namespaces=())</code>):</p>
+<ul>
+<li><code>OicmStatusReport</code>: <code>model_name</code> (min_length 1), <code>litellm_model_id</code> (opt),
+  <code>healthy</code> (bool), <code>error_message</code> (opt), <code>details</code> (opt <code>dict[str, object]</code>).</li>
+<li><code>OicmStatusReportBatch</code>: <code>reporter</code> (default <code>oicm-controller</code>), <code>reports</code>
+  (list, min_length 1).</li>
+<li><code>OicmSourceHeartbeat</code>: <code>cluster</code> (min_length 1), <code>details</code> (opt).</li>
+<li><code>OicmHeartbeatBatch</code>: <code>reporter</code>, <code>heartbeats</code> (list, min_length 1).</li>
+</ul>
+<p>Guards:</p>
+<ul>
+<li><code>_require_admin(user_api_key_dict)</code>: raises 403 unless role is <code>PROXY_ADMIN</code>.</li>
+<li><code>_require_prisma(prisma_client)</code>: raises 500 if the DB client is <code>None</code>.</li>
+</ul>
+<p>Route 1: <code>POST /oicm/v1/status-reports</code>, <code>dependencies=[Depends(user_api_key_auth)]</code>.
+Defer-imports <code>prisma_client</code> from <code>proxy_server</code> (proxy_server imports this
+router, so the import must be deferred). For each report it calls the native
+<code>prisma_client.save_health_check_result(...)</code> with:</p>
+<ul>
+<li><code>model_name = report.model_name</code></li>
+<li><code>model_id = report.litellm_model_id</code></li>
+<li><code>status = "healthy" if report.healthy else "unhealthy"</code> (native vocabulary)</li>
+<li><code>healthy_count = 1/0</code>, <code>unhealthy_count = 0/1</code></li>
+<li><code>error_message = report.error_message</code></li>
+<li><code>response_time_ms = None</code> (OICM gives no probe latency; do not invent one)</li>
+<li><code>details = report.details</code></li>
+<li><code>checked_by = batch.reporter</code></li>
+</ul>
+<p>All writes go through <code>asyncio.gather</code>; failures are counted, not raised (the
+native function returns <code>None</code> on failure and never raises). Response:
+<code>{"saved": &lt;n&gt;, "received": &lt;m&gt;}</code>. A short save logs a warning.</p>
+<p>Route 2: <code>POST /oicm/v1/heartbeats</code>, same auth/guards. For each heartbeat it
+writes a native row with:</p>
+<ul>
+<li><code>model_name = f"oicm-source-{hb.cluster}"</code></li>
+<li><code>model_id = None</code> (a key no native writer can produce, so no collision, and
+  the Admin UI latest-checks join skips it since no model id matches)</li>
+<li><code>status = "healthy"</code>, <code>healthy_count = 1</code>, <code>unhealthy_count = 0</code></li>
+<li><code>details = hb.details</code>, <code>checked_by = batch.reporter</code></li>
+</ul>
+<p>Same <code>{"saved", "received"}</code> response shape.</p>
+<p>The server stamps <code>checked_at</code> (native column default <code>now()</code>), so the timestamp
+means "when the gateway last heard from the controller" and cannot be forged or
+drifted by the controller.</p>
+<h3 id="32-modified-litellmproxyproxy_serverpy-6-lines">3.2 Modified: <code>litellm/proxy/proxy_server.py</code> (+6 lines)<a class="headerlink" href="#32-modified-litellmproxyproxy_serverpy-6-lines" title="Permanent link">&para;</a></h3>
+<p>Mounted in the fork-appended include block at the bottom, immediately after the
+voice router, so upstream merges never touch it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># OICM status ingestion routes (co-located vertical slice). Writes OICM truth</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># into the native health table via /oicm/v1/status-reports and /oicm/v1/heartbeats.</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">litellm.proxy.oicm_routes</span><span class="w"> </span><span class="kn">import</span> <span class="n">router</span> <span class="k">as</span> <span class="n">oicm_status_router</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">app</span><span class="o">.</span><span class="n">include_router</span><span class="p">(</span><span class="n">oicm_status_router</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="33-modified-litellmproxyutilspy-the-prisma-json-fix">3.3 Modified: <code>litellm/proxy/utils.py</code> (the Prisma Json fix)<a class="headerlink" href="#33-modified-litellmproxyutilspy-the-prisma-json-fix" title="Permanent link">&para;</a></h3>
+<p><code>PrismaClient._clean_details</code> now wraps its parsed output in <code>prisma.Json(...)</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_clean_details</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">details</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="sd">"""Clean and validate details JSON</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="sd">    The generated Prisma client rejects plain dicts for `Json?` columns</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="sd">    (the query engine only accepts `prisma.Json` inputs), so the parsed</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="sd">    value is wrapped here at the single choke point every health-row</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="sd">    writer goes through.</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="sd">    """</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">details</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        <span class="k">return</span> <span class="kc">None</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">prisma</span><span class="w"> </span><span class="kn">import</span> <span class="n">Json</span>  <span class="c1"># noqa: PLC0415  # generated client may be absent in tools that never touch the DB</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        <span class="k">return</span> <span class="n">Json</span><span class="p">(</span><span class="n">safe_json_loads</span><span class="p">(</span><span class="n">safe_dumps</span><span class="p">(</span><span class="n">details</span><span class="p">)))</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>        <span class="n">verbose_proxy_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"Failed to clean details JSON: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        <span class="k">return</span> <span class="kc">None</span>
+</span></code></pre></div>
+<p>This is a real native bug fix, not an OICM-specific one. Before it, ANY health
+row carrying <code>details</code> failed to persist with:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Unable to match input value to any allowed input type for the field.
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Parse errors: [Invalid argument type. `details` should be of any of the
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>following types: `NullableJsonNullValueInput`, ... `Json`]
+</span></code></pre></div>
+<p><code>save_health_check_result</code> swallows that exception and returns <code>None</code>, so the
+failure was silent at the API layer and visible only in the proxy error log. The
+native background health loop had the same latent bug whenever it wrote <code>details</code>.
+The heartbeat rows worked before this fix only because they pass <code>details=None</code>.</p>
+<p>Why <code>_clean_details</code> and not the call sites: it is the single choke point every
+health-row writer shares (the native loop and both new routes), so one edit fixes
+all of them. House precedent for wrapping: <code>key_management_endpoints.py</code> uses
+<code>prisma.Json(...)</code> for <code>litellm_params</code>.</p>
+<h3 id="34-new-tests-teststest_litellmproxyoicm_routes">3.4 New tests: <code>tests/test_litellm/proxy/oicm_routes/</code><a class="headerlink" href="#34-new-tests-teststest_litellmproxyoicm_routes" title="Permanent link">&para;</a></h3>
+<p><code>__init__.py</code> (empty) and <code>test_endpoints.py</code> (282 lines, 13 tests):</p>
+<ul>
+<li><code>TestStatusReports</code></li>
+<li><code>test_each_report_becomes_one_native_save</code></li>
+<li><code>test_status_uses_the_native_vocabulary</code> (only <code>healthy</code>/<code>unhealthy</code>)</li>
+<li><code>test_serving_truth_rides_in_details_not_status</code></li>
+<li><code>test_no_response_time_is_written</code></li>
+<li><code>test_failed_saves_are_counted_not_raised</code> (partial save -&gt; <code>{"saved":1,"received":2}</code>)</li>
+<li><code>test_non_admin_is_refused</code> (403, no writes)</li>
+<li><code>test_reporter_stamps_checked_by</code></li>
+<li><code>test_empty_batch_is_rejected_at_validation</code> (422)</li>
+<li><code>test_serving_false_is_not_required_to_carry_an_error</code></li>
+<li><code>TestHeartbeats</code></li>
+<li><code>test_heartbeat_row_cannot_be_a_model_row</code> (<code>model_id is None</code>, name <code>oicm-source-alain</code>)</li>
+<li><code>test_two_sources_write_two_rows</code></li>
+<li><code>test_unauthenticated_call_is_refused</code> (401/403)</li>
+<li><code>TestRouteShape</code></li>
+<li><code>test_paths_live_in_the_oicm_namespace</code> (anti-shadow regression: exact paths pinned)</li>
+</ul>
+<p>Run: <code>uv run --python 3.13 python -m pytest tests/test_litellm/proxy/oicm_routes/</code>
+Result: 13 passed.</p>
+<h2 id="4-controller-changes-oicm-litellm-layer">4. Controller changes (oicm-litellm-layer)<a class="headerlink" href="#4-controller-changes-oicm-litellm-layer" title="Permanent link">&para;</a></h2>
+<h3 id="41-controllerlitellm_clientpy">4.1 <code>controller/litellm_client.py</code><a class="headerlink" href="#41-controllerlitellm_clientpy" title="Permanent link">&para;</a></h3>
+<p>Removed (heartbeat model-row machinery, now dead):</p>
+<ul>
+<li><code>upsert_heartbeat</code>, <code>_patch_heartbeat</code>, <code>list_heartbeats</code>, <code>heartbeat_payload</code>.</li>
+</ul>
+<p>Added:</p>
+<ul>
+<li><code>report_status(reports: Sequence[dict], *, reporter="oicm-controller") -&gt; bool</code>.
+  Read-only mode logs and returns <code>False</code>. Empty list returns <code>True</code> (nothing to
+  do is success). POSTs <code>{base_url}/oicm/v1/status-reports</code> with
+  <code>{"reporter", "reports"}</code> and returns
+  <code>resp.json().get("saved") == len(reports)</code> — a short save is a failure, so the
+  caller retries the models that were not stored.</li>
+<li><code>report_heartbeats(clusters: Sequence[str], *, reporter="oicm-controller") -&gt; Mapping[str, bool]</code>.
+  Read-only returns <code>{}</code>; empty returns <code>{}</code>. POSTs
+  <code>{base_url}/oicm/v1/heartbeats</code> with <code>{"reporter", "heartbeats": [{"cluster": c}]}</code>.
+  Maps <code>saved_per_cluster</code> if present, else falls back to all-or-nothing from
+  <code>saved == len(clusters)</code>. On error returns <code>{}</code> (never reports a source alive
+  on a failed write). Returns a <code>MappingProxyType</code>.</li>
+</ul>
+<p>Typing imports widened to include <code>Mapping</code>, <code>Sequence</code>; added
+<code>from types import MappingProxyType</code>.</p>
+<p>Note (minor, cosmetic): the heartbeats route returns <code>{"saved", "received"}</code> and
+not <code>saved_per_cluster</code>, so the client always takes the all-or-nothing fallback
+branch. Both sources succeed or fail together, which is the observable behaviour
+today. If per-source partial results ever matter, add <code>saved_per_cluster</code> to the
+route response and the client already handles it.</p>
+<h3 id="42-controllerstatus_persisterpy">4.2 <code>controller/status_persister.py</code><a class="headerlink" href="#42-controllerstatus_persisterpy" title="Permanent link">&para;</a></h3>
+<p>Docstring rewritten to describe three writes: block PATCH, per-model health rows,
+per-source liveness rows. Changes:</p>
+<ul>
+<li>New constant <code>HEALTH_REFRESH_SECONDS = 3600</code> (mirrors native
+  <code>_should_persist_health_check_result</code>). Removed <code>HEARTBEAT_NAME_PREFIX</code>.</li>
+<li><code>StatusPersister.__init__(litellm, heartbeat_interval=HEARTBEAT_INTERVAL,
+  health_refresh_seconds=HEALTH_REFRESH_SECONDS)</code>. New state:
+  <code>self._last_health_at: dict[str, float]</code> (keyed by LiteLLM model id) and
+  <code>self.checked_at: Mapping[str, bool]</code> (per-cluster last-report success).</li>
+<li><code>persist()</code> order: compute <code>current</code> once, <code>plan_writes</code> -&gt; <code>patch_status</code>
+  gather, then <code>await self._maybe_report_health(...)</code>, then
+  <code>await self._maybe_heartbeat(..., now=current)</code>.</li>
+<li><code>_maybe_report_health(...)</code>: for each snapshot entry with a <code>model_id</code>, skip
+  when <code>last is not None and (now - last) &lt; self.health_refresh_seconds</code>
+  (first cycle always reports). Report dict:
+  <code>{"model_name": entry.get("model_name") or model_id, "litellm_model_id":
+  model_id, "healthy": snapshot.serving_available, "error_message":
+  snapshot.error_msg, "details": {**block, "cluster": snapshot.cluster}}</code>. Only
+  on <code>report_status</code> success does it set <code>_last_health_at[id] = now</code>, so a failed
+  batch retries next cycle.</li>
+<li><code>_maybe_heartbeat(...)</code>: skipped when there are no snapshots; rate-limited by
+  <code>heartbeat_interval</code>; <code>clusters = sorted({...})</code>;
+  <code>results = await self.litellm.report_heartbeats(clusters)</code>; on non-empty
+  results sets <code>self.checked_at = MappingProxyType(dict(results))</code>.</li>
+</ul>
+<p>Critical detail learned the hard way: <code>_last_health_at</code> must advance ONLY on a
+successful <code>report_status</code>. An earlier version advanced it in <code>persist()</code> after
+the PATCH loop, which made the very first health report get skipped. A debug
+trace (<code>report_status awaited 0</code>, <code>_last_health_at={'id-1': ...}</code>) exposed it.</p>
+<h3 id="43-controllercontrollerpy">4.3 <code>controller/controller.py</code><a class="headerlink" href="#43-controllercontrollerpy" title="Permanent link">&para;</a></h3>
+<p><code>/status</code> body key changed from <code>"checked_at": self._checked_at(snap.cluster)</code> to
+<code>"source_alive": self._source_alive(snap.cluster)</code>. Method <code>_checked_at</code> renamed
+to <code>_source_alive</code>, returning <code>Optional[bool]</code>: whether the last liveness report
+for that cluster reached the gateway. The authoritative timestamp is the
+gateway's own server-stamped <code>checked_at</code>, so the controller reports only whether
+its last report succeeded, not a second clock that could drift.</p>
+<h3 id="44-tests">4.4 Tests<a class="headerlink" href="#44-tests" title="Permanent link">&para;</a></h3>
+<p><code>tests/controller/test_status_persister.py</code> (rewritten heartbeat tests + new
+health tests):</p>
+<ul>
+<li><code>TestHeartbeat</code>: one heartbeat per source not per model; rate-limited to its
+  own cadence; no heartbeat without snapshots; failed heartbeat not recorded as
+  alive (<code>checked_at == {}</code>).</li>
+<li><code>TestHealthReports</code>: first cycle reports every registered model; steady state
+  reports nothing; stable model refreshed after <code>HEALTH_REFRESH_SECONDS + 1</code>;
+  serving flip reported even without the patch; report carries the block and
+  cluster; snapshot without a gateway row is not reported; failed report retries
+  next cycle (<code>side_effect=[False, True]</code>).</li>
+</ul>
+<p><code>tests/controller/test_litellm_client.py</code> (4 appended):</p>
+<ul>
+<li><code>test_report_status_posts_one_batch_and_requires_full_save</code></li>
+<li><code>test_report_status_empty_batch_writes_nothing</code></li>
+<li><code>test_report_heartbeats_maps_per_cluster_results</code></li>
+<li><code>test_report_heartbeats_failure_returns_empty_not_false</code></li>
+</ul>
+<p>Run: <code>cd oicm-litellm-layer &amp;&amp; uv run --extra test --python 3.13 python -m pytest tests/controller</code>
+Result: 300 passed, 2 pre-existing <code>test_config.py</code> failures (stale prod manifest
+key expectations, unrelated to this change).</p>
+<p>Mutation testing (3 mutations, all killed):</p>
+<table>
+<thead>
+<tr>
+<th>Mutation</th>
+<th>Killed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>refresh rule removed (<code>if last is not None: continue</code>)</td>
+<td><code>test_stable_model_is_refreshed_after_an_hour</code></td>
+</tr>
+<tr>
+<td>healthy inverted (<code>not snapshot.serving_available</code>)</td>
+<td><code>test_first_cycle_reports_every_registered_model</code>, <code>test_serving_flip_is_reported_even_without_the_patch</code></td>
+</tr>
+<tr>
+<td>success bookkeeping removed (always advance)</td>
+<td><code>test_report_carries_the_block_and_cluster</code>, <code>test_failed_report_retries_next_cycle</code> (+4 more)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="45-controllerreadmemd">4.5 <code>controller/README.md</code><a class="headerlink" href="#45-controllerreadmemd" title="Permanent link">&para;</a></h3>
+<p>The "Each cluster also gets one controller-owned heartbeat row..." paragraph was
+replaced with a description of the two routes, server-stamped <code>checked_at</code>,
+<code>checked_by = oicm-controller</code>, native readers, and the
+<code>oicm-source-&lt;cluster&gt;</code> freshness key.</p>
+<h2 id="5-config-and-manifests">5. Config and manifests<a class="headerlink" href="#5-config-and-manifests" title="Permanent link">&para;</a></h2>
+<h3 id="51-deployoverlaysdevgatewayconfigyaml-dev-configmap">5.1 <code>deploy/overlays/dev/gateway/config.yaml</code> (dev ConfigMap)<a class="headerlink" href="#51-deployoverlaysdevgatewayconfigyaml-dev-configmap" title="Permanent link">&para;</a></h3>
+<p>This key now lives in the dev overlay's config patch; see
+<code>docs/deployment.md</code> for the base/overlay layout.</p>
+<p>Added under <code>general_settings</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Bounds the OICM health rows the controller writes into the native</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># health table (per-model reports plus per-source liveness). A month of</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># history keeps incident review possible; unset means rows never delete.</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nt">maximum_health_check_retention_period</span><span class="p">:</span><span class="w"> </span><span class="s">"30d"</span>
+</span></code></pre></div>
+<p>This is the native retention knob (<code>_types.py</code> ~2787): rows whose <code>checked_at</code> is
+older than the period are deleted by the native spend-log cleanup job, on that
+job's schedule. There is no count-based pruning in LiteLLM; this is the only knob.</p>
+<p>Applied with:
+<code>kubectl --kubeconfig=$KUBECONFIG -n adeo-litellm apply -k deploy/overlays/dev</code>
+then a rollout restart of <code>litellm-proxy-dev</code>.</p>
+<h3 id="52-deploydevdiscovery-controller-devyaml">5.2 <code>deploy/dev/discovery-controller-dev.yaml</code><a class="headerlink" href="#52-deploydevdiscovery-controller-devyaml" title="Permanent link">&para;</a></h3>
+<p>Dev controller image pinned to <code>0.1.0-20261006-31409b8</code> by
+<code>make controller-release-dev</code>. Prod manifest untouched.</p>
+<h2 id="6-deploy-mechanics-used-and-the-gap">6. Deploy mechanics used (and the gap)<a class="headerlink" href="#6-deploy-mechanics-used-and-the-gap" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Controller to dev: <code>make controller-deploy-dev</code> (build, push, pin dev manifest,
+  apply, rollout). One command for the whole dev loop.</li>
+<li>Gateway image: <code>make litellm-src-build-push</code> (podman build + push, tag derived
+  from branch -&gt; <code>jya0-v1.102.0</code>).</li>
+<li>Gateway to dev: <code>make litellm-src-deploy-dev</code> (added 2026-10-07). It pins the
+  current tag in <code>deploy/overlays/dev</code>, applies the dev ConfigMap
+  and dev proxy manifest, and rolls <code>litellm-proxy-dev</code> out. Prod's manifest and
+  Deployment are never touched. <code>make litellm-src-release-dev</code> is the one-shot
+  build + push + deploy.</li>
+<li><code>litellm-src-deploy</code> targets PROD (it edits <code>deploy/base/gateway</code>
+  and restarts the prod proxy) and must not be run for dev work.</li>
+<li>CAVEAT: dev and prod reference the SAME image tag (<code>litellm-src:jya0-v1.102.0</code>),
+  so a build overwrites the bytes behind that tag for both. <code>litellm-src-deploy-dev</code>
+  only restarts the dev Deployment, so prod keeps serving its already-running
+  container until prod is deliberately restarted. Treat the tag as a dev channel
+  until prod is moved to its own tag.</li>
+</ul>
+<h2 id="7-live-verification-on-dev-2026-10-06">7. Live verification on dev (2026-10-06)<a class="headerlink" href="#7-live-verification-on-dev-2026-10-06" title="Permanent link">&para;</a></h2>
+<p>Proxy image after rollout: <code>litellm-src@sha256:fa1d87e0...</code> (tag <code>jya0-v1.102.0</code>).
+Controller image: <code>oicm-discovery-controller:0.1.0-20261006-31409b8</code>.</p>
+<p>Verified:</p>
+<ul>
+<li>Both routes registered: <code>app.routes</code> contains <code>/oicm/v1/heartbeats</code> and
+  <code>/oicm/v1/status-reports</code>.</li>
+<li><code>GET /health/latest</code> returns 25 per-model rows plus 2 <code>oicm-source-*</code> rows.
+  Every row <code>checked_by = oicm-controller</code>; per-model <code>details</code> carry the OICM
+  block (<code>status</code>, <code>serving_available</code>, <code>replicas</code>, <code>cluster</code>); source rows carry
+  fresh server-stamped <code>checked_at</code> within 30s.</li>
+<li>Unauthenticated POST to <code>/oicm/v1/status-reports</code> -&gt; 401.</li>
+<li>Steady-state write volume: one heartbeat POST per source per 30s; status
+  reports only on change or hourly refresh. During the proxy restart window the
+  controller retried the failed status batch each 10s cycle and then went quiet
+  once a batch saved all 25 rows, exactly as designed.</li>
+<li>Old <code>oicm-heartbeat-*</code> model rows are gone (27 models, no leaks in
+  <code>/v1/models</code>; the reconciler deleted them because they no longer match OICM
+  state, and nothing recreates them).</li>
+<li>The <code>prisma.Json</code> fix was confirmed by direct create against the live DB
+  (<code>OK with prisma.Json: &lt;id&gt;</code>), and by the 25 rows landing after the fix.</li>
+</ul>
+<h2 id="8-files-changed-complete-list">8. Files changed (complete list)<a class="headerlink" href="#8-files-changed-complete-list" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>litellm/proxy/oicm_routes.py                                      +184 (new)
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>litellm/proxy/proxy_server.py                                     +6
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>litellm/proxy/utils.py                                            +12/-4
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>tests/test_litellm/proxy/oicm_routes/__init__.py                  new (empty)
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>tests/test_litellm/proxy/oicm_routes/test_endpoints.py            +282 (new)
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>oicm-litellm-layer/controller/litellm_client.py                   +/- (report_status, report_heartbeats added; heartbeat methods deleted)
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>oicm-litellm-layer/controller/status_persister.py                 +/- (health report + heartbeat switch)
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>oicm-litellm-layer/controller/controller.py                       (source_alive)
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>oicm-litellm-layer/controller/README.md                           (route contract)
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>oicm-litellm-layer/tests/controller/test_litellm_client.py        +59
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>oicm-litellm-layer/tests/controller/test_status_persister.py      +/- (heartbeat rewrite + health tests)
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>oicm-litellm-layer/deploy/dev/discovery-controller-dev.yaml       (image pin)
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>oicm-litellm-layer/deploy/overlays/dev/gateway/config.yaml             +4 (retention)
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>oicm-litellm-layer/docs/oicm-status/DESIGN-STATUS-PERSISTENCE.md  (health-table design)
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>oicm-litellm-layer/docs/oicm-status/IMPLEMENTATION-CHECKLIST.md   (Step 12)
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>oicm-litellm-layer/docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md   (status)
+</span></code></pre></div>
+<h2 id="9-data-model-reference">9. Data model reference<a class="headerlink" href="#9-data-model-reference" title="Permanent link">&para;</a></h2>
+<p><code>LiteLLM_HealthCheckTable</code> (schema.prisma ~1231), append-only history:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>health_check_id</code></td>
+<td>String @id uuid</td>
+<td></td>
+</tr>
+<tr>
+<td><code>model_name</code></td>
+<td>String</td>
+<td>OICM: the LiteLLM model name, or <code>oicm-source-&lt;cluster&gt;</code> for liveness</td>
+</tr>
+<tr>
+<td><code>model_id</code></td>
+<td>String?</td>
+<td>OICM: the LiteLLM model id; <code>None</code> for liveness rows</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>String</td>
+<td>native vocabulary: <code>healthy</code> / <code>unhealthy</code></td>
+</tr>
+<tr>
+<td><code>healthy_count</code></td>
+<td>Int @default(0)</td>
+<td>1 when healthy</td>
+</tr>
+<tr>
+<td><code>unhealthy_count</code></td>
+<td>Int @default(0)</td>
+<td>1 when unhealthy</td>
+</tr>
+<tr>
+<td><code>error_message</code></td>
+<td>String?</td>
+<td>truncated to 500 by the native writer</td>
+</tr>
+<tr>
+<td><code>response_time_ms</code></td>
+<td>Float?</td>
+<td>always <code>None</code> from OICM</td>
+</tr>
+<tr>
+<td><code>details</code></td>
+<td>Json?</td>
+<td>OICM truth block (<code>status</code> word, <code>serving_available</code>, <code>replicas</code>, <code>cluster</code>, ...)</td>
+</tr>
+<tr>
+<td><code>checked_by</code></td>
+<td>String?</td>
+<td><code>oicm-controller</code></td>
+</tr>
+<tr>
+<td><code>checked_at</code></td>
+<td>DateTime @default(now())</td>
+<td>server-stamped</td>
+</tr>
+<tr>
+<td><code>created_at</code> / <code>updated_at</code></td>
+<td>DateTime</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Indexes include <code>(model_id, model_name, checked_at DESC)</code> used by <code>/health/latest</code>.</p>
+<h2 id="10-route-contract-reference">10. Route contract reference<a class="headerlink" href="#10-route-contract-reference" title="Permanent link">&para;</a></h2>
+<p><code>POST /oicm/v1/status-reports</code> (admin only)</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"reporter"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oicm-controller"</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"reports"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="p">{</span><span class="nt">"model_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"zai-org/GLM-5.2-FP8"</span><span class="p">,</span><span class="w"> </span><span class="nt">"litellm_model_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;uuid&gt;"</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">     </span><span class="nt">"healthy"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"error_message"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">     </span><span class="nt">"details"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"v"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Ready"</span><span class="p">,</span><span class="w"> </span><span class="nt">"serving_available"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">                 </span><span class="nt">"replicas"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"desired"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"available"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">},</span><span class="w"> </span><span class="nt">"cluster"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alain"</span><span class="p">}}</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Response <code>{"saved": 1, "received": 1}</code>. <code>saved &lt; received</code> means some rows did not
+persist; the caller retries the whole batch next cycle.</p>
+<p><code>POST /oicm/v1/heartbeats</code> (admin only)</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span><span class="nt">"reporter"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oicm-controller"</span><span class="p">,</span><span class="w"> </span><span class="nt">"heartbeats"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"cluster"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alain"</span><span class="p">}]}</span>
+</span></code></pre></div>
+<p>Response <code>{"saved": 1, "received": 1}</code>.</p>
+<p>Auth: <code>Authorization: Bearer &lt;admin/master key&gt;</code>. Missing/insufficient -&gt; 401/403.
+DB unavailable -&gt; 500.</p>
+<h2 id="11-how-to-continue-open-threads">11. How to continue (open threads)<a class="headerlink" href="#11-how-to-continue-open-threads" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>openrouter_compat Steps 13-18 (next).</strong> <code>/api/v1/models/{author}/{slug}/endpoints</code>
+   status enrichment must now read the native health table
+   (<code>/health/latest</code> plus the <code>oicm-source-&lt;cluster&gt;</code> freshness), NOT the old
+   heartbeat model rows. <code>ModelInfo</code> is <code>extra=allow</code>, so <code>model_info.oicm</code> and
+   <code>model_info.oicm_cluster</code> already survive into descriptors; the status fields
+   are the remaining work.</li>
+<li><strong>Prod release carries the Prisma fix.</strong> Prod runs <code>:latest</code> and has the same
+   latent <code>details</code> bug. The next prod release flow will ship the fix; no prod
+   action was taken here.</li>
+<li>
+<p><strong>Optional <code>saved_per_cluster</code>.</strong> Add it to the heartbeats route response if
+   per-source partial results ever matter; the client already prefers it.</p>
+</li>
+<li>
+<p><strong>Stale <code>test_config.py</code> failures.</strong> Two pre-existing failures
+   (<code>test_admin_key_defaults_to_manifest_value</code>,
+   <code>test_master_key_from_manifest_reads_prod_manifest</code>) expect a stale prod
+   manifest key. Unrelated to this change but worth fixing.</p>
+</li>
+<li><strong>Flagged, awaiting a decision (not this change):</strong> a non-LLM flood-compute
+   deployment registered as chat (<code>698c3cfd</code>), hamsa-native pods registered as
+   <code>hosted_vllm</code> (<code>cd2850fc</code>, <code>9c57bce9</code>), and dev proxy DB <code>ON CONFLICT</code> errors
+   on spend rollups (missing unique constraints).</li>
+</ol>
+<h2 id="12-reproduce-verify">12. Reproduce / verify<a class="headerlink" href="#12-reproduce-verify" title="Permanent link">&para;</a></h2>
+<p>Gateway tests:
+<code>uv run --python 3.13 python -m pytest tests/test_litellm/proxy/oicm_routes/</code></p>
+<p>Controller tests:
+<code>cd oicm-litellm-layer &amp;&amp; uv run --extra test --python 3.13 python -m pytest tests/controller</code></p>
+<p>Lint (controller):
+<code>/tmp/lint-env/bin/ruff check --select F,E9,PLC,PLE,PLR,PLW,B,SIM,RET --ignore PLR0913,PLR2004,SIM117,ARG002,ARG003,ARG005 controller/ tests/controller/</code>
+(<code>B008</code> for route <code>Depends()</code> is house style; <code>voice_routes.py</code> has 13 of them.)</p>
+<p>Live check (dev):
+<code>export KUBECONFIG=$HOME/.kube/alain-oicm.conf</code>, master key from
+<code>secret/litellm-master-key-dev</code>, then <code>GET /health/latest</code> on the dev proxy and
+confirm 25 per-model rows + 2 <code>oicm-source-*</code> rows with fresh <code>checked_at</code>.</p>
+<h2 id="13-commit-log">13. Commit log<a class="headerlink" href="#13-commit-log" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>08f54c344a docs(oicm): record the health-table heartbeat design and dev rollout
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>9ccd60de39 fix(proxy): wrap health-check details in prisma.Json so rows persist
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>31409b80db feat(oicm): report status into the native health table, drop heartbeat rows
+</span></code></pre></div>
+<p>Pushed to <code>origin/jya0-v1.102.0</code>.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 14:00:49 UTC">November 11, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 6, 2026 18:19:58 UTC">October 6, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../PROGRESS-AND-PAUSED-WORK/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Progress &amp; Paused Work">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Progress & Paused Work
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../LOGIC-MAP-2026-10-07-health-table/" class="md-footer__link md-footer__link--next" aria-label="Next: Logic Map (Health Table 2026-10-07)">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Logic Map (Health Table 2026-10-07)
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.tabs", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Priority Queue Test Results</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2330;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --green: #3fb950;
+    --green-dim: #238636;
+    --red: #f85149;
+    --orange: #d29922;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --prior1: #39d2c0;
+    --prior3: #f85149;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    padding: 0;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* HERO */
+  .hero { text-align: center; margin-bottom: 56px; }
+  .hero h1 { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 16px; }
+  .meta { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 24px; }
+  .meta span { margin: 0 8px; }
+  .pass-badge {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: rgba(63,185,80,0.12); border: 1px solid var(--green);
+    color: var(--green); padding: 10px 28px; border-radius: 999px;
+    font-size: 1.1rem; font-weight: 600; letter-spacing: 0.05em;
+  }
+  .pass-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+
+  /* SECTION */
+  .section { margin-bottom: 64px; }
+  .section h2 {
+    font-size: 1.5rem; font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    font-size: 0.85rem; color: var(--blue); flex-shrink: 0;
+  }
+  .section .lead { color: var(--text-dim); font-size: 1.05rem; margin-bottom: 28px; }
+
+  /* KEY METRIC */
+  .key-metric {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px; text-align: center;
+  }
+  .key-metric .headline { font-size: 1.3rem; margin-bottom: 32px; color: var(--text-dim); }
+  .key-metric .headline b { color: var(--text); }
+  .latency-bars { display: flex; flex-direction: column; gap: 20px; max-width: 640px; margin: 0 auto; }
+  .bar-row { display: flex; align-items: center; gap: 16px; }
+  .bar-label { width: 120px; text-align: right; font-weight: 600; font-size: 0.95rem; flex-shrink: 0; }
+  .bar-label.p1 { color: var(--prior1); }
+  .bar-label.p3 { color: var(--prior3); }
+  .bar-track {
+    flex: 1; height: 40px; background: var(--surface2); border-radius: 8px;
+    overflow: hidden; position: relative; border: 1px solid var(--border);
+  }
+  .bar-fill {
+    height: 100%; border-radius: 7px; width: 0;
+    transition: width 1.8s cubic-bezier(0.22,1,0.36,1);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 14px; font-weight: 700; font-size: 0.95rem; color: #fff;
+    white-space: nowrap;
+  }
+  .bar-fill.p1 { background: linear-gradient(90deg, #1a8a7a, var(--prior1)); }
+  .bar-fill.p3 { background: linear-gradient(90deg, #8a3b38, var(--prior3)); }
+  .bar-fill.invisible { color: transparent; }
+
+  /* PIPELINE */
+  .pipeline { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; justify-content: center; }
+  .pipe-stage {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 16px; width: 200px; text-align: center;
+    position: relative; z-index: 1;
+  }
+  .pipe-stage .icon { font-size: 1.8rem; margin-bottom: 8px; }
+  .pipe-stage .title { font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; }
+  .pipe-stage .desc { font-size: 0.78rem; color: var(--text-dim); line-height: 1.4; }
+  .pipe-arrow {
+    display: flex; align-items: center; color: var(--border); font-size: 1.4rem;
+    padding: 0 4px;
+  }
+  .pipe-packet {
+    position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+    background: var(--cyan); color: #000; font-size: 0.7rem; font-weight: 700;
+    padding: 3px 8px; border-radius: 6px; white-space: nowrap; z-index: 2;
+    animation: flow 6s ease-in-out infinite;
+  }
+  @keyframes flow {
+    0% { left: 0; opacity: 0; }
+    5% { opacity: 1; }
+    20% { left: calc(200px + 24px); }
+    40% { left: calc(420px + 48px); }
+    60% { left: calc(640px + 72px); }
+    80% { left: calc(860px + 96px); }
+    90% { opacity: 1; }
+    100% { left: calc(860px + 96px); opacity: 0; }
+  }
+
+  /* TEST CARDS */
+  .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .test-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; position: relative; overflow: hidden;
+  }
+  .test-card .route { font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .test-card .name { font-weight: 600; font-size: 1rem; margin-bottom: 12px; }
+  .test-card .time { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
+  .test-card .time.fast { color: var(--green); }
+  .test-card .time.slow { color: var(--orange); }
+  .test-card .http { font-size: 0.85rem; font-weight: 600; }
+  .test-card .http.ok { color: var(--green); }
+  .test-card .http.err { color: var(--red); }
+  .test-card .meaning { font-size: 0.82rem; color: var(--text-dim); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .test-card.p1 { border-left: 3px solid var(--prior1); }
+  .test-card.p3 { border-left: 3px solid var(--prior3); }
+
+  /* 503 CALLOUT */
+  .callout-503 {
+    background: linear-gradient(135deg, rgba(248,81,73,0.08), rgba(248,81,73,0.02));
+    border: 1px solid rgba(248,81,73,0.3); border-radius: 12px; padding: 24px;
+    margin-top: 20px;
+  }
+  .callout-503 .tag {
+    display: inline-block; background: var(--red); color: #fff; font-size: 0.75rem;
+    font-weight: 700; padding: 2px 10px; border-radius: 4px; margin-bottom: 10px;
+  }
+  .callout-503 p { font-size: 0.92rem; }
+  .callout-503 p + p { margin-top: 10px; }
+
+  /* PREEMPTION VIZ */
+  .preempt-viz {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 32px; margin-bottom: 24px;
+  }
+  .preempt-viz h3 { font-size: 1rem; margin-bottom: 4px; }
+  .preempt-viz .sub { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 24px; }
+  .slot-grid {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;
+    max-width: 520px; margin: 0 auto 28px;
+  }
+  .slot {
+    aspect-ratio: 1.4; border-radius: 6px; background: var(--green-dim);
+    border: 1px solid rgba(63,185,80,0.4); display: flex; align-items: center;
+    justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.5);
+    transition: all 0.5s ease;
+  }
+  .slot.queued { background: var(--surface2); border-color: var(--border); color: var(--text-dim); }
+  .slot.finished { background: var(--green); border-color: var(--green); animation: finishFlash 0.8s ease; }
+  .slot.admitted { background: var(--cyan); border-color: var(--cyan); color: #000; font-weight: 700; animation: admitFlash 0.8s ease; }
+  @keyframes finishFlash { 0%{transform:scale(1);background:var(--green-dim)} 50%{transform:scale(1.1);box-shadow:0 0 12px var(--green)} 100%{transform:scale(0.85);background:var(--surface2);border-color:var(--border)} }
+  @keyframes admitFlash { 0%{transform:scale(0.5);opacity:0} 50%{transform:scale(1.2);box-shadow:0 0 12px var(--cyan)} 100%{transform:scale(1);opacity:1} }
+  .preempt-controls { text-align: center; }
+  .btn {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 24px; border-radius: 8px; font-size: 0.9rem; cursor: pointer;
+    font-weight: 600; transition: all 0.2s;
+  }
+  .btn:hover { background: var(--border); border-color: var(--blue); }
+  .btn:active { transform: scale(0.97); }
+  .preempt-step-label {
+    text-align: center; font-size: 0.9rem; color: var(--text-dim); margin-top: 16px;
+    min-height: 24px; transition: opacity 0.3s;
+  }
+
+  /* LOG BLOCK */
+  .log-block {
+    background: #010409; border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    font-size: 0.82rem; line-height: 1.7; overflow-x: auto; margin-bottom: 16px;
+  }
+  .log-block .ts { color: var(--text-dim); }
+  .log-block .decode { color: var(--blue); }
+  .log-block .prefill { color: var(--orange); }
+  .log-block .annot { color: var(--green); }
+  .log-block .running { color: var(--purple); }
+  .log-block .queue { color: var(--text-dim); }
+  .log-block .ip { color: var(--cyan); }
+  .log-block .ok { color: var(--green); font-weight: 600; }
+  .log-block .err { color: var(--red); font-weight: 600; }
+
+  /* PROOF */
+  .proof {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--green); border-radius: 12px; padding: 24px;
+  }
+  .proof .label {
+    display: inline-block; background: rgba(63,185,80,0.15); color: var(--green);
+    font-size: 0.75rem; font-weight: 700; padding: 2px 10px; border-radius: 4px;
+    margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .proof p { font-size: 0.95rem; }
+  .proof .highlight { background: rgba(88,166,255,0.12); color: var(--blue); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+
+  .footer { text-align: center; color: var(--text-dim); font-size: 0.82rem; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+
+  @media (max-width: 768px) {
+    .container { padding: 24px 16px 60px; }
+    .hero h1 { font-size: 1.8rem; }
+    .test-grid { grid-template-columns: 1fr; }
+    .pipe-stage { width: 100%; }
+    .pipe-arrow { transform: rotate(90deg); padding: 8px 0; }
+    .pipe-packet { display: none; }
+    .slot-grid { grid-template-columns: repeat(6, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HERO -->
+  <div class="hero">
+    <h1>Priority Queue Test Results</h1>
+    <div class="meta">
+      <span>2026-07-29</span>·<span>PhalaCloud/GLM-5.2-W4AFP8</span>·<span>SGLang v0.5.15</span>
+    </div>
+    <div class="pass-badge"><span class="pass-dot"></span> PASS</div>
+  </div>
+
+  <!-- 1. KEY METRIC -->
+  <div class="section">
+    <h2><span class="num">1</span> The Result</h2>
+    <p class="lead">We saturated the server with 72 low-priority requests, then sent one <b>prior1</b> and one <b>prior3</b> through the proxy at the same time.</p>
+    <div class="key-metric">
+      <div class="headline">prior1 finished in <b>1.04s</b>. prior3 took <b>113.66s</b>.<br>That <b>110x</b> gap proves the priority forwarding feature works.</div>
+      <div class="latency-bars" id="latencyBars">
+        <div class="bar-row">
+          <div class="bar-label p1">prior1</div>
+          <div class="bar-track"><div class="bar-fill p1 invisible" data-w="1.5">1.04s</div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label p3">prior3</div>
+          <div class="bar-track"><div class="bar-fill p3 invisible" data-w="100">113.66s</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. PIPELINE -->
+  <div class="section">
+    <h2><span class="num">2</span> How Priority Gets Forwarded</h2>
+    <p class="lead">Four stages translate an API key label into a SGLang request body field.</p>
+    <div class="pipeline" style="position:relative; overflow:hidden;">
+      <div class="pipe-packet">prior1 → 0</div>
+      <div class="pipe-stage">
+        <div class="icon">🔑</div>
+        <div class="title">API Key</div>
+        <div class="desc">Metadata carries <code>{"priority":"prior1"}</code></div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-stage">
+        <div class="icon">⚙️</div>
+        <div class="title">Rate Limiter</div>
+        <div class="desc">Reads metadata, identifies the priority label</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-stage">
+        <div class="icon">🌉</div>
+        <div class="title">Priority Bridge</div>
+        <div class="desc">Forwards <code>priority:0</code> in request body</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-stage">
+        <div class="icon">🚀</div>
+        <div class="title">SGLang</div>
+        <div class="desc">Places prior1 first in queue</div>
+      </div>
+    </div>
+    <p style="text-align:center; color:var(--text-dim); font-size:0.85rem; margin-top:20px;">
+      SGLang uses <code>--schedule-low-priority-values-first</code>, so priority 0 is highest and 200 is lowest.
+    </p>
+  </div>
+
+  <!-- 3. TEST REQUESTS -->
+  <div class="section">
+    <h2><span class="num">3</span> The Four Test Requests</h2>
+    <p class="lead">Two sent through the proxy (full pipeline), two sent direct to SGLang (control cases).</p>
+    <div class="test-grid">
+      <div class="test-card p1">
+        <div class="route">Through Proxy</div>
+        <div class="name">prior1</div>
+        <div class="time fast">1.04s</div>
+        <div class="http ok">200 OK</div>
+        <div class="meaning">Priority forwarded. prior1 placed first in queue, admitted as soon as a running request finished.</div>
+      </div>
+      <div class="test-card p1">
+        <div class="route">Direct to SGLang</div>
+        <div class="name">prior1 (control)</div>
+        <div class="time fast">0.78s</div>
+        <div class="http ok">200 OK</div>
+        <div class="meaning">Same queue jump without the proxy. The 0.26s gap is just proxy overhead.</div>
+      </div>
+      <div class="test-card p3">
+        <div class="route">Through Proxy</div>
+        <div class="name">prior3</div>
+        <div class="time slow">113.66s</div>
+        <div class="http ok">200 OK</div>
+        <div class="meaning">No priority boost. Sat in the queue waiting for 64 running requests to finish.</div>
+      </div>
+      <div class="test-card p3">
+        <div class="route">Direct to SGLang</div>
+        <div class="name">prior3 (control)</div>
+        <div class="time slow">0.01s</div>
+        <div class="http err">503</div>
+        <div class="meaning">Queue full (8/8). SGLang rejected it outright. Low priority sits at the back of the queue.</div>
+      </div>
+    </div>
+    <div class="callout-503">
+      <span class="tag">503</span>
+      <p>When the queue is full, low-priority requests get <b>rejected outright</b>. prior1 never hits this path because it sits first in line and takes the next freed slot, even when the server is completely full.</p>
+      <p>This contrast, prior1 always served vs prior3 rejected when full, is exactly the behavior the priority feature is designed to produce.</p>
+    </div>
+  </div>
+
+  <!-- 4. PREEMPTION VIZ -->
+  <div class="section">
+    <h2><span class="num">4</span> Queue Jumping, Visualized</h2>
+    <p class="lead">The server holds 64 running + 8 queued = 72 requests. Click below to watch what happens when prior1 arrives.</p>
+    <div class="preempt-viz">
+      <h3>SGLang Server State</h3>
+      <div class="sub">Each square is one request slot. Green = running prior3, gray = queued.</div>
+      <div class="slot-grid" id="slotGrid"></div>
+      <div class="preempt-controls">
+        <button class="btn" id="replayBtn">▶ Replay Queue Jump</button>
+      </div>
+      <div class="preempt-step-label" id="stepLabel"></div>
+    </div>
+
+    <p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:12px;"><b style="color:var(--text);">Server saturated</b> — no room for anything:</p>
+    <div class="log-block">
+<span class="ts">11:57:07</span>  <span class="decode">Decode</span>  <span class="running">#running-req: 64</span>  <span class="queue">#queue-req: 8</span>
+<span class="ts">11:57:09</span>  <span class="decode">Decode</span>  <span class="running">#running-req: 64</span>  <span class="queue">#queue-req: 8</span>
+<span class="ts">11:57:12</span>  <span class="decode">Decode</span>  <span class="running">#running-req: 64</span>  <span class="queue">#queue-req: 8</span>
+    </div>
+
+    <p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:12px;"><b style="color:var(--text);">Queue jumping signature</b> — prior1 arrives around 11:57:20. Decode-at-64 then Prefill-at-63 means a running request finished and prior1 took the freed slot:</p>
+    <div class="log-block">
+<span class="ts">11:57:19</span>  <span class="decode">Decode</span>   <span class="running">#running-req: 64</span>  <span class="queue">#queue-req: 7</span>
+<span class="ts">11:57:19</span>  <span class="prefill">Prefill</span>  <span class="running">#running-req: 63</span>  <span class="queue">#queue-req: 6</span>   <span class="annot">← a running req finished, prior1 took the freed slot</span>
+<span class="ts">11:57:22</span>  <span class="prefill">Prefill</span>  <span class="running">#running-req: 63</span>  <span class="queue">#queue-req: 7</span>   <span class="annot">← prior1-via-proxy served here</span>
+<span class="ts">11:57:23</span>  <span class="prefill">Prefill</span>  <span class="running">#running-req: 63</span>  <span class="queue">#queue-req: 7</span>   <span class="annot">← prior1-direct served here</span>
+<span class="ts">11:57:24</span>  <span class="decode">Decode</span>   <span class="running">#running-req: 64</span>  <span class="queue">#queue-req: 6</span>
+    </div>
+
+    <p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:12px;"><b style="color:var(--text);">HTTP correlation</b> — which requests were served during the queue jump window:</p>
+    <div class="log-block">
+<span class="ts">11:57:22</span>  <span class="ip">10.42.6.163</span>  <span class="ok">200 OK</span>   <span class="annot">← prior1 via proxy (LiteLLM pod IP)</span>
+<span class="ts">11:57:22</span>  <span class="ip">127.0.0.1</span>     <span class="err">503</span>      <span class="annot">← prior3 direct (rejected, queue full)</span>
+<span class="ts">11:57:23</span>  <span class="ip">127.0.0.1</span>     <span class="ok">200 OK</span>   <span class="annot">← prior1 direct</span>
+    </div>
+  </div>
+
+  <!-- 5. PROOF -->
+  <div class="section">
+    <h2><span class="num">5</span> Why This Proves the Pipeline</h2>
+    <div class="proof">
+      <span class="label">Counterfactual Proof</span>
+      <p>If the priority field failed to get forwarded, SGLang would assign <span class="highlight">the lowest possible priority</span> to the prior1 request. It would then sit in the queue just like prior3 and take ~100 seconds.</p>
+      <p style="margin-top:12px;">It took <b style="color:var(--green);">1.04 seconds</b>. The feature works.</p>
+    </div>
+  </div>
+
+  <div class="footer">Full details in PRIORITY-QUEUE-EVIDENCE.md</div>
+</div>
+
+<script>
+  // Animate latency bars on load
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      document.querySelectorAll('.bar-fill').forEach(bar => {
+        bar.style.width = bar.dataset.w + '%';
+        setTimeout(() => bar.classList.remove('invisible'), 1200);
+      });
+    }, 300);
+  });
+
+  // Queue jumping visualization
+  const grid = document.getElementById('slotGrid');
+  const stepLabel = document.getElementById('stepLabel');
+  const replayBtn = document.getElementById('replayBtn');
+  const TOTAL_RUNNING = 16; // simplified from 64 for visual clarity
+  const TOTAL_QUEUED = 4;   // simplified from 8
+
+  function buildGrid() {
+    grid.innerHTML = '';
+    for (let i = 0; i < TOTAL_RUNNING; i++) {
+      const s = document.createElement('div');
+      s.className = 'slot';
+      s.textContent = 'p3';
+      grid.appendChild(s);
+    }
+    for (let i = 0; i < TOTAL_QUEUED; i++) {
+      const s = document.createElement('div');
+      s.className = 'slot queued';
+      s.textContent = 'q';
+      grid.appendChild(s);
+    }
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function runQueueJump() {
+    replayBtn.disabled = true;
+    replayBtn.style.opacity = '0.5';
+    buildGrid();
+    const slots = grid.children;
+    stepLabel.style.opacity = '0';
+
+    await sleep(500);
+    stepLabel.textContent = 'Server is full: 16 running prior3 + 4 queued. No room for anything.';
+    stepLabel.style.opacity = '1';
+
+    await sleep(1800);
+    stepLabel.style.opacity = '0';
+    await sleep(200);
+    stepLabel.textContent = 'prior1 (priority 0) arrives. It is placed at the front of the waiting queue.';
+    stepLabel.style.opacity = '1';
+
+    await sleep(1800);
+    stepLabel.style.opacity = '0';
+    await sleep(200);
+    stepLabel.textContent = 'A running prior3 finishes, freeing its KV cache slot...';
+    stepLabel.style.opacity = '1';
+    const finishIdx = 7;
+    slots[finishIdx].classList.add('finished');
+    slots[finishIdx].textContent = '✓';
+
+    await sleep(900);
+    stepLabel.style.opacity = '0';
+    await sleep(200);
+    stepLabel.textContent = '...and prior1 takes the freed slot immediately, ahead of all waiting prior3 requests.';
+    stepLabel.style.opacity = '1';
+    slots[finishIdx].classList.remove('finished');
+    slots[finishIdx].classList.add('admitted');
+    slots[finishIdx].textContent = 'p1';
+
+    await sleep(1800);
+    stepLabel.style.opacity = '0';
+    await sleep(200);
+    stepLabel.textContent = 'prior1 is now decoding. It was served in ~1 second while prior3 waits ~100 seconds.';
+    stepLabel.style.opacity = '1';
+
+    await sleep(2500);
+    replayBtn.disabled = false;
+    replayBtn.style.opacity = '1';
+  }
+
+  buildGrid();
+  replayBtn.addEventListener('click', runQueueJump);
+  // Auto-run once on load
+  window.addEventListener('load', () => setTimeout(runQueueJump, 2000));
+</script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+{
+  "_created_at": "2026-09-02T12:35:58.549000Z",
+  "_lifecycle_stage": "active",
+  "_updated_at": "2026-09-11T13:18:23.733000Z",
+  "cluster_id": "c44e1386-6309-4ab5-8e4f-120a217bb1dd",
+  "data_volumes": [],
+  "id": "b2dff57d-ce61-426c-a917-2b49bcbb319c",
+  "namespace": "adeo",
+  "oip_type": "model_deployment",
+  "resources": [
+    {
+      "accelerator_model": "h200",
+      "accelerator_provider": "NVIDIA",
+      "accelerator_slice": "mig-2g.35gb",
+      "memory_gb": 32,
+      "num_accelerator": 1,
+      "num_cpu": 8
+    }
+  ],
+  "status_detail": [
+    {
+      "kind": "PersistentVolumeClaim",
+      "metadata": {},
+      "name": "pvc-061fbb9d-c138-4800-8f69-a091fcaed7d8",
+      "node": "",
+      "status": "Bound",
+      "status_msg": ""
+    },
+    {
+      "kind": "Deployment",
+      "metadata": {
+        "available": true,
+        "available_replicas": 1,
+        "progressing": true
+      },
+      "name": "j-061fbb9d-c138-4800-8f69-a091fcaed7d8",
+      "node": "",
+      "status": "Ready",
+      "status_msg": "1/1 replicas ready"
+    },
+    {
+      "kind": "Pod",
+      "metadata": {
+        "ready": true
+      },
+      "name": "j-061fbb9d-c138-4800-8f69-a091fcaed7d8-57d9f4d569-f8rkt",
+      "node": "adeo-gpu-01",
+      "status": "Running",
+      "status_msg": ""
+    }
+  ],
+  "total_resources": {
+    "accelerator_model": "h200",
+    "accelerator_provider": "NVIDIA",
+    "accelerator_slice": "mig-2g.35gb",
+    "memory_gb": 32,
+    "num_accelerator": 1,
+    "num_cpu": 8
+  },
+  "type": "Deployment",
+  "user_id": "558d12cb-0b76-4e88-b076-295c30f8692a",
+  "user_name": "jyao",
+  "workload_id": "061fbb9d-c138-4800-8f69-a091fcaed7d8",
+  "workload_status": "Running",
+  "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c"
+}

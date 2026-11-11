@@ -1,0 +1,29 @@
+Defaulted container "postgres" out of: postgres, bootstrap-controller (init)
+ calls |  rows   | rows_per_call | avg_ms | max_exec_time | total_s |                                         query_head                                         
+-------+---------+---------------+--------+---------------+---------+--------------------------------------------------------------------------------------------
+    86 |       8 |             0 |   7204 |         59926 |     619 | SELECT DISTINCT end_user FROM ( SELECT end_user FROM "LiteLLM_SpendLogs" WHERE "startTime"
+   527 |  292673 |           555 |    218 |          4392 |     115 | DELETE FROM "LiteLLM_SpendLogs"                                                           +
+       |         |               |        |               |         |             WHERE ("request_id", "startTime") IN (                                        +
+       |         |               |        |               |         |        
+   310 | 1489441 |          4804 |    241 |          5912 |      74 | SELECT                                                                                    +
+       |         |               |        |               |         |             date,                                                                         +
+       |         |               |        |               |         |             api_key,                                                                      +
+       |         |               |        |               |         |             model,                                                                        +
+       |         |               |        |               |         |             COALESCE(NULL
+    33 |      33 |             1 |   1698 |         20880 |      56 | SELECT COUNT(*) AS total_count                                                            +
+       |         |               |        |               |         |             FROM (                                                                        +
+       |         |               |        |               |         |                 SELECT $5                                                                 +
+       |         |               |        |               |         |               
+  1235 |   52159 |            42 |     32 |          3726 |      38 | SELECT session_id,                                                                        +
+       |         |               |        |               |         |                        COALESCE(SUM(spend), $3)::double precision AS se
+   375 |     375 |             1 |     91 |         17643 |      34 | SELECT COUNT(*) AS total_count                                                            +
+       |         |               |        |               |         |             FROM (                                                                        +
+       |         |               |        |               |         |                 SELECT $5                                                                 +
+       |         |               |        |               |         |               
+   681 |     681 |             1 |     24 |          1314 |      16 | SELECT COUNT(*) AS total_count                                                            +
+       |         |               |        |               |         |             FROM (                                                                        +
+       |         |               |        |               |         |                 SELECT $4                                                                 +
+       |         |               |        |               |         |               
+     1 |       1 |             1 |   8609 |          8609 |       8 | SELECT COUNT(*) AS rows_60d FROM "LiteLLM_SpendLogs" WHERE "startTime" >= NOW() - interval
+(8 rows)
+

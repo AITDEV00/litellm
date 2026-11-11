@@ -1,0 +1,3 @@
+372:            - "--num_workers"
+["litellm","--config","/app/config.yaml","--port","4000","--run_granian","--num_workers","4","--use_v2_migration_resolver"]
+resources: {"limits":{"cpu":"4","memory":"12Gi"},"requests":{"cpu":"500m","memory":"2Gi"}}

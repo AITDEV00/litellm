@@ -1,0 +1,9 @@
+[submodule "oicm-aa-ad-cluster-interconnect/submariner-operator"]
+	path = oicm-aa-ad-cluster-interconnect/submariner-operator
+	url = https://github.com/submariner-io/submariner-operator
+[submodule "oicm-litellm-layer/downloaded_sources/openrouter-docs"]
+	path = oicm-litellm-layer/downloaded_sources/openrouter-docs
+	url = https://github.com/OpenRouterTeam/docs.git
+[submodule "oicm-litellm-layer/downloaded_sources/openrouter-python-sdk"]
+	path = oicm-litellm-layer/downloaded_sources/openrouter-python-sdk
+	url = https://github.com/OpenRouterTeam/python-sdk.git

@@ -1,0 +1,55 @@
+{
+  "captured_at": "2026-10-06",
+  "note": "Stopped deployment: k8s Deployment deleted, record retained by OICM",
+  "deployments": [
+    {
+      "deployment_id": "93457b11-bf43-4ba0-bcbe-ba00624857ff",
+      "deployment_name": "Qwen/Qwen3.5-0.8B",
+      "workspace_id": "dfec2a9f-cc5c-4b7b-b608-990d3804e80c",
+      "status": "Stopped",
+      "error_msg": null,
+      "replicas": 1,
+      "status_detail": [],
+      "_updated_at": "2026-10-06T08:02:58.083000Z",
+      "_created_at": "2026-10-06T07:55:20.020000Z",
+      "can_stop_deployment": false,
+      "custom_model_server": null,
+      "data_volume_id": null,
+      "data_volume_lifecycle_stage": null,
+      "data_volume_name": null,
+      "deployment_template": null,
+      "deployment_type": "Model Registry",
+      "developer_args": null,
+      "developer_mode": false,
+      "docker_image_name": null,
+      "env_vars": {},
+      "inference_task": "Image-Text-to-Text",
+      "instances": [],
+      "lora_adapters": null,
+      "model_name": "Qwen/Qwen3.5-0.8B",
+      "model_server_id": "8af62574-3fc8-4649-8938-1fa61629be57",
+      "model_server_name": "SGLang",
+      "model_server_tag": "0.5.19-cu129-amd64",
+      "model_version_id": null,
+      "model_version_name": null,
+      "model_version_version": null,
+      "registered_model_id": null,
+      "registered_model_name": null,
+      "resources": {
+        "accelerator": "H200",
+        "accelerator_count": 1,
+        "accelerator_slice": "mig-2g.35gb",
+        "cpu": 4,
+        "memory": 16,
+        "number_of_nodes": null,
+        "storage": null,
+        "use_gpu": true
+      },
+      "supported_auto_scaling_metrics": [
+        "ml_model_concurrent_requests",
+        "num_of_requests_waiting_in_queue"
+      ],
+      "use_lora_adapters": false
+    }
+  ]
+}

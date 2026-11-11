@@ -1,0 +1,26 @@
+{
+  "metrics": [
+    {
+      "id": "successful_requests",
+      "title": "Successful Requests"
+    },
+    {
+      "id": "concurrent_requests",
+      "title": "Concurrent Requests"
+    },
+    {
+      "id": "response_time",
+      "title": "Response Time",
+      "unit": "second"
+    },
+    {
+      "id": "failed_requests",
+      "title": "Failed Requests"
+    },
+    {
+      "id": "num_of_requests_waiting_in_queue",
+      "title": "Waiting Requests in Queue"
+    }
+  ],
+  "range_start": "2026-09-21T12:06:58.549000Z"
+}

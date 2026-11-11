@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sep 08 2026: what happened</title>
+<style>
+  :root{
+    --bg:#0a0d13; --card:#121826; --card2:#0f141f; --line:#1e2736;
+    --text:#dfe6f2; --muted:#8b97ab;
+    --red:#ff6b6b; --green:#3fd68c; --blue:#6ea8ff; --amber:#ffb454;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;line-height:1.55;overflow-x:hidden}
+
+  .hero{min-height:52vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 20px}
+  .hero .k{letter-spacing:.26em;text-transform:uppercase;font-size:.72rem;color:var(--muted);margin-bottom:16px}
+  .hero h1{font-size:clamp(1.9rem,5vw,3.1rem);line-height:1.12;font-weight:800;max-width:860px}
+  .hero h1 .accent{background:linear-gradient(90deg,var(--red),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{max-width:540px;margin:18px auto 0;color:var(--muted);font-size:1rem}
+
+  section{max-width:960px;margin:0 auto;padding:50px 20px}
+  .kicker{letter-spacing:.26em;text-transform:uppercase;font-size:.7rem;font-weight:700;margin-bottom:10px}
+  .kicker.red{color:var(--red)} .kicker.green{color:var(--green)}
+  h2{font-size:clamp(1.3rem,3vw,1.7rem);margin-bottom:8px}
+  section>p{color:var(--muted);font-size:1rem;margin-bottom:6px}
+  .caption{font-size:.85rem;color:var(--muted);margin-top:14px}
+  .caption b{color:var(--text)}
+
+  .act{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 18px;margin-top:22px}
+  .act h3{font-size:1.05rem;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .act h3 .n{width:26px;height:26px;border-radius:50%;background:var(--card2);border:1px solid var(--line);
+    display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;flex:0 0 auto}
+  .act p.sub{color:var(--muted);font-size:.92rem;margin:2px 0 0}
+  .playrow{display:flex;align-items:center;gap:14px;margin:16px 0 6px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);background:var(--card2);
+    color:var(--text);font-family:inherit;font-size:.9rem;font-weight:700;padding:10px 22px;border-radius:30px;
+    cursor:pointer}
+  .btn .tri{width:0;height:0;border-left:11px solid var(--green);border-top:7px solid transparent;border-bottom:7px solid transparent}
+  .btn .re{font-size:1rem;line-height:1}
+  .btn.replay{color:var(--amber)}
+  .btn.playing{opacity:.55;pointer-events:none}
+  .ph{font-size:.92rem;font-weight:600;min-height:22px;color:var(--amber)}
+  .ph.done{color:var(--green)}
+  .dg{width:100%;height:auto;display:block}
+  .dg text{font-family:inherit}
+
+  .steps{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px}
+  .step{display:flex;align-items:center;gap:7px;font-size:.74rem;color:var(--muted);
+    background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:4px 12px}
+  .step i{width:8px;height:8px;border-radius:50%;background:#3a4658}
+  .step.cur{color:var(--text);border-color:#3a4658}
+  .step.cur i{background:var(--amber);box-shadow:0 0 7px rgba(255,180,84,.8)}
+  .step.done i{background:var(--green);opacity:.8}
+  .step.done{color:#a7b2c4}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-top:16px;font-size:.8rem;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:18px;height:3px;border-radius:2px;display:inline-block}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+  @media(max-width:720px){.compare{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .panel h3{font-size:1rem;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+  .panel h3 .dot2{width:10px;height:10px;border-radius:50%}
+  .panel.bad h3 .dot2{background:var(--red)} .panel.good h3 .dot2{background:var(--green)}
+  .panel ul{list-style:none}
+  .panel li{font-size:.92rem;color:var(--muted);padding:7px 0;border-bottom:1px dashed var(--line);display:flex;gap:10px;align-items:baseline}
+  .panel li:last-child{border:none}
+  .panel li b{color:var(--text);font-weight:600;white-space:nowrap;min-width:84px}
+  .panel.bad li i{color:var(--red);font-style:normal}
+  .panel.good li i{color:var(--green);font-style:normal}
+  .panel li span:last-child{flex:1}
+
+  footer{border-top:1px solid var(--line);padding:54px 20px 74px;text-align:center}
+  footer h2{margin-bottom:8px} footer p{color:var(--muted);max-width:540px;margin:0 auto}
+  .reveal{opacity:0;transform:translateY(14px)}
+  .reveal.in-view{opacity:1;transform:none}
+  /* JS sets opacity directly; .reveal is only a marker */
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="k">OICM platform · incident · September 8 2026</div>
+  <h1>The request log filled the disk.<br><span class="accent">The database went down. The gateway followed.</span></h1>
+  <p>Three short step-by-step animations — press play on each</p>
+</header>
+
+<!-- ============ ACT 1 ============ -->
+<section>
+  <div class="act">
+    <h3><span class="n">1</span> Records pile up — the disk fills</h3>
+    <p class="sub">Every request writes one record to the database. Nothing ever deleted them. After 2.5 months: 48 GB on a 50 GB disk.</p>
+    <div class="playrow">
+      <button class="btn" id="btn1" type="button"><span class="tri"></span>Play</button>
+      <span class="ph" id="ph1">press play to watch the disk fill</span>
+    </div>
+    <svg class="dg" id="svg1" viewBox="0 0 860 300" role="img" aria-label="Gateway writes records into a database whose disk fills from 0 to 48 of 50 gigabytes">
+      <rect x="60" y="60" width="170" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+      <text x="145" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+      <text x="145" y="130" text-anchor="middle" font-size="22">🖥️</text>
+      <text x="145" y="165" text-anchor="middle" font-size="11" fill="#8b97ab">handles requests,</text>
+      <text x="145" y="180" text-anchor="middle" font-size="11" fill="#8b97ab">writes a record for each</text>
+      <line id="w1" x1="230" y1="150" x2="380" y2="150" stroke="#3fd68c" stroke-width="2.5" stroke-dasharray="6 10" opacity="0"/>
+      <text x="305" y="136" text-anchor="middle" font-size="10" fill="#3fd68c" letter-spacing="1">writes record</text>
+      <rect x="380" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+      <text x="470" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+      <rect x="510" y="100" width="34" height="120" rx="7" fill="#0c1017" stroke="#2a3446"/>
+      <rect id="df1" x="513" y="214" width="28" height="0" rx="5" fill="#6ea8ff"/>
+      <g font-size="9" fill="#4a5568">
+        <text x="552" y="106">50</text><text x="552" y="146">38</text>
+        <text x="552" y="186">25</text><text x="552" y="216">12</text>
+      </g>
+      <g id="g1a" opacity="0">
+        <text x="452" y="252" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">48 / 50 GB used</text>
+        <text x="452" y="268" text-anchor="middle" font-size="10" fill="#ff6b6b">2.5 months · never deleted</text>
+        <line x1="380" y1="102" x2="545" y2="102" stroke="#ff6b6b" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="566" y="92" font-size="10" fill="#ff6b6b">disk limit</text>
+      </g>
+      <g id="g1b" opacity="0" fill="#dfe6f2">
+        <text x="620" y="95" font-size="12">records only ever grow:</text>
+        <text x="620" y="122" font-size="11">13.2M records</text>
+        <text x="620" y="142" font-size="11">~176K/day average</text>
+        <text x="620" y="162" font-size="11">~500K/day by September</text>
+        <text x="620" y="182" font-size="11">72% duplicated model info</text>
+      </g>
+    </svg>
+    <div class="steps" id="steps1">
+      <div class="step"><i></i>every request writes a record</div>
+      <div class="step"><i></i>disk grows for 2.5 months</div>
+      <div class="step"><i></i>48 / 50 GB — full</div>
+    </div>
+    <p class="caption">When the play finishes, the disk reads <b>48 / 50 GB</b> — every byte taken.</p>
+  </div>
+</section>
+
+<!-- ============ ACT 2 ============ -->
+<section>
+  <div class="act">
+    <h3><span class="n">2</span> Database goes down — saves start failing</h3>
+    <p class="sub">Sep 08, 05:23: the first write fails. 07:47: the database refuses all connections. Requests keep arriving, so the gateway holds every record in memory and retries.</p>
+    <div class="playrow">
+      <button class="btn" id="btn2" type="button"><span class="tri"></span>Play</button>
+      <span class="ph" id="ph2">press play to watch the failure cascade</span>
+    </div>
+    <svg class="dg" id="svg2" viewBox="0 0 860 300" role="img" aria-label="Requests arrive at the gateway, saves to the down database fail and bounce back, memory fills toward 8 gigabytes">
+      <rect x="40" y="110" width="96" height="80" rx="12" fill="#121826" stroke="#1e2736"/>
+      <text x="88" y="142" text-anchor="middle" font-size="16" fill="#8b97ab">USERS</text>
+      <text x="88" y="168" text-anchor="middle" font-size="18">🚀</text>
+      <line id="w2u" x1="136" y1="150" x2="210" y2="150" stroke="#3fd68c" stroke-width="2.5" stroke-dasharray="6 10" opacity="0"/>
+      <rect id="gw2" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+      <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+      <rect x="232" y="106" width="136" height="22" rx="10" fill="#0c1017" stroke="#2a3446"/>
+      <rect id="mf2" x="235" y="109" width="6" height="16" rx="7" fill="#3fd68c"/>
+      <g id="g2a" opacity="0">
+        <text x="300" y="150" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">8.0 / 8.0 GiB</text>
+        <text x="300" y="172" text-anchor="middle" font-size="11" fill="#ffb454">save failed · retrying…</text>
+      </g>
+      <text x="300" y="196" text-anchor="middle" font-size="10" fill="#8b97ab">every pending record held in memory</text>
+      <line id="w2f" x1="395" y1="150" x2="535" y2="150" stroke="#ff6b6b" stroke-width="2.5" stroke-dasharray="6 10" opacity="0"/>
+      <text id="g2b" opacity="0" x="465" y="122" text-anchor="middle" font-size="11" fill="#ff6b6b" font-weight="700">✗ save fails</text>
+      <text id="g2c" opacity="0" x="465" y="184" text-anchor="middle" font-size="10" fill="#8b97ab">bounce-backs pile up in memory</text>
+      <g id="db2" opacity="0">
+        <rect x="540" y="60" width="180" height="180" rx="14" fill="#16121a" stroke="#ff6b6b" stroke-width="2"/>
+        <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+        <text x="630" y="140" text-anchor="middle" font-size="26">⛔</text>
+        <text x="630" y="170" text-anchor="middle" font-size="13" fill="#ff6b6b" font-weight="700">DOWN</text>
+        <text x="630" y="192" text-anchor="middle" font-size="10" fill="#8b97ab">disk full · refusing connections</text>
+      </g>
+      <text id="g2d" opacity="0" x="545" y="268" font-size="10" fill="#8b97ab">05:23 first write fails</text>
+      <text id="g2e" opacity="0" x="545" y="284" font-size="10" fill="#8b97ab">07:47 refuses connections</text>
+    </svg>
+    <div class="steps" id="steps2">
+      <div class="step"><i></i>05:23 first write fails</div>
+      <div class="step"><i></i>07:47 db refuses connections</div>
+      <div class="step"><i></i>saves fail, records wait in memory</div>
+      <div class="step"><i></i>memory reaches 8 GiB limit</div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#3fd68c"></i>flowing ok</span>
+      <span><i style="background:#ff6b6b;opacity:.5"></i>failing</span>
+      <span><i style="background:#ffb454"></i>memory pressure</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ACT 3 ============ -->
+<section>
+  <div class="act">
+    <h3><span class="n">3</span> Gateway crashes — and every reboot fails</h3>
+    <p class="sub">Memory crossed the 8 GiB limit: the pod was killed. Restarting didn't help — booting calls the database, which was still down.</p>
+    <div class="playrow">
+      <button class="btn" id="btn3" type="button"><span class="tri"></span>Play</button>
+      <span class="ph" id="ph3">press play to watch the crash and failed reboots</span>
+    </div>
+    <svg class="dg" id="svg3" viewBox="0 0 860 300" role="img" aria-label="Gateway is OOM killed, reboot loop fails because boot needs the down database">
+      <rect id="gw3" x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#1e2736" stroke-width="2"/>
+      <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+      <g id="g3a" opacity="0">
+        <text x="300" y="140" text-anchor="middle" font-size="24">💀</text>
+        <text x="300" y="168" text-anchor="middle" font-size="12" fill="#ff6b6b" font-weight="700">OOM killed</text>
+        <text x="300" y="188" text-anchor="middle" font-size="10" fill="#8b97ab">memory limit 8 GiB crossed</text>
+      </g>
+      <g id="boot3" opacity="0">
+        <path d="M300,240 L300,258" stroke="#1e2736" stroke-width="2"/>
+        <rect x="150" y="258" width="300" height="34" rx="9" fill="#0f141f" stroke="#6ea8ff"/>
+        <text id="boottxt" x="300" y="272" text-anchor="middle" font-size="11" fill="#6ea8ff">↻ rebooting…</text>
+        <text id="bootfail" opacity="0" x="300" y="286" text-anchor="middle" font-size="10" fill="#ff6b6b">boot failed: db unreachable</text>
+      </g>
+      <g id="db3" opacity="0">
+        <rect x="540" y="60" width="180" height="180" rx="14" fill="#16121a" stroke="#ff6b6b" stroke-width="2"/>
+        <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+        <text x="630" y="140" text-anchor="middle" font-size="26">⛔</text>
+        <text x="630" y="170" text-anchor="middle" font-size="13" fill="#ff6b6b" font-weight="700">still DOWN</text>
+        <text x="630" y="192" text-anchor="middle" font-size="10" fill="#8b97ab">nothing can save or boot against it</text>
+      </g>
+      <line id="w3f" x1="390" y1="150" x2="540" y2="150" stroke="#ff6b6b" stroke-width="2" opacity="0" stroke-dasharray="4 6"/>
+      <text id="g3x" opacity="0" x="465" y="136" text-anchor="middle" font-size="11" fill="#ff6b6b">✗</text>
+      <g id="fix3" opacity="0">
+        <g font-size="11" fill="#8b97ab">
+          <text x="40" y="78">the fix, same morning:</text>
+          <text x="40" y="104" fill="#3fd68c">✓ cleared the storage</text>
+          <text x="40" y="120" fill="#3fd68c">   safety rule</text>
+          <text x="40" y="144" fill="#3fd68c">✓ doubled disk</text>
+          <text x="40" y="160" fill="#3fd68c">   50 → 100 GB</text>
+          <text x="40" y="184" fill="#3fd68c">✓ standby promoted</text>
+          <text x="40" y="200" fill="#3fd68c">   to primary</text>
+          <text x="40" y="224" fill="#3fd68c">✓ db healthy again 08:40</text>
+        </g>
+        <text x="40" y="252" font-size="10" fill="#8b97ab">users never stopped</text>
+        <text x="40" y="266" font-size="10" fill="#8b97ab">getting answers:</text>
+        <text x="40" y="282" font-size="10" fill="#dfe6f2">gateway serves most</text>
+        <text x="40" y="296" font-size="10" fill="#dfe6f2">requests without the db</text>
+      </g>
+    </svg>
+    <div class="steps" id="steps3">
+      <div class="step"><i></i>memory crosses 8 GiB → OOM kill</div>
+      <div class="step"><i></i>↻ reboot attempt</div>
+      <div class="step"><i></i>boot fails: db still down</div>
+      <div class="step"><i></i>fix lands: disk doubled, standby promoted</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AFTER ============ -->
+<section>
+  <div class="kicker green">after the fix</div>
+  <h2>Same components, healthy state</h2>
+  <p>Every fix is live in production and was verified the next morning. Static diagram — no play needed.</p>
+
+  <div class="act">
+    <svg class="dg" viewBox="0 0 860 300" role="img" aria-label="After the fix: records cycle at half full disk, gateway decoupled from database, both healthy">
+      <rect x="40" y="100" width="96" height="90" rx="12" fill="#121826" stroke="#1e2736"/>
+      <text x="88" y="136" text-anchor="middle" font-size="16" fill="#8b97ab">USERS</text>
+      <text x="88" y="164" text-anchor="middle" font-size="18">🚀</text>
+      <line x1="136" y1="145" x2="210" y2="145" stroke="#3fd68c" stroke-width="2.5" stroke-dasharray="6 10" opacity=".4"/>
+      <rect x="210" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#3fd68c" stroke-width="2"/>
+      <text x="300" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">GATEWAY</text>
+      <rect x="232" y="106" width="136" height="22" rx="10" fill="#0c1017" stroke="#2a3446"/>
+      <rect x="235" y="109" width="55" height="16" rx="7" fill="#3fd68c"/>
+      <text x="300" y="150" text-anchor="middle" font-size="12" fill="#dfe6f2" font-weight="700">~1.5 / 12 GiB</text>
+      <text x="300" y="172" text-anchor="middle" font-size="11" fill="#3fd68c">no db needed to boot or serve</text>
+      <text x="300" y="196" text-anchor="middle" font-size="10" fill="#8b97ab">memory logged to Loki · 0 restarts since fix</text>
+      <line x1="390" y1="145" x2="540" y2="145" stroke="#3fd68c" stroke-width="2.5" stroke-dasharray="6 10" opacity=".4"/>
+      <text x="465" y="130" text-anchor="middle" font-size="10" fill="#3fd68c">saves succeed</text>
+      <text x="465" y="166" text-anchor="middle" font-size="10" fill="#8b97ab">auto-reconnects if db blips</text>
+      <rect x="540" y="60" width="180" height="180" rx="14" fill="#121826" stroke="#3fd68c" stroke-width="2"/>
+      <text x="630" y="88" text-anchor="middle" font-size="13" fill="#8b97ab" letter-spacing="2">DATABASE</text>
+      <rect x="556" y="100" width="34" height="120" rx="7" fill="#0c1017" stroke="#2a3446"/>
+      <rect x="559" y="160" width="28" height="57" rx="5" fill="#3fd68c"/>
+      <text x="638" y="124" font-size="11" fill="#3fd68c" font-weight="700">cycles ~½ full</text>
+      <text x="638" y="142" font-size="10" fill="#8b97ab">100 GB disk,</text>
+      <text x="638" y="156" font-size="10" fill="#8b97ab">half always free</text>
+      <text x="60" y="266" font-size="11" fill="#8b97ab">watched:</text>
+      <text x="60" y="284" font-size="11" fill="#dfe6f2">memory diary in Loki · storage + memory reviewed routinely</text>
+      <text x="580" y="266" font-size="11" fill="#3fd68c">✓ records &gt; 60 days deleted 4×/day</text>
+      <text x="580" y="284" font-size="11" fill="#3fd68c">✓ verified: 0 rows past the window</text>
+    </svg>
+  </div>
+
+  <div class="compare">
+    <div class="panel bad">
+      <h3><span class="dot2"></span>Before</h3>
+      <ul>
+        <li><b>records</b><span>never deleted <i>✗</i></span></li>
+        <li><b>disk</b><span>50 GB, filled to 48 <i>✗</i></span></li>
+        <li><b>gateway</b><span>needs db to boot and serve <i>✗</i></span></li>
+        <li><b>crashes</b><span>2 that week <i>✗</i></span></li>
+      </ul>
+    </div>
+    <div class="panel good">
+      <h3><span class="dot2"></span>After</h3>
+      <ul>
+        <li><b>records</b><span>deleted after 60 days <i>✓</i></span></li>
+        <li><b>disk</b><span>100 GB, cycles at half full <i>✓</i></span></li>
+        <li><b>gateway</b><span>boots and serves without db <i>✓</i></span></li>
+        <li><b>crashes</b><span>0 since the fix <i>✓</i></span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="kicker green">outcome</div>
+  <h2>Fixed the same day. Verified the next morning.</h2>
+  <p>The gateway has not restarted since.</p>
+</footer>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ================= JS-driven animation engine =================
+     Every visual change is an attribute/style write from JS ticks.
+     No CSS transitions/animations are used anywhere, so the page
+     behaves identically over http:// and file:// and under any
+     Edge security policy.                                            */
+
+  // element opacity helper: instant set
+  function op(id, v){ var e=$(id); if(e) e.setAttribute("opacity", v); }
+  // smooth opacity fade via ticks
+  function fade(id, to, ms){
+    var e=$(id); if(!e) return;
+    var from=parseFloat(e.getAttribute("opacity")||"0");
+    var t0=null;
+    function tick(ts){
+      if(t0===null) t0=ts;
+      var p=Math.min((ts-t0)/ms,1);
+      e.setAttribute("opacity",(from+(to-from)*p).toFixed(3));
+      if(p<1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  // blink helper: toggles opacity on an interval, returns stop fn
+  function blink(id, period){
+    var on=true;
+    var iv=setInterval(function(){
+      on=!on;
+      var e=$(id); if(!e){ clearInterval(iv); return; }
+      e.setAttribute("opacity", on? "1":"0.25");
+    }, period/2);
+    return iv;
+  }
+
+  // wire dash flow: animate stroke-dashoffset
+  function flowWire(id, ms, reverse, speed){
+    var e=$(id); if(!e) return;
+    var off=0;
+    var iv=setInterval(function(){
+      off += (reverse? -3 : 3);
+      e.setAttribute("stroke-dashoffset", off);
+    }, speed||40);
+    return iv;
+  }
+  function stopFlow(iv){ clearInterval(iv); }
+
+  function setSteps(n, cur){
+    var pills=document.querySelectorAll("#steps"+n+" .step");
+    for(var i=0;i<pills.length;i++){
+      pills[i].className = "step" + (i===cur? " cur" : (i<cur? " done":""));
+    }
+  }
+
+  var DUR={1:6.2,2:7.4,3:7.4};
+  var active={};   // n -> array of interval/timeout handles
+
+  function clearAll(n){
+    (active[n]||[]).forEach(function(h){ clearInterval(h); clearTimeout(h); });
+    active[n]=[];
+  }
+
+  /* narration lines: [text, atSeconds, doneFlag] */
+  var SCRIPT={
+    1:[["records being written… disk filling…",0],
+       ["disk hits 48 / 50 GB — full.",3.0],
+       ["2.5 months of records, never deleted.",4.0],
+       ["played — press replay to watch again",6.2,true]],
+    2:[["05:23 — the first write fails. database goes DOWN.",0],
+       ["saves fail — every record waits in gateway memory…",1.6],
+       ["memory reaches 8 GiB — the limit.",3.8],
+       ["07:47 — the database refuses all connections.",5.2],
+       ["played — press replay to watch again",7.4,true]],
+    3:[["memory crossed 8 GiB — OOM killed.",0],
+       ["↻ rebooting…",1.4],
+       ["boot failed — booting calls the down database.",2.8],
+       ["the fix lands: disk doubled, standby promoted, healthy by 08:40.",4.6],
+       ["played — press replay to watch again",7.4,true]]
+  };
+
+  function say(n,txt,done){
+    var ph=$("ph"+n);
+    ph.textContent=txt;
+    if(done) ph.className="ph done"; else ph.className="ph";
+  }
+
+  function end(n){
+    var btn=$("btn"+n);
+    btn.className="btn replay";
+    btn.innerHTML='<span class="re">↻</span>Replay';
+    say(n,"played — press replay to watch again",true);
+    clearAll(n);
+  }
+
+  function reset(n){
+    clearAll(n);
+    var btn=$("btn"+n);
+    btn.className="btn";
+    btn.innerHTML='<span class="tri"></span>Play';
+    var ph=$("ph"+n); ph.className="ph";
+    // reset pills
+    setSteps(n,-1);
+  }
+
+  /* ---------- ACT 1 steps ---------- */
+  function play1(){
+    reset(1);
+    var btn=$("btn1");
+    btn.className="btn playing";
+    btn.innerHTML='<span class="tri"></span>Playing…';
+    var T=function(fn,ms){ var h=setTimeout(fn,ms); active[1].push(h); return h; };
+    var I=function(fn,ms){ var h=setInterval(fn,ms); active[1].push(h); return h; };
+
+    say(1,"records being written… disk filling…");
+    setSteps(1,0);
+    // wire appears + flows
+    op("w1",1);
+    active[1].push(flowWire("w1",0,false,40));
+
+    // disk grows 0 -> 110 over 2.4s starting at 0.4s
+    T(function(){
+      var d=$("df1"), t0=null, dur=2400;
+      function gr(ts){
+        if(t0===null) t0=ts;
+        var p=Math.min((ts-t0)/dur,1);
+        var e=1-Math.pow(1-p,2.2);            // ease-out
+        d.setAttribute("height",(110*e).toFixed(1));
+        d.setAttribute("y",(214-110*e).toFixed(1));
+        if(p<1) requestAnimationFrame(gr);
+      }
+      requestAnimationFrame(gr);
+    },400);
+
+    T(function(){ setSteps(1,1); say(1,"disk grows, month after month…"); },1400);
+    T(function(){ fade("g1a",1,700); setSteps(1,2); say(1,"disk hits 48 / 50 GB — full.",true); },3100);
+    T(function(){ fade("g1b",1,700); },4100);
+    T(function(){ end(1); },6200);
+  }
+
+  /* ---------- ACT 2 steps ---------- */
+  function play2(){
+    reset(2);
+    var btn=$("btn2");
+    btn.className="btn playing";
+    btn.innerHTML='<span class="tri"></span>Playing…';
+    var T=function(fn,ms){ var h=setTimeout(fn,ms); active[2].push(h); return h; };
+
+    say(2,"05:23 — the first write fails. database goes DOWN.");
+    setSteps(2,0);
+    T(function(){ fade("db2",1,700); op("w2f",.55); },1000);
+    T(function(){ setSteps(2,1); say(2,"07:47 — the database refuses all connections"); },2600);
+    T(function(){ setSteps(2,2);
+            $("gw2").setAttribute("stroke","#ffb454");
+            fade("g2b",1,600);
+            active[2].push(flowWire("w2f",0,true,45));
+            say(2,"saves fail — every record waits in gateway memory…"); },4200);
+    T(function(){ fade("g2c",1,600); },5000);
+    T(function(){ setSteps(2,3); fade("g2a",1,600);
+            op("w2u",1); active[2].push(flowWire("w2u",0,false,40));
+            var m=$("mf2"), t0=null, dur=2600;
+            function gr(ts){
+              if(t0===null) t0=ts;
+              var p=Math.min((ts-t0)/dur,1);
+              var w=6+(130-6)*p;
+              m.setAttribute("width",w.toFixed(1));
+              if(p>0.55) m.setAttribute("fill","#ffb454");
+              if(p>0.9) m.setAttribute("fill","#ff6b6b");
+              if(p<1) requestAnimationFrame(gr);
+            }
+            requestAnimationFrame(gr);
+            say(2,"memory climbing…"); },5800);
+    T(function(){ say(2,"memory reaches 8 GiB — the limit.",true); },8400);
+    T(function(){ fade("g2d",1,500); },5600);
+    T(function(){ fade("g2e",1,500); },8600);
+    T(function(){ end(2); },9600);
+  }
+
+  /* ---------- ACT 3 steps ---------- */
+  function play3(){
+    reset(3);
+    var btn=$("btn3");
+    btn.className="btn playing";
+    btn.innerHTML='<span class="tri"></span>Playing…';
+    var T=function(fn,ms){ var h=setTimeout(fn,ms); active[3].push(h); return h; };
+
+    say(3,"memory crossed the 8 GiB limit…");
+    T(function(){ setSteps(3,0); fade("g3a",1,600);
+            $("gw3").setAttribute("stroke","#ff6b6b");
+            // shake: oscillate transform via translate
+            var gw=$("gw3"), sh=0, iv=setInterval(function(){
+              sh++; gw.setAttribute("transform","translate("+(sh%2?4:-4)+",1)");
+              if(sh>8){ clearInterval(iv); gw.removeAttribute("transform"); }
+            },70);
+            active[3].push(iv);
+            say(3,"OOM killed."); },800);
+    T(function(){ setSteps(3,1); fade("db3",1,700); op("w3f",.4);
+            showBoot(); say(3,"↻ rebooting…"); },2400);
+    function showBoot(){
+      fade("boot3",1,600);
+      var bt=$("boottxt"); bt.setAttribute("fill","#6ea8ff"); bt.textContent="↻ rebooting…";
+    }
+    T(function(){ setSteps(3,2); fade("bootfail",1,500); fade("g3x",1,500);
+            var bt=$("boottxt"); bt.textContent="✗ boot failed"; bt.setAttribute("fill","#ff6b6b");
+            say(3,"boot failed: booting calls the down database.",true); },4200);
+    T(function(){ setSteps(3,3); fade("fix3",1,700);
+            say(3,"the fix lands: disk doubled, standby promoted, healthy by 08:40.",true); },6000);
+    T(function(){ end(3); },8800);
+  }
+
+  var PLAY={1:play1,2:play2,3:play3};
+
+  function reset(n){ clearAll(n);
+    var btn=$("btn"+n); btn.className="btn";
+    btn.innerHTML='<span class="tri"></span>Play';
+    var ph=$("ph"+n); ph.className="ph";
+    setSteps(n,-1);
+  }
+
+  $("btn1").addEventListener("click",function(){ PLAY[1](); });
+  $("btn2").addEventListener("click",function(){ PLAY[2](); });
+  $("btn3").addEventListener("click",function(){ PLAY[3](); });
+
+  /* autoplay on scroll into view, once per act */
+  var played={};
+  if("IntersectionObserver" in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        var n=e.target.getAttribute("data-n");
+        if(e.isIntersecting && !played[n]){ played[n]=true; io.unobserve(e.target); PLAY[+n](); }
+      });
+    },{threshold:.55});
+    [1,2,3].forEach(function(n){ var s=$("svg"+n); s.setAttribute("data-n",n); io.observe(s); });
+  } else {
+    // no observer support: leave play buttons as the trigger
+  }
+
+  /* reveal panels via JS (no CSS transition dependency) */
+  var rev=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.setAttribute("data-in","1"); rev.unobserve(e.target); } });
+  },{threshold:.2});
+  document.querySelectorAll(".reveal").forEach(function(el){ rev.observe(el); });
+  // apply reveal styles
+  var style=document.createElement("style");
+  style.textContent=".reveal[data-in='1']{opacity:1;transform:none}";
+  document.head.appendChild(style);
+})();
+</script>
+</body>
+</html>

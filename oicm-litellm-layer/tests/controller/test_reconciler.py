@@ -697,7 +697,7 @@ async def test_execute_applies_planned_blocks():
     """execute() must issue the block calls compute_plan asked for."""
     reconciler = _reconciler_with_costs(None)
     litellm = MagicMock()
-    litellm.batch = AsyncMock(return_value=(0, 10, 0))
+    litellm.batch = AsyncMock(return_value=(0, [], 0))
     litellm.set_blocked = AsyncMock(return_value=True)
     reconciler.litellm = litellm
 

@@ -1,0 +1,6842 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quick navigator for the OICM → LiteLLM integration layer. Maps where every component, config, deployment manifest, and doc lives so you know exactly where to edit things.">
+      
+      
+        <meta name="author" content="openinnovationai contributors">
+      
+      
+        <link rel="canonical" href="https://litellm.ecouncil.ae/docs/client-distribution/implementation/">
+      
+      
+        <link rel="prev" href="../PLAN/">
+      
+      
+        <link rel="next" href="../architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Implementation Plan - OICM LiteLLM Layer</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-header__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OICM LiteLLM Layer
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 2c-1.82 0-3.53.5-5 1.35C8 5.08 10 8.3 10 12s-2 6.92-5 8.65C6.47 21.5 8.18 22 10 22a10 10 0 0 0 10-10A10 10 0 0 0 10 2"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../structure/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Structure
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../credentials/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Credentials & Secrets
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Incidents
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../components/controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Components
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../deployment/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture & Deployment
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../runbooks/MKDOCS-SETUP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Runbooks
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../SSL/CERT-GUIDELINE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  TLS / Certificates
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../techniques/logic_mapping_technique/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Techniques
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  HTB Rate Limiting
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../performance/executive-summary/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Performance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reports
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../persona-drift/SPIKE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Persona Drift
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../PLAN/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Client Distribution
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Admin API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Custom Providers
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Usage Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Dashboard & Planning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../discovery-controller/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Discovery Controller
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Cache Invalidation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Model Pricing
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../openrouter/litellm_openrouter_models_design/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OpenRouter
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../oicm-status/OICM-STATUS-FEASIBILITY/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  OICM Status
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../docs-map/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Docs Map
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OICM LiteLLM Layer" class="md-nav__button md-logo" aria-label="OICM LiteLLM Layer" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    OICM LiteLLM Layer
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../credentials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Credentials & Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Incidents
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Incidents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-08-postgres-disk-full/resolutions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Disk Full (2026-09-08) — Resolutions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-kimi-k3-midstream-stop/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kimi-K3 Mid-Stream Stop (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-09-21-spend-log-cleanup-not-running/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Cleanup Not Running (2026-09-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-token-limits-misreported/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Token-Limits Misreported (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Vision Capability Undeclared (2026-11-03)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Components
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/controller/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/custom-routes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/CLONE-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — Clone Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-routes-plans/VSA-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Routes — VSA Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../components/patches/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patches
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-slices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Custom Code (Vertical Slices)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture & Deployment
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture & Deployment
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment & Cluster
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Makefile-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Makefile Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/IMPLEMENTATION_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/EDGE-MIRROR-DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secondary Gateway (Edge Mirror) Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Session Identity Resolver — Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runbooks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Runbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/MKDOCS-SETUP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MkDocs Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/postgres-backup-and-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Backup & Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/DATASOURCE-LOCAL-VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasource Local Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TLS / Certificates
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    TLS / Certificates
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/CERT-GUIDELINE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apply Wildcard Cert Guideline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SSL/LITELLM-ECOUNCIL-RUNBOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve litellm.ecouncil.ae Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Techniques
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Techniques
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/logic_mapping_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/code_smell_detection_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/upstream_merge_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upstream Pull & Branch Merge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../techniques/debug_pod_technique/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Debug Pod
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../htb-rate-limiting/live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HTB Rate Limiting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HTB Rate Limiting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-EXECUTIVE-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/HTB-README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    README
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Bridge Feasibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Queue Results Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../htb-rate-limiting/priority_behaviour/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Priority Behaviour
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../performance/live-data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/executive-summary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Executive Summary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/analytics-reads-prisma-engine-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics Reads -> Prisma Engine OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/retention-flags-and-oom-LOGIC-MAP-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Log Retention Flags + OOM — Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/spend-logs-ram-and-model-performance-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend Logs + RAM + Model Performance — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Routing-Strategy Sync-Task Leak -> OOM — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-optimization-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Optimization — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-30d-read-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-30d-read-fix-CODESMELL-AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance 30d/YTD Read Fix — Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/model-performance-perf-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Perf Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend-Logs UI Enrichment Window Fix — Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/before-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/after-optimization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    After Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/before-after-correct-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Before/After Correct Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reports
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reports/ADEOGPT-MODEL-PERFORMANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADEOGPT Model Performance (7d)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persona Drift
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Persona Drift
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../persona-drift/SPIKE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spike Note
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Distribution
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Client Distribution
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#milestone-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Milestone boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-operating-rule-everything-lands-on-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The operating rule: everything lands on dev first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-object-store-deployment-no-code-no-risk-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — object store deployment (no code, no risk, DEV)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1 — object store deployment (no code, no risk, DEV)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idempotency-and-re-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idempotency and re-apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-the-slice-code-unit-tested-not-yet-wired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — the slice (code, unit-tested, not yet wired)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-wiring-one-block-both-env-vars-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — wiring (one block, both env vars, DEV FIRST)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-artifact-sync-populate-the-store-shared-but-keyed-to-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — artifact sync (populate the store, shared but keyed to dev first)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-end-to-end-validation-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — end-to-end validation (DEV)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-the-one-clean-prod-apply-then-pilot-and-ga" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — the one clean prod apply, then pilot and GA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback-at-every-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback at every phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mirror-content/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mirror Content
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installer-script/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Script
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rustfs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RustFS Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../admin-sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin Sync API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rollout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rollout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../open-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../history/lite-cli-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Plan History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_15" id="__nav_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin API
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Admin API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/LITELLM-ADMIN-REST-API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Admin REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../admin-api/ATHENA-READ-ONLY-KEY-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Athena Read-Only Key Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_16" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../custom-providers/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Providers
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_16" id="__nav_16_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom Providers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_RESEARCH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA Research
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/HAMSA_TTS_BEHAVIOR/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HAMSA TTS Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/LITELLM_ENDPOINT_ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiteLLM Endpoint Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAPPING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_LOGIC_MAP_v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Logic Map v2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Extensibility Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Test Methods
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice Post-Build Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-gateway-pod-parity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception Gateway Pod Parity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/inception-hamsa-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception HAMSA Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/gateway-field-drop-investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Field-Drop Investigation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Registration Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Robust Fix Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Drama 3 Gateway Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_BY_PROBE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration by Probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/CAPABILITY_REGISTRATION_REVIEW2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Registration Review 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Diarization Provider Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pyannote Speaker Embeddings Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Usage Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/GATEWAY_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/REASONING_CONTROL_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reasoning Control Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/HAMSA-TTS-NEW-V1-GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hamsa TTS New /v1 Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/INCEPTION_TTS_STT_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inception TTS/STT Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/OMNIVOICE_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OmniVoice TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fish Audio Drama 3 TTS Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_IMAGE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Image Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/QWEN_VISION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen Vision Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/VIBEVOICE_ASR_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VibeVoice ASR Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/PYANNOTE_DIARIZATION_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pyannote Diarization Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare clef-flash (SystemOne) Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard & Planning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Dashboard & Planning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-ANALYSIS-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Analysis Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Frontend Understanding Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/LOGIC-MAPPING-TECHNIQUE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Mapping Technique
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/MODEL-PERFORMANCE-DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Performance Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-plan/UI-LINT-AND-CHANGE-PROCESS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Lint & Change Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_19" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../discovery-controller/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery Controller
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_19" id="__nav_19_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discovery Controller
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../discovery-controller/logic-map-and-code-smell-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map & Code Smell Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cache-invalidation/CACHE_INVALIDATION_FIX_TESTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cache Invalidation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_21" >
+        
+          
+          <label class="md-nav__link" for="__nav_21" id="__nav_21_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Pricing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_21_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_21">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Pricing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-LOGIC-MAP/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-pricing/PRICING-MATCHING-PLAN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing Matching Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_22" >
+        
+          
+          <label class="md-nav__link" for="__nav_22" id="__nav_22_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenRouter
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_22_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_22">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OpenRouter
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/litellm_openrouter_models_design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/IMPLEMENTATION-STUDY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Endpoints Consumer Logic Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-litellm-to-endpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    litellm-to-endpoints Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../openrouter/MAPPING-usage-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage Metrics Mapping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_23" >
+        
+          
+          <label class="md-nav__link" for="__nav_23" id="__nav_23_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Status
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_23_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_23">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    OICM Status
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/OICM-STATUS-FEASIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Study
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/FEASIBILITY-ANSWERS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feasibility Answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/IMPLEMENTATION-CHECKLIST/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Implementation Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/DESIGN-STATUS-PERSISTENCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/PROGRESS-AND-PAUSED-WORK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Progress & Paused Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/CHANGE-REPORT-2026-10-06-health-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Report (Health Table 2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/LOGIC-MAP-2026-10-07-health-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logic Map (Health Table 2026-10-07)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/CODE-SMELL-PASS-2026-10-06/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Code Smell Pass (2026-10-06)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/OICM-API-CATALOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM API Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-write-access-blocked/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OICM Write Access Blocked (403)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docs-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#milestone-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Milestone boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-operating-rule-everything-lands-on-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The operating rule: everything lands on dev first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-object-store-deployment-no-code-no-risk-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — object store deployment (no code, no risk, DEV)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1 — object store deployment (no code, no risk, DEV)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#idempotency-and-re-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idempotency and re-apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-the-slice-code-unit-tested-not-yet-wired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — the slice (code, unit-tested, not yet wired)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-wiring-one-block-both-env-vars-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — wiring (one block, both env vars, DEV FIRST)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-artifact-sync-populate-the-store-shared-but-keyed-to-dev-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — artifact sync (populate the store, shared but keyed to dev first)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-5-end-to-end-validation-dev" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — end-to-end validation (DEV)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-6-the-one-clean-prod-apply-then-pilot-and-ga" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — the one clean prod apply, then pilot and GA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback-at-every-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback at every phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="implementation-plan">Implementation Plan<a class="headerlink" href="#implementation-plan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>v6 pivot (2026-10-14): cc-switch-cli replaces the <code>lite</code> CLI.</strong> The served
+client is now the cc-switch static binary, not the uv-installed <code>lite</code>
+Python CLI. The uv / wheelhouse / managed-Python mirror tiers and the
+<code>lite login</code> step are dropped. See <a href="../PLAN/">PLAN.md</a> (single plan of
+record) and <a href="../history/lite-cli-PLAN/">history/lite-cli-PLAN.md</a> for the
+superseded design.</p>
+</blockquote>
+<h2 id="milestone-boundaries">Milestone boundaries<a class="headerlink" href="#milestone-boundaries" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>DONE (kept, reused by the cc-switch design)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>────────────────────────────────────────────
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>RustFS deployment (per-environment)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>S3 storage wrapper (storage.py)
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>/install read routing (public artifact GETs)
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>/install/admin authenticated write surface
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>Jinja2 open-context generator
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>REVALIDATE / REPLACE (the lite-era results do not carry over)
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>────────────────────────────────────────────
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>artifact population   -&gt; cc-switch archives, not uv/python/wheels
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>manifest schema       -&gt; schema 5 (cc_switch_version + cc_switch_artifacts + harnesses)
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>installer template    -&gt; generic orchestrator, store-served + baked fallback
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>harness presets       -&gt; versioned providers/adeo/&lt;h&gt;/v&lt;N&gt;.json slices (all 7 harnesses, schema 5)
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>platform matrix       -&gt; 4 musl/universal targets
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>security model        -&gt; trust split, credential perms, no self-update
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>end-to-end tests      -&gt; redo against cc-switch
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>NEW RELEASE GATE (cc-switch)
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>────────────────────────────────────────────
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>cc-switch v5.11.1 mirrored + manifest published
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>clean-machine install (egress blocked)
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>gateway-key validation diagnostic
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>claude config verified
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>codex config verified
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>open-code config verified
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>second /install run is a no-op (idempotent reconcile)
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>gateway model add/remove + resync
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>gateway key with restricted models
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>rollback (config restore) test
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>public internet fully blocked
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>-&gt; prod
+</span></code></pre></div>
+<p>The old lite/uv Phases 1-3 map to the DONE block. The old Phase 4/5 (uv
+artifact population, lite e2e) do <strong>not</strong> count as done for the cc-switch
+architecture — they are replaced by the REVALIDATE and NEW RELEASE GATE
+blocks above. The phase text below is the lite/uv history, retained for
+reference; the cc-switch work is tracked against the gate.
+Phase 5 surfaced and fixed two mirror bugs: the pinned Python is now 3.13.12 /
+build 20260303 / install_only_stripped (uv 0.10.9's actual metadata), and a
+PEP 503 wheelhouse index route backed <code>--find-links</code> (since removed with the
+rest of the lite/uv tier).
+Next: Phase 6 (the one clean prod apply).
+Step-by-step build order for the v4 design
+(<a href="../PLAN/">PLAN.md</a>, <a href="../architecture/">architecture.md</a>,
+<a href="../rustfs/">rustfs.md</a>, <a href="../admin-sync/">admin-sync.md</a>).</p>
+<p>Everything below is grounded in the <strong>current</strong> source tree and the <strong>live</strong>
+<code>adeo-litellm</code> namespace as of 2026-10-12:</p>
+<ul>
+<li>Gateway image: <code>registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.102.0</code></li>
+<li><code>deployment/litellm-proxy</code> runs <strong>2 replicas</strong> (this matters: the object
+  store backend is what makes multi-replica safe; a <code>ReadWriteOnce</code> PVC would
+  have blocked this)</li>
+<li>Ingress <code>litellm-proxy</code> serves both hosts, <code>Prefix /</code> -&gt; <code>litellm-proxy:4000</code>,
+  TLS via <code>litellm-ecouncil-ae-tls</code> (dash-named secret)</li>
+<li><strong>No object store deployed yet</strong> in <code>adeo-litellm</code>; no <code>NetworkPolicy</code>
+  objects exist in the namespace at all</li>
+<li>Secrets in-cluster: <code>litellm-master-key</code> (prod) and
+  <code>litellm-master-key-dev</code> (dev mounts this one, verified live) — the admin
+  sync key therefore differs per environment</li>
+<li>Pod labels (verified live): prod <code>app=litellm-proxy</code>, dev
+  <code>app=litellm-proxy-dev</code> — usable as NetworkPolicy selectors</li>
+<li>Slice pattern precedent: <code>litellm/proxy/oicm_routes.py</code>, wired at
+  <code>proxy_server.py:18897-18899</code> in a fork-appended block, pinned by
+  <code>tests/unit/proxy/test_oicm_drop_detection.py</code></li>
+</ul>
+<h2 id="the-operating-rule-everything-lands-on-dev-first">The operating rule: everything lands on dev first<a class="headerlink" href="#the-operating-rule-everything-lands-on-dev-first" title="Permanent link">&para;</a></h2>
+<p><strong>Nothing touches prod until dev is fully verified.</strong> Concretely:</p>
+<ol>
+<li>Every phase below runs against the <strong>dev</strong> overlay
+   (<code>make litellm-src-release-dev</code>, <code>kubectl apply -k deploy/overlays/dev</code>)
+   and against the dev Deployment (<code>litellm-proxy-dev</code>) only.</li>
+<li>Dev is proven by living with it: run the whole flow (install, login,
+   configure, agent turns) on dev, and let it soak until there is confidence
+   in the configuration.</li>
+<li><strong>No shadow commands.</strong> Nothing is fixed or created by hand in the
+   cluster (<code>kubectl exec</code>, <code>mc mb</code> ad hoc, hot patches, imperative edits).
+   Every change lands as an idempotent manifest in git, so the deployed
+   state is always reproducible from <code>kubectl apply</code>. The one exception in
+   this plan is one-shot bucket creation, which is itself a manifest
+   (a Job with <code>mc mb --ignore-existing</code>, so it is idempotent and re-runnable
+   from git, not a hand command). Where an object has a Kubernetes
+   immutability limit that a plain re-apply cannot cross (a Job's
+   <code>spec.template</code>), the recovery is written down next to the object rather
+   than performed by hand: see "Idempotency and re-apply" in Phase 1.</li>
+<li>Once dev is verified and the manifests are known-good, prod gets <strong>one
+   round of clean <code>kubectl apply -k deploy/overlays/prod</code></strong> (plus the
+   ImagePull restart the Makefile performs). No incremental prod changes, no
+   prod-specific hand edits: prod receives exactly the bytes dev validated.</li>
+</ol>
+<p>Why this is safe here: dev and prod share the same image tag
+(<code>litellm-src:$(LITELLM_SRC_TAG)</code>, per the Makefile caveat), so the dev
+build already carries the prod payload; the prod rollout only pins the
+manifests and restarts. The slice itself is additive (one router include),
+so the prod apply is one atomic, revertible change.</p>
+<p>Phases are ordered so each one is independently verifiable and the dev
+gateway never serves a broken <code>/install</code> at any point. Phases 1-5 are
+dev-only. Phase 6 is the single prod cut-over.</p>
+<hr />
+<h2 id="phase-1-object-store-deployment-no-code-no-risk-dev">Phase 1 — object store deployment (no code, no risk, DEV)<a class="headerlink" href="#phase-1-object-store-deployment-no-code-no-risk-dev" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> a running S3-compatible store with both buckets, reachable only
+from the gateways. Deployed to the namespace now, but nothing consumes it
+until Phase 3 wires the slice; the dev gateway gets env vars first, prod's
+are added only at Phase 6.</p>
+<p><strong>Backend: RustFS, not MinIO.</strong> MinIO Community Edition is end of life. The
+<code>minio/minio</code> GitHub repo was archived read-only in April 2026, the Docker Hub
+images were deleted in September 2026, and quay.io refuses anonymous pulls.
+There is no pullable <code>minio/minio</code> at any version, so the v4 doc's
+<code>docker.io/minio/minio:RELEASE.2026-04-01T00-00-00Z</code> was never obtainable.
+RustFS (Apache-2.0, actively maintained) is the replacement, and it is
+S3-compatible, which is the only contract LiteLLM needs: the logging path
+builds a stock <code>boto3.client("s3", endpoint_url=...)</code>
+(<code>litellm/integrations/s3.py:74</code>) and the v2 path hand-rolls SigV4 over raw
+HTTP against <code>{endpoint}/{bucket}/{key}</code>. Neither has any MinIO-specific code.</p>
+<p>Pinned image, already mirrored into Harbor (public <code>rustfs</code> project):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>registry.adeoaiengine.ecouncil.ae/rustfs/rustfs:1.0.1
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sha256:38fcb422c93174dada595d1aedec0e942a16a2a01a0ecca896c4a563e1f463b5
+</span></code></pre></div>
+<p>Everything below was verified by running that exact image locally as a
+non-root, read-only-rootfs container: it starts standalone, <code>/health</code> and
+<code>/health/ready</code> both return 200, boto3 S3v4 path-style put/get/list/multipart
+all work, <code>mc mb --ignore-existing</code> succeeds and is re-runnable, and a bucket
+re-create returns success rather than an error.</p>
+<p><strong>One store per environment, not a shared one.</strong> Dev and prod share the
+<code>adeo-litellm</code> namespace, so a single unsuffixed store would give both
+gateways the same StatefulSet, PVC, credentials, and buckets, and a dev sync
+could write prod's data. So the store is per-environment, exactly like the
+gateway: the base in <code>deploy/base/rustfs/</code> is prod's store verbatim, and the
+dev overlay (<code>deploy/overlays/dev/rustfs/</code>) renames everything to <code>-dev</code>,
+re-labels it, and replaces the credentials and bucket names. Dev therefore
+has its own <code>rustfs-dev</code> StatefulSet, <code>data-rustfs-dev-0</code> PVC,
+<code>litellm-rustfs-credentials-dev</code> Secret, and <code>litellm-client-mirror-dev</code> /
+<code>litellm-logs-dev</code> buckets, and a <code>rustfs-dev</code> NetworkPolicy that admits only
+<code>litellm-proxy-dev</code> and the dev store's own pods. Prod's is the symmetric
+shape without the suffix.</p>
+<p>The label handling is the subtle part, and the reason a plain <code>nameSuffix</code> is
+not enough:</p>
+<ul>
+<li><code>nameSuffix</code> renames objects but rewrites no label or selector, so on its
+  own the dev StatefulSet would still carry and select <code>app: rustfs</code> (prod's
+  value) and cross-select prod's pods in the shared namespace.</li>
+<li>A <code>labels</code> transformer cannot fix it, because it would also rewrite the
+  NetworkPolicy's ingress <code>from</code> podSelector to the store's own label and
+  break the allow rule (verified: <code>from</code> ended up <code>rustfs-dev</code>, allowing only
+  the store to reach itself).</li>
+<li>So the store's label is spread by a kustomize <code>replacements</code> to exactly the
+  sites that carry it (the StatefulSet and Service labels/selectors, the
+  NetworkPolicy <code>podSelector</code>, and the bootstrap Job's own label), and the
+  NetworkPolicy's <code>from</code> gateway label is patched per environment. The store
+  and its bootstrap Job share one label, so one <code>from</code> rule admits both.</li>
+</ul>
+<p>The dev parity test pins all of this: each prod store object must have a
+suffixed dev counterpart, the dev store and Service must carry the dev label,
+the credentials and bucket names must differ, and the NetworkPolicy must
+select its own environment's store and gateway.</p>
+<p>New manifests: the base store in <code>deploy/base/rustfs/rustfs.yaml</code> and the
+dev-only overrides in <code>deploy/overlays/dev/rustfs/</code>. This is the object set,
+and it is what is applied to the cluster; <code>kubectl apply -k
+deploy/overlays/dev</code> is the only write path, so nothing here is created by
+hand.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Secret</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Opaque</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nt">stringData</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">access-key</span><span class="p">:</span><span class="w"> </span><span class="nv">...</span><span class="p p-Indicator">,</span><span class="nt"> secret-key</span><span class="p">:</span><span class="w"> </span><span class="nv">...</span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># generate, never commit real values</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nn">---</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">apps/v1</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">StatefulSet</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">,</span><span class="nt"> labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nt">serviceName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rustfs</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nt">replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nt">template</span><span class="p">:</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">    </span><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">      </span><span class="nt">securityContext</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">runAsUser</span><span class="p">:</span><span class="w"> </span><span class="nv">10001</span><span class="p p-Indicator">,</span><span class="nt"> runAsGroup</span><span class="p">:</span><span class="w"> </span><span class="nv">10001</span><span class="p p-Indicator">,</span><span class="nt"> fsGroup</span><span class="p">:</span><span class="w"> </span><span class="nv">10001</span><span class="p p-Indicator">,</span><span class="nt"> fsGroupChangePolicy</span><span class="p">:</span><span class="w"> </span><span class="nv">OnRootMismatch</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rustfs</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">          </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.adeoaiengine.ecouncil.ae/rustfs/rustfs:1.0.1</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">          </span><span class="nt">imagePullPolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">IfNotPresent</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">          </span><span class="nt">securityContext</span><span class="p">:</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">            </span><span class="p p-Indicator">{</span><span class="nt">readOnlyRootFilesystem</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> runAsNonRoot</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> allowPrivilegeEscalation</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">,</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="nt">             capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">drop</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ALL</span><span class="p p-Indicator">]}}</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">          </span><span class="nt">env</span><span class="p">:</span>
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_ACCESS_KEY</span><span class="p p-Indicator">,</span><span class="nt"> valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">access-key</span><span class="p p-Indicator">}}}</span>
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_SECRET_KEY</span><span class="p p-Indicator">,</span><span class="nt"> valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">secret-key</span><span class="p p-Indicator">}}}</span>
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_VOLUMES</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="s">"/data"</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_ADDRESS</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:9000"</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_CONSOLE_ENABLE</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="s">"false"</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">            </span><span class="c1"># The image bakes RUSTFS_OBS_LOG_DIRECTORY=/logs and a read-only rootfs</span>
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">            </span><span class="c1"># cannot create it, which is a FATAL startup error. An explicit empty</span>
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="w">            </span><span class="c1"># value routes logs to stdout (verified: "OBS log directory not</span>
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="w">            </span><span class="c1"># configured and logs outputs to stdout").</span>
+</span><span id="__span-2-35"><a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_OBS_LOG_DIRECTORY</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="s">""</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-36"><a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a><span class="w">          </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">endpoint</span><span class="p p-Indicator">,</span><span class="nt"> containerPort</span><span class="p">:</span><span class="w"> </span><span class="nv">9000</span><span class="p p-Indicator">}]</span>
+</span><span id="__span-2-37"><a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="w">          </span><span class="nt">readinessProbe</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">httpGet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">/health/ready</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">endpoint</span><span class="p p-Indicator">},</span><span class="nt"> initialDelaySeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="p p-Indicator">,</span><span class="nt"> periodSeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="p p-Indicator">,</span><span class="nt"> timeoutSeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-38"><a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a><span class="w">          </span><span class="nt">livenessProbe</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">httpGet</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">/health</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">endpoint</span><span class="p p-Indicator">},</span><span class="nt"> initialDelaySeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">30</span><span class="p p-Indicator">,</span><span class="nt"> periodSeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="p p-Indicator">,</span><span class="nt"> timeoutSeconds</span><span class="p">:</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-39"><a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">          </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">requests</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="nv">100m</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="nv">256Mi</span><span class="p p-Indicator">},</span><span class="nt"> limits</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"1"</span><span class="p p-Indicator">,</span><span class="nt"> memory</span><span class="p">:</span><span class="w"> </span><span class="nv">1Gi</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-40"><a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">          </span><span class="nt">volumeMounts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">data</span><span class="p p-Indicator">,</span><span class="nt"> mountPath</span><span class="p">:</span><span class="w"> </span><span class="nv">/data</span><span class="p p-Indicator">}]</span>
+</span><span id="__span-2-41"><a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="w">  </span><span class="nt">volumeClaimTemplates</span><span class="p">:</span>
+</span><span id="__span-2-42"><a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">data</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-43"><a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a><span class="w">      </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-44"><a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="w">        </span><span class="nt">accessModes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ReadWriteOnce</span><span class="p p-Indicator">]</span>
+</span><span id="__span-2-45"><a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">        </span><span class="nt">storageClassName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">longhorn-crypto-global</span><span class="w">   </span><span class="c1"># existing class, referenced not created</span>
+</span><span id="__span-2-46"><a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a><span class="w">        </span><span class="nt">resources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">requests</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">storage</span><span class="p">:</span><span class="w"> </span><span class="nv">10Gi</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-47"><a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a><span class="nn">---</span>
+</span><span id="__span-2-48"><a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-2-49"><a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Service</span>
+</span><span id="__span-2-50"><a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">,</span><span class="nt"> labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-51"><a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="nt">spec</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">selector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">},</span><span class="nt"> ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">endpoint</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">9000</span><span class="p p-Indicator">,</span><span class="nt"> targetPort</span><span class="p">:</span><span class="w"> </span><span class="nv">endpoint</span><span class="p p-Indicator">}]}</span>
+</span><span id="__span-2-52"><a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="nn">---</span>
+</span><span id="__span-2-53"><a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-2-54"><a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ConfigMap</span>
+</span><span id="__span-2-55"><a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-56"><a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a><span class="nt">data</span><span class="p">:</span>
+</span><span id="__span-2-57"><a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a><span class="w">  </span><span class="nt">bootstrap.sh</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-2-58"><a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="w">    </span><span class="no">#!/bin/sh</span>
+</span><span id="__span-2-59"><a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="w">    </span><span class="no">set -eu</span>
+</span><span id="__span-2-60"><a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="w">    </span><span class="no">: "${RUSTFS_ENDPOINT_URL:?}"; : "${RUSTFS_ACCESS_KEY:?}"; : "${RUSTFS_SECRET_KEY:?}"</span>
+</span><span id="__span-2-61"><a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="w">    </span><span class="no">i=0</span>
+</span><span id="__span-2-62"><a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a><span class="w">    </span><span class="no">until mc alias set rustfs "$RUSTFS_ENDPOINT_URL" "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY" &gt;/dev/null 2&gt;&amp;1; do</span>
+</span><span id="__span-2-63"><a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="w">      </span><span class="no">i=$((i + 1))</span>
+</span><span id="__span-2-64"><a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a><span class="w">      </span><span class="no">[ "$i" -ge 30 ] &amp;&amp; { echo "rustfs not reachable after 30 attempts" &gt;&amp;2; exit 1; }</span>
+</span><span id="__span-2-65"><a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="w">      </span><span class="no">echo "waiting for rustfs (attempt $i)"; sleep 2</span>
+</span><span id="__span-2-66"><a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="w">    </span><span class="no">done</span>
+</span><span id="__span-2-67"><a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a><span class="w">    </span><span class="no">for bucket in litellm-client-mirror litellm-logs; do mc mb --ignore-existing "rustfs/$bucket"; done</span>
+</span><span id="__span-2-68"><a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="w">    </span><span class="no">mc ls rustfs</span>
+</span><span id="__span-2-69"><a id="__codelineno-2-69" name="__codelineno-2-69" href="#__codelineno-2-69"></a><span class="nn">---</span>
+</span><span id="__span-2-70"><a id="__codelineno-2-70" name="__codelineno-2-70" href="#__codelineno-2-70"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">batch/v1</span>
+</span><span id="__span-2-71"><a id="__codelineno-2-71" name="__codelineno-2-71" href="#__codelineno-2-71"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Job</span>
+</span><span id="__span-2-72"><a id="__codelineno-2-72" name="__codelineno-2-72" href="#__codelineno-2-72"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">,</span><span class="nt"> labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-73"><a id="__codelineno-2-73" name="__codelineno-2-73" href="#__codelineno-2-73"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-74"><a id="__codelineno-2-74" name="__codelineno-2-74" href="#__codelineno-2-74"></a><span class="w">  </span><span class="nt">backoffLimit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span>
+</span><span id="__span-2-75"><a id="__codelineno-2-75" name="__codelineno-2-75" href="#__codelineno-2-75"></a><span class="w">  </span><span class="nt">ttlSecondsAfterFinished</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+</span><span id="__span-2-76"><a id="__codelineno-2-76" name="__codelineno-2-76" href="#__codelineno-2-76"></a><span class="w">  </span><span class="nt">template</span><span class="p">:</span>
+</span><span id="__span-2-77"><a id="__codelineno-2-77" name="__codelineno-2-77" href="#__codelineno-2-77"></a><span class="w">    </span><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-78"><a id="__codelineno-2-78" name="__codelineno-2-78" href="#__codelineno-2-78"></a><span class="w">    </span><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-79"><a id="__codelineno-2-79" name="__codelineno-2-79" href="#__codelineno-2-79"></a><span class="w">      </span><span class="nt">restartPolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Never</span>
+</span><span id="__span-2-80"><a id="__codelineno-2-80" name="__codelineno-2-80" href="#__codelineno-2-80"></a><span class="w">      </span><span class="nt">securityContext</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">runAsNonRoot</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> runAsUser</span><span class="p">:</span><span class="w"> </span><span class="nv">65532</span><span class="p p-Indicator">,</span><span class="nt"> runAsGroup</span><span class="p">:</span><span class="w"> </span><span class="nv">65532</span><span class="p p-Indicator">,</span><span class="nt"> fsGroup</span><span class="p">:</span><span class="w"> </span><span class="nv">65532</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-81"><a id="__codelineno-2-81" name="__codelineno-2-81" href="#__codelineno-2-81"></a><span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
+</span><span id="__span-2-82"><a id="__codelineno-2-82" name="__codelineno-2-82" href="#__codelineno-2-82"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mc</span>
+</span><span id="__span-2-83"><a id="__codelineno-2-83" name="__codelineno-2-83" href="#__codelineno-2-83"></a><span class="w">          </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.adeoaiengine.ecouncil.ae/minio/mc:latest</span>
+</span><span id="__span-2-84"><a id="__codelineno-2-84" name="__codelineno-2-84" href="#__codelineno-2-84"></a><span class="w">          </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">/bin/sh</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">/scripts/bootstrap.sh</span><span class="p p-Indicator">]</span>
+</span><span id="__span-2-85"><a id="__codelineno-2-85" name="__codelineno-2-85" href="#__codelineno-2-85"></a><span class="w">          </span><span class="nt">env</span><span class="p">:</span>
+</span><span id="__span-2-86"><a id="__codelineno-2-86" name="__codelineno-2-86" href="#__codelineno-2-86"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_ENDPOINT_URL</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="s">"http://rustfs.adeo-litellm.svc.cluster.local:9000"</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-87"><a id="__codelineno-2-87" name="__codelineno-2-87" href="#__codelineno-2-87"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_ACCESS_KEY</span><span class="p p-Indicator">,</span><span class="nt"> valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">access-key</span><span class="p p-Indicator">}}}</span>
+</span><span id="__span-2-88"><a id="__codelineno-2-88" name="__codelineno-2-88" href="#__codelineno-2-88"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">RUSTFS_SECRET_KEY</span><span class="p p-Indicator">,</span><span class="nt"> valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">secret-key</span><span class="p p-Indicator">}}}</span>
+</span><span id="__span-2-89"><a id="__codelineno-2-89" name="__codelineno-2-89" href="#__codelineno-2-89"></a><span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">MC_CONFIG_DIR</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">/tmp/.mc</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-90"><a id="__codelineno-2-90" name="__codelineno-2-90" href="#__codelineno-2-90"></a><span class="w">          </span><span class="nt">volumeMounts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">script</span><span class="p p-Indicator">,</span><span class="nt"> mountPath</span><span class="p">:</span><span class="w"> </span><span class="nv">/scripts</span><span class="p p-Indicator">,</span><span class="nt"> readOnly</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}]</span>
+</span><span id="__span-2-91"><a id="__codelineno-2-91" name="__codelineno-2-91" href="#__codelineno-2-91"></a><span class="w">      </span><span class="nt">volumes</span><span class="p">:</span>
+</span><span id="__span-2-92"><a id="__codelineno-2-92" name="__codelineno-2-92" href="#__codelineno-2-92"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">script</span>
+</span><span id="__span-2-93"><a id="__codelineno-2-93" name="__codelineno-2-93" href="#__codelineno-2-93"></a><span class="w">          </span><span class="nt">configMap</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-94"><a id="__codelineno-2-94" name="__codelineno-2-94" href="#__codelineno-2-94"></a><span class="nn">---</span>
+</span><span id="__span-2-95"><a id="__codelineno-2-95" name="__codelineno-2-95" href="#__codelineno-2-95"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">networking.k8s.io/v1</span>
+</span><span id="__span-2-96"><a id="__codelineno-2-96" name="__codelineno-2-96" href="#__codelineno-2-96"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NetworkPolicy</span>
+</span><span id="__span-2-97"><a id="__codelineno-2-97" name="__codelineno-2-97" href="#__codelineno-2-97"></a><span class="nt">metadata</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">,</span><span class="nt"> namespace</span><span class="p">:</span><span class="w"> </span><span class="nv">adeo-litellm</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-98"><a id="__codelineno-2-98" name="__codelineno-2-98" href="#__codelineno-2-98"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-2-99"><a id="__codelineno-2-99" name="__codelineno-2-99" href="#__codelineno-2-99"></a><span class="w">  </span><span class="nt">podSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">rustfs</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-100"><a id="__codelineno-2-100" name="__codelineno-2-100" href="#__codelineno-2-100"></a><span class="w">  </span><span class="nt">policyTypes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">Ingress</span><span class="p p-Indicator">]</span>
+</span><span id="__span-2-101"><a id="__codelineno-2-101" name="__codelineno-2-101" href="#__codelineno-2-101"></a><span class="w">  </span><span class="nt">ingress</span><span class="p">:</span>
+</span><span id="__span-2-102"><a id="__codelineno-2-102" name="__codelineno-2-102" href="#__codelineno-2-102"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">from</span><span class="p">:</span>
+</span><span id="__span-2-103"><a id="__codelineno-2-103" name="__codelineno-2-103" href="#__codelineno-2-103"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">podSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-proxy</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-104"><a id="__codelineno-2-104" name="__codelineno-2-104" href="#__codelineno-2-104"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">podSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-proxy-dev</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-105"><a id="__codelineno-2-105" name="__codelineno-2-105" href="#__codelineno-2-105"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">podSelector</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-bootstrap</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-2-106"><a id="__codelineno-2-106" name="__codelineno-2-106" href="#__codelineno-2-106"></a><span class="w">      </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[{</span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="nv">TCP</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">9000</span><span class="p p-Indicator">}]</span>
+</span></code></pre></div>
+<p>Four things about that spec, each verified:</p>
+<ul>
+<li><strong><code>RUSTFS_OBS_LOG_DIRECTORY</code> must be set empty.</strong> The image's own <code>ENV</code>
+  sets it to <code>/logs</code>, and with <code>readOnlyRootFilesystem: true</code> telemetry
+  initialization fails hard (<code>[FATAL] Observability initialization failed:
+  ... Read-only file system (os error 30)</code>) and the container exits 1. Empty
+  is the clean fix; the alternative is an <code>emptyDir</code> at <code>/logs</code>, which works
+  but emits a permission warning and needs a second volume.</li>
+<li><strong>No <code>/tmp</code> or other writable mount is needed.</strong> Verified running with a
+  read-only rootfs and only <code>/data</code> mounted.</li>
+<li><strong>No <code>imagePullSecrets</code>.</strong> Kyverno's <code>add-image-pull-secrets</code> ClusterPolicy
+  injects <code>registry-credentials</code> into every pod in this cluster, which is why
+  no existing manifest declares it either.</li>
+<li><strong>The storage class is referenced, not created.</strong> <code>longhorn-crypto-global</code>
+  is an existing encrypted, Delete-reclaim class; this manifest creates no
+  <code>StorageClass</code>. It was chosen over the cluster default
+  <code>longhorn-crypto-retain</code> so a deleted StatefulSet does not leak its volume.
+  Because the manifest is shared, prod binds the same class.</li>
+</ul>
+<p>The Job and the NetworkPolicy are the two pieces that keep the deployment
+reproducible:</p>
+<ul>
+<li>The <strong>bootstrap Job</strong> is required, not optional: RustFS has no
+  <code>MINIO_DEFAULT_BUCKETS</code> equivalent, so this is the only way the buckets get
+  created. It runs the <code>mc</code> client (already in Harbor at
+  <code>registry.adeoaiengine.ecouncil.ae/minio/mc:latest</code>,
+  <code>sha256:512a1cb685940ded1b0ff55470a226a3830e16305a3e0f1bfbb77056171601fd</code>),
+  which works unchanged against RustFS. Readiness is gated on <code>mc alias set</code>
+  (which fails loudly, exit 1, when the endpoint is not up) rather than
+  <code>mc ready</code>, which was observed to exit 0 even against a dead endpoint and
+  is therefore not a usable gate. <code>runAsUser: 65532</code> is pinned because the
+  <code>mc</code> image runs as root by default and would otherwise trip <code>runAsNonRoot</code>;
+  <code>mc</code> runs correctly as any non-root uid.</li>
+<li>The <strong>NetworkPolicy</strong> (the first in this namespace) allows ingress to
+  <code>app: rustfs</code> port 9000 only from the prod and dev gateway pod labels
+  (both verified live) plus the bootstrap Job's label. This manifest is
+  shared by dev and prod by design: the object store is a common dependency,
+  and the policy covering both labels is what makes the Phase 6 prod apply a
+  no-surprise diff.</li>
+</ul>
+<h3 id="idempotency-and-re-apply">Idempotency and re-apply<a class="headerlink" href="#idempotency-and-re-apply" title="Permanent link">&para;</a></h3>
+<p><code>kubectl apply -k deploy/overlays/dev</code> is safe to run any number of times.
+<code>kubectl diff -k deploy/overlays/dev</code> exits 0 against the applied state, so a
+re-apply changes nothing semantically.</p>
+<ul>
+<li>The Secret and the StatefulSet report <code>configured</code> on every apply (the
+  API server normalizes a couple of fields), but the diff is empty, so it is
+  metadata-only and not drift.</li>
+<li>The Job is the one object with a caveat: a Job's <code>spec.template</code> is
+  <strong>immutable</strong>. If the bootstrap script in the ConfigMap changes, the apply
+  fails with <code>field is immutable</code>. The documented recovery is delete-then-apply
+  in the same round:
+  <code>kubectl -n adeo-litellm delete job litellm-rustfs-bootstrap</code> then re-apply.
+  <code>ttlSecondsAfterFinished: 3600</code> reaps the completed Job after an hour, so
+  once the script is stable a routine re-apply needs no delete. That TTL
+  matches the repo's other Jobs (<code>deploy/oicm/provision-alain.yaml</code>).</li>
+<li>Bucket creation itself is idempotent independently of the Job lifecycle:
+  <code>mc mb --ignore-existing</code> succeeds on an existing bucket, and RustFS's own
+  duplicate-bucket response is success, not error.</li>
+</ul>
+<p>Steps (all dev-scoped verification; this is what was run):</p>
+<ol>
+<li>Generate credentials; commit the Secret manifest following the same
+   convention as <code>litellm-master-key.yaml</code> in this private repo.</li>
+<li><code>kubectl apply -k deploy/overlays/dev</code> (the overlay includes
+   <code>base/shared</code>), then verify:
+   <code>kubectl -n adeo-litellm rollout status statefulset/rustfs</code>, the Job
+   completes, and the Job's log lists both buckets.</li>
+<li>Verify isolation: from a pod in another namespace, the S3 endpoint must
+   NOT be reachable; from a <code>litellm-proxy-dev</code> pod, it must.</li>
+</ol>
+<p><strong>Exit:</strong> RustFS ready, both buckets exist (created by the Job, not by hand),
+gateway-only reachability confirmed. Prod is untouched: the shared manifest
+is in git, but <code>deploy/overlays/prod</code> has not been applied and no env var
+points prod at RustFS yet.</p>
+<hr />
+<h2 id="phase-2-the-slice-code-unit-tested-not-yet-wired">Phase 2 — the slice (code, unit-tested, not yet wired)<a class="headerlink" href="#phase-2-the-slice-code-unit-tested-not-yet-wired" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> <code>litellm/proxy/client_distribution/</code> exists, fully tested, not yet
+mounted. Environment-neutral: code and tests only, nothing applied anywhere.</p>
+<p>Files, following the <code>oicm_routes.py</code> structure exactly:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>litellm/proxy/client_distribution/
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>├── __init__.py        ← re-exports router
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>├── routes.py          ← APIRouter + all handlers (public reads, generated /install, admin writes)
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>├── generator.py       ← pure function: manifest + base_url -&gt; script text
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>└── storage.py         ← boto3/botocore client factory reading the shared env vars
+</span></code></pre></div>
+<p>Key implementation points, each grounded in what exists:</p>
+<ul>
+<li><strong>storage.py</strong> reads <code>RUSTFS_ENDPOINT_URL</code>, <code>RUSTFS_ACCESS_KEY</code>,
+  <code>RUSTFS_SECRET_KEY</code> (new env vars added in Phase 3). boto3 is already a
+  litellm main dependency (<code>pyproject.toml</code>: <code>boto3&gt;=1.43.1,&lt;2.0</code>), so no new
+  dependency. Use the <code>BaseAWSLLM</code>-free simple path: a plain
+  <code>boto3.client("s3", endpoint_url=...)</code> created once per worker, matching how
+  <code>litellm/integrations/s3.py</code> builds its client from params.</li>
+<li><strong>routes.py</strong>:</li>
+<li><code>GET /install</code> — unauthenticated; calls <code>generator.render(...)</code>; returns
+    <code>text/x-shellscript</code> with <code>Content-Type: application/x-sh</code>. Source of
+    <code>base_url</code>: <code>LITELLM_PUBLIC_BASE_URL</code> env (add in Phase 3) with
+    request-host fallback.</li>
+<li><code>GET /install/{path:path}</code> — unauthenticated proxy read from RustFS
+    (<code>get_object</code>, stream). 404 if absent, 503 if RustFS is down. Content
+    types by extension (<code>.json</code>, <code>.tar.gz</code>, <code>.zip</code>, <code>.whl</code>, <code>.sha256</code>).</li>
+<li><code>* /install/admin/v1/*</code> — <code>dependencies=[Depends(user_api_key_auth)]</code> +
+    <code>_require_admin</code> copied from the <code>oicm_routes.py</code> precedent
+    (<code>LitellmUserRoles.PROXY_ADMIN</code> check). Handlers: manifest GET/PUT,
+    artifact PUT (stream to RustFS, sha256 on the fly, skip-if-same), artifact
+    DELETE (409 if manifest-referenced), inventory GET.</li>
+<li>Path containment: normalize the key against <code>litellm-client-mirror/</code>
+    and reject escapes (cannot touch <code>litellm-logs</code>).</li>
+<li><strong>generator.py</strong>: pure, no FastAPI imports. The template is a Jinja2
+  document rendered with a structured context (<code>RenderContext</code>: base URL,
+  versions, <code>platforms</code> list) built from manifest schema 2. Rendered with
+  <code>SandboxedEnvironment(autoescape=False, undefined=StrictUndefined)</code>, so a
+  template referencing an undefined variable fails <code>/install</code> loudly (500)
+  rather than shipping a broken script. The template keeps only the three
+  origin modifications from <a href="../installer-script/">installer-script.md</a>;
+  resume is a version-check short-circuit (<code>--force</code> is idempotent) with no
+  <code>install_state.json</code> state machine, and harness detection is removed (the
+  <code>lite</code> CLI owns that).</li>
+<li>Follow repo code conventions: <code>Final</code> annotations, frozen dataclasses,
+  <code>MappingProxyType</code>, typed everything, no <code>Any</code>. <code># noqa</code> only with named
+  rule + reason.</li>
+</ul>
+<p>Tests (co-located, mirroring <code>tests/unit/proxy/client_distribution/</code>):</p>
+<ul>
+<li><code>test_generator.py</code> — render with a known manifest + base URL; assert the
+  three origin overrides, the <code>lite config set</code> line, that no upstream URL
+  (<code>astral.sh</code>, <code>github.com</code>, <code>pypi.org</code>) appears, and the Jinja2 contract:
+  undefined variable raises, no HTML escaping of shell metacharacters, a
+  <code>{% for %}</code> loop over <code>platforms</code>, and store/baked-in templates render
+  identically.</li>
+<li><code>test_routes.py</code> — handler-level tests with a stubbed storage layer
+  (dependency-injected, not monkeypatched, per repo rules): unauth GET works;
+  admin routes 403 for non-admin; manifest PUT rejects a manifest referencing
+  a missing object (409); artifact PUT is idempotent (second identical PUT -&gt;
+  <code>unchanged: true</code>); DELETE rejects while manifest-referenced; path escape
+  rejected.</li>
+<li>Drop-detection additions to
+  <code>tests/unit/proxy/test_oicm_drop_detection.py</code>:
+  <code>test_client_distribution_router_mounted_on_app</code> (route paths present),
+  <code>test_client_distribution_module_has_router</code> (router non-empty). Pattern
+  copied verbatim from <code>test_voice_routes_router_is_mounted_on_app</code>.</li>
+</ul>
+<p><strong>Exit:</strong> all tests green locally
+(<code>python -m pytest tests/unit/proxy/client_distribution/ -q</code> and the
+two new drop tests).</p>
+<hr />
+<h2 id="phase-3-wiring-one-block-both-env-vars-dev-first">Phase 3 — wiring (one block, both env vars, DEV FIRST)<a class="headerlink" href="#phase-3-wiring-one-block-both-env-vars-dev-first" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> the slice mounts on the app; the dev gateway can reach RustFS.</p>
+<ol>
+<li><code>proxy_server.py</code>: add to the fork-appended block (after line 18899, next to
+   the oicm_status_router include):</li>
+</ol>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># OICM same-origin client distribution (/install). Co-located vertical slice.</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">litellm.proxy.client_distribution.routes</span><span class="w"> </span><span class="kn">import</span> <span class="n">router</span> <span class="k">as</span> <span class="n">client_distribution_router</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">app</span><span class="o">.</span><span class="n">include_router</span><span class="p">(</span><span class="n">client_distribution_router</span><span class="p">)</span>
+</span></code></pre></div>
+<ol>
+<li>Env vars, split by the parity-test rule above:</li>
+</ol>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># BASE deployment (deploy/base/gateway/proxy/deployment.yaml) — prod values;</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># dev overlay overrides each one with its own endpoint, Secret, and bucket:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_ENDPOINT_URL</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"http://rustfs.adeo-litellm.svc.cluster.local:9000"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_ACCESS_KEY</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">access-key</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_SECRET_KEY</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">secret-key</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_BUCKET</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"litellm-client-mirror"</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="c1"># DEV overlay (deploy/overlays/dev/gateway/deployment.yaml) — overrides the</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1"># base's prod values with dev's own store, plus the per-environment base URL:</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_ENDPOINT_URL</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"http://rustfs-dev.adeo-litellm.svc.cluster.local:9000"</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_ACCESS_KEY</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">  </span><span class="nt">valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials-dev</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">access-key</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_SECRET_KEY</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">  </span><span class="nt">valueFrom</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">secretKeyRef</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">litellm-rustfs-credentials-dev</span><span class="p p-Indicator">,</span><span class="nt"> key</span><span class="p">:</span><span class="w"> </span><span class="nv">secret-key</span><span class="p p-Indicator">}}</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RUSTFS_BUCKET</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">  </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"litellm-client-mirror-dev"</span>
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LITELLM_PUBLIC_BASE_URL</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">  </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">"http://localhost:14001"</span><span class="w">   </span><span class="c1"># dev is reached via port-forward</span>
+</span></code></pre></div>
+<p>The <strong>parity test is the tripwire for this split.</strong>
+   <code>oicm-litellm-layer/tests/deploy/test_dev_prod_parity.py</code> fails if dev and
+   prod drift in any way the overlay does not declare: env vars present in
+   only one environment must be added to <code>_DEV_ONLY_ENV_VARS</code> /
+   <code>_PROD_ONLY_ENV_VARS</code> with a reason, and value differences to
+   <code>_EXPECTED_ENV_DIFFS</code>. It also fails on stale declarations, so every
+   move between phases must update the test in the same commit.</p>
+<p>The clean split, given the per-environment store:</p>
+<ul>
+<li><code>RUSTFS_ENDPOINT_URL</code> / <code>RUSTFS_ACCESS_KEY</code> / <code>RUSTFS_SECRET_KEY</code> /
+  <code>RUSTFS_BUCKET</code> go in the <strong>base</strong> deployment with prod values (base IS
+  prod). The dev overlay overrides each one with dev's own endpoint, Secret,
+  and bucket name. All four are declared in <code>_EXPECTED_ENV_DIFFS</code>.</li>
+<li>
+<p><code>LITELLM_PUBLIC_BASE_URL</code> is <strong>dev-only</strong> for now (declared in
+  <code>_DEV_ONLY_ENV_VARS</code>). At Phase 6 it gets its prod value
+  (<code>https://litellm.ecouncil.ae</code>) in the prod overlay and moves to
+  <code>_EXPECTED_ENV_DIFFS</code>.</p>
+</li>
+<li>
+<p>Release to dev: <code>make litellm-src-release-dev</code> (builds
+   <code>litellm-src:$(LITELLM_SRC_TAG)</code>, pushes to Harbor, pins the base image,
+   and rolls out <strong>only the dev Deployment</strong>; prod keeps serving its
+   already-running containers — that is the documented behavior of the
+   target). CAUTION from the Makefile: dev and prod share the same image tag,
+   so this build overwrites the bytes behind the tag for both; the dev-only
+   rollout is what keeps prod untouched.</p>
+</li>
+</ul>
+<p><strong>Verify (dev only):</strong></p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>&lt;dev-host&gt;/install<span class="w">                      </span><span class="c1"># generated script</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>&lt;dev-host&gt;/install/manifest.json<span class="w">       </span><span class="c1"># 404 until Phase 4, but route resolves</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>logs<span class="w"> </span>deploy/litellm-proxy-dev<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span><span class="s2">"client_distribution"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>head
+</span></code></pre></div>
+<p>The dev host is reachable via port-forward per the datasource runbook
+(<code>kubectl -n adeo-litellm port-forward deploy/litellm-proxy-dev 14001:4000</code>)
+or via its ingress host if one is wired; confirm which before running the
+curls.</p>
+<p><strong>Exit:</strong> <code>/install</code> serves the generated script on <strong>dev</strong>; empty store
+404s on artifact reads, not on the script itself. Prod untouched.</p>
+<hr />
+<h2 id="phase-4-artifact-sync-populate-the-store-shared-but-keyed-to-dev-first">Phase 4 — artifact sync (populate the store, shared but keyed to dev first)<a class="headerlink" href="#phase-4-artifact-sync-populate-the-store-shared-but-keyed-to-dev-first" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> the buckets contain the mirror content.</p>
+<p>The store is shared (one RustFS instance, both gateways can read it), but the
+sync writes are made through the <strong>dev gateway's</strong> admin API so the write
+path itself is what gets exercised and verified.</p>
+<p>The fetch script lives in <code>examples/</code> per layer conventions (runnable things
+are not docs): <code>oicm-litellm-layer/examples/client-distribution/sync-mirror.sh</code>.</p>
+<p>Run on this workstation (internet access):</p>
+<ol>
+<li>Fetch uv 0.10.9 release artifacts + <code>.sha256</code> sidecars for the 8
+   <a href="../platform-matrix/">platform-matrix.md</a> targets from the astral-sh/uv
+   GitHub release; verify each checksum.</li>
+<li>Resolve the <code>litellm[cli]</code> closure at the gateway's version
+   (<code>litellm_cli_version</code> == gateway version per decision 7):
+   <code>uv tool install 'litellm[cli]==1.102.0'</code> into a scratch venv, copy the
+   wheels out of uv's cache (<code>uv cache dir</code>), or <code>uv pip compile</code> equivalent.</li>
+<li>Fetch the python-build-standalone archives for the pinned CPython
+   (<code>3.13.9</code>) matching the pinned uv's expectations.</li>
+<li>Fetch the uv installer script itself
+   (<code>https://astral.sh/uv/0.10.9/install.sh</code>), checksum it.</li>
+<li>Compute sha256 for everything; write <code>manifest.json</code> per the schema in
+   <a href="../mirror-content/">mirror-content.md</a>.</li>
+<li>Push per the <a href="../admin-sync/">admin-sync.md</a> loop <strong>against the dev
+   gateway</strong>: artifacts first
+   (<code>PUT /install/admin/v1/artifact/...</code>), manifest last (<code>PUT /install/admin/v1/manifest</code>). The bearer token is the <strong>dev</strong> master key
+   (the <code>litellm-master-key-dev</code> Secret, verified live as the one
+   <code>litellm-proxy-dev</code> mounts): read it at run time from the Secret, never
+   hardcode it.</li>
+</ol>
+<p>Supply-chain rules apply to the fetch script: download to file + verify
+SHA-256 before use; pin every tool by exact version + full URL; never
+<code>curl | bash</code>.</p>
+<p><strong>Exit:</strong> <code>curl -fsSL &lt;dev-host&gt;/install/manifest.json</code> returns the real
+manifest; <code>inventory</code> (with the dev key) lists all objects with matching
+hashes. Prod still serves nothing from <code>/install</code> because it has no env vars
+and no router wiring yet — by design.</p>
+<hr />
+<h2 id="phase-5-end-to-end-validation-dev">Phase 5 — end-to-end validation (DEV)<a class="headerlink" href="#phase-5-end-to-end-validation-dev" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> a clean machine installs <code>lite</code> with zero external egress, entirely
+against dev.</p>
+<p>Per <a href="../rollout/">rollout.md</a> Phase 0, hardened for this environment:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># On this workstation (which HAS internet, so use network isolation):</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--network<span class="w"> </span>none<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-v<span class="w"> </span>/tmp/mirror-seed:/seed:ro<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>ubuntu:24.04<span class="w"> </span>bash
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1"># inside: curl against a localhost:8000 seed copy first (Phase 0 of rollout.md)</span>
+</span></code></pre></div>
+<p>Full e2e against the <strong>dev</strong> gateway (workstation with
+<code>HTTPS_PROXY=http://127.0.0.1:1</code> to fail-closed any accidental egress, or the
+port-forward):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>&lt;dev-host&gt;/install<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>lite<span class="w"> </span>--version
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>lite<span class="w"> </span>login<span class="w">                       </span><span class="c1"># or: --api-key from the env</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>lite<span class="w"> </span>configure<span class="w"> </span>claude<span class="w">            </span><span class="c1"># or: lite opencode / lite codex</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>claude<span class="w">                           </span><span class="c1"># a real turn through the dev gateway</span>
+</span></code></pre></div>
+<p>Soak: per the operating rule, live with this on dev — repeat installs,
+re-runs (the resume/idempotency path), an update cycle (re-sync a manifest
+bump), wrong-key recovery — until the configuration is boring. Fix anything
+that surfaces by editing the manifests/code in git and re-applying to dev,
+never by hand-patching the cluster.</p>
+<p><strong>Exit:</strong> <code>lite</code> installs, authenticates, configures the harness, and a real
+agent turn routes through <code>/v1</code> on dev with the user's key; <code>--no-index</code>
+resolution shows zero external requests; a re-run of <code>/install</code> is a no-op.</p>
+<hr />
+<h2 id="phase-6-the-one-clean-prod-apply-then-pilot-and-ga">Phase 6 — the one clean prod apply, then pilot and GA<a class="headerlink" href="#phase-6-the-one-clean-prod-apply-then-pilot-and-ga" title="Permanent link">&para;</a></h2>
+<p><strong>Goal:</strong> prod receives, in one round, exactly what dev validated.</p>
+<p>Pre-flight (all read-only):</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>kustomize<span class="w"> </span>deploy/overlays/prod<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>diff<span class="w"> </span>-k<span class="w"> </span>deploy/overlays/prod<span class="w">   </span><span class="c1"># review: ONLY the expected delta</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/litellm-proxy<span class="w">                  </span><span class="c1"># prod healthy before</span>
+</span></code></pre></div>
+<p>The single prod round (this is the entire prod change):</p>
+<ol>
+<li>Prod overlay gets its <code>LITELLM_PUBLIC_BASE_URL</code> value
+   (<code>https://litellm.ecouncil.ae</code>), declared in <code>_EXPECTED_ENV_DIFFS</code> — or the
+   existing dev declaration simply keeps covering it, since the test already
+   expects that one value difference. The <code>RUSTFS_*</code> vars are already in the
+   base (Phase 3), identical for both environments. The router include is
+   already in the image bytes (same tag, from the dev build). So the actual
+   prod delta at this point is: the prod <code>LITELLM_PUBLIC_BASE_URL</code> value (if
+   not yet present), the image pin (if the tag moved), and nothing else.</li>
+<li><code>kubectl apply -k deploy/overlays/prod</code> — one clean apply of the
+   known-good manifests. This picks up: RustFS (already running, no-op
+   diff), the NetworkPolicy (no-op, already applied with dev), the gateway
+   env vars, and the image pin. Then
+   <code>kubectl -n adeo-litellm rollout restart deployment/litellm-proxy</code> +
+   <code>rollout status</code> (or <code>make litellm-src-release</code> once, which does build +
+   pin + apply + restart in one step — but since the image is already
+   pushed from the dev phase, the apply-and-restart alone is the cleanest
+   single prod action).</li>
+<li>Verify prod: <code>curl -fsSL https://litellm.ecouncil.ae/install</code>,
+   <code>/install/manifest.json</code>, and one full user journey (install -&gt; login -&gt;
+   configure -&gt; one agent turn).</li>
+</ol>
+<p>If anything looks wrong in the <code>kubectl diff</code> pre-flight, stop: fix it in
+git, re-run the dev phases affected, and come back. Prod never gets an
+unverified delta.</p>
+<p>Then pilot and GA per <a href="../rollout/">rollout.md</a>: 2-3 internal users, one
+week, watch install success rate / keyring / PATH quirks / <code>/v1</code> latency
+during parallel installs. Then announce with the two-command story and the
+cautious two-step form from <a href="../security/">security.md</a>.</p>
+<hr />
+<h2 id="definition-of-done">Definition of done<a class="headerlink" href="#definition-of-done" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Phases 1-5 all green <strong>on dev</strong>, and dev has soaked (install, re-run,
+  wrong-key recovery, update cycle)</li>
+<li>The Phase 6 pre-flight diff showed only the expected delta; the single
+  prod apply succeeded; prod serves the full flow</li>
+<li>Drop-detection tests green in CI (<code>test_oicm_drop_detection.py</code>)</li>
+<li><code>make check</code> passes on the touched files (the repo-wide gate)</li>
+<li>The mkdocs build renders this folder clean</li>
+<li>A real user (you) has installed <code>lite</code> via <code>https://litellm.ecouncil.ae/install</code>
+  and completed a real Claude Code / OpenCode turn through the prod gateway</li>
+</ul>
+<h2 id="rollback-at-every-phase">Rollback at every phase<a class="headerlink" href="#rollback-at-every-phase" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Phase 1: <code>kubectl delete -k deploy/overlays/dev</code> (or git-revert + apply);
+  nothing consumes the RustFS objects yet. Deleting the StatefulSet does not
+  delete its PVC (Kubernetes leaves <code>volumeClaimTemplates</code> PVCs in place), so
+  the data survives; the class's <code>Delete</code> reclaim policy only applies if the
+  PVC itself is deleted, which is a deliberate separate step.</li>
+<li>Phase 2: pure code addition; revert the commit</li>
+<li>Phase 3: revert the two-line wiring + env vars; the drop tests trip by
+  design (that is the tripwire working). Re-apply the dev overlay.</li>
+<li>Phase 4: the store being empty only 404s artifact reads; <code>/install</code> script
+  itself still serves (it does not read the store to render). Delete objects
+  via the admin API if a clean slate is wanted.</li>
+<li>Phase 5: nothing to roll back on dev beyond Phase 3/4 reverts.</li>
+<li>Phase 6: revert the base/overlay manifest edits and re-apply
+  <code>-k deploy/overlays/prod</code> + rollout restart — prod returns to its
+  pre-change state in one round, the same way it received the change.
+  Installed clients keep working; <code>lite</code> talks only to <code>/v1</code>.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 14:00:47 UTC">November 11, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 12, 2026 14:17:02 UTC">October 12, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../PLAN/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Design Plan">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Design Plan
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../architecture/" class="md-footer__link md-footer__link--next" aria-label="Next: Architecture">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Architecture
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.action.edit", "content.code.copy", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.tabs", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
