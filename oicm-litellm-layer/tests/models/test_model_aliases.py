@@ -32,6 +32,8 @@ class State:
     source: str = "db"
     failure: str | None = None
     requests: list[dict] = field(default_factory=list)
+    pending_aliases: dict | None = None
+    verification_reads: int = 0
 
 
 @pytest.fixture
@@ -51,8 +53,10 @@ def gateway():
             state.requests.append({"method": "GET", "path": self.path,
                                    "auth": self.headers.get("Authorization")})
             if self.path == "/router/settings":
+                state.verification_reads += 1
+                aliases = state.pending_aliases if state.verification_reads == 0 else state.aliases
                 self.respond({
-                    "current_values": {"model_group_alias": state.aliases, "timeout": 99},
+                    "current_values": {"model_group_alias": aliases, "timeout": 99},
                     "source": {"model_group_alias": state.source},
                 })
                 return
@@ -120,6 +124,7 @@ def test_add_apply_writes_and_verifies_the_actual_map(gateway):
     result = cli(gateway, ["add", QWEN_ALIAS, QWEN_NAME, "--apply"])
     assert result.returncode == 0, result.stderr
     assert "Applied and verified" in result.stdout
+    assert "after 1 read(s)" in result.stdout
     assert state.aliases == {"old-alias": {"model": "old-model", "hidden": True}, QWEN_ALIAS: QWEN_NAME}
     assert posts(state) == [{"method": "POST", "path": "/config/update", "auth": "Bearer test-secret",
                               "body": {"router_settings": {"model_group_alias": state.aliases}}}]
@@ -174,9 +179,31 @@ def test_invalid_or_config_owned_inputs_never_write(gateway, arguments, aliases_
 def test_apply_verification_failure_does_not_claim_success(gateway):
     state, _ = gateway
     state.failure = "diverge"
-    result = cli(gateway, ["add", QWEN_ALIAS, QWEN_NAME, "--apply"])
+    result = cli(gateway, ["add", QWEN_ALIAS, QWEN_NAME, "--apply"], env={"LITELLM_VERIFY_DELAY_SECONDS": "0"})
     assert result.returncode != 0
     assert "different alias map during verification" in result.stderr
+
+
+def test_apply_verification_waits_for_eventual_consistency(gateway):
+    state, _ = gateway
+    state.pending_aliases = {"old-alias": {"model": "old-model", "hidden": True}}
+    result = cli(gateway, ["add", QWEN_ALIAS, QWEN_NAME, "--apply"], env={"LITELLM_VERIFY_DELAY_SECONDS": "0"})
+    assert result.returncode == 0, result.stderr
+    assert "Applied and verified" in result.stdout
+    assert "after 2 read(s)" in result.stdout
+    assert state.aliases[QWEN_ALIAS] == QWEN_NAME
+
+
+def test_apply_verification_does_not_sleep_after_a_successful_first_read(gateway):
+    result = cli(gateway, ["add", QWEN_ALIAS, QWEN_NAME, "--apply"], env={"LITELLM_VERIFY_DELAY_SECONDS": "99"})
+    assert result.returncode == 0, result.stderr
+    assert "after 2 read(s)" not in result.stdout
+
+
+def test_verification_delay_must_be_a_finite_nonnegative_number(gateway):
+    result = cli(gateway, ["list"], env={"LITELLM_VERIFY_DELAY_SECONDS": "-1"})
+    assert result.returncode != 0
+    assert "LITELLM_VERIFY_DELAY_SECONDS" in result.stderr
 
 
 def test_gateway_error_is_visible_and_not_silent(gateway):

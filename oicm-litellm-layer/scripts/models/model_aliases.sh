@@ -23,7 +23,19 @@ set -euo pipefail
 
 PROXY_BASE_URL="${PROXY_BASE_URL:-https://litellm.ecouncil.ae}"
 PROXY_BASE_URL="${PROXY_BASE_URL%/}"
+LITELLM_VERIFY_DELAY_SECONDS="${LITELLM_VERIFY_DELAY_SECONDS:-2}"
+LITELLM_VERIFY_ATTEMPTS="${LITELLM_VERIFY_ATTEMPTS:-10}"
 TMP_FILES=()
+validate_verification_settings() {
+  if ! [[ "$LITELLM_VERIFY_DELAY_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || ! jq -en "$LITELLM_VERIFY_DELAY_SECONDS | isfinite and . >= 0" >/dev/null; then
+    echo 'ERROR: LITELLM_VERIFY_DELAY_SECONDS must be a finite non-negative number' >&2
+    return 1
+  fi
+  if ! [[ "$LITELLM_VERIFY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    echo 'ERROR: LITELLM_VERIFY_ATTEMPTS must be a positive integer' >&2
+    return 1
+  fi
+}
 cleanup() {
   if (( ${#TMP_FILES[@]} > 0 )); then rm -f -- "${TMP_FILES[@]}"; fi
 }
@@ -162,14 +174,19 @@ edit_aliases() {
   fi
 
   http POST /config/update "$body" >/dev/null || return 1
-  local persisted
-  persisted=$(read_aliases) || return 1
-  if ! jq -e --argjson expected "$current" '. == $expected' <<<"$persisted" >/dev/null; then
-    die "gateway returned a different alias map during verification; inspect /router/settings"
-    return 1
-  fi
-  echo "Applied and verified alias '$alias':"
-  jq . <<<"$persisted"
+  local persisted attempts=0
+  while (( attempts < LITELLM_VERIFY_ATTEMPTS )); do
+    attempts=$((attempts + 1))
+    persisted=$(read_aliases) || return 1
+    if jq -e --argjson expected "$current" '. == $expected' <<<"$persisted" >/dev/null; then
+      echo "Applied and verified alias '$alias' after $attempts read(s):"
+      jq . <<<"$persisted"
+      return 0
+    fi
+    if (( attempts < LITELLM_VERIFY_ATTEMPTS )); then sleep "$LITELLM_VERIFY_DELAY_SECONDS"; fi
+  done
+  die "gateway returned a different alias map during verification after $attempts reads with ${LITELLM_VERIFY_DELAY_SECONDS}s delays; inspect /router/settings before retrying"
+  return 1
 }
 
 main() {
@@ -187,6 +204,7 @@ main() {
     die "set LITELLM_API_KEY to a proxy-admin key"
     return 1
   fi
+  validate_verification_settings || return 1
 
   local operation="$1" apply=false hidden=false positional=()
   shift
