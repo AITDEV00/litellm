@@ -338,11 +338,7 @@ def convert_to_streaming_response(
     model_response_object.choices = choice_list
 
     if "usage" in response_object and response_object["usage"] is not None:
-        setattr(
-            model_response_object,
-            "usage",
-            _replayed_usage(_CACHED_USAGE_DETAILS.validate_python(response_object["usage"])),
-        )
+        model_response_object.usage = _replayed_usage(_CACHED_USAGE_DETAILS.validate_python(response_object["usage"]))
 
     if "id" in response_object:
         model_response_object.id = response_object["id"]
