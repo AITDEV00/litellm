@@ -34,6 +34,7 @@ class State:
     requests: list[dict] = field(default_factory=list)
     pending_aliases: dict | None = None
     verification_reads: int = 0
+    stale_at_request: int | None = None
 
 
 @pytest.fixture
@@ -53,8 +54,8 @@ def gateway():
             state.requests.append({"method": "GET", "path": self.path,
                                    "auth": self.headers.get("Authorization")})
             if self.path == "/router/settings":
-                state.verification_reads += 1
-                aliases = state.pending_aliases if state.verification_reads == 0 else state.aliases
+                stale = len(state.requests) == state.stale_at_request
+                aliases = state.pending_aliases if stale else state.aliases
                 self.respond({
                     "current_values": {"model_group_alias": aliases, "timeout": 99},
                     "source": {"model_group_alias": state.source},
@@ -78,6 +79,8 @@ def gateway():
             if state.failure == "write_error":
                 self.respond({"detail": "Only proxy admins"}, 403)
                 return
+            if state.pending_aliases is not None:
+                state.stale_at_request = len(state.requests) + 1
             state.aliases = {} if state.failure == "diverge" else body["router_settings"]["model_group_alias"]
             self.respond({"message": "updated"})
 
