@@ -62,7 +62,11 @@ def gateway():
                 })
                 return
             if self.path == "/model/info":
-                self.respond({"data": [{"model_name": name} for name in state.registered]})
+                expanded = state.registered + [a for a in state.aliases if a not in state.registered]
+                self.respond({"data": [{"model_name": name} for name in expanded]})
+                return
+            if self.path == "/v2/model/info?size=1000":
+                self.respond({"data": [{"model_name": name} for name in state.registered], "total_count": len(state.registered)})
                 return
             self.respond({"detail": "not found"}, 404)
 
@@ -132,7 +136,7 @@ def test_add_apply_writes_and_verifies_the_actual_map(gateway):
     assert posts(state) == [{"method": "POST", "path": "/config/update", "auth": "Bearer test-secret",
                               "body": {"router_settings": {"model_group_alias": state.aliases}}}]
     assert [r["path"] for r in state.requests] == [
-        "/router/settings", "/model/info", "/config/update", "/router/settings",
+        "/router/settings", "/v2/model/info?size=1000", "/config/update", "/router/settings",
     ]
 
 
@@ -143,6 +147,33 @@ def test_remove_preserves_all_unrelated_aliases(gateway):
     assert result.returncode == 0, result.stderr
     assert state.aliases == {"other": {"model": "old-model", "hidden": True}}
     assert posts(state)[0]["body"]["router_settings"]["model_group_alias"] == state.aliases
+
+
+def test_remove_alias_with_same_name_as_its_target_is_permitted_when_only_deployment_is_not_the_alias(gateway):
+    state, _ = gateway
+    state.aliases = {QWEN_ALIAS: QWEN_NAME, "other": "old-model"}
+    result = cli(gateway, ["remove", QWEN_ALIAS, "--apply"])
+    assert result.returncode == 0, result.stderr
+    assert state.aliases == {"other": "old-model"}
+    assert posts(state)[0]["body"]["router_settings"]["model_group_alias"] == state.aliases
+
+
+def test_remove_refuses_target_alias_while_real_deployment_uses_that_name(gateway):
+    state, _ = gateway
+    state.aliases = {QWEN_NAME: QWEN_ALIAS}
+    result = cli(gateway, ["remove", QWEN_NAME, "--apply"])
+    assert result.returncode != 0
+    assert "refusing to shadow" in result.stderr
+    assert posts(state) == []
+
+
+def test_collision_guard_never_falls_back_to_alias_expanded_model_info(gateway):
+    state, _ = gateway
+    state.aliases = {QWEN_NAME: QWEN_ALIAS}
+    result = cli(gateway, ["add", QWEN_NAME, "old-model", "--apply"])
+    assert result.returncode != 0
+    assert "refusing to shadow" in result.stderr
+    assert posts(state) == []
 
 
 def test_hidden_add_and_repeat_have_expected_transition_and_noop(gateway):

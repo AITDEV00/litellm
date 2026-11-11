@@ -110,7 +110,7 @@ edit_aliases() {
   fi
   current=$(jq -ce '(.current_values.model_group_alias // {}) | if type == "object" then . else error("alias map is not an object") end' <<<"$settings") || return 1
 
-  registered=$(http GET /model/info \
+  registered=$(http GET /v2/model/info?size=1000 \
     | jq -ce '[.data[]? | select(type == "object" and (.model_name | type == "string")) | .model_name] | unique') || return 1
   if jq -e --arg alias "$alias" 'any(.[]; . == $alias)' <<<"$registered" >/dev/null; then
     die "'$alias' is already a registered model; refusing to shadow it"
@@ -123,7 +123,7 @@ edit_aliases() {
       return 1
     fi
     if ! jq -e --arg target "$target" 'any(.[]; . == $target)' <<<"$registered" >/dev/null; then
-      die "target '$target' is not a registered model; use a model_name from /model/info"
+      die "target '$target' is not a registered model; use a model_name from /v2/model/info"
       return 1
     fi
     if jq -e --arg target "$target" '(.[$target] | type) == "string" or (.[$target].model | type) == "string"' <<<"$current" >/dev/null; then
