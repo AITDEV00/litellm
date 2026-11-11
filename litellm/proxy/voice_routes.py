@@ -20,12 +20,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from litellm._logging import verbose_proxy_logger
 from litellm.constants import AUDIO_SPEECH_CHUNK_SIZE
+from litellm.litellm_core_utils.audio_utils.utils import resolve_speech_media_type
 from litellm.proxy._types import ProxyException
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
 from litellm.proxy.common_utils.http_parsing_utils import get_form_data
 from litellm.proxy.litellm_pre_call_utils import add_litellm_data_to_request
 from litellm.proxy.route_llm_request import route_request
+from litellm.types.llms.openai import HttpxBinaryResponseContent
 
 router = APIRouter(tags=["audio"])
 
@@ -144,8 +146,7 @@ def _voice_capable_providers(action: str) -> frozenset[str]:
     return frozenset(
         member.value
         for member in litellm.LlmProviders
-        if (config := get_provider_voice_config(member)) is not None
-        and action in config.SUPPORTED_VOICE_ACTIONS
+        if (config := get_provider_voice_config(member)) is not None and action in config.SUPPORTED_VOICE_ACTIONS
     )
 
 
@@ -226,16 +227,16 @@ def _resolve_audio_target_url(llm_router: Any, provider: str, path: str) -> str 
     return _join_audio_url(api_base, path)
 
 
-def _audio_media_type(data: dict) -> str:
-    media_type = "audio/mpeg"
-    request_model = data.get("model", "")
-    if request_model:
-        request_model_lower = request_model.lower()
-        if "gemini" in request_model_lower and (
-            "tts" in request_model_lower or "preview-tts" in request_model_lower
-        ):
-            media_type = "audio/wav"
-    return media_type
+def _audio_media_type(data: dict, response: HttpxBinaryResponseContent | object) -> str:
+    raw_content_type: Final = response.content_type if isinstance(response, HttpxBinaryResponseContent) else None
+    content_type: Final = raw_content_type if isinstance(raw_content_type, str) else None
+    hidden_params: Final = getattr(response, "hidden_params", {}) or {}
+    actual_format: Final = hidden_params.get("response_format")
+    requested_format: Final = actual_format if isinstance(actual_format, str) else data.get("response_format")
+    return resolve_speech_media_type(
+        upstream_content_type=None if actual_format is not None else content_type,
+        response_format=requested_format if isinstance(requested_format, str) else None,
+    )
 
 
 async def _audio_speech_chunk_generator(
@@ -350,7 +351,7 @@ async def audio_speech_clone(
 
         return StreamingResponse(
             _audio_speech_chunk_generator(response),
-            media_type=_audio_media_type(data),
+            media_type=_audio_media_type(data, response),
             headers=custom_headers,
         )
 
@@ -417,9 +418,7 @@ async def create_voice(
         # the deployment from a body/form field, but ?model= is the natural way
         # to name it and was being ignored.
         explicit_model: Final = (
-            request.query_params.get("model")
-            or data.pop("model", None)
-            or proxy_server_mod.user_model
+            request.query_params.get("model") or data.pop("model", None) or proxy_server_mod.user_model
         )
         used_fallback: Final = explicit_model is None
 
@@ -539,9 +538,7 @@ async def _route_voice_management(
         # otherwise silently fall through to _resolve_voice_model, which returns
         # the first voice-capable deployment regardless of what was requested.
         explicit_model: Final = (
-            request.query_params.get("model")
-            or data.pop("model", None)
-            or proxy_server_mod.user_model
+            request.query_params.get("model") or data.pop("model", None) or proxy_server_mod.user_model
         )
         used_fallback: Final = explicit_model is None
 
@@ -785,7 +782,7 @@ async def audio_script(
 
         return StreamingResponse(
             _audio_speech_chunk_generator(response),
-            media_type=_audio_media_type(data),
+            media_type=_audio_media_type(data, response),
             headers=custom_headers,
         )
 
@@ -893,9 +890,7 @@ async def _proxy_to_audio_pod(
         }
         # `provider` is consumed for resolution above; it is not a pod parameter,
         # so forwarding it would name a query key the pod does not understand.
-        forward_params: Final = {
-            k: v for k, v in request.query_params.items() if k != "provider"
-        }
+        forward_params: Final = {k: v for k, v in request.query_params.items() if k != "provider"}
         resp = await client.get(target_url, headers=headers, params=forward_params)
 
     # Surface the provider actually hit. `x-litellm-voice-resolution` names

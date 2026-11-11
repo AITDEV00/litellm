@@ -142,4 +142,13 @@ class HamsaTextToSpeechConfig(HamsaModelInfo, BaseTextToSpeechConfig):
     ) -> Any:
         from litellm.types.llms.openai import HttpxBinaryResponseContent
 
-        return HttpxBinaryResponseContent(raw_response)
+        response = HttpxBinaryResponseContent(raw_response)
+        call_details = getattr(logging_obj, "model_call_details", {})
+        additional_args = call_details.get("additional_args", {}) if isinstance(call_details, dict) else {}
+        request_body = additional_args.get("complete_input_dict", {})
+        native_request = request_body.get("dict_body", {}) if isinstance(request_body, dict) else {}
+        if native_request.get("stream") is True:
+            response.hidden_params["response_format"] = "mulaw" if native_request.get("mulaw") is True else "pcm"
+        elif native_request.get("mulaw") is not None:
+            response.hidden_params["response_format"] = "wav"
+        return response

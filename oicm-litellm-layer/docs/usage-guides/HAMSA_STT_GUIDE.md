@@ -122,7 +122,7 @@ cd oicm-litellm-layer/examples/usage/hamsa-stt
 python3 -m http.server 8765
 ```
 
-Then open `http://localhost:8765/hamsa-stt-realtime-test-ws.html` in a browser. Enter your gateway API key, then click **Connect & Start Recording** to stream microphone audio for realtime transcription.
+Then open `http://localhost:8765/hamsa-stt-realtime-test-ws.html` in a browser. Enter your gateway API key. Leave the encrypted provider key blank because the gateway supplies it; the shipped page contains no provider credentials. Click **Connect & Start Recording** to stream microphone audio for realtime transcription.
 
 ### Protocol
 

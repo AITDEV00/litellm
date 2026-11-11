@@ -534,6 +534,10 @@ def test_mantle_claude_without_mode_resolves_to_anthropic_messages(deployment_mo
     assert [message["role"] for message in updated["messages"]] == ["user"]
 
 
+def test_hamsa_without_mode_resolves_to_transcription():
+    assert resolve_health_check_mode({}, {"model": "hamsa/hamsa-stt"}) == "audio_transcription"
+
+
 def test_mantle_claude_with_explicit_provider_param_resolves_to_anthropic_messages():
     assert (
         resolve_health_check_mode({}, {"model": "anthropic.claude-haiku-4-5", "custom_llm_provider": "bedrock_mantle"})

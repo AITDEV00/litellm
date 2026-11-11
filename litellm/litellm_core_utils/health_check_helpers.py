@@ -27,7 +27,11 @@ IMAGE_EDIT_HEALTH_CHECK_PROMPT: Final = (
 ANTHROPIC_MESSAGES_HEALTH_CHECK_MAX_TOKENS: Final = 16
 
 
-def native_health_check_mode(model: str, custom_llm_provider: str | None) -> Literal["anthropic_messages"] | None:
+def native_health_check_mode(
+    model: str, custom_llm_provider: str | None
+) -> Literal["anthropic_messages", "audio_transcription"] | None:
+    if custom_llm_provider == "hamsa":
+        return "audio_transcription"
     if custom_llm_provider != "bedrock_mantle":
         return None
     from litellm.llms.bedrock_mantle.common_utils import mantle_health_check_mode

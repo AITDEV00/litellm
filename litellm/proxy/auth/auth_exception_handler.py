@@ -182,6 +182,51 @@ class UserAPIKeyAuthExceptionHandler:
                 "Auth: DB unavailable — issuing restricted INTERNAL_USER "
                 "fallback token (allow_requests_on_db_unavailable=True)"
             )
+            if (
+                resolved_identity is not None
+                and resolved_identity.token is not None
+                and resolved_identity.user_role
+                not in (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY)
+            ):
+                from datetime import datetime, timezone
+
+                if resolved_identity.expires is not None:
+                    expiry_time: Final = (
+                        resolved_identity.expires
+                        if isinstance(resolved_identity.expires, datetime)
+                        else datetime.fromisoformat(resolved_identity.expires)
+                    )
+                    if (
+                        expiry_time.replace(tzinfo=timezone.utc)
+                        if expiry_time.tzinfo is None or expiry_time.tzinfo.utcoffset(expiry_time) is None
+                        else expiry_time
+                    ) < datetime.now(timezone.utc):
+                        raise ProxyException(
+                            message="Authentication Error - Expired Key",
+                            type=ProxyErrorTypes.expired_key,
+                            code=status.HTTP_401_UNAUTHORIZED,
+                            param=None,
+                        )
+                from litellm.proxy.auth.auth_checks import can_key_call_model, get_model_from_request
+                from litellm.proxy.proxy_server import llm_model_list, llm_router
+
+                model: Final = get_model_from_request(
+                    request_data=request_data,
+                    route=route,
+                    request_headers=request.headers,
+                    request_query_params=request.query_params,
+                    llm_router=llm_router,
+                    request=request,
+                    team_id=resolved_identity.team_id,
+                )
+                if model is not None:
+                    await can_key_call_model(
+                        model=model,
+                        llm_model_list=llm_model_list,
+                        valid_token=resolved_identity,
+                        llm_router=llm_router,
+                    )
+                return resolved_identity.model_copy(update={"request_route": route})
             return UserAPIKeyAuth(
                 key_name="failed-to-connect-to-db",
                 token="failed-to-connect-to-db",

@@ -1089,8 +1089,9 @@ from litellm.responses.bridge_check import (  # noqa: E402  # re-export at the o
 from litellm.responses.bridge_check import (  # noqa: E402  # re-export at the old definition site
     responses_api_bridge_check as responses_api_bridge_check,  # pyright: ignore[reportUnknownVariableType]  # noqa: PLC0414  # re-export of moved function
 )
-    # OPENAI_BASE_URL/OPENAI_API_BASE isn't misread as the default and bridged to a /responses route it
-    # lacks. A whitespace-only base collapses to the default too.
+
+# OPENAI_BASE_URL/OPENAI_API_BASE isn't misread as the default and bridged to a /responses route it
+# lacks. A whitespace-only base collapses to the default too.
 _ANTHROPIC_ONLY_TOOL_KEYS: Final = frozenset({"input_examples", "eager_input_streaming"})
 
 
@@ -8254,9 +8255,7 @@ def transcription(
             litellm_params=litellm_params_dict,
             custom_llm_provider=custom_llm_provider,
         )
-    elif uses_openai_transport and (
-        custom_llm_provider == "openai" or provider_config is None
-    ):
+    elif uses_openai_transport and (custom_llm_provider == "openai" or provider_config is None):
         api_base = (
             api_base
             or litellm.api_base
@@ -8429,11 +8428,20 @@ async def aspeech(*args, **kwargs) -> HttpxBinaryResponseContent:
 
         # Await normally
         init_response: Final = await loop.run_in_executor(None, func_with_context)
+        native_provider: Final = custom_llm_provider in ("hamsa", "inception", "omnivoice", "drama3")
         if asyncio.iscoroutine(init_response):
             response = await init_response
         else:
             # Call the synchronous function using run_in_executor
             response = await loop.run_in_executor(None, func_with_context)
+        if (
+            native_provider
+            and isinstance(response, HttpxBinaryResponseContent)
+            and not (custom_llm_provider == "hamsa" and kwargs.get("ref_audio") is not None)
+        ):
+            response.hidden_params["response_format"] = response.hidden_params.get(
+                "response_format", kwargs.get("response_format")
+            )
         return response
     except Exception as e:
         custom_llm_provider = custom_llm_provider or "openai"
@@ -8960,6 +8968,11 @@ def speech(
             client=client,
             _is_async=aspeech or False,
         )
+
+        if isinstance(response, HttpxBinaryResponseContent) and not (
+            custom_llm_provider == "hamsa" and kwargs.get("ref_audio") is not None
+        ):
+            response.hidden_params["response_format"] = response.hidden_params.get("response_format", response_format)
 
     if response is None:
         raise Exception(

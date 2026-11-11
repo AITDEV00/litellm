@@ -155,6 +155,10 @@ Binary audio data with `Content-Type: audio/wav`. For `hamsa-tts-new`, the audio
 is 16kHz mono 16-bit PCM when `response_format=wav`, or raw headerless 16-bit
 16kHz mono PCM when `response_format=pcm` with `stream: true`.
 
+For native raw mu-law output, use `response_format=mulaw` with `stream: true`.
+The response has no WAV header and its content type is `audio/basic`. Buffered
+responses, including buffered `mulaw`, retain a WAV container.
+
 ---
 
 ## 2. Voice Management
@@ -464,7 +468,7 @@ cd oicm-litellm-layer/examples/usage/hamsa-stt
 python3 -m http.server 8765
 ```
 
-Then open `http://localhost:8765/hamsa-stt-realtime-test-ws.html` in a browser. The page is pre-configured with the correct gateway URL, API keys, and default options. Click "Connect & Start Recording" to begin streaming microphone audio for real-time transcription.
+Then open `http://localhost:8765/hamsa-stt-realtime-test-ws.html` in a browser. Set the gateway WebSocket URL and enter your LiteLLM bearer key. Leave the encrypted provider key blank: the gateway inserts its configured upstream credential. The page contains no provider credentials. Click **Connect & Start Recording** to begin streaming microphone audio for real-time transcription.
 
 ---
 

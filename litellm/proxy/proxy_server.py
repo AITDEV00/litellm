@@ -274,9 +274,7 @@ def generate_feedback_box():
     print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")
     print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")
     print("\033[1;37m" + f"# {message:^59} #\033[0m")
-    print(
-        "\033[1;37m" + "# {:^59} #\033[0m".format("https://github.com/BerriAI/litellm/issues/new")
-    )
+    print("\033[1;37m" + "# {:^59} #\033[0m".format("https://github.com/BerriAI/litellm/issues/new"))
     print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")
     print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")
     print()
@@ -284,9 +282,7 @@ def generate_feedback_box():
     print()
     print()
     print()
-    print(
-        "\033[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new\033[0m"
-    )
+    print("\033[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new\033[0m")
     print()
     print()
 
@@ -6305,17 +6301,13 @@ class ProxyConfig:
 
         search_tools_parsed: Final[list[SearchToolTypedDict]] = []
 
-        print(
-            "\033[32mLiteLLM: Proxy initialized with Search Tools:\033[0m"
-        )
+        print("\033[32mLiteLLM: Proxy initialized with Search Tools:\033[0m")
 
         for search_tool in search_tools_raw:
             # Display loaded search tool
             search_tool_name = search_tool.get("search_tool_name", "")
             search_provider = search_tool.get("litellm_params", {}).get("search_provider", "")
-            print(
-                f"\033[32m    {search_tool_name} ({search_provider})\033[0m"
-            )
+            print(f"\033[32m    {search_tool_name} ({search_provider})\033[0m")
 
             # Handle os.environ/ variables in litellm_params
             litellm_params = search_tool.get("litellm_params", {})
@@ -7113,9 +7105,7 @@ class ProxyConfig:
         if model_list:
             router_params["model_list"] = model_list
             validate_auto_router_capability_limits(model_list, limit=_license_check.auto_router_capability_limit())
-            print(
-                "\033[32mLiteLLM: Proxy initialized with Config, Set models:\033[0m"
-            )
+            print("\033[32mLiteLLM: Proxy initialized with Config, Set models:\033[0m")
             for model in model_list:
                 ### LOAD FROM os.environ/ ###
                 for k, v in model["litellm_params"].items():
@@ -10936,9 +10926,7 @@ class ProxyStartupEvent:
 
         memory_monitor_interval: Final = get_sample_interval_seconds()
         if memory_monitor_interval > 0:
-            memory_monitor: Final = MemoryMonitor(
-                sample_interval_seconds=memory_monitor_interval
-            )
+            memory_monitor: Final = MemoryMonitor(sample_interval_seconds=memory_monitor_interval)
             scheduler.add_job(
                 memory_monitor.sample,
                 "interval",
@@ -12942,13 +12930,13 @@ async def moderations(
 
 
 async def _audio_speech_chunk_generator(
-    _response: HttpxBinaryResponseContent,
+    _response: HttpxBinaryResponseContent, chunk_size: int | None = AUDIO_SPEECH_CHUNK_SIZE
 ) -> AsyncGenerator[bytes, None]:
     # chunk_size has a big impact on latency, it can't be too small or too large
     # too small: latency is high
     # too large: latency is low, but memory usage is high
     # 8192 is a good compromise
-    _generator: Final = await _response.aiter_bytes(chunk_size=AUDIO_SPEECH_CHUNK_SIZE)
+    _generator: Final = await _response.aiter_bytes(chunk_size=chunk_size)
     try:
         async for chunk in _generator:
             yield chunk
@@ -13053,13 +13041,27 @@ async def audio_speech(
         upstream_content_type: Final = (
             response.content_type if isinstance(response, HttpxBinaryResponseContent) else None
         )
-        media_type: Final = resolve_speech_media_type(
-            upstream_content_type=upstream_content_type,
-            response_format=requested_format if isinstance(requested_format, str) else None,
+        hidden_response_format: Final = hidden_params.get("response_format")
+        native_response_format: Final = hidden_response_format if isinstance(hidden_response_format, str) else None
+        media_type: Final = (
+            "text/event-stream"
+            if data.get("stream_format") == "sse"
+            else resolve_speech_media_type(
+                upstream_content_type=upstream_content_type if native_response_format is None else None,
+                response_format=(
+                    native_response_format
+                    if native_response_format is not None
+                    else requested_format
+                    if isinstance(requested_format, str)
+                    else None
+                ),
+            )
         )
 
         return StreamingResponse(
-            _audio_speech_chunk_generator(response),
+            _audio_speech_chunk_generator(
+                response, chunk_size=None if media_type == "text/event-stream" else AUDIO_SPEECH_CHUNK_SIZE
+            ),
             media_type=media_type,
             headers=custom_headers,
         )

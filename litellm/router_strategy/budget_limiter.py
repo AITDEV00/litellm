@@ -128,7 +128,9 @@ class RouterBudgetLimiting(CustomLogger):
         self._redis_increment_queue_lock = asyncio.Lock()
         self._redis_increment_flush_lock = asyncio.Lock()
         self._detached_increment_operations: tuple[RedisPipelineIncrementOperation, ...] | None = None
-        asyncio.create_task(self.periodic_sync_in_memory_spend_with_redis())
+        self._sync_task: asyncio.Task[None] | None = asyncio.create_task(
+            self.periodic_sync_in_memory_spend_with_redis()
+        )
         self.provider_budget_config: GenericBudgetConfigType | None = provider_budget_config
         self.deployment_budget_config: GenericBudgetConfigType | None = None
         self.tag_budget_config: GenericBudgetConfigType | None = None
@@ -139,6 +141,12 @@ class RouterBudgetLimiting(CustomLogger):
         # Add self to litellm callbacks if it's a list
         if isinstance(litellm.callbacks, list):
             litellm.logging_callback_manager.add_litellm_callback(self)
+
+    def dispose(self) -> None:
+        task: asyncio.Task[None] | None = self._sync_task
+        self._sync_task = None
+        if task is not None:
+            task.cancel()
 
     @with_service_target("router_budgets")
     async def async_filter_deployments(

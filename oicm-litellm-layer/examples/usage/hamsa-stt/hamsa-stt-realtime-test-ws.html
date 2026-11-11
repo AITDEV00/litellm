@@ -88,6 +88,7 @@
         }
 
         input[type="text"],
+        input[type="password"],
         input[type="number"],
         input[type="url"] {
             padding: 10px 12px;
@@ -99,6 +100,7 @@
         }
 
         input[type="text"]:focus,
+        input[type="password"]:focus,
         input[type="number"]:focus,
         input[type="url"]:focus {
             outline: none;
@@ -492,12 +494,12 @@
 
                 <div class="input-group">
                     <div class="input-wrapper">
-                        <label for="apiKey">Encrypted API Key</label>
-                        <input type="text" id="apiKey" placeholder="gAAAAAB..." value="gAAAAABo-1oxslqx1hGc8nGn_7iWiD0jwAGE7tDk3MgA-t_9gM05qFZIP1tTiBgJpDkTaTrf7OHe9RLj2AjspUYuKxAqVnPjIJ6AD6q-0E8paCMBreZ8pGc=" required>
+                        <label for="apiKey">Provider API Key (optional)</label>
+                        <input type="password" id="apiKey" placeholder="Leave blank to use gateway configuration" value="">
                     </div>
                     <div class="input-wrapper">
                         <label for="bearerToken">LiteLLM API Key (Bearer Token)</label>
-                        <input type="text" id="bearerToken" placeholder="sk-..." value="">
+                        <input type="password" id="bearerToken" placeholder="sk-..." value="">
                     </div>
                 </div>
             </div>
@@ -794,9 +796,9 @@ curl -s -X POST \
                 hasBearerToken: !!bearerToken
             });
 
-            if (!wsUrl || !apiKey) {
-                logError('VALIDATION', 'Missing WebSocket URL or API Key');
-                showStatus('Please enter WebSocket URL and API Key', 'error');
+            if (!wsUrl) {
+                logError('VALIDATION', 'Missing WebSocket URL');
+                showStatus('Please enter WebSocket URL', 'error');
                 return;
             }
 

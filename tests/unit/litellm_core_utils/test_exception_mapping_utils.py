@@ -410,6 +410,25 @@ def test_openai_compatible_429_still_maps_to_rate_limit():
 
 
 @pytest.mark.parametrize(
+    ("status_code", "expected"),
+    ((400, litellm.BadRequestError), (401, litellm.AuthenticationError), (429, litellm.RateLimitError)),
+)
+def test_hamsa_preserves_the_public_error_status(status_code: int, expected: type[Exception]) -> None:
+    request: Final = httpx.Request("POST", "https://api.hamsa.test/v1/audio/speech")
+    original: Final = OpenAIError(
+        message="Provider rejected request",
+        status_code=status_code,
+        request=request,
+        response=httpx.Response(status_code, request=request),
+        body={"error": {"message": "Provider rejected request"}},
+        headers={},
+    )
+    with pytest.raises(expected) as raised:
+        exception_type(model="hamsa-tts-new", original_exception=original, custom_llm_provider="hamsa")
+    assert raised.value.status_code == status_code
+
+
+@pytest.mark.parametrize(
     "error_message",
     [
         "AnthropicException - prompt is too long: 250000 tokens > 200000 maximum",
@@ -832,6 +851,7 @@ DEVIATIONS_FROM_THE_OPENAI_SHAPE = {
     "fireworks_ai": {402: (litellm.APIError, 402)},
     "gemini": {403: PERMISSION_DENIED},
     "groq": {402: (litellm.APIError, 402)},
+    "hamsa": {403: PERMISSION_DENIED},
     "huggingface": {
         402: (litellm.APIError, 402),
         404: (litellm.APIError, 404),
@@ -887,6 +907,7 @@ PROVIDERS_WITH_A_HANDLER = (
     "fireworks_ai",
     "gemini",
     "groq",
+    "hamsa",
     "huggingface",
     "inferenceapis",
     "mistral",

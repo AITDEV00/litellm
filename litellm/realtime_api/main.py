@@ -523,6 +523,18 @@ async def _arealtime(
         )
         return
 
+    if _custom_llm_provider == "hamsa":
+        from litellm.llms.hamsa.realtime.handler import hamsa_realtime
+
+        await hamsa_realtime(
+            model=model,
+            websocket=websocket,
+            api_base=dynamic_api_base or litellm_params.api_base,
+            api_key=dynamic_api_key,
+            logging_obj=litellm_logging_obj,
+        )
+        return
+
     provider_config: BaseRealtimeConfig | None = None
     if _custom_llm_provider in LlmProviders._member_map_.values():
         provider_config = ProviderConfigManager.get_provider_realtime_config(

@@ -125,6 +125,11 @@ spec:
             # Dev is reached via port-forward; prod uses its ingress host.
             - name: LITELLM_PUBLIC_BASE_URL
               value: "http://localhost:14001"
+            - name: HAMSA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-provider-hamsa-dev
+                  key: api-key
       volumes:
         - name: config
           configMap:

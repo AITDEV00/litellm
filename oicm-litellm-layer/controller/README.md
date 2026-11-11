@@ -140,6 +140,7 @@ the composite UUID format `submariner:{cluster}:{id}` prevents collisions.
 | `CLUSTER_NAME` | (required, no default) | Names of the cluster this controller runs in (e.g. `alain`); stored on every model row as `oicm_cluster`. Startup fails if unset |
 | `CLUSTER_DOMAIN` | `svc.cluster.local` | Kubernetes cluster domain for local service DNS |
 | `MODEL_PORT` | `8080` | Port that model servers listen on |
+| `HAMSA_API_KEY` | (unset) | Gateway environment variable used by discovered Hamsa native deployments; provision from a Secret, never inline it |
 | `SYNC_INTERVAL` | `300` | Seconds between full sync cycles |
 | `WATCH_TIMEOUT` | `300` | Kubernetes watch timeout in seconds |
 | `HEALTH_PORT` | `8090` | HTTP health check server port |

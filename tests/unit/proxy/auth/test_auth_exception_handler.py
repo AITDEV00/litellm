@@ -35,7 +35,11 @@ from litellm.proxy._types import (
     ProxyException,
     UserAPIKeyAuth,
 )
-from litellm.proxy.auth.auth_exception_handler import UserAPIKeyAuthExceptionHandler, _as_proxy_exception
+from litellm.proxy.auth.auth_exception_handler import (
+    DB_UNAVAILABLE_FALLBACK_USER_ID,
+    UserAPIKeyAuthExceptionHandler,
+    _as_proxy_exception,
+)
 from litellm.proxy.auth.model_access_denied import ModelAccessDeniedHTTPException
 
 
@@ -78,6 +82,103 @@ async def test_handle_authentication_error_db_unavailable_connectivity(db_error)
         )
         assert result.key_name == "failed-to-connect-to-db"
         assert result.token == "failed-to-connect-to-db"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["allowed-model", "forbidden-model"])
+async def test_db_outage_retains_cached_key_scope_without_issuing_anonymous_admin(model, monkeypatch):
+    cached = UserAPIKeyAuth(
+        token="cached-token",
+        user_id="cached-user",
+        models=["allowed-model"],
+        team_id="cached-team",
+        team_models=["allowed-model"],
+        max_budget=0.01,
+        user_role="internal_user",
+    )
+    from litellm.proxy import proxy_server
+
+    monkeypatch.setattr(proxy_server, "general_settings", {"allow_requests_on_db_unavailable": True})
+    monkeypatch.setattr(proxy_server, "llm_model_list", [])
+    monkeypatch.setattr(proxy_server, "llm_router", None)
+    request = Request({"type": "http", "headers": [], "query_string": b""})
+
+    async def recover():
+        return await UserAPIKeyAuthExceptionHandler.handle_authentication_error(
+            e=httpx.ConnectError("database unavailable"),
+            request=request,
+            request_data={"model": model},
+            route="/v1/chat/completions",
+            parent_otel_span=None,
+            api_key="sk-scoped",
+            resolved_identity=cached,
+        )
+
+    if model == "forbidden-model":
+        with pytest.raises(ModelAccessDeniedProxyException) as denied:
+            await recover()
+        assert denied.value.code == "403"
+        return
+
+    result = await recover()
+    assert result.models == ["allowed-model"]
+    assert result.team_models == ["allowed-model"]
+    assert result.team_id == "cached-team"
+    assert result.user_id == "cached-user"
+    assert result.max_budget == 0.01
+    assert result.token == "cached-token"
+    assert result.token != "failed-to-connect-to-db"
+    assert result.user_id != DB_UNAVAILABLE_FALLBACK_USER_ID
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expiry", ("aware", "iso"))
+async def test_db_outage_does_not_revive_expired_cached_key(expiry, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from litellm.proxy import proxy_server
+
+    monkeypatch.setattr(proxy_server, "general_settings", {"allow_requests_on_db_unavailable": True})
+    expired = datetime.now(timezone.utc) - timedelta(minutes=1)
+    cached = UserAPIKeyAuth(
+        token="cached-token",
+        user_id="cached-user",
+        models=["allowed-model"],
+        expires=expired if expiry == "aware" else expired.isoformat(),
+    )
+    with pytest.raises(ProxyException) as denied:
+        await UserAPIKeyAuthExceptionHandler.handle_authentication_error(
+            e=httpx.ConnectError("database unavailable"),
+            request=Request({"type": "http", "headers": [], "query_string": b""}),
+            request_data={"model": "allowed-model"},
+            route="/v1/chat/completions",
+            parent_otel_span=None,
+            api_key="sk-scoped",
+            resolved_identity=cached,
+        )
+    assert denied.value.code == "401"
+    assert denied.value.type == ProxyErrorTypes.expired_key
+
+
+@pytest.mark.asyncio
+async def test_cached_key_db_recovery_is_refused_when_fallback_disabled(monkeypatch):
+    from litellm.proxy import proxy_server
+
+    monkeypatch.setattr(proxy_server, "general_settings", {"allow_requests_on_db_unavailable": False})
+    cached = UserAPIKeyAuth(token="cached-token", user_id="cached-user", models=["allowed-model"])
+
+    with pytest.raises(ProxyException) as denied:
+        await UserAPIKeyAuthExceptionHandler.handle_authentication_error(
+            e=httpx.ConnectError("database unavailable"),
+            request=Request({"type": "http", "headers": [], "query_string": b""}),
+            request_data={"model": "allowed-model"},
+            route="/v1/chat/completions",
+            parent_otel_span=None,
+            api_key="sk-scoped",
+            resolved_identity=cached,
+        )
+
+    assert denied.value.code == "503"
 
 
 @pytest.mark.asyncio
@@ -215,22 +316,12 @@ async def test_handle_authentication_error_transient_outage_503_keeps_retry_word
     "prisma_error",
     [
         DataError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
-        UniqueViolationError(
-            data={"user_facing_error": {"meta": {"table": "test_table"}}}
-        ),
-        ForeignKeyViolationError(
-            data={"user_facing_error": {"meta": {"table": "test_table"}}}
-        ),
-        MissingRequiredValueError(
-            data={"user_facing_error": {"meta": {"table": "test_table"}}}
-        ),
+        UniqueViolationError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
+        ForeignKeyViolationError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
+        MissingRequiredValueError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
         RawQueryError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
-        TableNotFoundError(
-            data={"user_facing_error": {"meta": {"table": "test_table"}}}
-        ),
-        RecordNotFoundError(
-            data={"user_facing_error": {"meta": {"table": "test_table"}}}
-        ),
+        TableNotFoundError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
+        RecordNotFoundError(data={"user_facing_error": {"meta": {"table": "test_table"}}}),
     ],
 )
 async def test_handle_authentication_error_data_layer_errors_do_not_fall_back(
@@ -433,9 +524,7 @@ async def test_handle_authentication_error_budget_exceeded():
     # Test with budget exceeded error
     from litellm.exceptions import BudgetExceededError
 
-    budget_error = BudgetExceededError(
-        message="Budget exceeded", current_cost=100, max_budget=100
-    )
+    budget_error = BudgetExceededError(message="Budget exceeded", current_cost=100, max_budget=100)
 
     with pytest.raises(ProxyException) as exc_info:
         await handler.handle_authentication_error(
@@ -1082,9 +1171,7 @@ def _marked_malformed_key_error() -> HTTPException:
     "auth_error,expect_traceback,expect_level",
     [
         pytest.param(
-            ProxyException(
-                message="Authentication Error", type=ProxyErrorTypes.auth_error, param=None, code=401
-            ),
+            ProxyException(message="Authentication Error", type=ProxyErrorTypes.auth_error, param=None, code=401),
             False,
             "ERROR",
             id="expected_401_no_traceback",
@@ -1104,7 +1191,9 @@ def _marked_malformed_key_error() -> HTTPException:
         ),
     ],
 )
-async def test_handle_authentication_error_traceback_only_for_unexpected_errors(auth_error, expect_traceback, expect_level, caplog):
+async def test_handle_authentication_error_traceback_only_for_unexpected_errors(
+    auth_error, expect_traceback, expect_level, caplog
+):
     """Regression for LIT-6043: expected 4xx auth rejections must not format a
     traceback via logger.exception; malformed virtual keys log at WARNING."""
     handler = UserAPIKeyAuthExceptionHandler()
@@ -1128,7 +1217,10 @@ async def test_handle_authentication_error_traceback_only_for_unexpected_errors(
             try:
                 raise auth_error
             except (ProxyException, ValueError, HTTPException) as caught:
-                with caplog.at_level(expect_level, logger="LiteLLM Proxy"), pytest.raises((ProxyException, HTTPException)):
+                with (
+                    caplog.at_level(expect_level, logger="LiteLLM Proxy"),
+                    pytest.raises((ProxyException, HTTPException)),
+                ):
                     await handler.handle_authentication_error(
                         caught,
                         MagicMock(),

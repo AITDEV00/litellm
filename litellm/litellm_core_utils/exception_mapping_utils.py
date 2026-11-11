@@ -1979,6 +1979,48 @@ def _map_vllm_exception(
             )
 
 
+def _map_hamsa_exception(
+    *,
+    model: str,
+    original_exception: _ProviderHTTPException,
+    custom_llm_provider: str,
+    error_str: str,
+    exception_type: str,
+    exception_provider: str,
+    extra_information: str,
+) -> None:
+    status_code: Final = getattr(original_exception, "status_code", None)
+    message: Final = getattr(original_exception, "message", None) or error_str
+
+    body: Final = getattr(original_exception, "body", None)
+    error: Final = body.get("error") if isinstance(body, dict) else None
+    raw_code: Final = error.get("code") if isinstance(error, dict) else None
+    error_code: Final = (
+        raw_code
+        if isinstance(raw_code, str)
+        else next(
+            (code for code in ("speaker_not_found", "invalid_request", "model_not_found") if code in error_str), None
+        )
+    )
+
+    if error_code in ("speaker_not_found", "model_not_found"):
+        raise BadRequestError(
+            message=f"HamsaException - {message}",
+            model=model,
+            llm_provider=custom_llm_provider,
+            litellm_debug_info=extra_information,
+            response=getattr(original_exception, "response", None),
+        )
+    if error_code == "invalid_request" or status_code == 422:
+        raise BadRequestError(
+            message=f"HamsaException - {message}",
+            model=model,
+            llm_provider=custom_llm_provider,
+            litellm_debug_info=extra_information,
+            response=getattr(original_exception, "response", None),
+        )
+
+
 def _map_azure_exception(
     *,
     model: str,
@@ -2709,6 +2751,16 @@ def exception_type(
                 )
             elif custom_llm_provider == "azure" or custom_llm_provider == "azure_text":
                 _map_azure_exception(
+                    model=model,
+                    original_exception=mappable_exception,
+                    custom_llm_provider=custom_llm_provider,
+                    error_str=error_str,
+                    exception_type=exception_type,
+                    exception_provider=exception_provider,
+                    extra_information=extra_information,
+                )
+            elif custom_llm_provider == "hamsa":
+                _map_hamsa_exception(
                     model=model,
                     original_exception=mappable_exception,
                     custom_llm_provider=custom_llm_provider,

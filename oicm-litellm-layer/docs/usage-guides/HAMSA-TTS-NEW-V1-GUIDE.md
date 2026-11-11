@@ -69,10 +69,10 @@ Returns **WAV audio** (16-bit mono 16 kHz PCM). Save the binary response to a fi
 | `model` | yes | | Must be `hamsa-tts-new` |
 | `input` | yes | | Text to synthesize (Arabic or English) |
 | `voice` | yes | | Speaker name — see voice list below |
-| `response_format` | no | `wav` | `wav` or `pcm` (with `stream`) |
+| `response_format` | no | `wav` | `wav` for buffered WAV, `pcm` for raw PCM, or native `mulaw` for raw mu-law streaming |
 | `speed` | no | `1.0` | `0.5` – `2.0` |
 | `expressiveness` | no | `1.0` | `0.0` – `2.0` |
-| `stream` | no | `false` | `true` returns raw headerless 16-bit 16 kHz mono PCM, delivered in chunks as synthesis proceeds (first chunk in ~300 ms). Send `response_format: "pcm"` so the gateway labels the body `audio/pcm` |
+| `stream` | no | `false` | Deliver raw audio in chunks as synthesis proceeds, with `audio/pcm` for `response_format=pcm` and `audio/basic` for `response_format=mulaw` |
 
 ### Sample curl
 

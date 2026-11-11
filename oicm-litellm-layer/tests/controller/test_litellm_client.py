@@ -87,6 +87,12 @@ async def test_register_payload_stamps_api_surface_for_hamsa_v1():
     assert captured["json"]["litellm_params"]["api_base"].endswith(":8080")
 
 
+def test_register_payload_does_not_inject_an_empty_provider_api_key():
+    payload = _register_payload(_make_model(provider="hamsa", mode="audio_transcription"), None)
+
+    assert "api_key" not in payload["litellm_params"]
+
+
 @pytest.mark.asyncio
 async def test_register_payload_omits_api_surface_when_unset():
     captured = {}
@@ -256,6 +262,7 @@ async def test_list_all_models_groups_by_uuid_alone():
     assert set(grouped.keys()) == {"9dcd9568", "894cea22"}
     assert grouped["9dcd9568"][0]["model_id"] == "gw-1"
     assert grouped["894cea22"][0]["model_id"] == "gw-2"
+
 
 @pytest.mark.asyncio
 async def test_list_all_models_strips_the_submariner_prefix_when_grouping():
@@ -436,12 +443,14 @@ async def test_report_status_posts_one_batch_and_requires_full_save():
         async def post(self, url, json=None, **kwargs):
             seen["url"] = url
             seen["json"] = json
-            return httpx.Response(200, json={"saved": len(json["reports"]), "received": len(json["reports"])}, request=httpx.Request("POST", url))
+            return httpx.Response(
+                200,
+                json={"saved": len(json["reports"]), "received": len(json["reports"])},
+                request=httpx.Request("POST", url),
+            )
 
     client = LiteLLMClient(read_only=False, client=_PostClient())
-    ok = await client.report_status(
-        [{"model_name": "m1", "litellm_model_id": "id-1", "healthy": True}]
-    )
+    ok = await client.report_status([{"model_name": "m1", "litellm_model_id": "id-1", "healthy": True}])
 
     assert ok is True
     assert seen["url"].endswith("/oicm/v1/status-reports")
@@ -464,7 +473,11 @@ async def test_report_heartbeats_maps_per_cluster_results():
         async def post(self, url, json=None, **kwargs):
             seen["url"] = url
             seen["json"] = json
-            return httpx.Response(200, json={"saved": len(json["heartbeats"]), "received": len(json["heartbeats"])}, request=httpx.Request("POST", url))
+            return httpx.Response(
+                200,
+                json={"saved": len(json["heartbeats"]), "received": len(json["heartbeats"])},
+                request=httpx.Request("POST", url),
+            )
 
     client = LiteLLMClient(read_only=False, client=_PostClient())
     result = await client.report_heartbeats(["alain", "abudhabi"])

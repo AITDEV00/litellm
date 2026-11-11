@@ -71,6 +71,7 @@ _DEV_ONLY_ENV_VARS: Final = frozenset(
         "DATABASE_USERNAME",
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
+        "HAMSA_API_KEY",
     }
 )
 
@@ -243,14 +244,11 @@ def test_rustfs_store_is_per_environment(prod: dict[str, dict], dev: dict[str, d
         if kind in ("StatefulSet", "Service"):
             own = (dev[dev_key].get("metadata") or {}).get("labels") or {}
             assert own.get("app") == label, (
-                f"{dev_key} must carry app={label!r} so it cannot select prod's pods, "
-                f"got {own.get('app')!r}"
+                f"{dev_key} must carry app={label!r} so it cannot select prod's pods, got {own.get('app')!r}"
             )
     dev_creds = _secret_value(dev["Secret/litellm-rustfs-credentials-dev"], "access-key")
     prod_creds = _secret_value(prod["Secret/litellm-rustfs-credentials"], "access-key")
-    assert dev_creds and prod_creds and dev_creds != prod_creds, (
-        "dev and prod must hold different RustFS credentials"
-    )
+    assert dev_creds and prod_creds and dev_creds != prod_creds, "dev and prod must hold different RustFS credentials"
     dev_script = dev["ConfigMap/litellm-rustfs-bootstrap-dev"]["data"]["bootstrap.sh"]
     prod_script = prod["ConfigMap/litellm-rustfs-bootstrap"]["data"]["bootstrap.sh"]
 
@@ -271,9 +269,7 @@ def test_rustfs_store_is_per_environment(prod: dict[str, dict], dev: dict[str, d
     np = dev["NetworkPolicy/rustfs-dev"]["spec"]
     assert np["podSelector"]["matchLabels"]["app"] == "rustfs-dev"
     allowed = {src["podSelector"]["matchLabels"]["app"] for src in np["ingress"][0]["from"]}
-    assert allowed == {"litellm-proxy-dev", "rustfs-dev"}, (
-        f"dev store policy must allow only dev pods, got {allowed}"
-    )
+    assert allowed == {"litellm-proxy-dev", "rustfs-dev"}, f"dev store policy must allow only dev pods, got {allowed}"
 
 
 def test_deployment_env_keys_match(prod: dict[str, dict], dev: dict[str, dict]):
@@ -292,17 +288,11 @@ def test_deployment_env_diff_is_only_the_expected_values(prod: dict[str, dict], 
     """Every env difference must be one the dev overlay declares."""
     prod_env = _env_sources(prod["Deployment/litellm-proxy"])
     dev_env = _env_sources(dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"])
-    differing = {
-        name for name in prod_env if name in dev_env and prod_env[name] != dev_env[name]
-    }
+    differing = {name for name in prod_env if name in dev_env and prod_env[name] != dev_env[name]}
     unexpected = differing - _EXPECTED_ENV_DIFFS
-    assert not unexpected, (
-        f"env vars differ without being declared in the dev overlay: {sorted(unexpected)}"
-    )
+    assert not unexpected, f"env vars differ without being declared in the dev overlay: {sorted(unexpected)}"
     stale = _EXPECTED_ENV_DIFFS - differing
-    assert not stale, (
-        f"the dev overlay declares env diffs that no longer differ: {sorted(stale)}"
-    )
+    assert not stale, f"the dev overlay declares env diffs that no longer differ: {sorted(stale)}"
 
 
 def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict[str, dict]):
@@ -323,14 +313,14 @@ def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict
     )
 
     prod_volumes = {v["name"]: v for v in prod["Deployment/litellm-proxy"]["spec"]["template"]["spec"]["volumes"]}
-    dev_volumes = {v["name"]: v for v in dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"]["spec"]["template"]["spec"]["volumes"]}
+    dev_volumes = {
+        v["name"]: v for v in dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"]["spec"]["template"]["spec"]["volumes"]
+    }
     assert set(prod_volumes) == set(dev_volumes), "the two Deployments must declare the same volume names"
 
     # The shared volumes must be byte-identical; only `config` points elsewhere.
     for name in set(prod_volumes) - {"config"}:
-        assert prod_volumes[name] == dev_volumes[name], (
-            f"volume {name!r} differs between prod and dev"
-        )
+        assert prod_volumes[name] == dev_volumes[name], f"volume {name!r} differs between prod and dev"
     prod_source = prod_volumes["config"]["configMap"]["name"]
     dev_source = dev_volumes["config"]["configMap"]["name"]
     assert dev_source == f"{prod_source}{_DEV_SUFFIX}", (
@@ -362,14 +352,9 @@ def test_config_diff_is_only_the_expected_keys(prod: dict[str, dict], dev: dict[
     differing = {k for k in prod_flat if dev_flat.get(k) != prod_flat[k]}
     differing |= {k for k in dev_flat if k not in prod_flat}
     unexpected = differing - declared
-    assert not unexpected, (
-        "config keys differ without being declared in the dev overlay: "
-        f"{sorted(unexpected)}"
-    )
+    assert not unexpected, f"config keys differ without being declared in the dev overlay: {sorted(unexpected)}"
     stale = declared - differing
-    assert not stale, (
-        f"the dev overlay declares config diffs that no longer differ: {sorted(stale)}"
-    )
+    assert not stale, f"the dev overlay declares config diffs that no longer differ: {sorted(stale)}"
 
 
 def _flatten(document: object, prefix: str = "") -> dict[str, object]:
@@ -421,14 +406,9 @@ def test_dev_selectors_never_target_prod_pods(dev: dict[str, dict]):
     wrote PRODUCTION. A selector value is a pod label, so a dev object naming the
     prod label is always a routing bug, never a coincidence.
     """
-    offenders = {
-        key: _selector_labels(doc)
-        for key, doc in dev.items()
-        if _PROD_POD_LABEL in _selector_labels(doc)
-    }
+    offenders = {key: _selector_labels(doc) for key, doc in dev.items() if _PROD_POD_LABEL in _selector_labels(doc)}
     assert not offenders, (
-        "dev objects select the prod pod label "
-        f"{_PROD_POD_LABEL!r}, so they route to production: {offenders}"
+        f"dev objects select the prod pod label {_PROD_POD_LABEL!r}, so they route to production: {offenders}"
     )
 
 
@@ -439,9 +419,7 @@ def test_dev_pods_carry_the_dev_label(dev: dict[str, dict]):
     the prod Service selects the dev pod and sends production traffic to it.
     """
     labels = dev["Deployment/litellm-proxy-dev"]["spec"]["template"]["metadata"]["labels"]
-    assert labels.get("app") == _DEV_POD_LABEL, (
-        f"dev pods must carry app={_DEV_POD_LABEL!r}, got {labels.get('app')!r}"
-    )
+    assert labels.get("app") == _DEV_POD_LABEL, f"dev pods must carry app={_DEV_POD_LABEL!r}, got {labels.get('app')!r}"
 
 
 def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str, dict]):
@@ -464,13 +442,9 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
         assert own.get("app") == _DEV_POD_LABEL, (
             f"{key} must carry app={_DEV_POD_LABEL!r} on its own labels, got {own.get('app')!r}"
         )
-        assert _PROD_POD_LABEL not in _selector_labels(doc), (
-            f"{key} still selects the prod pod label"
-        )
+        assert _PROD_POD_LABEL not in _selector_labels(doc), f"{key} still selects the prod pod label"
     for key in ("Service/litellm-proxy", "PodDisruptionBudget/litellm-proxy-pdb"):
-        assert _PROD_POD_LABEL in _selector_labels(prod[key]), (
-            f"prod {key} must still select app={_PROD_POD_LABEL!r}"
-        )
+        assert _PROD_POD_LABEL in _selector_labels(prod[key]), f"prod {key} must still select app={_PROD_POD_LABEL!r}"
 
 
 def _secret_value(secret: dict, key: str) -> str:
@@ -553,6 +527,4 @@ def test_dev_and_prod_database_urls_target_different_hosts(prod: dict[str, dict]
     )
     assert key == "host", f"dev DATABASE_HOST must read the Secret's `host` key, got {key!r}"
     assert prod_host != f"{_DEV_CNPG_SECRET}", "prod must not point at the dev cluster"
-    assert _DEV_DB_HOST not in prod_url, (
-        f"prod DATABASE_URL points at the dev host {_DEV_DB_HOST!r}: {prod_url!r}"
-    )
+    assert _DEV_DB_HOST not in prod_url, f"prod DATABASE_URL points at the dev host {_DEV_DB_HOST!r}: {prod_url!r}"

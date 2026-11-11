@@ -47,9 +47,7 @@ class LiteLLMClient:
         self.headers = _admin_headers(admin_key)
         self.read_only = read_only
         self._semaphore = asyncio.Semaphore(concurrency)
-        self._client = client or httpx.AsyncClient(
-            timeout=HTTP_TIMEOUT_SECONDS, headers=self.headers
-        )
+        self._client = client or httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, headers=self.headers)
         # Mutating calls get a tighter timeout than reads; a hung write stalls
         # the reconcile, a hung read only delays it.
         self._write_timeout = httpx.Timeout(REMOTE_TIMEOUT_SECONDS)
@@ -268,12 +266,8 @@ class LiteLLMClient:
         valid_deletes = [mid for mid in deletes if mid]
         del_results, reg_results, pat_results = await asyncio.gather(
             asyncio.gather(*(self._delete_one(mid) for mid in valid_deletes)),
-            asyncio.gather(
-                *(self._register_one(model, params) for model, params in registers)
-            ),
-            asyncio.gather(
-                *(self._patch_one(mid, params, info) for mid, params, info in patches)
-            ),
+            asyncio.gather(*(self._register_one(model, params) for model, params in registers)),
+            asyncio.gather(*(self._patch_one(mid, params, info) for mid, params, info in patches)),
         )
         deleted = sum(1 for r in del_results if r)
         # Keep None placeholders (failed registers) so callers can align results
@@ -296,9 +290,7 @@ class LiteLLMClient:
         for mid, params, _ in patches:
             logger.info("[READ-ONLY] would patch %s: model=%s", mid, params.get("model"))
 
-    async def register_model(
-        self, model: OicmModel, inherited_params: Optional[dict] = None
-    ) -> Optional[str]:
+    async def register_model(self, model: OicmModel, inherited_params: Optional[dict] = None) -> Optional[str]:
         if self.read_only:
             logger.info(
                 "[READ-ONLY] would register %s (mode=%s, provider=%s, api_base=%s)",
@@ -319,9 +311,7 @@ class LiteLLMClient:
         registered and visible while being excluded from routing.
         """
         if self.read_only:
-            logger.info(
-                "[READ-ONLY] would set blocked=%s on %s", blocked, litellm_model_id
-            )
+            logger.info("[READ-ONLY] would set blocked=%s on %s", blocked, litellm_model_id)
             return False
         async with self._semaphore:
             try:
@@ -331,9 +321,7 @@ class LiteLLMClient:
                     timeout=self._write_timeout,
                 )
                 resp.raise_for_status()
-                logger.info(
-                    "Set blocked=%s on litellm_id=%s", blocked, litellm_model_id
-                )
+                logger.info("Set blocked=%s on litellm_id=%s", blocked, litellm_model_id)
                 return True
             except Exception as e:
                 logger.error(
@@ -381,9 +369,7 @@ class LiteLLMClient:
                 )
                 return model_id
             except Exception as e:
-                logger.error(
-                    "Failed to register %s: %s", model.model_name, _error_detail(e)
-                )
+                logger.error("Failed to register %s: %s", model.model_name, _error_detail(e))
                 return None
 
     async def _patch_one(
@@ -406,9 +392,7 @@ class LiteLLMClient:
                 logger.info("Patched model litellm_id=%s", litellm_model_id)
                 return True
             except Exception as e:
-                logger.error(
-                    "Failed to patch %s: %s", litellm_model_id, _error_detail(e)
-                )
+                logger.error("Failed to patch %s: %s", litellm_model_id, _error_detail(e))
                 return False
 
 
@@ -422,7 +406,6 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
     litellm_params: dict = {
         "model": f"{model.provider}/{model.model_id}",
         "api_base": model.api_base,
-        "api_key": "",
         "drop_params": True,
     }
     if model.api_surface:
@@ -454,7 +437,7 @@ def _register_payload(model: OicmModel, inherited_params: Optional[dict]) -> dic
     # max_tokens is pinned too: it is the legacy output field some clients fall
     # back to, and leaving it unset lets the discovery refresh stamp the window
     # back into it.
-    model_info.update(model.token_budgets)    # Capability flags are stamped for the same reason: a stored null-capability
+    model_info.update(model.token_budgets)  # Capability flags are stamped for the same reason: a stored null-capability
     # row makes compliant clients silently drop attached images/audio, and the
     # gateway's discovery never fills these keys (see capabilities.py).
     model_info.update(model.capability_stamp)

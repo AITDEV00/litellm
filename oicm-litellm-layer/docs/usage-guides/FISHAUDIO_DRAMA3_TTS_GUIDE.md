@@ -255,7 +255,10 @@ curl -sN -X POST "$BASE/v1/audio/speech" \
   -o out.pcm
 ```
 
-Add `"stream_format":"sse"` for `speech.audio.delta` events.
+Add `"stream_format":"sse"` for the native event stream. The outer response has
+`Content-Type: text/event-stream`, carries `speech.audio.delta` events containing
+audio payloads, and terminates with `speech.audio.done`. The gateway forwards
+event frames as they arrive rather than buffering them as raw binary audio.
 
 ### G. Clone a voice inline from a URL
 

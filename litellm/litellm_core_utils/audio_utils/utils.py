@@ -352,6 +352,8 @@ DEFAULT_SPEECH_MEDIA_TYPE: Final = "audio/mpeg"
 
 
 def _speech_media_type_for_response_format(response_format: str) -> str | None:
+    if response_format.lower() == "mulaw":
+        return "audio/basic"
     file_type: Final = next(
         (candidate for candidate, extensions in FILE_EXTENSIONS.items() if response_format.lower() in extensions),
         None,

@@ -270,6 +270,62 @@ def test_model_performance_scoped_by_team(client, auth_as, monkeypatch):
     assert captured_params["params"][4] == "team-abc"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch", ["raw", "rollup"])
+async def test_heavy_model_performance_queries_bound_row_transport(monkeypatch, fetch):
+    import litellm.proxy.model_metrics_endpoints.model_performance_endpoints as metrics
+    import datetime as dates
+
+    monkeypatch.setattr(metrics, "_heavy_query_prisma_client", None)
+    monkeypatch.setattr(metrics, "_DB_CACHE", metrics.InMemoryCache(max_size_in_memory=64, default_ttl=300))
+    query = AsyncMock(return_value=[])
+    client = MagicMock()
+    client.db.query_raw = query
+    monkeypatch.setattr(proxy_server, "prisma_client", client)
+    monkeypatch.setattr(metrics, "_get_heavy_query_prisma_client", AsyncMock(return_value=client))
+    end = dates.datetime.now(dates.timezone.utc)
+    start = end - dates.timedelta(days=15)
+    common = {"window": "24h", "model_group": None, "start_time": start, "end_time": end}
+    if fetch == "raw":
+        await metrics._fetch_db_performance(**common, scope=metrics.EntityScope())
+    else:
+        await metrics._fetch_db_performance_from_rollup(**common)
+    assert query.await_count == 1
+    assert query.await_args.args[0].strip().endswith("LIMIT 50000")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_heavy_queries_reuse_a_single_inflight_client(monkeypatch):
+    import asyncio
+    import litellm.proxy.model_metrics_endpoints.model_performance_endpoints as metrics
+    import litellm.proxy.utils as utils
+
+    monkeypatch.setattr(metrics, "_heavy_query_prisma_client", None)
+    gates = asyncio.Event()
+    constructions = 0
+
+    class Client:
+        def __init__(self, **kwargs):
+            nonlocal constructions
+            constructions += 1
+            assert kwargs["http_client"]["timeout"] > 0
+
+        async def connect(self):
+            await gates.wait()
+
+    monkeypatch.setattr(utils, "PrismaClient", Client)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://audit.invalid/unit-test")
+    calls = [asyncio.create_task(metrics._get_heavy_query_prisma_client()) for _ in range(5)]
+    await asyncio.sleep(0)
+    assert constructions == 1
+    assert all(not task.done() for task in calls)
+    clients = [metrics._heavy_query_prisma_client]
+    gates.set()
+    results = await asyncio.gather(*calls)
+    assert len({id(client) for client in results}) == 1
+    assert constructions == 1
+
+
 # ---------------------------------------------------------------------------
 # GET /model/performance — Prometheus path (readable names + aggregation)
 # ---------------------------------------------------------------------------
@@ -758,9 +814,7 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
     # Grouping must keep the readable name label, else the range result loses
     # it and the handler cannot recover a non-UUID model_group.
     assert "sum by (model_id, litellm_model_name)" in concurrency
-    assert "sum by (model_id)" not in concurrency.replace(
-        "sum by (model_id, litellm_model_name)", ""
-    )
+    assert "sum by (model_id)" not in concurrency.replace("sum by (model_id, litellm_model_name)", "")
 
     throughput = next(p for p in captured if "output_tokens_metric_total" in p)
     assert "sum by (model_id, requested_model)" in throughput
@@ -769,9 +823,7 @@ def test_model_performance_promql_preserves_model_name_label(client, auth_as, mo
     assert "sum by (le, model_id, model)" in ttft
 
 
-def test_model_performance_prometheus_filters_each_metric_on_a_label_it_exposes(
-    client, auth_as, monkeypatch
-):
+def test_model_performance_prometheus_filters_each_metric_on_a_label_it_exposes(client, auth_as, monkeypatch):
     """A model_group filter must not silently empty the throughput series.
 
     The output-tokens counter exposes ``requested_model`` (and ``model``), but
@@ -801,9 +853,7 @@ def test_model_performance_prometheus_filters_each_metric_on_a_label_it_exposes(
     )
 
     with auth_as():
-        response = client.get(
-            "/model/performance", params={"window": "15m", "model_group": "gpt-4"}
-        )
+        response = client.get("/model/performance", params={"window": "15m", "model_group": "gpt-4"})
     assert response.status_code == 200
 
     by_metric = {
