@@ -83,6 +83,26 @@ and the tag:
 make controller-deploy-prod BUILD=0 TAG=0.1.0-20261103-4d922d8
 ```
 
+For source changes, build the controller first. Do not take a successful
+`make dev-controller` / `make prod-controller` as an image deployment: those
+primitives apply the manifest's existing pin and the environment's exclusions,
+but do not build, push, or repoint the image. Build and validate dev, promote the
+same bytes without rebuilding, then wait through a later full reconciliation:
+
+```bash
+make controller-build-push TAG=<version>
+make controller-deploy-dev TAG=<version>
+kubectl -n adeo-litellm logs deploy/oicm-discovery-controller-dev
+make controller-deploy-prod BUILD=0 TAG=<the-dev-validated-tag>
+kubectl -n adeo-litellm logs deploy/oicm-discovery-controller
+```
+
+For aliases, expect `/model/info` to show the canonical and short names with
+the same deployment ID as the controller learns them. Exercise real inference
+for both names. A subsequent full sync must retain that deployment rather than
+logging its deletion or registration; replica readiness and a successful startup
+sync alone do not establish long-term behavior.
+
 Gateway and controller roll out independently. Restarting one does not restart
 the other.
 

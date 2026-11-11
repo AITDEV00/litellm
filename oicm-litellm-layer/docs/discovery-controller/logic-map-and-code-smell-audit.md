@@ -278,6 +278,9 @@ LiteLLM register payload [litellm_client.py:139]
 
 #### controller/reconciler.py
 
+- **[FIXED: 2026-11-11, commit `827d7e4f4be`]** Alias-expanded `/model/info` entries shared `model_id` / `model_info.id` with their canonical rows. Treating them as independent duplicates selected their still-live deployment for `/model/delete`, and selecting alias-first also produced delete/recreate churn. `_pick_richest_entry` first collapses equal deployment IDs while preserving the canonical view. A repeated ID now cannot schedule a delete or a rename-triggered registration. Distinct IDs are still ranked by `CONFIG_KEYS`, so genuine duplicate reconciliation is unchanged
+- Regression test: canonical and alias rows returned by `/model/info` share one ID; `compute_plan` must yield `deletes == []` and `registers == []`. An HTTP 200 probe and successful controller deletion do not disprove this identity fault
+- Verified live with image `0.1.0-20261111-7a1e97a`: after the subsequent production five-minute sync, both Qwen names returned 200 with the same canonical deployment and no target deletion/re-registration
 - **[FIXED]** `existing_params` unused variable removed (L1)
 - **[SMELL: MEDIUM]** `SyncPlan` uses mutable `field(default_factory=...)` for lists and dicts. Violates immutability principle. The plan is built incrementally in `compute_plan` then mutated in `execute` (new_id_map, new_state updated). A frozen dataclass with builder pattern would be cleaner but would require significant restructuring
 - **[SMELL: LOW]** `CONFIG_KEYS` (line 16) is a module-level set used only in `_pick_richest_entry`. Could be a function-local constant, but module-level is acceptable for readability

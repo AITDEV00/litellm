@@ -1217,6 +1217,39 @@ The controller's `_pick_richest_entry` logic ranks genuinely separate deployment
 
 Models without an `oicm_uuid` in `model_info` are invisible to the controller and never deleted by it. A temporary unmanaged duplicate is useful during a backend migration only. Once the old workload is undeployed, delete that duplicate and use `model_group_alias` instead: a `POST /model/new` that reuses a public `model_name` is another router deployment, not a global alias.
 
+##### Verified regression: global aliases caused target deletion (2026-11-11)
+
+Before the alias-aware controller fix, `/model/info` exposed both the canonical
+name and its global alias with the same `model_info.id` / deployment ID and
+`oicm_uuid`. The two entries represented **one** real deployment:
+
+| Name | Deployment ID |
+|------|---------------|
+| `Qwen/Qwen3.6-35B-A3B-FP8` | one shared ID |
+| `Qwen3.6-35B-A3B-FP8` | the same shared ID |
+
+Duplicate selection counted these display entries as independent backends. It
+scheduled a `/model/delete` for their shared ID, deleting the target behind both
+names. If the alias was retained as the richer view, its short `model_name`
+then differed from the discovered canonical name and caused a delete and
+re-register instead of a no-op patch. Backend probes continued to return 200,
+and `Deleted 1/1 models` reported success: those were valid operations on the
+wrong selection, not evidence of backend failure or a missing OICM UUID.
+
+The controller now collapses repeated deployment IDs, retains the original
+canonical entry, and only compares genuinely different IDs for duplicate cleanup.
+The regression reproduces canonical and alias rows sharing an ID and asserts
+both `deletes == []` and `registers == []`.
+
+After changing this behavior, verify beyond the startup log: wait for a later
+`SYNC_INTERVAL` reconciliation and check successful short and full-name
+inference share one `x-litellm-model-id` and canonical `x-litellm-model-api-base`.
+Repeated `Starting full sync` / `Full sync complete` messages must contain no
+`Deleted` / re-registration of that target. A `db_model` read, a transient
+`Cannot edit config-based model` patch, or a stale router-settings read cannot
+replace this direct identity check. Do not restore the route with a transient
+unmanaged `/model/new` row as the long-term solution.
+
 #### 2. LiteLLM Proxy `add_deployment` background job (in-memory eviction)
 
 Even if a duplicate has no `oicm_uuid` (so the controller ignores it), the LiteLLM proxy itself runs a background `add_deployment` job every 30 seconds. This job fetches all models from the database, builds a combined ID list (DB models + config.yaml models), and evicts any router deployment whose ID is not in that list.
@@ -1665,8 +1698,11 @@ when the alias should be omitted from normal model listings.
 
 The helper [model_aliases.sh](../../scripts/models/model_aliases.sh) validates
 the target, preserves existing entries, refuses ambiguous/conflicting edits,
-and reads back the whole alias map after a write. It requires Bash, curl, and
-jq. Add/remove are dry-run by default:
+and reads back the whole alias map after a write. Writes, and reads that
+initially appear to be no-ops, are retried against the exact map before success
+is reported. If a subsequent read reveals necessary work, the helper performs
+that write rather than discarding it. It requires Bash, curl, and jq.
+Add/remove are dry-run by default:
 
 ```bash
 export PROXY_BASE_URL="https://litellm.ecouncil.ae"
