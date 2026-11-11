@@ -412,6 +412,13 @@ def test_openrouter_compatible_catalog_is_mounted_on_app() -> None:
     assert any(route.path == "/api/v1/models" for route in app.routes)
 
 
+@pytest.mark.parametrize("path", ["/model/performance", "/model/metrics/per_model"])
+def test_model_performance_routes_are_mounted_on_app(path: str) -> None:
+    from litellm.proxy.proxy_server import app
+
+    assert any(route.path == path for route in app.routes)
+
+
 def test_stream_tracer_records_chunk_and_terminal_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     from litellm.litellm_core_utils import stream_tracer
 

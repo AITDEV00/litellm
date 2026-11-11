@@ -1208,3 +1208,35 @@ def test_evict_all_prometheus_loggers_evicts_each_logger():
     with patch.object(litellm.logging_callback_manager, "get_custom_loggers_for_type", return_value=[a, b]):
         slice_mod.evict_all_prometheus_loggers()
     assert a.calls == 1 and b.calls == 1
+
+
+def test_constructor_failure_rolls_back_collectors_and_allows_a_fresh_callback_build(monkeypatch):
+    from prometheus_client import Counter, REGISTRY
+
+    from litellm.litellm_core_utils.litellm_logging import _in_memory_loggers, build_custom_logger_compatible_class
+
+    original_collectors = tuple(REGISTRY._collector_to_names)
+    unrelated = Counter("litellm_retry_unrelated", "unrelated instrument")
+    monkeypatch.setattr("litellm.prometheus_metrics_config", None)
+    try:
+        _in_memory_loggers.clear()
+        with patch.object(
+            PrometheusLogger,
+            "get_labels_for_metric",
+            side_effect=RuntimeError("late initialization failure"),
+        ):
+            with pytest.raises(RuntimeError, match="late initialization failure"):
+                PrometheusLogger()
+
+        logger = build_custom_logger_compatible_class("prometheus", internal_usage_cache=None, llm_router=None)
+        retry = build_custom_logger_compatible_class("prometheus", internal_usage_cache=None, llm_router=None)
+
+        assert logger is retry
+        assert logger is not None
+        assert logger.litellm_deployment_in_progress_requests is not None
+        assert unrelated in REGISTRY._collector_to_names
+    finally:
+        for collector in tuple(REGISTRY._collector_to_names):
+            REGISTRY.unregister(collector)
+        for collector in original_collectors:
+            REGISTRY.register(collector)

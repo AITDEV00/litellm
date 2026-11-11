@@ -40,12 +40,12 @@ from litellm.integrations.prometheus_helpers.bounded_prometheus_series_tracker i
     BoundedPrometheusSeriesTracker,
     PrometheusSeriesLimits,
 )
-from litellm.integrations.prometheus_helpers.shared_prometheus_series_admissions import (
-    SharedPrometheusSeriesAdmissions,
-)
 from litellm.integrations.prometheus_helpers.deployment_in_flight import (
     DeploymentInFlightLedger,
     DeploymentInFlightMetricsMixin,
+)
+from litellm.integrations.prometheus_helpers.shared_prometheus_series_admissions import (
+    SharedPrometheusSeriesAdmissions,
 )
 from litellm.litellm_core_utils.core_helpers import (
     get_litellm_metadata_from_kwargs,
@@ -93,6 +93,7 @@ if TYPE_CHECKING:
     )
     from prometheus_client import Gauge
     from prometheus_client.metrics import MetricWrapperBase
+    from prometheus_client.registry import Collector
 
     from litellm.proxy.utils import PrismaClient
     from litellm.router import Router
@@ -373,6 +374,13 @@ def _bounded_requested_model_label(requested_model: object, router_originated: b
     return UNRECOGNIZED_REQUESTED_MODEL_LABEL
 
 
+def _rollback_new_prometheus_collectors(before: frozenset[Collector]) -> None:
+    from prometheus_client import REGISTRY
+
+    for collector in frozenset(REGISTRY._collector_to_names) - before:  # registry has no public snapshot or rollback
+        REGISTRY.unregister(collector)
+
+
 class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
     # Class variables or attributes
 
@@ -392,6 +400,9 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
         self,
         **kwargs,
     ):
+        from prometheus_client import REGISTRY
+
+        collectors_before_init: Final = frozenset(REGISTRY._collector_to_names)  # rollback owner
         try:
             from prometheus_client import Counter, Gauge, Histogram
 
@@ -1032,6 +1043,7 @@ class PrometheusLogger(DeploymentInFlightMetricsMixin, CustomLogger):
             )
 
         except Exception as e:
+            _rollback_new_prometheus_collectors(collectors_before_init)
             print_verbose(f"Got exception on init prometheus client {e}")
             raise e
 

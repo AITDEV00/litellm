@@ -299,6 +299,7 @@ DEFINED_PROMETHEUS_METRICS = Literal[
     "litellm_provider_cache_creation_input_tokens_metric",
     "litellm_deployment_tpm_limit",
     "litellm_deployment_rpm_limit",
+    "litellm_deployment_in_progress_requests",
     "litellm_remaining_api_key_requests_for_model",
     "litellm_remaining_api_key_tokens_for_model",
     "litellm_api_key_rate_limit_allowed_metric",
@@ -821,6 +822,13 @@ class PrometheusMetricLabels:
         UserAPIKeyLabelNames.TEAM_ALIAS.value,
         UserAPIKeyLabelNames.CLIENT_IP.value,
         UserAPIKeyLabelNames.USER_AGENT.value,
+    ]
+
+    litellm_deployment_in_progress_requests = [
+        UserAPIKeyLabelNames.v2_LITELLM_MODEL_NAME.value,
+        UserAPIKeyLabelNames.MODEL_ID.value,
+        UserAPIKeyLabelNames.API_BASE.value,
+        UserAPIKeyLabelNames.API_PROVIDER.value,
     ]
 
     litellm_deployment_success_responses = litellm_deployment_total_requests

@@ -16,9 +16,7 @@ from .client import Gateway, Success, error_detail
 
 pytestmark = pytest.mark.model_contract
 
-GETTYSBURG = os.path.join(
-    os.path.dirname(__file__), "..", "..", "..", "tests", "proxy_unit_tests", "gettysburg.wav"
-)
+GETTYSBURG = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tests", "gettysburg.wav")
 
 EMBED_MODELS = (
     ("Qwen/Qwen3-Embedding-4B", 2560),

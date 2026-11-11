@@ -157,9 +157,7 @@ class TestVoiceProfileCrud:
         # Voice-profile create is a voice clone: it requires ref_audio as a
         # multipart file (see the OmniVoice guide). Use the real audio fixture;
         # a 0-frame synthetic WAV fails backend validation with "0 frames".
-        fixture = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "tests", "proxy_unit_tests", "gettysburg.wav"
-        )
+        fixture = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tests", "gettysburg.wav")
         assert os.path.exists(fixture), f"audio fixture missing: {fixture}"
         alias = f"smoke-{RUN}-profile"
         with open(fixture, "rb") as fh:

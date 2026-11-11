@@ -270,25 +270,25 @@ def generate_feedback_box():
     # Select a random message
     message: Final = random.choice(list_of_messages)
 
-    print()  # noqa: T201
-    print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")  # noqa: T201
-    print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")  # noqa: T201
-    print("\033[1;37m" + f"# {message:^59} #\033[0m")  # noqa: T201
-    print(  # noqa: T201
+    print()
+    print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")
+    print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")
+    print("\033[1;37m" + f"# {message:^59} #\033[0m")
+    print(
         "\033[1;37m" + "# {:^59} #\033[0m".format("https://github.com/BerriAI/litellm/issues/new")
     )
-    print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")  # noqa: T201
-    print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")  # noqa: T201
-    print()  # noqa: T201
-    print(" Thank you for using LiteLLM! - Krrish & Ishaan")  # noqa: T201
-    print()  # noqa: T201
-    print()  # noqa: T201
-    print()  # noqa: T201
-    print(  # noqa: T201
+    print("\033[1;37m" + "#" + " " * box_width + "#\033[0m")
+    print("\033[1;37m" + "#" + "-" * box_width + "#\033[0m")
+    print()
+    print(" Thank you for using LiteLLM! - Krrish & Ishaan")
+    print()
+    print()
+    print()
+    print(
         "\033[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new\033[0m"
     )
-    print()  # noqa: T201
-    print()  # noqa: T201
+    print()
+    print()
 
 
 import contextlib
@@ -296,9 +296,10 @@ from collections import defaultdict
 from contextlib import AsyncExitStack, asynccontextmanager
 from functools import lru_cache, partial
 
+import openai
+
 import litellm
 import litellm._redis
-import openai
 from litellm import Router
 from litellm._internal_context import service_target, with_service_target
 from litellm._logging import redact_string, verbose_proxy_logger, verbose_router_logger
@@ -838,6 +839,12 @@ from litellm.proxy.middleware.request_size_limit_middleware import (
 )
 from litellm.proxy.middleware.security_headers_middleware import (
     SecurityHeadersMiddleware,
+)
+from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
+    router as model_performance_router,
+)
+from litellm.proxy.model_metrics_endpoints.per_model_endpoints import (
+    router as per_model_metrics_router,
 )
 from litellm.proxy.moyai_endpoints import router as moyai_router
 from litellm.proxy.ocr_endpoints.endpoints import router as ocr_router
@@ -6298,7 +6305,7 @@ class ProxyConfig:
 
         search_tools_parsed: Final[list[SearchToolTypedDict]] = []
 
-        print(  # noqa: T201
+        print(
             "\033[32mLiteLLM: Proxy initialized with Search Tools:\033[0m"
         )
 
@@ -6306,7 +6313,7 @@ class ProxyConfig:
             # Display loaded search tool
             search_tool_name = search_tool.get("search_tool_name", "")
             search_provider = search_tool.get("litellm_params", {}).get("search_provider", "")
-            print(  # noqa: T201
+            print(
                 f"\033[32m    {search_tool_name} ({search_provider})\033[0m"
             )
 
@@ -6473,7 +6480,7 @@ class ProxyConfig:
             reset_color_code: Final = "\033[0m"
             for key, value in litellm_settings.items():
                 if key == "cache" and value is True:
-                    print(f"{blue_color_code}\nSetting Cache on Proxy")  # noqa: T201
+                    print(f"{blue_color_code}\nSetting Cache on Proxy")
                     from litellm.caching.caching import Cache
 
                     cache_params = {}
@@ -6668,7 +6675,7 @@ class ProxyConfig:
                                 if PrometheusLogger is not None:
                                     verbose_proxy_logger.debug("mounting metrics endpoint")
                                     PrometheusLogger._mount_metrics_endpoint()
-                    print(  # noqa: T201
+                    print(
                         f"{blue_color_code} Initialized Success Callbacks - {litellm.success_callback} {reset_color_code}"
                     )
                 elif key == "failure_callback":
@@ -6687,7 +6694,7 @@ class ProxyConfig:
                         # these are litellm callbacks - "langfuse", "sentry", "wandb"
                         else:
                             litellm.logging_callback_manager.add_litellm_failure_callback(callback)
-                    print(  # noqa: T201
+                    print(
                         f"{blue_color_code} Initialized Failure Callbacks - {litellm.failure_callback} {reset_color_code}"
                     )
                 elif key == "audit_log_callbacks":
@@ -6712,7 +6719,7 @@ class ProxyConfig:
 
                     _store_audit_logs = litellm_settings.get("store_audit_logs", litellm.store_audit_logs)
                     if is_audit_logging_enabled(store_audit_logs=_store_audit_logs):
-                        print(  # noqa: T201
+                        print(
                             f"{blue_color_code} Initialized Audit Log Callbacks - {litellm.audit_log_callbacks} {reset_color_code}"
                         )
                     else:
@@ -7106,7 +7113,7 @@ class ProxyConfig:
         if model_list:
             router_params["model_list"] = model_list
             validate_auto_router_capability_limits(model_list, limit=_license_check.auto_router_capability_limit())
-            print(  # noqa: T201
+            print(
                 "\033[32mLiteLLM: Proxy initialized with Config, Set models:\033[0m"
             )
             for model in model_list:
@@ -7125,7 +7132,7 @@ class ProxyConfig:
                         complexity_router_config=complexity_router_config,
                         config_file_path=config_file_path,
                     )
-                print(f"\033[32m    {model.get('model_name', '')}\033[0m")  # noqa: T201
+                print(f"\033[32m    {model.get('model_name', '')}\033[0m")
                 litellm_model_name = model["litellm_params"]["model"]
                 litellm_model_api_base = model["litellm_params"].get("api_base", None)
                 if "ollama" in litellm_model_name and litellm_model_api_base is None:
@@ -11606,7 +11613,7 @@ class ProxyStartupEvent:
             and proxy_logging_obj.slack_alerting_instance.alerting is not None
             and prisma_client is not None
         ):
-            print("Alerting: Initializing Weekly/Monthly Spend Reports")  # noqa: T201
+            print("Alerting: Initializing Weekly/Monthly Spend Reports")
             spend_report_frequency: Final[str] = general_settings.get("spend_report_frequency", "7d") or "7d"
 
             days: Final = int(spend_report_frequency[:-1])
@@ -20998,6 +21005,8 @@ app.include_router(pass_through_router)
 app.include_router(health_router)
 app.include_router(deployment_warning_router)
 app.include_router(key_management_router)
+app.include_router(per_model_metrics_router)
+app.include_router(model_performance_router)
 app.include_router(internal_user_router)
 app.include_router(daily_activity_router)
 app.include_router(password_management_router)
@@ -21043,11 +21052,11 @@ app.include_router(agent_skills_discovery_router)
 # Eager: /models/{name}:method overlaps with the OpenAI /models endpoint.
 app.include_router(google_router)
 
-from litellm.proxy.voice_routes import router as oicm_voice_router
-from litellm.proxy.oicm_routes import router as oicm_status_router
 from litellm.proxy.client_distribution.routes import router as client_distribution_router
 from litellm.proxy.diarization_routes import router as oicm_diarization_router
+from litellm.proxy.oicm_routes import router as oicm_status_router
 from litellm.proxy.openrouter_compat.routes import router as openrouter_compat_router
+from litellm.proxy.voice_routes import router as oicm_voice_router
 
 app.include_router(oicm_voice_router)
 app.include_router(oicm_status_router)
