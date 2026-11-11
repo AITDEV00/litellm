@@ -314,6 +314,48 @@ def test_supported_parameters_use_registered_deployment_params() -> None:
     assert params == ["temperature", "top_p", "tools", "tool_choice", "reasoning_effort"]
 
 
+def test_resolver_derives_provider_from_model_string_prefix() -> None:
+    """Regression (live on dev): OICM-registered deployments carry the provider
+    in the litellm_params.model prefix (hosted_vllm/Qwen/...) with the
+    custom_llm_provider field unset, so provider-aware capability lookup never
+    fired and /api/v1/models advertised supported_parameters=[] for models
+    with valid endpoints. The descriptor must derive the provider from the
+    prefix."""
+    from litellm.types.router import Deployment
+
+    from litellm.proxy.openrouter_compat.discovery.resolver import DeploymentResolver
+
+    deployment = Deployment(
+        model_name="Qwen/Qwen3-Next-80B-A3B-Instruct",
+        litellm_params={"model": "hosted_vllm/Qwen/Qwen3-Next-80B-A3B-Instruct", "api_base": "http://vllm:8000"},
+        model_info={"id": "dep-1", "db_model": True},
+    )
+    descriptor = DeploymentResolver(None)._build_descriptor(deployment, "Qwen/Qwen3-Next-80B-A3B-Instruct")
+    assert descriptor is not None
+    assert descriptor.provider == "hosted_vllm"
+    assert descriptor.model_info["custom_llm_provider"] == "hosted_vllm"
+
+
+def test_resolver_keeps_explicit_provider_over_prefix() -> None:
+    """An explicit custom_llm_provider must win over the prefix-derived one."""
+    from litellm.types.router import Deployment
+
+    from litellm.proxy.openrouter_compat.discovery.resolver import DeploymentResolver
+
+    deployment = Deployment(
+        model_name="custom-model",
+        litellm_params={
+            "model": "hosted_vllm/custom-model",
+            "api_base": "http://vllm:8000",
+            "custom_llm_provider": "vllm",
+        },
+        model_info={"id": "dep-2", "db_model": True},
+    )
+    descriptor = DeploymentResolver(None)._build_descriptor(deployment, "custom-model")
+    assert descriptor is not None
+    assert descriptor.provider == "vllm"
+
+
 def test_mapper_omits_nullable_optionals_when_unset():
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     model = mapper.map_model(_aggregated(max_completion=None))

@@ -7,6 +7,7 @@ invoke must not appear in discovery results.
 
 from __future__ import annotations
 
+import litellm
 from pydantic import BaseModel, Field
 from litellm.router import Router
 
@@ -15,6 +16,22 @@ from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
 from litellm.proxy.openrouter_compat.transport.client import DiscoveryTarget
 from litellm.proxy.utils import PrismaClient, ProxyLogging
 from litellm.types.router import Deployment
+
+
+def _provider_from_model_string(model: str | None) -> str | None:
+    """Derive the provider from a provider-prefixed model string.
+
+    OICM-registered deployments carry the provider in the model string
+    (e.g. ``hosted_vllm/Qwen/...``) with ``custom_llm_provider`` unset, so
+    prefix derivation is what makes provider-aware capability lookup work
+    for them."""
+    if not model:
+        return None
+    try:
+        _, provider, _, _ = litellm.get_llm_provider(model=model)
+    except Exception:  # noqa: BLE001  # unprefixed or unknown strings have no provider to derive
+        return None
+    return provider
 
 
 class DeploymentDescriptor(BaseModel):
@@ -109,12 +126,13 @@ class DeploymentResolver:
             auth_headers["Authorization"] = f"Bearer {api_key}"
         deployment_id = deployment.model_info.id or logical_model_name
         model_info = deployment.model_info.model_dump(exclude_none=True)
-        if litellm_params.custom_llm_provider:
-            model_info["custom_llm_provider"] = litellm_params.custom_llm_provider
+        provider = litellm_params.custom_llm_provider or _provider_from_model_string(litellm_params.model)
+        if provider:
+            model_info["custom_llm_provider"] = provider
         return DeploymentDescriptor(
             deployment_id=deployment_id,
             logical_model_name=logical_model_name,
-            provider=litellm_params.custom_llm_provider,
+            provider=provider,
             model=litellm_params.model,
             api_base=api_base,
             auth_headers=auth_headers,
