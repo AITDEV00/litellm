@@ -283,6 +283,37 @@ def test_mapper_emits_provider_supported_parameters() -> None:
     assert "reasoning_effort" in [str(p) for p in mapped.supported_parameters]
 
 
+def test_supported_parameters_use_registered_deployment_params() -> None:
+    """Regression (live on dev): OICM-registered deployments carry their own
+    supported_openai_params in model_info, but the registry lookup only
+    consulted the litellm cost map, so unmapped ids (Qwen/Qwen3-Next-80B via
+    hosted-vLLM, custom_llm_provider unset) advertised supported_parameters=[]
+    despite valid endpoints. The registered params must be used when the cost
+    map misses."""
+    registry_params: list[str] = [
+        "temperature",
+        "top_p",
+        "tools",
+        "tool_choice",
+        "reasoning_effort",
+        "store",
+    ]
+    model = _aggregated(logical="qwen-registered")
+    deployment = model.deployments[0].model_copy(
+        update={
+            "model_info": {"supported_openai_params": registry_params, "litellm_provider": "hosted_vllm"},
+            "identity": model.deployments[0].identity.model_copy(
+                update={"upstream_model_id": "Qwen/Qwen3-Next-80B-A3B-Instruct"}
+            ),
+        }
+    )
+    aggregated = model.model_copy(update={"deployments": [deployment]})
+
+    params = LiteLLMMetadataEnricher().supported_parameters(aggregated)
+    # store is not in the OpenRouter parameter union, so it is filtered out.
+    assert params == ["temperature", "top_p", "tools", "tool_choice", "reasoning_effort"]
+
+
 def test_mapper_omits_nullable_optionals_when_unset():
     mapper = OpenRouterModelMapper(details_base_url="http://proxy:4000")
     model = mapper.map_model(_aggregated(max_completion=None))
