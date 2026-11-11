@@ -265,6 +265,27 @@ class TestBuildTransactionTTFT:
         assert end_tx["ends"] == 1
 
     @pytest.mark.asyncio
+    async def test_rollup_redis_buffer_event_sets_dedicated_queue_gauge(self):
+        from litellm.integrations.prometheus_services import PrometheusServicesLogger
+        from litellm.types.services import ServiceLoggerPayload, ServiceTypes
+
+        service = ServiceTypes.REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE
+        logger = PrometheusServicesLogger()
+        assert service.value in logger.payload_to_prometheus_map
+        await logger.async_service_success_hook(
+            ServiceLoggerPayload(
+                is_error=False,
+                error=None,
+                service=service,
+                duration=0,
+                call_type="_emit_new_item_added_to_redis_buffer_event",
+                event_metadata={"gauge_labels": service.value, "gauge_value": 1},
+            )
+        )
+
+        assert logger.REGISTRY.get_sample_value(f"litellm_{service.value}_size", {service.value: service.value}) == 1
+
+    @pytest.mark.asyncio
     async def test_same_minute_start_end_keeps_ends_in_start_bucket(self):
         """When start and end fall in the same minute, no separate end bucket is
         emitted; the -1 stays with the start transaction."""

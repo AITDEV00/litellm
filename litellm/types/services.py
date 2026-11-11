@@ -47,6 +47,7 @@ class ServiceTypes(str, enum.Enum):
     # budget window spend queue - per-window spend of key, team
     REDIS_WINDOW_SPEND_UPDATE_QUEUE = "redis_window_spend_update_queue"
     IN_MEMORY_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE = "in_memory_model_performance_rollup_update_queue"
+    REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE = "redis_model_performance_rollup_update_queue"
 
 
 class ServiceConfig(TypedDict):
@@ -81,6 +82,8 @@ DEFAULT_SERVICE_CONFIGS: Final = {
     ServiceTypes.REDIS_DAILY_SPEND_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
     ServiceTypes.REDIS_DAILY_END_USER_SPEND_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
     ServiceTypes.REDIS_DAILY_AGENT_SPEND_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
+    ServiceTypes.IN_MEMORY_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
+    ServiceTypes.REDIS_MODEL_PERFORMANCE_ROLLUP_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
     ServiceTypes.IN_MEMORY_SPEND_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
     ServiceTypes.REDIS_SPEND_UPDATE_QUEUE.value: {"metrics": [ServiceMetrics.GAUGE]},
 }
