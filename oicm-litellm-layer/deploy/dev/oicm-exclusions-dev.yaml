@@ -32,4 +32,3 @@ data:
     model_ids:
       - orcarouter/Qwen3.8-27B-Uncensored-FP8
       - M2
-      - d974abd1-a213-409f-ad57-ed4512f21fa0
