@@ -23,6 +23,7 @@ from litellm.proxy.openrouter_compat.domain.provenance import (
 from litellm.proxy.openrouter_compat.enrichment.pricing import Pricing, PricingResolver
 from litellm.proxy.openrouter_compat.mapping.openrouter import OpenRouterModelMapper
 from litellm.proxy.openrouter_compat.openrouter_schema.base import UNSET_SENTINEL
+from litellm.proxy.openrouter_compat.openrouter_schema.models import Model
 
 
 def _aggregated(
@@ -138,6 +139,7 @@ def test_mapper_serialization_roundtrip_matches_openrouter_shape():
         "context_length",
         "created",
         "default_parameters",
+        *({"endpoints"} if "endpoints" in Model.model_fields else set()),
         "id",
         "links",
         "name",
@@ -157,6 +159,23 @@ def test_mapper_serialization_roundtrip_matches_openrouter_shape():
     }
     assert data["top_provider"]["is_moderated"] is False
     assert data["architecture"]["input_modalities"] == ["text"]
+
+
+def test_mapper_declares_only_discovered_inference_paths():
+    model = _aggregated()
+    discovered = model.deployments[0].model_copy(
+        update={
+            "api_capabilities": model.deployments[0].api_capabilities.model_copy(
+                update={"chat_completions": True, "transcription": True, "routes": {"/v1/systemone"}}
+            )
+        }
+    )
+    mapped = OpenRouterModelMapper(details_base_url="http://proxy:4000").map_model(
+        model.model_copy(update={"deployments": [discovered]})
+    )
+
+    if "endpoints" in type(mapped).model_fields:
+        assert mapped.endpoints == ["/v1/audio/transcriptions", "/v1/chat/completions", "/v1/systemone"]
 
 
 def test_supported_parameters_placeholder_covers_full_openrouter_set(monkeypatch):

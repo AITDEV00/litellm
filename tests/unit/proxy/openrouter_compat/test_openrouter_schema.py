@@ -77,6 +77,7 @@ def test_full_model_serializes_without_sentinel_or_null_leak():
         created=1710000000,
         context_length=131072,
         pricing=PublicPricing(prompt="0", completion="0"),
+        **({"endpoints": ["/v1/chat/completions"]} if "endpoints" in Model.model_fields else {}),
         architecture=ModelArchitecture(
             input_modalities=[UnrecognizedStr("text")],
             output_modalities=[UnrecognizedStr("text")],

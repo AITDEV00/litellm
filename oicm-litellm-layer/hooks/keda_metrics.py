@@ -85,6 +85,8 @@ def _get_model_id(kwargs: dict) -> Optional[str]:
     """Get the model identifier for KEDA labeling."""
     # The model field in kwargs could be the litellm model name or the model_name
     model = kwargs.get("model", "")
+    if not isinstance(model, str):
+        return None
     
     # Strip the "hosted_vllm/" prefix if present
     if model.startswith("hosted_vllm/"):

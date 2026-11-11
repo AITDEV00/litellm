@@ -66,6 +66,17 @@ def test_pre_call_labels_the_gauge_with_the_oicm_uuid() -> None:
     assert _gauge_value(pretend_uuid) == 1.0
 
 
+def test_non_string_model_does_not_break_failure_logging() -> None:
+    if not keda.PROMETHEUS_AVAILABLE:
+        pytest.skip("prometheus_client not installed")
+    cb = KEDAMetricsCallback()
+    kwargs = {"model": ["DeepSeek-V4.1"]}
+    cb.log_pre_api_call(model="DeepSeek-V4.1", messages=[], kwargs=kwargs)
+    asyncio.run(cb.async_log_failure_event(kwargs=kwargs, response_obj=None, start_time=None, end_time=None))
+
+    assert len(keda.CONCURRENT_REQUESTS.collect()[0].samples) == 0
+
+
 def test_pre_call_falls_back_to_the_model_name_when_no_uuid_resolves() -> None:
     if not keda.PROMETHEUS_AVAILABLE:
         pytest.skip("prometheus_client not installed")

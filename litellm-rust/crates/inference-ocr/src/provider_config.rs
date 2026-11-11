@@ -19,6 +19,7 @@ use litellm_llms::{
     },
     cohere::ocr::transformation::CohereParseConfig,
     mistral::ocr::transformation::MistralOcrConfig,
+    paddlex::ocr::transformation::PaddlexOcrConfig,
     reducto::ocr::transformation::{ReductoParseLegacyConfig, ReductoParseV3Config},
     vertex_ai::ocr::{
         deepseek_transformation::VertexAIDeepSeekOCRConfig, transformation::VertexAiOcrConfig,
@@ -43,6 +44,10 @@ macro_rules! with_config {
             }
             OcrConfigKind::Mistral => {
                 let $config = MistralOcrConfig;
+                $body
+            }
+            OcrConfigKind::Paddlex => {
+                let $config = PaddlexOcrConfig;
                 $body
             }
             OcrConfigKind::AzureAi => {
@@ -83,6 +88,7 @@ pub(crate) enum OcrConfigKind {
     AwsTextractAnalyze,
     Cohere,
     Mistral,
+    Paddlex,
     AzureAi,
     AzureCohere,
     AzureDocumentIntelligence,
@@ -98,6 +104,7 @@ impl OcrConfigKind {
             Self::AwsTextract | Self::AwsTextractAnalyze => LlmProviders::AwsTextract,
             Self::Cohere => LlmProviders::Cohere,
             Self::Mistral => LlmProviders::Mistral,
+            Self::Paddlex => LlmProviders::Paddlex,
             Self::AzureAi | Self::AzureCohere | Self::AzureDocumentIntelligence => {
                 LlmProviders::AzureAi
             }
@@ -207,6 +214,7 @@ pub(crate) fn resolve_provider_config(
         },
         LlmProviders::Cohere => OcrConfigKind::Cohere,
         LlmProviders::Mistral => OcrConfigKind::Mistral,
+        LlmProviders::Paddlex => OcrConfigKind::Paddlex,
         LlmProviders::AzureAi if is_document_intelligence_model(provider.model) => {
             OcrConfigKind::AzureDocumentIntelligence
         }
@@ -256,6 +264,7 @@ mod tests {
     #[case(OcrConfigKind::AwsTextractAnalyze)]
     #[case(OcrConfigKind::Cohere)]
     #[case(OcrConfigKind::Mistral)]
+    #[case(OcrConfigKind::Paddlex)]
     #[case(OcrConfigKind::AzureAi)]
     #[case(OcrConfigKind::AzureCohere)]
     #[case(OcrConfigKind::AzureDocumentIntelligence)]
@@ -273,8 +282,20 @@ mod tests {
     }
 
     #[rstest]
+    #[case("paddlex/PP-DocLayoutV3")]
+    fn local_provider_resolves_without_credentials(#[case] model: &str) {
+        let credentials = OcrCredentialInputs::default();
+        let (_, config) = resolve_provider_config(model, None).unwrap();
+        let resolved = config.resolve_connection_params(credentials);
+        assert!(resolved.api_key.is_none());
+        assert!(config.secret_names().is_empty());
+        assert_eq!(config.get_api_key_env_var(), None);
+    }
+
+    #[rstest]
     #[case("cohere")]
     #[case("mistral")]
+    #[case("paddlex")]
     #[case("azure_ai")]
     #[case("reducto")]
     #[case("vertex_ai")]

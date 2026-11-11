@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Final, Literal, cast
 
 from litellm.proxy.openrouter_compat.domain.capabilities import ModelCapabilities
 from litellm.proxy.openrouter_compat.domain.logical_model import AggregatedModel
 from litellm.proxy.openrouter_compat.domain.limits import ModelLimits
+from litellm.proxy.openrouter_compat.discovery.adapters.openai_compatible import (
+    ROUTE_TO_API_CAPABILITY,
+)
 from litellm.proxy.openrouter_compat.enrichment.litellm_metadata import (
     LiteLLMMetadataEnricher,
 )
@@ -77,6 +80,7 @@ class OpenRouterModelMapper:
             supported_voices=None,
             links=ModelLinks(details=self._details_url(slug)),
             hugging_face_id=identity.hugging_face_id,
+            **({"endpoints": self._api_paths(enriched)} if "endpoints" in Model.model_fields else {}),
         )
 
     def map_placeholder(self, logical_model_name: str) -> Model:
@@ -92,6 +96,7 @@ class OpenRouterModelMapper:
             canonical_slug=slug,
             name=logical_model_name,
             created=0,
+            **({"endpoints": []} if "endpoints" in Model.model_fields else {}),
             pricing=PublicPricing(prompt="0", completion="0"),
             context_length=0,
             architecture=ModelArchitecture(
@@ -131,6 +136,23 @@ class OpenRouterModelMapper:
 
     def _details_url(self, slug: str) -> str:
         return f"{self._details_base_url}/api/v1/models/{slug}/endpoints"
+
+    @staticmethod
+    def _api_paths(model: AggregatedModel) -> list[str]:
+        custom_paths: Final = (
+            ("/v1/diarize", "/v1/diarize"),
+            ("/diarize", "/v1/diarize"),
+            ("/v1/ocr", "/v1/ocr"),
+            ("/v1/systemone", "/v1/systemone"),
+            ("/alpha_system/v1/systemone", "/v1/systemone"),
+        )
+        routes: Final = set().union(*(deployment.api_capabilities.routes for deployment in model.deployments))
+        custom: Final = frozenset(public for native, public in custom_paths if native in routes)
+        return sorted(
+            custom.union(
+                path for field, path, _ in ROUTE_TO_API_CAPABILITY if any(getattr(d.api_capabilities, field) for d in model.deployments)
+            )
+        )
 
     @staticmethod
     def _map_modalities(

@@ -68,6 +68,39 @@ async fn the_native_response_is_kept_only_when_requested(
     );
 }
 
+#[tokio::test]
+async fn paddlex_reuses_the_mistral_shape_without_external_credentials() {
+    let upstream = upstream([json_response(json!({
+        "pages": [{"index": 0, "markdown": "layout"}],
+        "model": "PP-DocLayoutV3",
+        "usage_info": {"pages_processed": 1},
+        "paddlex": {"backend": "layout"}
+    }))])
+    .await;
+    let request = OcrWireRequest {
+        api_key: None,
+        ..wire(
+            "paddlex/PP-DocLayoutV3",
+            &upstream.uri(),
+            json!({
+                "type": "image_url", "image_url": "data:image/png;base64,"
+            }),
+            json!({"layout_nms": true, "include_native_labels": true}),
+        )
+    };
+
+    let response = perform(decode_request(request).unwrap()).await.unwrap();
+
+    assert_eq!(response.model, "PP-DocLayoutV3");
+    assert_eq!(response.pages[0].markdown, "layout");
+    let sent = only_request(&upstream).await;
+    assert_eq!(sent.url.path(), "/v1/ocr");
+    assert_eq!(sent.header("authorization"), None);
+    assert_eq!(sent.json()["model"], "PP-DocLayoutV3");
+    assert_eq!(sent.json()["layout_nms"], true);
+    assert_eq!(sent.json()["include_native_labels"], true);
+}
+
 #[rstest]
 #[case::mistral("mistral/model", json!({}))]
 #[case::vertex(
