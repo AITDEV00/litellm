@@ -281,6 +281,11 @@ class TestDetectApiSurface:
         paths = frozenset({"/v1/ocr", "/v1/chat/completions"})
         assert detect_provider("", "PP-DocLayoutV3", paths) == "hosted_vllm"
 
+    def test_native_hamsa_transcription_does_not_require_a_model_id(self):
+        uuid = "9c57bce9-0583-4bf7-9443-08825220a231"
+        assert detect_provider("", uuid, frozenset({"/transcribe"})) == "hamsa"
+        assert build_model(uuid=uuid, model_id=uuid, mode="audio_transcription", provider="paddlex", ready_replicas=1, total_replicas=1).api_base.endswith(":8080/v1")
+
 
 class TestApiBaseShape:
     def _model(self, provider: str, api_base_override: str | None = None) -> OicmModel:

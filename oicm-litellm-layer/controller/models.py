@@ -470,4 +470,7 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
     if OCR_PATH in paths and CHAT_PATH not in paths:
         return "paddlex"
 
+    if _HAMSA_NATIVE_PATHS & paths:
+        return "hamsa"
+
     return "hosted_vllm"
