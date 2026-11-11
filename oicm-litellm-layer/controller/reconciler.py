@@ -76,6 +76,10 @@ def _blocked_matches(existing_entry: dict, blocked: bool) -> bool:
 
 
 def _pick_richest_entry(entries: List[dict]) -> Tuple[dict, List[str]]:
+    # Global aliases appear here too, copying the canonical row under the alias name.
+    # Keeping the first view of a deployment ID is both dedup and canonical-name preservation.
+    by_id = {entry["model_id"]: entry for entry in reversed(entries) if entry.get("model_id")}
+    entries = list(by_id.values()) + [entry for entry in entries if not entry.get("model_id")]
     if len(entries) == 1:
         return entries[0], []
 

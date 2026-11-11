@@ -1211,11 +1211,11 @@ There are two independent mechanisms that can delete manually-created model dupl
 
 #### 1. OICM Discovery Controller (`oicm_uuid` deduplication)
 
-The controller (`oicm-litellm-layer/controller`) groups LiteLLM models by the `oicm_uuid` field in `model_info` and reconciles each group down to a single entry per UUID. Any duplicate entries sharing the same `oicm_uuid` are deleted on the next sync cycle.
+The controller (`oicm-litellm-layer/controller`) groups LiteLLM models by the `oicm_uuid` field in `model_info` and reconciles each group down to one deployment per UUID. Different deployment IDs sharing that UUID are managed duplicates; the controller retains the richest entry and removes the others on the next sync. Entries with a repeated deployment ID are multiple `/model/info` views of the same deployment, including a global alias, so they are all preserved.
 
-The controller's `_pick_richest_entry` logic ranks duplicates by the number of config keys (`rpm`, `tpm`, `max_parallel_requests`, cost fields) present in `litellm_params`. A duplicate that only adds extra body fields (e.g. `chat_template_kwargs`) will lose to the original and be deleted.
+The controller's `_pick_richest_entry` logic ranks genuinely separate deployments by the number of config keys (`rpm`, `tpm`, `max_parallel_requests`, cost fields) present in `litellm_params`. A duplicate that only adds extra body fields (e.g. `chat_template_kwargs`) loses to the original.
 
-Models without an `oicm_uuid` in `model_info` are completely invisible to the controller and will never be touched by it.
+Models without an `oicm_uuid` in `model_info` are invisible to the controller and never deleted by it. A temporary unmanaged duplicate is useful during a backend migration only. Once the old workload is undeployed, delete that duplicate and use `model_group_alias` instead: a `POST /model/new` that reuses a public `model_name` is another router deployment, not a global alias.
 
 #### 2. LiteLLM Proxy `add_deployment` background job (in-memory eviction)
 
@@ -1644,6 +1644,11 @@ the Admin API. These aliases are global and separate from key/team-scoped
 aliases. Nested aliases are not resolved: use the underlying registered model
 as the target. A routing group without deployments cannot be used as an alias
 target and alias-only names are not separate deployment groups in `/v1/models`.
+
+`/model/info` includes an alias under its target's deployment ID. The discovery
+controller treats those as repeated views of one deployment, not independently
+deletable backends. `/v2/model/info?size=1000` returns the registered deployments
+needed by the helper for collision checks.
 
 ```json
 {

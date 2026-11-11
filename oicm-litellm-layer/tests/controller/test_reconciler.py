@@ -677,6 +677,22 @@ async def test_non_serving_deployment_is_registered_then_blocked():
 
 
 @pytest.mark.asyncio
+async def test_alias_expanded_entries_do_not_delete_their_deployment():
+    reconciler = _reconciler_with_costs(None)
+    canonical = _entry_matching(_make_model("serving-uuid"), "deployment-id")
+    alias = {**canonical, "model_name": "short-name"}
+
+    plan = await reconciler.compute_plan(
+        {"serving-uuid": _make_model("serving-uuid")},
+        {"serving-uuid": [canonical, alias]},
+    )
+
+    assert plan.deletes == []
+    assert plan.registers == []
+    assert plan.new_id_map["serving-uuid"] == "deployment-id"
+
+
+@pytest.mark.asyncio
 async def test_execute_applies_planned_blocks():
     """execute() must issue the block calls compute_plan asked for."""
     reconciler = _reconciler_with_costs(None)

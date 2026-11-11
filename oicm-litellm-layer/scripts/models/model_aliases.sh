@@ -91,6 +91,22 @@ read_aliases() {
     | jq -ce '(.current_values.model_group_alias // {}) | if type == "object" then . else error("alias map is not an object") end'
 }
 
+verify_no_change() {
+  local expected="$1" alias="$2" attempts=0
+  VERIFIED_NO_CHANGE=false
+  while (( attempts < LITELLM_VERIFY_ATTEMPTS )); do
+    attempts=$((attempts + 1))
+    current=$(read_aliases) || return 1
+    if jq -e --argjson expected "$expected" '. == $expected' <<<"$current" >/dev/null; then
+      VERIFIED_NO_CHANGE=true
+      echo "No change: alias '$alias' is already in its requested state after $attempts read(s)"
+      return 0
+    fi
+    if (( attempts < LITELLM_VERIFY_ATTEMPTS )); then sleep "$LITELLM_VERIFY_DELAY_SECONDS"; fi
+  done
+  return 0
+}
+
 list_aliases() {
   read_aliases | jq .
 }
@@ -144,15 +160,15 @@ edit_aliases() {
   if [[ "$operation" == add && "$existing_target" == "$target" ]]; then
     if [[ "$hidden" == false ]] || jq -e --arg alias "$alias" --arg target "$target" \
       '.[$alias] == {model: $target, hidden: true}' <<<"$current" >/dev/null; then
-      echo "No change: alias '$alias' already has this target and visibility"
-      return 0
+      verify_no_change "$current" "$alias" || return 1
+      [[ "$VERIFIED_NO_CHANGE" == false ]] || return 0
     fi
   fi
 
   if [[ "$operation" == remove ]]; then
     if ! jq -e --arg alias "$alias" 'has($alias)' <<<"$current" >/dev/null; then
-      echo "No change: alias '$alias' does not exist"
-      return 0
+      verify_no_change "$current" "$alias" || return 1
+      [[ "$VERIFIED_NO_CHANGE" == false ]] || return 0
     fi
     current=$(jq -ce --arg alias "$alias" 'del(.[$alias])' <<<"$current")
   elif [[ "$hidden" == true ]]; then

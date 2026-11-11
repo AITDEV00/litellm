@@ -265,5 +265,20 @@ def test_remove_absent_alias_is_noop(gateway):
     result = cli(gateway, ["remove", QWEN_ALIAS, "--apply"])
     assert result.returncode == 0, result.stderr
     assert "No change" in result.stdout
-    assert posts(state) == []
+    assert len(posts(state)) == 0
     assert state.aliases == {"old-alias": {"model": "old-model", "hidden": True}}
+
+
+def test_no_change_rechecks_a_stale_read_until_the_map_matches(gateway):
+    state, _ = gateway
+    state.aliases = {QWEN_ALIAS: QWEN_NAME, "old-alias": {"model": "old-model", "hidden": True}}
+    state.pending_aliases = {"old-alias": {"model": "old-model", "hidden": True}}
+    state.stale_at_request = 3
+    result = cli(gateway, ["remove", QWEN_ALIAS, "--apply"], env={"LITELLM_VERIFY_DELAY_SECONDS": "0"})
+    assert result.returncode == 0, result.stderr
+    assert "No change" not in result.stdout
+    assert posts(state) == [{
+        "method": "POST", "path": "/config/update", "auth": "Bearer test-secret",
+        "body": {"router_settings": {"model_group_alias": state.pending_aliases}},
+    }]
+    assert state.aliases == state.pending_aliases
