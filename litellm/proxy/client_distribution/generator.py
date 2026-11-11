@@ -148,25 +148,29 @@ info "key accepted"
 # The harness names are rendered from the manifest into this script, so the
 # menu can appear before jq is bootstrapped. Adding a harness stays a store
 # sync, not a script change: a new manifest re-renders the list.
-# Only harnesses whose config dir exists are offered: cc-switch skips live
-# sync for uninitialized apps (their config dir is missing), so configuring
-# one the user has never installed would silently do nothing. Detection
-# mirrors cc-switch's own initialization check per harness.
+# cc-switch requires each config directory to exist before writing live config.
+# An executable on PATH also qualifies: a fresh OpenCode install might not have
+# created its config directory yet. Initialize that directory before selection.
 HARNESSES="{% for h in harnesses | sort(attribute='harness') %}{{ h.harness }} {% endfor %}"
 [ -n "$HARNESSES" ] || die "manifest declares no harnesses"
 INSTALLED=""
 for h in $HARNESSES; do
+  h_dir=""
+  h_bin=""
   case "$h" in
     claude)   h_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ;;
     codex)    if [ -n "${CODEX_HOME:-}" ] && [ -d "$CODEX_HOME" ]; then h_dir="$CODEX_HOME"; else h_dir="$HOME/.codex"; fi ;;
     gemini)   h_dir="$HOME/.gemini" ;;
-    open-code) h_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ;;
+    open-code) h_dir="$HOME/.config/opencode"; h_bin="opencode" ;;
     hermes)   h_dir="$HOME/.hermes" ;;
     open-claw) h_dir="$HOME/.openclaw" ;;
     pi)       if [ -n "${PI_CODING_AGENT_DIR:-}" ]; then h_dir="$PI_CODING_AGENT_DIR"; else h_dir="$HOME/.pi/agent"; fi ;;
-    *)        h_dir="" ;;
   esac
-  [ -n "$h_dir" ] && [ -d "$h_dir" ] && INSTALLED="$INSTALLED $h"
+  if { [ -n "$h_dir" ] && [ -d "$h_dir" ]; } || { [ -n "$h_bin" ] && command -v "$h_bin" >/dev/null 2>&1; }; then
+    [ -d "$h_dir" ] || mkdir -p "$h_dir" || die "failed to initialize $h config directory: $h_dir"
+    [ -d "$h_dir" ] || die "failed to initialize $h config directory: $h_dir"
+    INSTALLED="$INSTALLED $h"
+  fi
 done
 if [ -z "$INSTALLED" ]; then
   echo ""

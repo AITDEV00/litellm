@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+from pathlib import Path
+from typing import Final
 
 import pytest
 from jinja2 import UndefinedError
 
+from litellm.proxy.client_distribution import generator
 from litellm.proxy.client_distribution.generator import (
     HarnessPreset,
     MirrorManifest,
@@ -48,6 +52,24 @@ _MANIFEST: MirrorManifest = MirrorManifest(
     platforms=_PLATFORMS,
 )
 _BASE_URL: str = "https://litellm-dev.example.com"
+
+
+def _harness_probe(script: str) -> str:
+    detection_start: Final[int] = script.index('HARNESSES="claude')
+    detection_end: Final[int] = script.index("done\n", detection_start) + len("done\n")
+    return (
+        'die() { printf "%s" "$*" >&2; exit 1; }\n'
+        + script[detection_start:detection_end]
+        + 'printf "%s" "$INSTALLED"'
+    )
+
+
+def test_served_template_matches_baked_fallback() -> None:
+    template_path: Final[Path] = (
+        Path(generator.__file__).parents[3]
+        / "oicm-litellm-layer/examples/client-distribution/install.sh.tmpl"
+    )
+    assert template_path.read_text() == generator.get_template()
 
 
 # ── render: origin overrides ────────────────────────────────────────────────
@@ -135,12 +157,12 @@ def test_render_harness_menu_lists_installed_only() -> None:
     supported harnesses.
     """
     script: str = render_install_script(_MANIFEST, _BASE_URL)
-    # Detection mirrors cc-switch's own initialization check per harness
+    # Detection mirrors the cc-switch fork's own initialization check per harness
     assert 'claude)   h_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"' in script
     assert '"$HOME/.codex"' in script
-    assert '"${XDG_CONFIG_HOME:-$HOME/.config}/opencode"' in script
+    assert 'open-code) h_dir="$HOME/.config/opencode"; h_bin="opencode"' in script
     assert '"$HOME/.pi/agent"' in script
-    # Only dir-existing harnesses are offered
+    # Only dir-existing or executable-available harnesses are offered
     assert 'INSTALLED="$INSTALLED $h"' in script
     # None installed -> clear message naming the supported harnesses
     assert "none of the supported harnesses are installed" in script
@@ -148,6 +170,69 @@ def test_render_harness_menu_lists_installed_only() -> None:
     # The offered list is the detected subset, not the manifest's full list;
     # leading space trimmed so menu numbers index from 1 correctly
     assert 'HARNESSES="${INSTALLED# }"' in script
+
+
+@pytest.mark.parametrize("initialize_config", [False, True], ids=["fresh", "already-initialized"])
+def test_opencode_binary_without_config_dir_is_detected(
+    tmp_path: Path, initialize_config: bool
+) -> None:
+    """A fresh executable-only install must survive the menu and enable live writes."""
+    bin_dir: Final[Path] = tmp_path / ("initialized" if initialize_config else "global-bin")
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "opencode").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "opencode").chmod(0o755)
+    home: Final[Path] = tmp_path / "home"
+    home.mkdir()
+    if initialize_config:
+        (home / ".config/opencode").mkdir(parents=True)
+    script: Final[str] = render_install_script(_MANIFEST, _BASE_URL)
+    probe: Final[subprocess.CompletedProcess[str]] = subprocess.run(
+        ["/bin/bash", "-euc", _harness_probe(script)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"HOME": str(home), "PATH": f"{bin_dir}:/usr/local/bin:/usr/bin:/bin"},
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout == " open-code"
+    assert (home / ".config/opencode").is_dir()
+
+
+def test_detection_does_not_initialize_unrelated_harness(tmp_path: Path) -> None:
+    home: Final[Path] = tmp_path / "home"
+    home.mkdir()
+    probe: Final[subprocess.CompletedProcess[str]] = subprocess.run(
+        ["/bin/bash", "-euc", _harness_probe(render_install_script(_MANIFEST, _BASE_URL))],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"HOME": str(home), "PATH": "/usr/local/bin:/usr/bin:/bin"},
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout == ""
+    assert not (home / ".claude").exists()
+
+
+def test_unavailable_opencode_config_dir_is_not_offered(tmp_path: Path) -> None:
+    home: Final[Path] = tmp_path / "home"
+    home.mkdir()
+    config_dir: Final[Path] = home / ".config"
+    config_dir.mkdir()
+    (config_dir / "opencode").write_text("not a directory")
+    bin_dir: Final[Path] = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "opencode").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "opencode").chmod(0o755)
+    probe: Final[subprocess.CompletedProcess[str]] = subprocess.run(
+        ["/bin/bash", "-euc", _harness_probe(render_install_script(_MANIFEST, _BASE_URL))],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"HOME": str(home), "PATH": f"{bin_dir}:/usr/local/bin:/usr/bin:/bin"},
+    )
+    assert probe.returncode == 1
+    assert "failed to initialize open-code" in probe.stderr
+    assert "open-code" not in probe.stdout
 
 
 def test_render_key_input_is_visible() -> None:
