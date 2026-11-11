@@ -59,16 +59,6 @@ class PendingBatchRead:
     previous_access_times: dict[str, float | None]
 
 
-@dataclass(frozen=True, slots=True)
-class DeclaredBatchRead:
-    """A ``async_batch_get_cache`` split in two: the memory half done, the Redis half declared on a ``RedisBatch``
-    so it rides that batch's next round trip, resolved later with ``async_resolve_batch_get``."""
-
-    keys: tuple[str, ...]
-    pending: PendingBatchRead
-    result: BatchResult[Mapping[str, object]] | None
-
-
 def _log_deferred_increment_failure(future: asyncio.Future[float]) -> None:
     if future.cancelled():
         return
@@ -187,16 +177,12 @@ class DualCache(BaseCache):
         key,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
-        skip_in_memory: bool = False,
         **kwargs,
     ):
-        # Try to fetch from in-memory cache first (unless bypassed for multi-pod consistency)
-        # When skip_in_memory=True but no Redis is configured, fall back to in-memory
-        # since the cross-pod staleness problem only exists with a shared Redis layer.
-        effective_skip = skip_in_memory and self.redis_cache is not None
+        # Try to fetch from in-memory cache first
         try:
             result = None
-            if self.in_memory_cache is not None and not effective_skip:
+            if self.in_memory_cache is not None:
                 in_memory_result: Final = self.in_memory_cache.get_cache(key, **kwargs)
 
                 if in_memory_result is not None:
@@ -206,7 +192,7 @@ class DualCache(BaseCache):
                 # If not found in in-memory cache, try fetching from Redis
                 redis_result: Final = self.redis_cache.get_cache(key, parent_otel_span=parent_otel_span)
 
-                if redis_result is not None and not effective_skip:
+                if redis_result is not None:
                     # Update in-memory cache with the value from Redis
                     self.in_memory_cache.set_cache(key, redis_result, **self._backfill_kwargs(kwargs))
 
@@ -267,17 +253,13 @@ class DualCache(BaseCache):
         key,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
-        skip_in_memory: bool = False,
         **kwargs,
     ):
-        # Try to fetch from in-memory cache first (unless bypassed for multi-pod consistency)
-        # When skip_in_memory=True but no Redis is configured, fall back to in-memory
-        # since the cross-pod staleness problem only exists with a shared Redis layer.
-        effective_skip = skip_in_memory and self.redis_cache is not None
+        # Try to fetch from in-memory cache first
         try:
             print_verbose(f"async get cache: cache key: {key}; local_only: {local_only}")
             result = None
-            if self.in_memory_cache is not None and not effective_skip:
+            if self.in_memory_cache is not None:
                 in_memory_result: Final = await self.in_memory_cache.async_get_cache(key, **kwargs)
 
                 print_verbose(f"in_memory_result: {in_memory_result}")
@@ -291,7 +273,7 @@ class DualCache(BaseCache):
                 # If not found in in-memory cache, try fetching from Redis
                 redis_result: Final = await self.redis_cache.async_get_cache(key, parent_otel_span=parent_otel_span)
 
-                if redis_result is not None and not effective_skip:
+                if redis_result is not None:
                     # Update in-memory cache with the value from Redis
                     await self.in_memory_cache.async_set_cache(key, redis_result, **self._backfill_kwargs(kwargs))
 
@@ -389,22 +371,6 @@ class DualCache(BaseCache):
                 if value is not None:
                     await self.in_memory_cache.async_set_cache(key, value, **self._backfill_kwargs(kwargs))
         return merged
-
-    async def declare_batch_get(self, keys: Sequence[str], batch: RedisBatch) -> DeclaredBatchRead:
-        pending: Final = await self._prepare_batch_get(
-            list(keys),
-            local_only=False,
-            throttle_redis=False,
-        )
-        return DeclaredBatchRead(
-            keys=tuple(keys),
-            pending=pending,
-            result=batch.mget(pending.redis_keys) if pending.redis_keys else None,
-        )
-
-    async def async_resolve_batch_get(self, declared: DeclaredBatchRead) -> list[object | None]:
-        redis_result: Final = None if declared.result is None else await declared.result
-        return await self._apply_batch_get(declared.pending, redis_result)
 
     async def async_batch_get_cache(
         self,

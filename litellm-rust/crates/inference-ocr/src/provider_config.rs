@@ -19,7 +19,6 @@ use litellm_llms::{
     },
     cohere::ocr::transformation::CohereParseConfig,
     mistral::ocr::transformation::MistralOcrConfig,
-    paddlex::ocr::transformation::PaddlexOcrConfig,
     reducto::ocr::transformation::{ReductoParseLegacyConfig, ReductoParseV3Config},
     vertex_ai::ocr::{
         deepseek_transformation::VertexAIDeepSeekOCRConfig, transformation::VertexAiOcrConfig,
@@ -58,10 +57,6 @@ macro_rules! with_config {
                 let $config = AzureDocumentIntelligenceOcrConfig;
                 $body
             }
-            OcrConfigKind::Paddlex => {
-                let $config = PaddlexOcrConfig;
-                $body
-            }
             OcrConfigKind::ReductoLegacy => {
                 let $config = ReductoParseLegacyConfig;
                 $body
@@ -91,7 +86,6 @@ pub(crate) enum OcrConfigKind {
     AzureAi,
     AzureCohere,
     AzureDocumentIntelligence,
-    Paddlex,
     ReductoLegacy,
     ReductoV3,
     VertexAi,
@@ -107,7 +101,6 @@ impl OcrConfigKind {
             Self::AzureAi | Self::AzureCohere | Self::AzureDocumentIntelligence => {
                 LlmProviders::AzureAi
             }
-            Self::Paddlex => LlmProviders::Paddlex,
             Self::ReductoLegacy | Self::ReductoV3 => LlmProviders::Reducto,
             Self::VertexAi | Self::VertexDeepSeek => LlmProviders::VertexAi,
         }
@@ -214,7 +207,6 @@ pub(crate) fn resolve_provider_config(
         },
         LlmProviders::Cohere => OcrConfigKind::Cohere,
         LlmProviders::Mistral => OcrConfigKind::Mistral,
-        LlmProviders::Paddlex => OcrConfigKind::Paddlex,
         LlmProviders::AzureAi if is_document_intelligence_model(provider.model) => {
             OcrConfigKind::AzureDocumentIntelligence
         }
@@ -233,10 +225,7 @@ pub(crate) fn resolve_provider_config(
             OcrConfigKind::VertexDeepSeek
         }
         LlmProviders::VertexAi => OcrConfigKind::VertexAi,
-        LlmProviders::Anthropic
-        | LlmProviders::Bedrock
-        | LlmProviders::Openai
-        | LlmProviders::OpenaiLike => {
+        _ => {
             return Err(Error::InvalidProvider(
                 provider.custom_llm_provider.to_string(),
             ));
@@ -270,7 +259,6 @@ mod tests {
     #[case(OcrConfigKind::AzureAi)]
     #[case(OcrConfigKind::AzureCohere)]
     #[case(OcrConfigKind::AzureDocumentIntelligence)]
-    #[case(OcrConfigKind::Paddlex)]
     #[case(OcrConfigKind::ReductoLegacy)]
     #[case(OcrConfigKind::ReductoV3)]
     #[case(OcrConfigKind::VertexAi)]

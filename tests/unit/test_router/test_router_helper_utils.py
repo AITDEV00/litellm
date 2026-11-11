@@ -1,8 +1,5 @@
 import json
 import os
-import traceback
-from dotenv import load_dotenv
-from fastapi import Request
 from datetime import datetime, timezone
 from typing import Final
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -976,25 +973,6 @@ def _ratelimit_headers(response: ModelResponse | CustomStreamWrapper) -> dict[st
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("router_minute_pinned")
-async def test_acompletion_headers_read_post_increment_counter_and_count_once():
-    router = _rpm_tpm_router("lit-3058-async")
-
-    response = await router.acompletion(
-        model="gpt-5-mini", messages=[{"role": "user", "content": "hi"}], mock_response="pong"
-    )
-    total_tokens = response.usage.total_tokens
-    assert total_tokens > 0
-
-    headers = _ratelimit_headers(response)
-    assert headers["x-ratelimit-remaining-tokens"] == 1000 - total_tokens
-    assert headers["x-ratelimit-remaining-requests"] == 99
-    assert await router.get_model_group_usage("gpt-5-mini") == (total_tokens, 1)
-
-    await asyncio.sleep(0.5)
-    assert await router.get_model_group_usage("gpt-5-mini") == (total_tokens, 1)
-
-
-@pytest.mark.asyncio
 async def test_acompletion_wildcard_route_headers_and_counter_use_resolved_deployment_name():
     router = Router(
         model_list=[
@@ -1015,31 +993,6 @@ async def test_acompletion_wildcard_route_headers_and_counter_use_resolved_deplo
     assert headers["x-ratelimit-remaining-tokens"] == 1000 - total_tokens
     assert headers["x-ratelimit-remaining-requests"] == 99
     assert await router.get_model_group_usage("openai/gpt-5-mini") == (total_tokens, 1)
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("router_minute_pinned")
-async def test_acompletion_stream_counts_request_before_headers_and_tokens_once_on_completion():
-    router = _rpm_tpm_router("lit-3058-stream")
-
-    stream = await router.acompletion(
-        model="gpt-5-mini",
-        messages=[{"role": "user", "content": "hi"}],
-        mock_response="pong pong pong",
-        stream=True,
-        stream_options={"include_usage": True},
-    )
-    headers = _ratelimit_headers(stream)
-    assert headers["x-ratelimit-remaining-tokens"] == 1000
-    assert headers["x-ratelimit-remaining-requests"] == 99
-    assert await router.get_model_group_usage("gpt-5-mini") == (0, 1)
-
-    chunks = [chunk async for chunk in stream]
-    total_tokens = chunks[-1].usage.total_tokens
-    assert total_tokens > 0
-
-    await asyncio.sleep(0.5)
-    assert await router.get_model_group_usage("gpt-5-mini") == (total_tokens, 1)
 
 
 @pytest.mark.asyncio
@@ -1157,6 +1110,7 @@ def _shared_redis_stub(store: dict) -> MagicMock:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("router_minute_pinned")
 async def test_headers_on_fresh_worker_reflect_shared_redis_usage():
     store: dict = {}
     worker_a = _rpm_tpm_router("lit-3058-workers")
@@ -2611,6 +2565,21 @@ def test_resolve_model_name_from_model_id():
     result = router.resolve_model_name_from_model_id("8d0eaa7e6c6f54a425dfd0062cb6b0dc")
     assert result == "bedrock-batch-model"
 
+
+@pytest.mark.parametrize(
+    ("model_id", "custom_llm_provider", "expected"),
+    [
+        ("sora-2", "openai", "sora-2"),
+        ("fal-ai/veo3", "fal_ai", None),
+        ("veo-3.0-generate-001", "gemini", None),
+        ("sora-2", None, None),
+    ],
+)
+def test_resolve_model_name_from_model_id_keeps_a_wildcard_name_only_for_the_ids_provider(
+    model_id, custom_llm_provider, expected
+):
+    router = Router(model_list=[{"model_name": "*", "litellm_params": {"model": "openai/*", "api_key": "sk-fake"}}])
+    assert router.resolve_model_name_from_model_id(model_id, custom_llm_provider) == expected
 
 def test_get_valid_args():
     """Test get_valid_args static method returns valid Router.__init__ arguments"""

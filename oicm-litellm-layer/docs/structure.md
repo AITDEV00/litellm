@@ -133,9 +133,8 @@ oicm-litellm-layer/
 │   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
 │   ├── session-identity/   ← session-id resolver implementation plan
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
-   ├── runbooks/           ← operational runbooks (OICM model-server registration,
-   │                          access-list maintenance, mkdocs setup, datasource
-   │                          validation, postgres backup)
+│   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource
+│   │                          validation, postgres backup, postgres-in-image)
 │   ├── architecture/       ← integration-layer implementation plan
 │   ├── cache-invalidation/  ← cache invalidation design + testing
 │   ├── oicm-slices.md       ← OICM vertical-slice locations & pattern (see below)

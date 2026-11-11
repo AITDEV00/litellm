@@ -107,9 +107,11 @@ from the custom branch before resolving anything.
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
 | Upstream deletes a file the branch still carries | Upstream's `test: drop static cost-map value assertions` removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict | Step 5: deletion audit |
 | Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
+| Non-linear upstream history makes Git pick the wrong merge base | A fork that merged a staging snapshot with rebased release commits need not share an ancestor with the named tag. Taking the complete custom side drops newer upstream helper functions, while taking the upstream side silences newer custom slices | Find the last merge's first parent and divide custom work by that integration snapshot, then inspect late-start wiring and old co-located slices |
 | **A documented behavior changed but the suite still asserts the old contract** | Upstream renames a response field, changes an error status, or moves a route; the tree imports fine and every unit test passes | Step 7: update `tests/smoke/` alongside the merge, then run it against dev |
 | **The merge compiles but the container is broken** | `uv.lock` reverted, a dependency dropped, a startup import missing; `import litellm` passes but the gateway will not boot | Step 7: deploy to dev and `make smoke` |
 | **A merge regression that no unit test covers** | Dropped mount, lost re-export, changed route path; only visible over HTTP against a real gateway | Step 7: `make smoke-fast` |
+| Hosting environment lacks native artifacts | A virtualenv with a stale `_native` extension can fail on imports or tests absent from the Python merge. Full `uv sync --frozen` and the source image's Rust toolchain are the relevant checks, not a system `python` import | Run the complete image build before deploy and do not patch source to accommodate an incomplete host venv |
 | Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted; no automation ratchets this branch | Step 6: `make lint-budget-update` |
 | **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, and its transitive `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
 
@@ -510,7 +512,18 @@ cd oicm-litellm-layer
 .venv/bin/python -m pytest tests/smoke --collect-only -q   # must collect cleanly
 ```
 
-**7b — Build and deploy the merged image to dev only.** Never prod (see the
+**7b — Build and deploy the merged image to dev only.** Before this step, require every target-release path to exist in the merge commit and every intended source edit to be tracked:
+
+```bash
+git ls-tree -r --name-only "$UPSTREAM_TAG" | sort > /tmp/upstream-files.txt
+git ls-tree -r --name-only HEAD | sort > /tmp/merged-files.txt
+comm -23 /tmp/upstream-files.txt /tmp/merged-files.txt
+git status --short --untracked-files=all
+```
+
+Review every path reported by `comm`. A blank result means all target-release paths are present. Deliberately removed paths need an explicit reason. `git add -u` excludes new upstream files left untracked by `git restore`. A successful build from a populated working directory is not evidence that those files are in the commit
+
+Never prod (see the
 lessons at the bottom).
 
 ```bash
@@ -647,6 +660,8 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
   time (openrouter is past 1.3.x now, pydantic pin tracked the SDK
   requirement) — read the current pins out of `uv.lock`/`pyproject.toml` at
   the branch tip, not out of this doc.
+- **Audit startup guards at their call sites, not just their helpers.** During v1.108.5 the FIPS verdict helper survived but the boot call and mandatory FIPS password migration vanished, and the priority-context deployment-limit bypass was dropped. An initial whole-file resolution had acquired the helper but lost the wiring. Compare the custom integration snapshot's behavior-driving imports and call sites after every multi-stage reconstruction. `test_enforce_model_rate_limits.py` asserts priority requests do not consult general TPM/RPM limits, and the real proxy integration test must refuse a non-enforcing FIPS runtime
+
 - **Smoke-test the image, not just the tree.** `python -c "import litellm"` and
   the drop-detection tests prove the Python tree, but they do not prove the
   **container** has the right deps. After building, verify the merged image

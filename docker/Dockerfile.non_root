@@ -12,6 +12,19 @@ ARG PGBOUNCER_SHA256=afd25dd61ee6775d37b40629b87ce08736b3e6955f3057bb212e410fbf2
 
 FROM $UV_IMAGE AS uvbin
 
+FROM $LITELLM_BUILD_IMAGE AS pgbouncer-builder
+ARG PGBOUNCER_VERSION
+ARG PGBOUNCER_SHA256
+USER root
+RUN apk add --no-cache build-base pkgconf libevent-dev openssl-dev curl
+WORKDIR /build
+RUN curl -fsSL -o pgbouncer.tar.gz "https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz" && \
+    echo "${PGBOUNCER_SHA256}  pgbouncer.tar.gz" | sha256sum -c - && \
+    tar xzf pgbouncer.tar.gz --strip-components=1 && \
+    ./configure --prefix=/usr/local --with-openssl=/usr && \
+    make -j"$(nproc)" pgbouncer && \
+    install -m 0755 pgbouncer /usr/local/bin/pgbouncer
+
 # Admin UI builder. Pinned to the build platform so the architecture-independent
 # Next.js static export compiles once natively even in a multi-arch build,
 # instead of once per target arch under QEMU.
@@ -24,6 +37,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 WORKDIR /ui
 
 COPY ui/litellm-dashboard/package.json ui/litellm-dashboard/package-lock.json ./
+COPY ui/litellm-dashboard/vendor/ ./vendor/
 RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
 
 COPY ui/litellm-dashboard/ ./
@@ -73,6 +87,7 @@ RUN --mount=type=cache,target=/app/.cache/uv,id=litellm-uv-cache \
     --extra extra_proxy \
     --extra semantic-router \
     --extra saml \
+    --extra bedrock-realtime \
     --python python3.13
 
 # Copy full source tree
@@ -93,28 +108,15 @@ RUN mkdir -p /var/lib/litellm/ui /var/lib/litellm/assets && \
     touch /var/lib/litellm/ui/.litellm_ui_ready
 
 RUN --mount=type=cache,target=/app/.cache/uv,id=litellm-uv-cache \
-    if [ "$PROXY_EXTRAS_SOURCE" = "published" ]; then \
-      uv sync --frozen --no-default-groups --no-editable \
-        --extra proxy \
-        --extra proxy-runtime \
-        --group admin-mcp \
-        --extra extra_proxy \
-        --extra semantic-router \
-        --extra saml \
-        --extra bedrock-realtime \
-        --python python3.13 \
-        --no-sources-package litellm-proxy-extras; \
-    else \
-      uv sync --frozen --no-default-groups --no-editable \
-        --extra proxy \
-        --extra proxy-runtime \
-        --group admin-mcp \
-        --extra extra_proxy \
-        --extra semantic-router \
-        --extra saml \
-        --extra bedrock-realtime \
-        --python python3.13; \
-    fi
+    uv sync --frozen --no-default-groups --no-editable \
+      --extra proxy \
+      --extra proxy-runtime \
+      --group admin-mcp \
+      --extra extra_proxy \
+      --extra semantic-router \
+      --extra saml \
+      --extra bedrock-realtime \
+      --python python3.13
 
 RUN HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
     npm_config_cache=/root/.npm \
@@ -133,8 +135,9 @@ RUN for i in 1 2 3; do \
       apk upgrade --no-cache && break || sleep 5; \
     done && \
     for i in 1 2 3; do \
-      apk add --no-cache python-3.13 bash openssl libssl3 tzdata libsndfile nodejs && break || sleep 5; \
+      apk add --no-cache python-3.13 bash openssl libssl3 tzdata libsndfile nodejs libevent && break || sleep 5; \
     done
+COPY --from=pgbouncer-builder /usr/local/bin/pgbouncer /usr/local/bin/pgbouncer
 
 # Copy only what runtime needs. The application is installed inside the venv;
 # the rest of the builder's /app is source and build metadata that must not

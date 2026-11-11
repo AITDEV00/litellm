@@ -90,6 +90,8 @@ def parse_canonical_date_range(start_date: str | None, end_date: str | None) -> 
     end: Final = parse_canonical_date(end_date)
     if start is None or end is None:
         return InvalidDateRange(reason="start_date and end_date must be valid YYYY-MM-DD dates")
+    if end < start:
+        return InvalidDateRange(reason="end_date must be on or after start_date")
     return CanonicalDateRange(start=start, end=end)
 
 
@@ -693,6 +695,7 @@ async def _aggregate_spend_records(
 # current grouping set's key), 0 when the column is part of the key.
 _GROUP_GRAND_TOTAL: Final = 127  # 0b1111111 — all rolled up
 _GROUP_DATE: Final = 63  # 0b0111111 — only date kept
+_API_KEY_ROLLED_UP_BIT: Final = 32  # 0b0100000
 _GROUP_DATE_API_KEY: Final = 31  # 0b0011111
 _GROUP_DATE_MODEL: Final = 47  # 0b0101111
 _GROUP_DATE_MODEL_API_KEY: Final = 15  # 0b0001111
@@ -704,6 +707,7 @@ _GROUP_DATE_MCP: Final = 61  # 0b0111101
 _GROUP_DATE_MCP_API_KEY: Final = 29  # 0b0011101
 _GROUP_DATE_ENDPOINT: Final = 62  # 0b0111110
 _GROUP_DATE_ENDPOINT_API_KEY: Final = 30  # 0b0011110
+
 
 def _record_to_spend_metrics(record: RollupMetricsRow) -> SpendMetrics:
     """Build a SpendMetrics directly from one already-aggregated rollup row.

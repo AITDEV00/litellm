@@ -37,6 +37,23 @@ def _dual_cache_with_local_tpm(local_tpm: int, redis_cache: MagicMock | None) ->
     return dual_cache
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("async_check", [False, True])
+async def test_priority_requests_use_htb_allocation_instead_of_deployment_limits(async_check: bool) -> None:
+    from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import htb_priority
+
+    check = ModelRateLimitingCheck(dual_cache=MagicMock())
+    token = htb_priority.set("high")
+    try:
+        if async_check:
+            result = await check.async_pre_call_check(TPM_DEPLOYMENT)
+        else:
+            result = check.pre_call_check(TPM_DEPLOYMENT)
+    finally:
+        htb_priority.reset(token)
+    assert result == TPM_DEPLOYMENT
+
+
 class TestModelRateLimitingCheck:
     """Test the ModelRateLimitingCheck class directly."""
 

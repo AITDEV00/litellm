@@ -7,6 +7,19 @@ ARG PGBOUNCER_SHA256=afd25dd61ee6775d37b40629b87ce08736b3e6955f3057bb212e410fbf2
 
 FROM $UV_IMAGE AS uvbin
 
+FROM $LITELLM_BUILD_IMAGE AS pgbouncer-builder
+ARG PGBOUNCER_VERSION
+ARG PGBOUNCER_SHA256
+USER root
+RUN apk add --no-cache build-base pkgconf libevent-dev openssl-dev curl
+WORKDIR /build
+RUN curl -fsSL -o pgbouncer.tar.gz "https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz" && \
+    echo "${PGBOUNCER_SHA256}  pgbouncer.tar.gz" | sha256sum -c - && \
+    tar xzf pgbouncer.tar.gz --strip-components=1 && \
+    ./configure --prefix=/usr/local --with-openssl=/usr && \
+    make -j"$(nproc)" pgbouncer && \
+    install -m 0755 pgbouncer /usr/local/bin/pgbouncer
+
 # ---------- Builder ----------
 FROM $LITELLM_BUILD_IMAGE AS builder
 
@@ -66,6 +79,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra bedrock-realtime \
         --python python3.13
 
+# PYTHONPATH=/app makes the source tree shadow the installed package, so the
+# compiled Rust extension must live next to the source or it is never imported.
+RUN cp "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/litellm/rust_bridge/_native*.so litellm/rust_bridge/
+
 RUN HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
     npm_config_cache=/root/.npm \
     prisma generate --schema=./schema.prisma
@@ -78,7 +95,7 @@ FROM $LITELLM_RUNTIME_IMAGE AS runtime
 USER root
 
 RUN for i in 1 2 3; do \
-      apk add --no-cache bash openssl libssl3 tzdata python-3.13 libsndfile libatomic && break; \
+      apk add --no-cache bash openssl libssl3 tzdata python-3.13 libsndfile libatomic libevent && break; \
       [ $i = 3 ] && { echo "apk add failed after 3 retries" >&2; exit 1; }; \
       sleep 5; \
     done
@@ -100,15 +117,17 @@ COPY --from=builder --chown=nonroot:nonroot /app/gateway /app/gateway
 COPY --from=builder --chown=nonroot:nonroot /app/docker/component_entrypoint.sh /app/docker/component_entrypoint.sh
 COPY --from=builder --chown=nonroot:nonroot /app/schema.prisma /app/schema.prisma
 COPY --from=builder /opt/prisma /opt/prisma
+COPY --from=pgbouncer-builder /usr/local/bin/pgbouncer /usr/local/bin/pgbouncer
 
 RUN find /app/.venv -type f -path "*/tornado/test/*" -delete && \
     find /app/.venv -type d -path "*/tornado/test" -delete && \
     chmod -R a+rX /opt/prisma && \
-    python -c "from prisma.client import BINARY_PATHS; paths = list(BINARY_PATHS.query_engine.values()); assert paths and all(p.startswith('/opt/prisma/') for p in paths), paths"
+    python -c "from prisma.client import BINARY_PATHS; paths = list(BINARY_PATHS.query_engine.values()); assert paths and all(p.startswith('/opt/prisma/') for p in paths), paths" && \
+    python -c "import litellm; from litellm.rust_bridge.loader import native_bridge_available; assert litellm.__file__ == '/app/litellm/__init__.py', litellm.__file__; assert native_bridge_available()"
 
 USER nonroot
 
 EXPOSE 4000/tcp
 
-ENTRYPOINT ["sh", "-c", "exec /app/docker/component_entrypoint.sh uvicorn gateway.main:app --workers \"${NUM_WORKERS:-1}\" \"$@\"", "--"]
+ENTRYPOINT ["sh", "-c", "exec /app/docker/component_entrypoint.sh python -m gateway.launch --workers \"${NUM_WORKERS:-1}\" \"$@\"", "--"]
 CMD ["--host", "0.0.0.0", "--port", "4000"]

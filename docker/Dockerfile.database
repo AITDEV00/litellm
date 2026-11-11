@@ -14,6 +14,19 @@ ARG PGBOUNCER_SHA256=afd25dd61ee6775d37b40629b87ce08736b3e6955f3057bb212e410fbf2
 
 FROM $UV_IMAGE AS uvbin
 
+FROM $LITELLM_BUILD_IMAGE AS pgbouncer-builder
+ARG PGBOUNCER_VERSION
+ARG PGBOUNCER_SHA256
+USER root
+RUN apk add --no-cache build-base pkgconf libevent-dev openssl-dev curl
+WORKDIR /build
+RUN curl -fsSL -o pgbouncer.tar.gz "https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz" && \
+    echo "${PGBOUNCER_SHA256}  pgbouncer.tar.gz" | sha256sum -c - && \
+    tar xzf pgbouncer.tar.gz --strip-components=1 && \
+    ./configure --prefix=/usr/local --with-openssl=/usr && \
+    make -j"$(nproc)" pgbouncer && \
+    install -m 0755 pgbouncer /usr/local/bin/pgbouncer
+
 # Admin UI builder. Pinned to the build platform so the architecture-independent
 # Next.js static export compiles once natively even in a multi-arch build,
 # instead of once per target arch under QEMU.
@@ -26,6 +39,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 WORKDIR /ui
 
 COPY ui/litellm-dashboard/package.json ui/litellm-dashboard/package-lock.json ./
+COPY ui/litellm-dashboard/vendor/ ./vendor/
 RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
 
 COPY ui/litellm-dashboard/ ./
@@ -69,6 +83,7 @@ RUN uv sync --frozen --no-install-project --no-install-workspace --no-default-gr
     --extra extra_proxy \
     --extra semantic-router \
     --extra saml \
+    --extra bedrock-realtime \
     --python python3.13
 
 # Copy full source tree
@@ -91,6 +106,7 @@ RUN uv sync --frozen --no-default-groups --no-editable \
     --extra extra_proxy \
     --extra semantic-router \
     --extra saml \
+    --extra bedrock-realtime \
     --python python3.13
 
 RUN HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
@@ -107,7 +123,8 @@ ENV LITELLM_RELEASE_TAG=${LITELLM_RELEASE_TAG}
 USER root
 
 # node (without npm) is required by the prisma CLI at runtime
-RUN apk add --no-cache bash openssl libssl3 tzdata nodejs python-3.13 libsndfile
+RUN apk add --no-cache bash openssl libssl3 tzdata nodejs python-3.13 libsndfile libevent
+COPY --from=pgbouncer-builder /usr/local/bin/pgbouncer /usr/local/bin/pgbouncer
 
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \

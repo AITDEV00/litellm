@@ -92,9 +92,6 @@ async def use_callback_in_llm_call(callback: str, used_in: Literal["callbacks", 
     elif callback == "dynamic_rate_limiter_v3":
         # internal CustomLogger class that expects internal_usage_cache passed to it, it always fails when tested in this way
         return
-    elif callback == "dynamic_rate_limiter_v3_htb":
-        # internal CustomLogger class that expects internal_usage_cache passed to it, it always fails when tested in this way
-        return
     elif callback == "argilla":
         litellm.argilla_transformation_object = {}
     elif callback == "openmeter":

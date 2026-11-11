@@ -391,3 +391,45 @@ def _llm_api_key_can_call(path: str, token: "UserAPIKeyAuth", request: Request) 
         assert e.status_code == 403, f"{path} rejected with {e.status_code}, expected 403"
         return False
 
+
+def test_hamsa_api_surface_reaches_provider_params() -> None:
+    from litellm.litellm_core_utils.get_litellm_params import get_litellm_params
+
+    params = get_litellm_params(model="hamsa/default", api_base="https://tts.test", api_surface="v1")
+    assert params["api_surface"] == "v1"
+
+
+def test_async_inference_slices_are_not_classified_as_sync() -> None:
+    from litellm.litellm_core_utils.litellm_logging import Logging
+
+    assert Logging.is_sync_litellm_request({"acreate_voice": True}) is False
+    assert Logging.is_sync_litellm_request({"adiarize": True}) is False
+
+
+def test_openrouter_compatible_catalog_is_mounted_on_app() -> None:
+    from litellm.proxy.proxy_server import app
+
+    assert any(route.path == "/api/v1/models" for route in app.routes)
+
+
+def test_stream_tracer_records_chunk_and_terminal_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    from litellm.litellm_core_utils import stream_tracer
+
+    monkeypatch.setattr(stream_tracer, "_ENABLED", True)
+    events: list[object] = []
+    monkeypatch.setattr(stream_tracer, "_emit_fn", events.append)
+    tracer = stream_tracer.begin_trace(request_id="request", model="model", provider="provider", api_base="base")
+    assert tracer is not None
+    tracer.record_chunk(chars=4, finish_reason="stop")
+    tracer.record_end("success")
+    import json
+
+    records = tuple(json.loads(event) for event in events)
+    assert tuple((event["event"], event["chunk_seq"], event["end_kind"]) for event in records) == (
+        ("start", None, None),
+        ("first_chunk", 1, None),
+        ("end", 1, "success"),
+    )
+    assert records[1]["chunk_chars"] == 4
+    assert records[1]["finish_reason"] == "stop"
+

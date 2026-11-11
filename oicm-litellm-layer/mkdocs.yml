@@ -110,7 +110,6 @@ nav:
       - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
       - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
   - Runbooks:
-      - OICM Model Server Registration: runbooks/OICM-MODEL-SERVER-ONBOARDING.md
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md

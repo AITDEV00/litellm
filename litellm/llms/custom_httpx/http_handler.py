@@ -74,6 +74,8 @@ _IPV4_LOCAL_ADDRESS: Final = "0.0.0.0"
 
 _HttpxTransportT = TypeVar("_HttpxTransportT", HTTPTransport, AsyncHTTPTransport)
 
+HTTPEventHooks: TypeAlias = Mapping[str, list[Callable[..., object]]]
+
 
 def http2_enabled() -> bool:
     from litellm.secret_managers.main import str_to_bool
@@ -666,7 +668,7 @@ class AsyncHTTPHandler:
     def create_client(
         self,
         timeout: float | httpx.Timeout | None,
-        event_hooks: Mapping[str, list[Callable[..., object]]] | None,
+        event_hooks: HTTPEventHooks | None,
         ssl_verify: VerifyTypes | None = None,
         shared_session: Optional["ClientSession"] = None,
     ) -> httpx.AsyncClient:
@@ -795,9 +797,11 @@ class AsyncHTTPHandler:
                 )
             if response.is_redirect or response.is_error:
                 return httpx.Response(response.status_code, headers=response.headers, request=response.request)
-            if response.headers.get("content-encoding", "identity").lower() != "identity":
+            content_encoding: Final = header_value(response.headers, "content-encoding")
+            if ("identity" if content_encoding is None else content_encoding).lower() != "identity":
                 raise HTTPResponseLimitError("Response size limits require an uncompressed response")
-            if int(response.headers.get("content-length", "0")) > max_bytes:
+            content_length: Final = header_value(response.headers, "content-length")
+            if int("0" if content_length is None else content_length) > max_bytes:
                 raise HTTPResponseLimitError("Response exceeds the configured size limit")
             with BytesIO() as body:
                 async for chunk in response.aiter_bytes(chunk_size=65536):
@@ -848,12 +852,13 @@ class AsyncHTTPHandler:
                 _anchor_handler_to(response, self)
             response.raise_for_status()
             return response
-        except (httpx.RemoteProtocolError, httpx.ConnectError):
+        except httpx.ConnectError:
             # Retry the request with a new session if there is a connection error
             new_client: Final = self.create_client(timeout=timeout, event_hooks=self.event_hooks)
             try:
-                return await self.single_connection_post_request(
+                return await self.single_connection_request(
                     url=url,
+                    method="POST",
                     client=new_client,
                     data=data,
                     json=json,
@@ -985,17 +990,19 @@ class AsyncHTTPHandler:
                 params=params,
                 headers=headers,
                 timeout=timeout,
+                files=files,
                 content=request_content,
             )
             response: Final = await self.client.send(req)
             response.raise_for_status()
             return response
-        except (httpx.RemoteProtocolError, httpx.ConnectError):
+        except httpx.ConnectError:
             # Retry the request with a new session if there is a connection error
             new_client: Final = self.create_client(timeout=timeout, event_hooks=self.event_hooks)
             try:
-                return await self.single_connection_post_request(
+                return await self.single_connection_request(
                     url=url,
+                    method="PATCH",
                     client=new_client,
                     data=data,
                     json=json,
@@ -1061,8 +1068,9 @@ class AsyncHTTPHandler:
             # Retry the request with a new session if there is a connection error
             new_client: Final = self.create_client(timeout=timeout, event_hooks=self.event_hooks)
             try:
-                return await self.single_connection_post_request(
+                return await self.single_connection_request(
                     url=url,
+                    method="DELETE",
                     client=new_client,
                     data=data,
                     json=json,
@@ -1078,9 +1086,10 @@ class AsyncHTTPHandler:
         except Exception as e:
             raise e
 
-    async def single_connection_post_request(
+    async def single_connection_request(
         self,
         url: str,
+        method: str,
         client: httpx.AsyncClient,
         data: dict | str | bytes | None = None,
         json: dict | None = None,
@@ -1090,7 +1099,7 @@ class AsyncHTTPHandler:
         content: _RequestContent | None = None,
     ):
         """
-        Making POST request for a single connection client.
+        Making request for a single connection client.
 
         Used for retrying connection client errors.
         """
@@ -1098,7 +1107,7 @@ class AsyncHTTPHandler:
         request_data, request_content = _prepare_request_data_and_content(data, content)
 
         req: Final = client.build_request(
-            "POST",
+            method,
             url,
             data=request_data,
             json=json,
@@ -1115,6 +1124,17 @@ class AsyncHTTPHandler:
     # the underlying aiohttp session unclosed ("Unclosed client session").
     # Mirrors LiteLLMAiohttpTransport._background_close_tasks.
     _finalizer_close_tasks: ClassVar[set["asyncio.Task[None]"]] = set()  # mutable-ok: strong refs for pending closes
+
+    @classmethod
+    async def _close_client_at_finalization(cls, client: httpx.AsyncClient) -> None:
+        try:
+            await client.aclose()
+        except (OSError, RuntimeError) as exc:
+            verbose_logger.debug("Error closing client at finalization: %s", exc)
+        finally:
+            task: Final = asyncio.current_task()
+            if task is not None:
+                cls._finalizer_close_tasks.discard(task)
 
     @classmethod
     def _on_finalizer_close_done(cls, task: "asyncio.Task[None]") -> None:
@@ -1183,8 +1203,8 @@ class AsyncHTTPHandler:
                 # here is the cross-loop path the transport refuses.
                 self._dispose_wrapped_aiohttp_session()
                 return
-            task: Final = loop.create_task(self._client.aclose())
             cls: Final = type(self)
+            task: Final = loop.create_task(cls._close_client_at_finalization(self._client))
             cls._finalizer_close_tasks.add(task)
             task.add_done_callback(cls._on_finalizer_close_done)
         except Exception:
@@ -1559,7 +1579,7 @@ class HTTPHandler:
         headers: dict | None = None,
         stream: bool = False,
         timeout: float | httpx.Timeout | None = None,
-        files: RequestFiles | None = None,
+        files: dict | RequestFiles | None = None,
         content: _RequestContent | None = None,
     ):
         try:
@@ -1575,6 +1595,7 @@ class HTTPHandler:
                     params=params,
                     headers=headers,
                     timeout=timeout,
+                    files=files,
                     content=request_content,
                 )
             else:
@@ -1585,6 +1606,7 @@ class HTTPHandler:
                     json=json,
                     params=params,
                     headers=headers,
+                    files=files,
                     content=request_content,
                 )
             response: Final = self.client.send(req, stream=stream)
@@ -1817,7 +1839,7 @@ def get_httpx_client(params: dict | None = None) -> HTTPHandler:
         cache = LLMClientCache()
         setattr(litellm, "in_memory_llm_clients_cache", cache)
 
-    _cached_client: Final = cache.get_cache(_cache_key_name)
+    _cached_client: Final = cache.get_cache(_cache_key_name, loop_bound=False)
     if _cached_client:
         return _cached_client
 
@@ -1833,6 +1855,7 @@ def get_httpx_client(params: dict | None = None) -> HTTPHandler:
         value=_new_client,
         ttl=_DEFAULT_TTL_FOR_HTTPX_CLIENTS,
         litellm_owned_client=True,
+        loop_bound=False,
     )
     return _new_client
 

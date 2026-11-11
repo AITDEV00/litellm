@@ -137,7 +137,7 @@ def _image_edit_client(monkeypatch, captured: Dict[str, Any]) -> TestClient:
     return TestClient(app)
 
 
-def test_image_edit_image_array_alias_is_not_forwarded(monkeypatch: pytest.MonkeyPatch):
+def test_image_edit_image_array_alias_is_not_forwarded(monkeypatch):
     """The documented `image[]` alias must reach the provider only as `image`."""
     captured: Dict[str, Any] = {}
 
@@ -153,7 +153,7 @@ def test_image_edit_image_array_alias_is_not_forwarded(monkeypatch: pytest.Monke
     assert [buffer.name for buffer in captured["image"]] == ["tree.png"]
 
 
-def test_image_edit_mask_array_alias_is_not_forwarded(monkeypatch: pytest.MonkeyPatch):
+def test_image_edit_mask_array_alias_is_not_forwarded(monkeypatch):
     """`mask[]` has the same shape as `image[]` and must be dropped the same way."""
     captured: Dict[str, Any] = {}
 
@@ -172,7 +172,7 @@ def test_image_edit_mask_array_alias_is_not_forwarded(monkeypatch: pytest.Monkey
     assert [buffer.getvalue() for buffer in captured["image"]] == [b"\x89PNG\r\n\x1a\ntree"]
 
 
-def test_image_edit_canonical_file_fields_still_reach_the_provider(monkeypatch: pytest.MonkeyPatch):
+def test_image_edit_canonical_file_fields_still_reach_the_provider(monkeypatch):
     """Dropping the bracketed aliases must not touch the canonical fields."""
     captured: Dict[str, Any] = {}
 

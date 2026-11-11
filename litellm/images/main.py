@@ -5,6 +5,8 @@ from collections.abc import Coroutine
 from functools import partial
 from typing import TYPE_CHECKING, Final, Literal, Optional, cast, overload
 
+from pydantic import TypeAdapter, ValidationError
+
 if TYPE_CHECKING:
     from litellm.images.utils import ImageEditRequestUtils
 
@@ -17,6 +19,9 @@ from litellm import client
 from litellm.constants import DEFAULT_IMAGE_ENDPOINT_MODEL
 from litellm.constants import request_timeout as DEFAULT_REQUEST_TIMEOUT
 from litellm.exceptions import LiteLLMUnknownProvider
+from litellm.litellm_core_utils.get_llm_provider_logic import (
+    invalid_provider_routing_hints_message,
+)
 from litellm.litellm_core_utils.litellm_logging import Logging
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.litellm_core_utils.llm_request_utils import flatten_form_field_values
@@ -24,7 +29,6 @@ from litellm.litellm_core_utils.mock_functions import mock_image_generation
 from litellm.llms.base_llm import BaseImageEditConfig, BaseImageGenerationConfig
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
-from litellm.llms.custom_llm import CustomLLM
 from litellm.utils import exception_type, filter_out_litellm_params, get_litellm_params
 
 #################### Initialize provider clients ####################
@@ -34,6 +38,7 @@ from openai.types.audio.transcription_create_params import FileTypes
 # BFL handlers
 from litellm.llms.black_forest_labs.image_edit.handler import bfl_image_edit
 from litellm.llms.black_forest_labs.image_generation.handler import bfl_image_generation
+from litellm.llms.openai.workload_identity import resolve_openai_workload_identity_config
 from litellm.main import (
     azure_chat_completions,
     base_llm_aiohttp_handler,
@@ -52,6 +57,7 @@ from litellm.types.router import GenericLiteLLMParams
 from litellm.types.utils import (
     LITELLM_IMAGE_VARIATION_PROVIDERS,
     LlmProviders,
+    ProviderRoutingHints,
 )
 from litellm.utils import (
     ImageResponse,
@@ -59,6 +65,8 @@ from litellm.utils import (
     get_llm_provider,
     get_optional_params_image_gen,
 )
+
+_PROVIDER_ROUTING_HINTS: Final = TypeAdapter(ProviderRoutingHints)
 
 # Cache for ImageEditRequestUtils to avoid repeated __getattr__ calls
 _ImageEditRequestUtils_cache: Optional["ImageEditRequestUtils"] = None
@@ -92,6 +100,12 @@ async def aimage_generation(*args, **kwargs) -> ImageResponse:
     model: Final = args[0] if len(args) > 0 else kwargs["model"]
     ### PASS ARGS TO Image Generation ###
     kwargs["aimg_generation"] = True
+    try:
+        provider_hints: Final = _PROVIDER_ROUTING_HINTS.validate_python(kwargs)
+    except ValidationError as error:
+        raise litellm.BadRequestError(
+            message=invalid_provider_routing_hints_message(error), model=model, llm_provider=""
+        ) from error
     custom_llm_provider = None
     try:
         # Use a partial function to pass your keyword arguments
@@ -101,7 +115,11 @@ async def aimage_generation(*args, **kwargs) -> ImageResponse:
         ctx: Final = contextvars.copy_context()
         func_with_context: Final = partial(ctx.run, func)
 
-        _, custom_llm_provider, _, _ = get_llm_provider(model=model, api_base=kwargs.get("api_base", None))
+        _, custom_llm_provider, _, _ = get_llm_provider(
+            model=model,
+            custom_llm_provider=provider_hints.get("custom_llm_provider"),
+            api_base=provider_hints.get("api_base"),
+        )
 
         # Await normally
         init_response: Final = await loop.run_in_executor(None, func_with_context)
@@ -487,6 +505,7 @@ def image_generation(
                 aimg_generation=aimg_generation,
                 client=client,
                 headers=headers,
+                litellm_params=litellm_params_dict,
             )
         elif custom_llm_provider == "bedrock":
             if model is None:
@@ -505,10 +524,7 @@ def image_generation(
             )
         elif custom_llm_provider in litellm._custom_providers:  # Assume custom LLM provider
             # Get the Custom Handler
-            custom_handler: CustomLLM | None = None
-            for item in litellm.custom_provider_map:
-                if item["provider"] == custom_llm_provider:
-                    custom_handler = item["custom_handler"]
+            custom_handler: Final = ProviderConfigManager.get_custom_llm_handler(custom_llm_provider)
 
             if custom_handler is None:
                 raise LiteLLMUnknownProvider(model=model, custom_llm_provider=custom_llm_provider)
@@ -663,10 +679,13 @@ def image_variation(
     api_base = provider_config.get_api_base(litellm_params.get("api_base", None))
 
     if image_variation_provider == LITELLM_IMAGE_VARIATION_PROVIDERS.OPENAI:
-        if api_key is None:
-            raise ValueError("API key is required for OpenAI image variations")
         if api_base is None:
             raise ValueError("API base is required for OpenAI image variations")
+        if api_key is None and (
+            resolve_openai_workload_identity_config(api_key=api_key, api_base=api_base, litellm_params=litellm_params)
+            is None
+        ):
+            raise ValueError("API key is required for OpenAI image variations")
 
         response = openai_image_variations.image_variations(
             model_response=model_response,
@@ -781,10 +800,7 @@ def image_edit(
 
         # Check for custom provider
         if custom_llm_provider in litellm._custom_providers:
-            custom_handler: CustomLLM | None = None
-            for item in litellm.custom_provider_map:
-                if item["provider"] == custom_llm_provider:
-                    custom_handler = item["custom_handler"]
+            custom_handler: Final = ProviderConfigManager.get_custom_llm_handler(custom_llm_provider)
 
             if custom_handler is None:
                 raise LiteLLMUnknownProvider(model=model, custom_llm_provider=custom_llm_provider)

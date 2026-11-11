@@ -360,8 +360,7 @@ async def _resolve_member_budget_id(
     changes reach them; ``/team/member_update`` clones that row on first write.
     A lone ``budget_duration`` clones the default with the reset window
     overridden, or creates a window-only budget when there is no team default.
-    With nothing set the member gets no budget, though ``add_new_member`` still
-    writes its membership row.
+    With nothing set the member gets no budget, though ``add_new_member`` still writes its membership row.
     """
     has_explicit_limit: Final = max_budget_in_team is not None or allowed_models is not None
 

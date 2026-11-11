@@ -22,9 +22,11 @@ from litellm.llms.anthropic.prompt_cache_prediction import (
     cache_scope,
     count_cache_plan,
     count_prompt_tokens,
+    lookup,
     parse_cache_plan,
     parse_observed_cache,
     parse_prompt,
+    prepare_native_baseline_body,
     resolve_baseline_prediction_target,
     resolve_prediction_target,
     supported_prediction_headers,
@@ -32,7 +34,7 @@ from litellm.llms.anthropic.prompt_cache_prediction import (
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 from litellm.models.credentials import CredentialItem
 from litellm.proxy import proxy_server
-from litellm.proxy.hooks.prompt_cache_prediction import PromptCacheObserver, lookup
+from litellm.proxy.hooks.prompt_cache_prediction import PromptCacheObserver
 from litellm.proxy.management_endpoints.prompt_cache_prediction import predict_arm
 from litellm.proxy.utils import InternalUsageCache
 from litellm.types.router import Deployment, LiteLLM_Params, ModelInfo
@@ -451,3 +453,23 @@ async def test_native_count_preserves_settings_and_requires_every_prefix(
         assert tuple(marker.prefix_tokens for marker in result.breakpoints) == (5000, 5800)
     assert tuple(route.call_count for route in routes) == (1, 1, 1)
     assert unexpected.call_count == 0
+
+
+@pytest.mark.usefixtures("local_model_cost_map")
+def test_native_baseline_body_leaves_out_a_listed_sampling_param_the_model_does_not_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(litellm, "drop_params", False)
+    request: Final = {
+        "model": "claude-opus-4-8",
+        "max_tokens": 64,
+        "messages": [{"role": "user", "content": "hi"}],
+        "top_k": 5,
+        "additional_drop_params": ["top_k"],
+    }
+
+    body: Final = prepare_native_baseline_body(request, "anthropic/claude-opus-4-8")
+
+    assert body is not None
+    assert "top_k" not in body
+    assert body["max_tokens"] == 64

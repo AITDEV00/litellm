@@ -32,6 +32,7 @@ BACKEND_PATH_PREFIXES: tuple[str, ...] = (
     "/token",
     "/onboarding/",
     "/audit",
+    "/telemetry/",
     "/oauth/",
     "/invitation/",
     "/jwt/",
@@ -91,9 +92,10 @@ BACKEND_PATH_PREFIXES: tuple[str, ...] = (
     "/user_agent",
     "/usage/",
     "/daily/",
-    # Deployment-wide gateway request counts. Scoped to the analytics read rather
+    # Deployment-wide gateway request and error counts. Scoped to the analytics reads rather
     # than all of /gateway/, which stays free for data-plane routes.
     "/gateway/daily/",
+    "/gateway/errors/",
     # CloudZero cost-export admin (init / settings / export / dry-run / delete)
     "/cloudzero/",
     # Caching admin
@@ -105,10 +107,6 @@ BACKEND_PATH_PREFIXES: tuple[str, ...] = (
     "/team_callback",
     # Rust data-plane gateway → proxy control-plane API (logging today, auth later)
     "/v1/rust_control_plane/",
-    # OICM fork slices: status ingestion (controller writes) and the
-    # client-distribution manifest download endpoint
-    "/oicm/",
-    "/install",
     # Alerting / email / IP allowlist
     "/alerting/",
     "/email/",

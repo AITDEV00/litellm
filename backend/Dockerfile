@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --group admin-mcp \
         --extra extra_proxy \
         --extra semantic-router \
+        --extra saml \
         --python python3.13
 
 # Stage 2 — copy source and install the project + workspace members.
@@ -59,6 +60,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --group admin-mcp \
         --extra extra_proxy \
         --extra semantic-router \
+        --extra saml \
         --python python3.13
 
 RUN cp "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/litellm/rust_bridge/_native*.so litellm/rust_bridge/

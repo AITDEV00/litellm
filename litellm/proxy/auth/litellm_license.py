@@ -102,20 +102,6 @@ class LicenseCheck:
         1. verify_license_without_api_request: checks if license was generate using private / public key pair
         2. _verify: checks if license is valid calling litellm API. This is the old way we were generating/validating license
         """
-        # Development/testing override: per the BerRai Enterprise License,
-        # the Software may be copied and modified for development and testing
-        # purposes without requiring a subscription. Set
-        # LITELLM_DISABLE_PREMIUM_OVERRIDE=1 to restore the real license check.
-        if os.getenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", "0") != "1":
-            if not self._premium_check_logged:
-                verbose_proxy_logger.debug(
-                    "litellm.proxy.auth.litellm_license.py::is_premium() - premium override active (dev/trial build)"
-                )
-                self._premium_check_logged = True
-            if self.license_str is None:
-                self.license_str = "dev-trial-override"
-            return True
-
         try:
             if not self._premium_check_logged:
                 verbose_proxy_logger.debug(
@@ -144,17 +130,18 @@ class LicenseCheck:
         except Exception:
             return False
 
+    def user_seat_limit(self) -> int | None:
+        if self.airgapped_license_data is None:
+            return None
+        max_users: Final = self.airgapped_license_data.get("max_users")
+        return max_users if isinstance(max_users, int) else None
+
     def is_over_limit(self, total_users: int) -> bool:
         """
         Check if the license is over the limit
         """
-        if self.airgapped_license_data is None:
-            return False
-        if "max_users" not in self.airgapped_license_data or not isinstance(
-            self.airgapped_license_data["max_users"], int
-        ):
-            return False
-        return total_users > self.airgapped_license_data["max_users"]
+        seat_limit: Final = self.user_seat_limit()
+        return seat_limit is not None and total_users > seat_limit
 
     def is_team_count_over_limit(self, team_count: int) -> bool:
         """

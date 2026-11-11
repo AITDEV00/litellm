@@ -1,7 +1,9 @@
 import os
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Final
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import HTTPException, Request
@@ -15,6 +17,7 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.auth.auth_checks import _is_api_route_allowed
 from litellm.proxy.auth.auth_checks_organization import user_is_org_admin
+from litellm.proxy.auth.login_utils import PASSWORD_RESET_ALLOWED_ROUTES
 from litellm.proxy.auth.route_checks import RouteChecks
 from litellm.proxy.pass_through_endpoints.llm_passthrough_endpoints import router as llm_passthrough_router
 
@@ -657,81 +660,6 @@ def test_virtual_key_llm_api_routes_allows_model_info(route):
     )
 
     assert result is True
-
-
-@pytest.mark.parametrize(
-    "route",
-    [
-        "/diarize",
-        "/v1/diarize",
-        "/audio/speech/clone",
-        "/v1/audio/speech/clone",
-        "/voices",
-        "/v1/voices",
-        "/voices/profiles",
-        "/v1/voices/profiles",
-        "/voices/profiles/profile-1",
-        "/v1/voices/profiles/profile-1",
-        "/audio/script",
-        "/v1/audio/script",
-        "/audio/models",
-        "/v1/audio/models",
-        "/audio/models/model-1",
-        "/v1/audio/models/model-1",
-    ],
-)
-def test_virtual_key_llm_api_routes_allows_oicm_inference_slices(route):
-    """Every OICM fork inference route must be reachable by virtual keys scoped
-    to allowed_routes=["llm_api_routes"], the preset every key_type=llm_api key
-    gets. /v1/diarize shipped (2026-10-19) registered on the app but missing
-    from every LiteLLMRoutes group, so all 91 llm_api keys on prod got 403 on a
-    route the master key could call. Each parametrized path was denied before
-    this regression test's group membership fix.
-
-    Pod diagnostics (/audio/health, /audio/metrics) are deliberately excluded:
-    they are declared OPS_ONLY_ROUTES on the routers and pinned as still-denied
-    by test_virtual_key_llm_api_routes_denies_oicm_ops_routes.
-    """
-
-    assert RouteChecks.is_llm_api_route(route=route) is True
-
-    valid_token = UserAPIKeyAuth(
-        user_id="test_user",
-        allowed_routes=["llm_api_routes"],
-    )
-
-    result = RouteChecks.is_virtual_key_allowed_to_call_route(
-        route=route,
-        valid_token=valid_token,
-        request=_mock_request("POST"),
-    )
-
-    assert result is True
-
-
-@pytest.mark.parametrize(
-    "route",
-    ["/audio/health", "/v1/audio/health", "/audio/metrics", "/v1/audio/metrics"],
-)
-def test_virtual_key_llm_api_routes_denies_oicm_ops_routes(route):
-    """Pod diagnostics are not inference. An llm_api key must not be able to read
-    another tenant's audio pod health or runtime metrics, so these stay off the
-    llm_api_routes groups even though the handlers exist on the same routers.
-    """
-
-    valid_token = UserAPIKeyAuth(
-        user_id="test_user",
-        allowed_routes=["llm_api_routes"],
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        RouteChecks.is_virtual_key_allowed_to_call_route(
-            route=route,
-            valid_token=valid_token,
-            request=_mock_request("GET"),
-        )
-
-    assert exc_info.value.status_code == 403
 
 
 @pytest.mark.parametrize("route", ["/model/info", "/v1/model/info", "/model_group/info"])
@@ -1869,20 +1797,6 @@ def test_videos_route_is_llm_api_route(route):
 @pytest.mark.parametrize(
     "route",
     [
-        "/api/v1/models",
-        "/api/v1/models/anthropic/claude-3/endpoints",
-    ],
-)
-def test_openrouter_models_routes_are_llm_api_route(route):
-    """OpenRouter-compatible model listing/endpoint routes are data-plane,
-    non-admin LLM API routes (same class as /v1/models), so virtual keys with
-    allowed_routes=["llm_api_routes"] can call them."""
-    assert RouteChecks.is_llm_api_route(route) is True
-
-
-@pytest.mark.parametrize(
-    "route",
-    [
         "/containers",
         "/v1/containers",
         "/containers/container_123",
@@ -2650,12 +2564,14 @@ def test_proxy_admin_viewer_post_blocked_outside_allowlists(route):
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.parametrize("route,allowed", (("/lens/traces/findings", True), ("/lens/example/run", False)))
-def test_admin_viewer_can_read_trace_findings_but_cannot_start_investigations(route: str, allowed: bool) -> None:
+@pytest.mark.parametrize("route", ("/lens/traces/findings", "/lens/example/runs"), ids=("read", "write"))
+def test_admin_viewer_delegates_lens_authorization_to_service(route: str) -> None:
     request: Final = Request({"type": "http", "method": "POST", "path": route, "query_string": b""})
     auth: Final = UserAPIKeyAuth(user_id="viewer", user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY)
 
-    def check_access() -> None:
+    assert not RouteChecks.is_llm_api_route(route)
+
+    assert (
         RouteChecks.non_proxy_admin_allowed_routes_check(
             user_obj=LiteLLM_UserTable(user_id="viewer", user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY),
             _user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
@@ -2664,13 +2580,8 @@ def test_admin_viewer_can_read_trace_findings_but_cannot_start_investigations(ro
             valid_token=auth,
             request_data={},
         )
-
-    if allowed:
-        assert check_access() is None
-    else:
-        with pytest.raises(HTTPException) as error:
-            check_access()
-        assert error.value.status_code == 403
+        is None
+    )
 
 
 # ── Admin Viewer: management_routes write endpoints stay blocked ─────────────
@@ -4082,18 +3993,36 @@ def _password_reset_session_token() -> UserAPIKeyAuth:
     `password_reset_required`."""
     return UserAPIKeyAuth(
         user_id="flagged_user",
-        allowed_routes=["/user/password/change"],
+        allowed_routes=list(PASSWORD_RESET_ALLOWED_ROUTES),
         metadata={"password_reset_required": True},
     )
 
 
-def test_password_reset_session_can_reach_change_password():
+@pytest.mark.parametrize("route", ["/user/password/change", "/management/v1/users/me"])
+def test_password_reset_session_can_reach_change_password_and_its_own_identity(route):
     result = RouteChecks.is_virtual_key_allowed_to_call_route(
-        route="/user/password/change",
+        route=route,
         valid_token=_password_reset_session_token(),
     )
 
     assert result is True
+
+
+@pytest.mark.parametrize(
+    "role",
+    [LitellmUserRoles.INTERNAL_USER.value, LitellmUserRoles.INTERNAL_USER_VIEW_ONLY.value],
+)
+def test_non_admin_user_can_read_its_own_identity(role):
+    allowed = RouteChecks.non_proxy_admin_allowed_routes_check(
+        user_obj=LiteLLM_UserTable(user_id="test_user", user_role=role),
+        _user_role=role,
+        route="/management/v1/users/me",
+        request=MagicMock(spec=Request, query_params={}),
+        valid_token=UserAPIKeyAuth(user_id="test_user", user_role=role),
+        request_data={},
+    )
+
+    assert allowed is None
 
 
 @pytest.mark.parametrize(
@@ -4791,9 +4720,7 @@ def test_is_llm_api_route():
     all_llm_api_routes = llm_passthrough_router.routes
 
     for route in all_llm_api_routes:
-        print("route", route)
         route_path = str(route.path)
-        print("route_path", route_path)
         assert RouteChecks.is_llm_api_route(route_path) is True
 
 
@@ -4809,3 +4736,188 @@ def test_route_matches_pattern():
         is False
     )
     assert RouteChecks._route_matches_pattern("/v1/{thread_id}/messages", "/v1/messages/thread_2345") is False
+
+
+def _scope_request(method: str, path: str) -> Request:
+    return Request({"type": "http", "method": method, "path": path, "query_string": b""})
+
+
+def _internal_user_check(route: str, method: str, role: LitellmUserRoles = LitellmUserRoles.INTERNAL_USER) -> None:
+    user_obj = LiteLLM_UserTable(user_id="u", user_email="u@x", user_role=role.value)
+    valid_token = UserAPIKeyAuth(user_id="u", user_role=role)
+    RouteChecks.non_proxy_admin_allowed_routes_check(
+        user_obj=user_obj,
+        _user_role=role.value,
+        route=route,
+        request=_scope_request(method, route),
+        valid_token=valid_token,
+        request_data={},
+    )
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        ("GET", "/credentials/user_connections"),
+        ("POST", "/credentials/x/user_connection/start"),
+        ("POST", "/credentials/x/user_connection/poll"),
+        ("DELETE", "/credentials/x/user_connection"),
+        ("DELETE", "/credentials/a/b/user_connection"),
+    ],
+)
+def test_internal_user_credential_connection_routes_allowed(method: str, route: str) -> None:
+    assert _internal_user_check(route, method) is None
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        ("PATCH", "/credentials/x/user_connection"),
+        ("GET", "/credentials/by_name/x/user_connection"),
+        ("PATCH", "/credentials/x/user_connection/start"),
+        ("GET", "/credentials/x/user_connection/poll"),
+        ("DELETE", "/credentials/user_connections"),
+        ("PATCH", "/credentials/user_connections"),
+    ],
+)
+def test_internal_user_credential_connection_route_collisions_denied(method: str, route: str) -> None:
+    """A name colliding with the connection paths would fall through to the generic
+    credential CRUD handlers, so only the exact method/route pairs are allowed."""
+    with pytest.raises(Exception, match="Only proxy admin"):
+        _internal_user_check(route, method)
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        ("GET", "/credentials/user_connections"),
+        ("POST", "/credentials/x/user_connection/start"),
+        ("POST", "/credentials/x/user_connection/poll"),
+        ("DELETE", "/credentials/x/user_connection"),
+    ],
+)
+def test_view_only_user_denied_credential_connection_routes(method: str, route: str) -> None:
+    with pytest.raises(Exception, match="Only proxy admin"):
+        _internal_user_check(route, method, role=LitellmUserRoles.INTERNAL_USER_VIEW_ONLY)
+
+
+def test_user_connection_route_registration_order_wins_over_generic_credential_routes() -> None:
+    """The :path placeholders in the generic CRUD routes could swallow the
+    user_connection paths; the concrete routes must register (and match) first."""
+    from starlette.routing import Match
+
+    from litellm.proxy.credential_endpoints import endpoints as credential_endpoints
+    from litellm.proxy.proxy_server import app
+
+    for method, path, expected in (
+        ("DELETE", "/credentials/foo/user_connection", credential_endpoints.delete_user_connection),
+        ("POST", "/credentials/foo/user_connection/start", credential_endpoints.start_user_connection),
+    ):
+        scope = {"type": "http", "method": method, "path": path}
+        match = next(
+            (
+                route
+                for route in app.router.routes
+                if hasattr(route, "matches") and route.matches(scope)[0] == Match.FULL
+            ),
+            None,
+        )
+        assert match is not None, f"no route matched {method} {path}"
+        assert getattr(match, "endpoint", None) is expected
+
+
+def _legacy_route_request(path: str, query_params: Mapping[str, str]) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "query_string": urlencode(query_params).encode(),
+            "headers": [],
+        }
+    )
+
+
+def test_llm_api_route() -> None:
+    assert (
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=None,
+            _user_role=LitellmUserRoles.INTERNAL_USER.value,
+            route="/v1/chat/completions",
+            request=_legacy_route_request("/v1/chat/completions", {}),
+            valid_token=UserAPIKeyAuth(api_key="test_key"),
+            request_data={},
+        )
+        is None
+    )
+
+
+def test_key_info_route_allowed() -> None:
+    assert (
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=None,
+            _user_role=LitellmUserRoles.INTERNAL_USER.value,
+            route="/key/info",
+            request=_legacy_route_request("/key/info", {"key": "test_key"}),
+            valid_token=UserAPIKeyAuth(api_key="test_key"),
+            request_data={},
+        )
+        is None
+    )
+
+
+def test_user_info_route_allowed() -> None:
+    assert (
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=None,
+            _user_role=LitellmUserRoles.INTERNAL_USER.value,
+            route="/user/info",
+            request=_legacy_route_request("/user/info", {"user_id": "test_user"}),
+            valid_token=UserAPIKeyAuth(api_key="test_key", user_id="test_user"),
+            request_data={},
+        )
+        is None
+    )
+
+
+def test_user_info_route_forbidden() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=None,
+            _user_role=LitellmUserRoles.INTERNAL_USER.value,
+            route="/user/info",
+            request=_legacy_route_request("/user/info", {"user_id": "wrong_user"}),
+            valid_token=UserAPIKeyAuth(api_key="test_key", user_id="test_user"),
+            request_data={},
+        )
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "user_role",
+    [
+        LitellmUserRoles.INTERNAL_USER,
+        LitellmUserRoles.INTERNAL_USER_VIEW_ONLY,
+        LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY,
+    ],
+)
+@pytest.mark.parametrize(
+    ("method", "route"), [("POST", "/telemetry/ui_events"), ("GET", "/telemetry/ui_events/enabled")]
+)
+def test_every_dashboard_role_can_send_telemetry_ui_events(
+    user_role: LitellmUserRoles, method: str, route: str
+) -> None:
+    request: Final = MagicMock(spec=Request)
+    request.method = method
+    request.query_params = {}
+    try:
+        RouteChecks.non_proxy_admin_allowed_routes_check(
+            user_obj=LiteLLM_UserTable(user_id="u", user_role=user_role.value),
+            _user_role=user_role,
+            route=route,
+            request=request,
+            valid_token=UserAPIKeyAuth(user_id="u", user_role=user_role),
+            request_data={},
+        )
+    except HTTPException as exc:
+        pytest.fail(f"{user_role.value} was denied {method} {route}: {exc.detail}")

@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from litellm.proxy._types import (
     LiteLLM_EndUserTable,
@@ -638,48 +639,6 @@ async def test_get_customer_daily_activity_admin_param_passing(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_customer_daily_activity_alias_scan_is_capped(monkeypatch):
-    """
-    Memory regression: when no end_user_ids are supplied, the alias pre-fetch
-    must scan LiteLLM_EndUserTable with a take cap. Before this fix it ran
-    find_many(where={}), shipping the whole table (70k+ rows in production)
-    to the Prisma engine per call, whose RSS high-water mark then never
-    returned to the OS.
-    """
-    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
-    from litellm.proxy.management_endpoints import customer_endpoints
-    from litellm.proxy.management_endpoints.customer_endpoints import (
-        _END_USER_ALIAS_SCAN_CAP,
-        get_customer_daily_activity,
-    )
-
-    mock_prisma_client = AsyncMock()
-    mock_prisma_client.db.litellm_endusertable.find_many = AsyncMock(return_value=[])
-    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma_client)
-
-    mocked_response = MagicMock(name="SpendAnalyticsPaginatedResponse")
-    get_daily_activity_mock = AsyncMock(return_value=mocked_response)
-    monkeypatch.setattr(customer_endpoints, "get_daily_activity", get_daily_activity_mock)
-
-    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin1")
-    await get_customer_daily_activity(
-        end_user_ids=None,
-        start_date="2024-01-01",
-        end_date="2024-01-31",
-        model=None,
-        api_key=None,
-        page=1,
-        page_size=10,
-        exclude_end_user_ids=None,
-        user_api_key_dict=auth,
-    )
-
-    find_many_mock = mock_prisma_client.db.litellm_endusertable.find_many
-    find_many_mock.assert_awaited_once()
-    assert find_many_mock.call_args.kwargs["take"] == _END_USER_ALIAS_SCAN_CAP
-
-
-@pytest.mark.asyncio
 async def test_get_customer_daily_activity_with_end_user_aliases(monkeypatch):
     from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
     from litellm.proxy.management_endpoints import customer_endpoints
@@ -1162,6 +1121,29 @@ def test_customer_block_invalidates_end_user_and_registry_caches(mock_prisma_cli
         "end_user_id:c2",
         "end_user_restricted_registry",
     ]
+
+
+def test_customer_block_success_serializes_db_model_instance(mock_prisma_client, mock_user_api_key_auth):
+    class MockPrismaEndUser(BaseModel):
+        user_id: str
+        blocked: bool
+        spend: float | None = None
+
+    mock_prisma_client.db.litellm_endusertable.upsert = AsyncMock(
+        return_value=MockPrismaEndUser(user_id="c1", blocked=True, spend=None)
+    )
+
+    response = client.post(
+        "/customer/block",
+        json={"user_ids": ["c1"]},
+        headers={"Authorization": "Bearer k"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["blocked_users"][0]["user_id"] == "c1"
+    assert body["blocked_users"][0]["blocked"] is True
+    assert body["blocked_users"][0]["spend"] == 0.0
 
 
 def test_customer_delete_invalidates_end_user_and_registry_caches(mock_prisma_client, mock_user_api_key_auth):

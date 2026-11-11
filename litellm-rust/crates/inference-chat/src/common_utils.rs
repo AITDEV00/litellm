@@ -33,14 +33,7 @@ pub(super) fn chat_completions_provider(provider: LlmProviders) -> Option<ChatPr
         LlmProviders::Anthropic => Some(ChatProvider::Anthropic),
         LlmProviders::Bedrock => Some(ChatProvider::Bedrock),
         LlmProviders::OpenaiLike => Some(ChatProvider::OpenaiLike),
-        LlmProviders::AwsTextract
-        | LlmProviders::AzureAi
-        | LlmProviders::Cohere
-        | LlmProviders::Mistral
-        | LlmProviders::Openai
-        | LlmProviders::Paddlex
-        | LlmProviders::Reducto
-        | LlmProviders::VertexAi => None,
+        _ => None,
     }
 }
 

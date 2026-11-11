@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from httpx._models import Headers, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 import litellm
 from litellm._uuid import uuid
@@ -13,7 +13,9 @@ from litellm.litellm_core_utils.prompt_templates.common_utils import (
     convert_content_list_to_str,
     extract_images_from_message,
     extract_reasoning_content,
+    parse_tool_call_arguments,
 )
+from litellm.litellm_core_utils.tool_fields import tool_params_without_hosted_mcp
 from litellm.llms.base_llm.base_model_iterator import BaseModelResponseIterator
 from litellm.llms.base_llm.chat.transformation import BaseConfig, BaseLLMException
 from litellm.types.llms.ollama import (
@@ -37,6 +39,29 @@ if TYPE_CHECKING:
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
     LiteLLMLoggingObj = Any
+
+_REQUEST_PARAMS: Final = TypeAdapter(dict[str, object])
+_TOOL_CALL_ARGUMENTS: Final = TypeAdapter(dict[str, object])
+
+
+def _to_ollama_tool_call_function(model: str, tool_call: ChatCompletionAssistantToolCall) -> OllamaToolCallFunction:
+    function: Final = tool_call["function"]
+    name: Final = function.get("name") or ""
+    raw_arguments: Final[object] = function.get("arguments")
+    try:
+        parsed: Final[object] = (
+            parse_tool_call_arguments(raw_arguments, tool_name=name, context="Ollama chat request")
+            if isinstance(raw_arguments, str) or raw_arguments is None
+            else raw_arguments
+        )
+        arguments: Final = _TOOL_CALL_ARGUMENTS.validate_python({} if parsed is None else parsed)
+    except ValueError:
+        raise litellm.BadRequestError(
+            message=f"OllamaException - arguments of assistant tool call {tool_call.get('id')!r} are not a JSON object",
+            model=model,
+            llm_provider="ollama_chat",
+        ) from None
+    return OllamaToolCallFunction(name=name, arguments=arguments)
 
 
 class OllamaChatConfig(BaseConfig):
@@ -150,7 +175,13 @@ class OllamaChatConfig(BaseConfig):
         model: str,
         drop_params: bool,
     ) -> dict:
-        for param, value in non_default_params.items():
+        request_params: Final = tool_params_without_hosted_mcp(
+            _REQUEST_PARAMS.validate_python(non_default_params),
+            model=model,
+            route="ollama_chat",
+            drop_params=drop_params,
+        )
+        for param, value in request_params.items():
             if param == "max_tokens" or param == "max_completion_tokens":
                 optional_params["num_predict"] = value
             if param == "stream":
@@ -218,14 +249,10 @@ class OllamaChatConfig(BaseConfig):
 
         Some providers need `model` in `api_base`
         """
-        if api_base is None:
-            api_base = "http://localhost:11434"
-        if api_base.endswith("/api/chat"):
-            url = api_base
-        else:
-            url = f"{api_base}/api/chat"
-
-        return url
+        clean_api_base: Final = (api_base or "http://localhost:11434").rstrip("/")
+        if clean_api_base.endswith("/api/chat"):
+            return clean_api_base
+        return f"{clean_api_base}/api/chat"
 
     def transform_request(
         self,
@@ -256,16 +283,7 @@ class OllamaChatConfig(BaseConfig):
                 for tool in tool_calls:
                     typed_tool = ChatCompletionAssistantToolCall(**tool)
                     if typed_tool["type"] == "function":
-                        arguments = {}
-                        if "arguments" in typed_tool["function"]:
-                            arguments = json.loads(typed_tool["function"]["arguments"])
-                        ollama_tool_call = OllamaToolCall(
-                            function=OllamaToolCallFunction(
-                                name=typed_tool["function"].get("name") or "",
-                                arguments=arguments,
-                            )
-                        )
-                        new_tools.append(ollama_tool_call)
+                        new_tools.append(OllamaToolCall(function=_to_ollama_tool_call_function(model, typed_tool)))
             reasoning_content, parsed_content = extract_reasoning_content(cast(dict, m))
             content_str = convert_content_list_to_str(cast(AllMessageValues, m))
             images = extract_images_from_message(cast(AllMessageValues, m))
@@ -435,6 +453,7 @@ class OllamaChatCompletionResponseIterator(BaseModelResponseIterator):
     started_reasoning_content: bool = False
     finished_reasoning_content: bool = False
     seen_tool_calls: bool = False
+    _next_tool_call_index: int = 0
 
     def _is_function_call_complete(self, function_args: str | dict) -> bool:
         if isinstance(function_args, dict):
@@ -482,6 +501,8 @@ class OllamaChatCompletionResponseIterator(BaseModelResponseIterator):
             if tool_calls is not None:
                 self.seen_tool_calls = True
                 for tool_call in tool_calls:
+                    tool_call["index"] = self._next_tool_call_index
+                    self._next_tool_call_index += 1
                     function_args = tool_call.get("function").get("arguments")
                     if function_args is not None and len(function_args) > 0:
                         is_function_call_complete = self._is_function_call_complete(function_args)

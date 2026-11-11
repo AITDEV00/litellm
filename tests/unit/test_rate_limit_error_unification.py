@@ -40,9 +40,14 @@ class TestRateLimitErrorCategory:
         # value so the proxy's batch limiter can be distinguished from the
         # generic key/team/user limiter.
         assert RateLimitErrorCategory.VENDOR_RATE_LIMIT == "vendor_rate_limit"
-        assert RateLimitErrorCategory.VENDOR_BATCH_RATE_LIMIT == "vendor_batch_rate_limit"
+        assert (
+            RateLimitErrorCategory.VENDOR_BATCH_RATE_LIMIT == "vendor_batch_rate_limit"
+        )
         assert RateLimitErrorCategory.LITELLM_RATE_LIMIT == "litellm_rate_limit"
-        assert RateLimitErrorCategory.LITELLM_BATCH_RATE_LIMIT == "litellm_batch_rate_limit"
+        assert (
+            RateLimitErrorCategory.LITELLM_BATCH_RATE_LIMIT
+            == "litellm_batch_rate_limit"
+        )
 
     def test_should_str_compare_for_easy_user_switching(self):
         # Storing the value as a str-enum lets users compare against a plain
@@ -222,6 +227,7 @@ class TestProxyHookCategoryWiring:
             "litellm.proxy.hooks.parallel_request_limiter",
             "litellm.proxy.hooks.parallel_request_limiter_v3",
             "litellm.proxy.hooks.dynamic_rate_limiter",
+            "litellm.proxy.hooks.dynamic_rate_limiter_v3",
             "litellm.proxy.hooks.batch_rate_limiter",
             "litellm.proxy.hooks.max_budget_per_session_limiter",
             "litellm.proxy.hooks.max_iterations_limiter",
@@ -239,7 +245,9 @@ class TestProxyHookCategoryWiring:
         import importlib
 
         module = importlib.import_module(module_path)
-        assert hasattr(module, "ProxyRateLimitError"), f"{module_path} must import ProxyRateLimitError"
+        assert hasattr(
+            module, "ProxyRateLimitError"
+        ), f"{module_path} must import ProxyRateLimitError"
         assert module.ProxyRateLimitError is ProxyRateLimitError
 
 
@@ -299,7 +307,9 @@ class TestStandardLoggingPayloadCarriesCategory:
             StandardLoggingPayloadSetup,
         )
 
-        info = StandardLoggingPayloadSetup.get_error_information(ValueError("not a rate limit"))
+        info = StandardLoggingPayloadSetup.get_error_information(
+            ValueError("not a rate limit")
+        )
         assert info["error_rate_limit_category"] is None
 
     def test_should_be_none_when_no_exception(self):
@@ -364,7 +374,8 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
             handler.raise_rate_limit_error()  # no additional_details
         detail_str = str(exc_info.value.detail)
         assert "None" not in detail_str, (
-            f"detail must not embed literal 'None' when additional_details is omitted, got: {detail_str!r}"
+            f"detail must not embed literal 'None' when additional_details is "
+            f"omitted, got: {detail_str!r}"
         )
         assert detail_str == "Max parallel request limit reached"
 
@@ -483,7 +494,9 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
             litellm_params={"max_iterations": 1},
             agent_card_params={"name": "iter-agent", "version": "1.0.0"},
         )
-        with patch("litellm.proxy.agent_endpoints.agent_registry.global_agent_registry") as mock_registry:
+        with patch(
+            "litellm.proxy.agent_endpoints.agent_registry.global_agent_registry"
+        ) as mock_registry:
             mock_registry.get_agent_by_id.return_value = agent
             # First call within budget.
             await handler.async_pre_call_hook(
@@ -608,7 +621,9 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
         ],
     )
     @pytest.mark.asyncio
-    async def test_parallel_request_limiter_v1_inline_raise_dimension_detection(self, current, limits, expected_type):
+    async def test_parallel_request_limiter_v1_inline_raise_dimension_detection(
+        self, current, limits, expected_type
+    ):
         """
         v1 parallel_request_limiter's `check_key_in_limits` else-branch must
         attribute the raise to the dimension that actually tripped — not the
@@ -663,7 +678,9 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
         ],
     )
     @pytest.mark.asyncio
-    async def test_parallel_request_limiter_v1_base_case_dimension_detection(self, limits, expected_type):
+    async def test_parallel_request_limiter_v1_base_case_dimension_detection(
+        self, limits, expected_type
+    ):
         """
         v1 parallel_request_limiter's `check_key_in_limits` base case
         (``current is None`` and any limit set to 0) must attribute the raise
@@ -742,49 +759,71 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
     @pytest.mark.asyncio
     async def test_dynamic_rate_limiter_v3_each_raise_branch(self, descriptor_key):
         """
-        Drive each raise branch in the HTB dynamic rate limiter via
-        ``_raise_rate_limit_error``. The HTB path uses a single raise site
-        that fires whenever ``htb_check_and_increment`` returns
-        ``overall_code=OVER_LIMIT``, regardless of which descriptor
-        triggered it.
+        Drive each of the three raise branches in v3 dynamic_rate_limiter:
+        model_saturation_check, priority_model, and the fail-closed fallback
+        for an unrecognized descriptor_key. Mocks
+        ``atomic_check_and_increment_by_n`` so the v3 limiter's response
+        directly drives the raise-site selection.
         """
-        from unittest.mock import MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
-        from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
-            _PROXY_DynamicRateLimitHandlerV3Htb,
+        from litellm.proxy._types import UserAPIKeyAuth
+        from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
+            PROXY_DynamicRateLimitHandlerV3,
         )
 
-        handler = _PROXY_DynamicRateLimitHandlerV3Htb.__new__(_PROXY_DynamicRateLimitHandlerV3Htb)
+        # Bypass __init__ — we want to inject a stub v3_limiter without
+        # paying for the full handler setup.
+        handler = PROXY_DynamicRateLimitHandlerV3.__new__(
+            PROXY_DynamicRateLimitHandlerV3
+        )
         v3_limiter = MagicMock()
         v3_limiter.window_size = 60
+        v3_limiter.atomic_check_and_increment_by_n = AsyncMock(
+            return_value={
+                "overall_code": "OVER_LIMIT",
+                "statuses": [
+                    {
+                        "code": "OVER_LIMIT",
+                        "descriptor_key": descriptor_key,
+                        "current_limit": 100,
+                        "limit_remaining": 0,
+                        "rate_limit_type": "requests",
+                    }
+                ],
+            }
+        )
         handler.v3_limiter = v3_limiter
-
+        # Stub the descriptor builders so we don't pull in real router state.
+        handler._create_model_tracking_descriptor = MagicMock(  # type: ignore[method-assign]
+            return_value={
+                "key": descriptor_key,
+                "value": "v",
+                "rate_limit": {
+                    "requests_per_unit": 100,
+                    "tokens_per_unit": None,
+                    "window_size": 60,
+                },
+            }
+        )
+        handler._create_priority_based_descriptors = MagicMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
         model_group_info = MagicMock()
         model_group_info.tpm = 1000
         model_group_info.rpm = 100
 
-        htb_response = {
-            "overall_code": "OVER_LIMIT",
-            "statuses": [
-                {
-                    "code": "OVER_LIMIT",
-                    "descriptor_key": descriptor_key,
-                    "current_limit": 100,
-                    "limit_remaining": 0,
-                    "rate_limit_type": "requests",
-                }
-            ],
-        }
-
-        with pytest.raises(RateLimitError) as exc_info:
-            handler._raise_rate_limit_error(
+        with pytest.raises(ProxyRateLimitError) as exc_info:
+            await handler._check_rate_limits(
                 model="gpt-4",
                 model_group_info=model_group_info,
+                user_api_key_dict=UserAPIKeyAuth(api_key="sk-test-v3"),
                 priority="default",
-                htb_response=htb_response,
+                saturation=0.99,
             )
         e = exc_info.value
         assert e.status_code == 429
+        assert e.category == RateLimitErrorCategory.LITELLM_RATE_LIMIT
 
     @pytest.mark.asyncio
     async def test_max_budget_per_session_limiter_raises_proxy_rate_limit_error(
@@ -811,7 +850,9 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
         )
         agent = MagicMock()
         agent.litellm_params = {"max_budget_per_session": 1.0}
-        with patch("litellm.proxy.agent_endpoints.agent_registry.global_agent_registry") as mock_registry:
+        with patch(
+            "litellm.proxy.agent_endpoints.agent_registry.global_agent_registry"
+        ) as mock_registry:
             mock_registry.get_agent_by_id.return_value = agent
             with pytest.raises(ProxyRateLimitError) as exc_info:
                 await handler.async_pre_call_hook(
@@ -972,7 +1013,10 @@ class TestMapV3RateLimitType:
         # the public-facing dimension is `concurrent_requests` (matches what
         # users actually configure as `max_parallel_requests`). The mapping
         # must collapse these so dashboards see one name, not two.
-        assert map_v3_rate_limit_type("max_parallel_requests") == RateLimitType.CONCURRENT_REQUESTS
+        assert (
+            map_v3_rate_limit_type("max_parallel_requests")
+            == RateLimitType.CONCURRENT_REQUESTS
+        )
 
     def test_should_return_none_for_unknown(self):
         # Defensive: a v3 limiter shipping a new internal label must NOT
@@ -1037,7 +1081,9 @@ class TestStandardLoggingPayloadCarriesType:
             StandardLoggingPayloadSetup,
         )
 
-        info = StandardLoggingPayloadSetup.get_error_information(ValueError("not a rate limit"))
+        info = StandardLoggingPayloadSetup.get_error_information(
+            ValueError("not a rate limit")
+        )
         assert info["error_rate_limit_type"] is None
 
 
@@ -1345,7 +1391,9 @@ class TestBudgetExceededErrorSurfacesUnifiedFields:
     def test_should_accept_llm_provider_kwarg(self):
         # Callers that have the resolved provider in scope (e.g. the
         # auth-checks budget enforcement paths) can thread it through.
-        e = litellm.BudgetExceededError(current_cost=0.5, max_budget=0.1, llm_provider="anthropic")
+        e = litellm.BudgetExceededError(
+            current_cost=0.5, max_budget=0.1, llm_provider="anthropic"
+        )
         assert e.llm_provider == "anthropic"
 
     def test_should_keep_existing_status_code_and_message(self):
@@ -1389,7 +1437,9 @@ class TestBudgetExceededErrorSurfacesUnifiedFields:
             StandardLoggingPayloadSetup,
         )
 
-        e = litellm.BudgetExceededError(current_cost=0.5, max_budget=0.1, llm_provider="bedrock")
+        e = litellm.BudgetExceededError(
+            current_cost=0.5, max_budget=0.1, llm_provider="bedrock"
+        )
         info = StandardLoggingPayloadSetup.get_error_information(e)
         assert info["llm_provider"] == "bedrock"
 
@@ -1445,7 +1495,9 @@ class TestThirdPartyAttrLeakageGuard:
             category = "spam"
             rate_limit_type = "spam"
 
-        category, rate_limit_type = PrometheusLogger._extract_rate_limit_labels(Foreign())
+        category, rate_limit_type = PrometheusLogger._extract_rate_limit_labels(
+            Foreign()
+        )
         assert category is None
         assert rate_limit_type is None
 
@@ -1477,7 +1529,9 @@ class TestBudgetExceededErrorLlmProviderEnrichment:
     `request_data["model"]` before post_call_failure_hook fires.
     """
 
-    async def _run_handler_and_capture_exception_seen_by_callback(self, exception: Exception, request_data: dict):
+    async def _run_handler_and_capture_exception_seen_by_callback(
+        self, exception: Exception, request_data: dict
+    ):
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from litellm.proxy.auth.auth_exception_handler import (
@@ -1493,7 +1547,11 @@ class TestBudgetExceededErrorLlmProviderEnrichment:
         with (
             patch(
                 "litellm.proxy.proxy_server.proxy_logging_obj",
-                MagicMock(post_call_failure_hook=AsyncMock(side_effect=fake_post_call_failure_hook)),
+                MagicMock(
+                    post_call_failure_hook=AsyncMock(
+                        side_effect=fake_post_call_failure_hook
+                    )
+                ),
             ),
             patch(
                 "litellm.proxy.proxy_server.general_settings",
@@ -1520,13 +1578,19 @@ class TestBudgetExceededErrorLlmProviderEnrichment:
     async def test_should_resolve_llm_provider_from_request_data_when_unset(self):
         err = litellm.BudgetExceededError(current_cost=100, max_budget=10)
         assert err.llm_provider == ""
-        seen = await self._run_handler_and_capture_exception_seen_by_callback(err, {"model": "openai/gpt-4o-mini"})
+        seen = await self._run_handler_and_capture_exception_seen_by_callback(
+            err, {"model": "openai/gpt-4o-mini"}
+        )
         assert seen is not None
         assert seen.llm_provider == "openai"
 
     async def test_should_not_overwrite_llm_provider_when_caller_set_it(self):
-        err = litellm.BudgetExceededError(current_cost=100, max_budget=10, llm_provider="anthropic")
-        seen = await self._run_handler_and_capture_exception_seen_by_callback(err, {"model": "openai/gpt-4o-mini"})
+        err = litellm.BudgetExceededError(
+            current_cost=100, max_budget=10, llm_provider="anthropic"
+        )
+        seen = await self._run_handler_and_capture_exception_seen_by_callback(
+            err, {"model": "openai/gpt-4o-mini"}
+        )
         assert seen.llm_provider == "anthropic"
 
     async def test_should_fall_back_to_litellm_proxy_when_model_missing(self):
@@ -1536,5 +1600,7 @@ class TestBudgetExceededErrorLlmProviderEnrichment:
 
     async def test_should_not_enrich_non_budget_exceptions(self):
         err = ValueError("unrelated")
-        seen = await self._run_handler_and_capture_exception_seen_by_callback(err, {"model": "openai/gpt-4o-mini"})
+        seen = await self._run_handler_and_capture_exception_seen_by_callback(
+            err, {"model": "openai/gpt-4o-mini"}
+        )
         assert not hasattr(seen, "llm_provider") or seen.llm_provider != "openai"
