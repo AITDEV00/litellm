@@ -73,6 +73,26 @@ exists in the bucket with a matching hash. A manifest that points at a missing
 or mismatched object is rejected `409`. This keeps the invariant that the
 manifest never lies about the store.
 
+### Verify a template-only sync
+
+A change confined to `examples/client-distribution/install.sh.tmpl` only needs
+its `templates/install.sh.tmpl` upload, not a manifest republish or image
+restart. After uploading, verify both the stored bytes and the rendered
+installer:
+
+```sh
+curl -fsSL "$BASE/install/templates/install.sh.tmpl" -o /tmp/stored-install.sh.tmpl
+cmp --silent examples/client-distribution/install.sh.tmpl /tmp/stored-install.sh.tmpl
+curl -fsSL "$BASE/install" -o /tmp/rendered-install.sh
+bash -n /tmp/rendered-install.sh
+```
+
+The inventory object's `etag` is an opaque storage identifier. Do not require
+it to match Git's SHA-256. The artifact upload response's `sha256` and the raw
+bytes fetched from `/install/templates/install.sh.tmpl` are the correct checks.
+For behavior changes, inspect the actual rendered script for the intended
+logic rather than stopping at a successful upload status.
+
 ## Immutability + manifest compare-and-swap
 
 - **Immutable artifacts.** A `cc-switch/<version>/<file>` object, once
