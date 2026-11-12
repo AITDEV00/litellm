@@ -59,11 +59,16 @@ include-list, which silently dropped whole families.
 
 ### 2. Harness selection
 
-The script lists the harnesses cc-switch can configure and asks the user
-which to wire (numbered multi-select). Harnesses not picked are left alone —
-the user may already have a non-gateway config for one of them. The list is
-baked into the script at render time (the menu must appear before jq is
-bootstrapped, so it cannot parse the fetched manifest); it is sorted
+The script lists harnesses with an existing config directory and asks the user
+which to wire (numbered multi-select). An `opencode` executable found on `PATH`
+also qualifies, including fresh installed-but-uninitialized clients. The installer
+creates OpenCode's config directory before selection so cc-switch's live-write
+check succeeds; other harnesses are never created by detection. Harnesses not
+picked are left alone — the user may already have a non-gateway config for one
+of them.
+
+The list is baked into the script at render time (the menu must appear before jq
+is bootstrapped, so it cannot parse the fetched manifest); it is sorted
 alphabetically so menu numbers stay stable across syncs, and adding a
 harness remains a store sync, not a script change.
 
