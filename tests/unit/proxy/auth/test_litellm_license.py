@@ -13,6 +13,11 @@ from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.rate_limiter_utils import resolve_priority_weights
 
 
+@pytest.fixture(autouse=True)
+def enforce_vendor_license_by_default(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", "1")
+
+
 def test_read_public_key_loads_successfully():
     """Ensure public_key.pem is valid PEM with no leading whitespace."""
     license_check = LicenseCheck()
@@ -202,6 +207,40 @@ def _assert_no_license_in_logs(caplog: pytest.LogCaptureFixture, license_value: 
         assert license_value not in logging.Formatter().format(record)
         assert license_value not in repr(record.args)
         assert record.exc_info is None
+
+
+def test_trial_override_preserves_premium_session_and_priority(
+    monkeypatch: pytest.MonkeyPatch,
+    license_logs: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", raising=False)
+    monkeypatch.delenv("LITELLM_LICENSE", raising=False)
+    license_check: Final = LicenseCheck()
+    from litellm.proxy.auth.login_utils import LoginResult, create_ui_token_object
+
+    monkeypatch.setattr(litellm, "priority_reservation", {"priority": 0.32})
+    ui_session: Final = create_ui_token_object(
+        login_result=LoginResult(
+            user_id="trial-user", user_email=None, user_role="PROXY_ADMIN", key="trial-session"
+        ),
+        general_settings={},
+        premium_user=license_check.is_premium(),
+    )
+
+    assert ui_session["premium_user"] is True
+    assert resolve_priority_weights(None, 0.25, license_check) == ({"priority": 0.32}, 0.25)
+    assert bool(license_check.license_str)
+    assert "trial" in license_logs.text
+
+
+def test_opt_out_keeps_vendor_license_verification(
+    monkeypatch: pytest.MonkeyPatch,
+    verified_license: LicenseCheck,
+) -> None:
+    monkeypatch.setenv("LITELLM_DISABLE_PREMIUM_OVERRIDE", "1")
+    monkeypatch.setattr(litellm, "priority_reservation", {"priority": 0.32})
+    assert verified_license.is_premium() is True
+    assert resolve_priority_weights(None, 0.25, verified_license) == ({"priority": 0.32}, 0.25)
 
 
 @pytest.mark.parametrize("configured_at_init", [True, False])
