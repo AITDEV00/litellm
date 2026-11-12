@@ -222,6 +222,7 @@ than hand-edit; each file states its generation date.
 |-----|----------|
 | Integration-layer implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` |
 | Secondary gateway (edge mirror) design exploration | `docs/architecture/EDGE-MIRROR-DESIGN.md` |
+| MCP source broker: persistent enrollment, private-source pooling, and noninteractive client MCP setup (proposed) | `docs/mcp-source-broker/README.md` |
 
 ## Cache invalidation
 
