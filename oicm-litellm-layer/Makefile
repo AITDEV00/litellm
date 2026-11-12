@@ -387,10 +387,16 @@ clean-artifacts:
 ## Any fixed value works; the pin is what matters, not the date.
 SOURCE_DATE_EPOCH ?= 1700000000
 
+# Content hash of the native (Rust) build inputs, used as the cargo cache id.
+# Defaults to `nocache` (which clears the cache) if the hash cannot be computed,
+# so a broken hash can never make two different Rust trees share one cache.
+RUST_CACHE_KEY = $(or $(shell python3 scripts/rust_cache_key.py),nocache)
+
 litellm-src-build:
 	@echo "Building $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 	podman build \
 		$(LITELLM_SRC_BUILD_ARGS) \
+		--build-arg RUST_CACHE_KEY=$(RUST_CACHE_KEY) \
 		--timestamp $(SOURCE_DATE_EPOCH) \
 		--tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) \
 		--file $(LITELLM_DOCKERFILE) \

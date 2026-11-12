@@ -143,6 +143,24 @@ keyless-TTS fix (`87c91acdcc`). Prod masks that gap because its Deployment sets
 `HOSTED_VLLM_API_KEY`; dev does not, so a keyless `audio_speech` row (drama-3)
 fails its health probe there with `AuthenticationError`.
 
+#### Rebuild speed
+
+`litellm-src-build` keeps three build caches warm through podman cache mounts:
+the uv download cache, the cargo registry, and `litellm-rust/target`. Without
+them a Python-only edit costs about 12 minutes, because `uv sync` rebuilds this
+maturin project's wheel and that re-runs cargo over the whole Rust workspace
+under `lto = "fat"` and `codegen-units = 1`. With them warm the same edit builds
+in about 81 seconds (measured 2026-11-12, 12-core box: 743.8s before, 81.25s
+after, with zero `Compiling` lines).
+
+The cargo target cache id is the content hash of the Rust inputs, computed by
+`scripts/rust_cache_key.py`. It cannot be plain mtime: `--timestamp` pins copied
+files to `SOURCE_DATE_EPOCH`, which is older than any cached artifact, so cargo
+would treat an edited `.rs` file as up to date and reuse a stale native module.
+Keying on content means a Rust edit gets a fresh cache id and recompiles. Do not
+drop the `RUST_CACHE_KEY` build arg; a build without it clears the target cache
+rather than trusting stale artifacts.
+
 ### OICM service-account provisioning
 
 ```bash

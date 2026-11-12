@@ -77,8 +77,11 @@ COPY pyproject.toml uv.lock ./
 COPY enterprise/pyproject.toml enterprise/
 COPY litellm-proxy-extras/pyproject.toml litellm-proxy-extras/
 
-# Install third-party dependencies (cached unless pyproject.toml/uv.lock change)
-RUN uv sync --frozen --no-install-project --no-install-workspace --no-default-groups --no-editable \
+# Install third-party dependencies (cached unless pyproject.toml/uv.lock change).
+# The uv cache mount survives across builds, so a lockfile change only
+# downloads what actually moved.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-install-workspace --no-default-groups --no-editable \
     --extra proxy \
     --extra proxy-runtime \
     --group admin-mcp \
@@ -87,6 +90,15 @@ RUN uv sync --frozen --no-install-project --no-install-workspace --no-default-gr
     --extra saml \
     --extra bedrock-realtime \
     --python python3.13
+
+# Prisma depends only on schema.prisma and the installed deps, so generate it
+# before the source COPY. Otherwise every source edit re-downloads the CLI and
+# engines into /opt/prisma for no reason.
+COPY schema.prisma ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
+    npm_config_cache=/root/.npm \
+    prisma generate --schema=./schema.prisma
 
 # Copy full source tree
 COPY . .
@@ -100,8 +112,26 @@ COPY --from=ui-builder /ui/out/. litellm/proxy/_experimental/out/
 # Build Admin UI before final sync (applies the enterprise color override when present)
 RUN sed -i 's/\r$//' docker/build_admin_ui.sh && chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
 
-# Install project and workspace packages (fast - deps already cached)
-RUN uv sync --frozen --no-default-groups --no-editable \
+# Native build cache, keyed on a hash of the Rust inputs.
+#
+# `uv sync` rebuilds this project's wheel whenever the source tree changes, and
+# this project is a maturin package: the wheel build re-runs cargo. Under
+# `lto = "fat"` and `codegen-units = 1` a cold cargo run costs ~10 minutes, so a
+# one-line Python edit would otherwise pay that every time.
+#
+# The cache cannot be keyed on mtime. `podman build --timestamp` pins every
+# copied file to `SOURCE_DATE_EPOCH`, which is older than the cached artifacts,
+# so cargo's timestamp comparison would consider an edited `.rs` file up to date
+# and reuse a stale native module. Keying the target cache id on the content
+# hash means any Rust edit starts from an empty target directory and recompiles.
+# The uv and cargo registry caches are content-addressed, so they stay shared.
+ARG RUST_CACHE_KEY=nocache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,id=cargo-target-${RUST_CACHE_KEY},target=/app/litellm-rust/target \
+    if [ -z "${RUST_CACHE_KEY}" ] || [ "${RUST_CACHE_KEY}" = "nocache" ]; then rm -rf /app/litellm-rust/target/*; fi; \
+    uv sync --frozen --no-default-groups --no-editable \
     --extra proxy \
     --extra proxy-runtime \
     --group admin-mcp \
@@ -111,9 +141,16 @@ RUN uv sync --frozen --no-default-groups --no-editable \
     --extra bedrock-realtime \
     --python python3.13
 
-RUN HOME=/opt/prisma XDG_CACHE_HOME=/opt/prisma/.cache PRISMA_BINARY_CACHE_DIR=/opt/prisma/binaries \
-    npm_config_cache=/root/.npm \
-    prisma generate --schema=./schema.prisma
+# The runtime image must not need write access to its own files, so the
+# permission fix and the test-suite prune happen here. Doing them in the runtime
+# stage instead would rewrite the whole /app/.venv layer, which is ~800MB per
+# build.
+RUN find /app/.venv -type f -path "*/tornado/test/*" -delete && \
+    find /app/.venv -type d -path "*/tornado/test" -delete && \
+    chmod -R a+rX /opt/prisma && \
+    test -x /opt/prisma/binaries/node_modules/.bin/prisma && \
+    test -f /opt/prisma/binaries/node_modules/prisma/build/index.js && \
+    python -c "from prisma.client import BINARY_PATHS; paths = list(BINARY_PATHS.query_engine.values()); assert paths and all(p.startswith('/opt/prisma/') for p in paths), paths"
 
 RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh && \
     sed -i 's/\r$//' docker/prod_entrypoint.sh && chmod +x docker/prod_entrypoint.sh
@@ -174,10 +211,8 @@ COPY --from=builder /app/litellm-proxy-extras /app/litellm-proxy-extras
 # database needs no npm and no network access (#33650, #24554).
 COPY --from=builder /opt/prisma /opt/prisma
 
-RUN find /app/.venv -type f -path "*/tornado/test/*" -delete && \
-    find /app/.venv -type d -path "*/tornado/test" -delete && \
-    chmod -R a+rX /opt/prisma && \
-    test -x /opt/prisma/binaries/node_modules/.bin/prisma && \
+# Verification only: these read, they do not write, so the layer stays empty.
+RUN test -x /opt/prisma/binaries/node_modules/.bin/prisma && \
     test -f /opt/prisma/binaries/node_modules/prisma/build/index.js && \
     python -c "from prisma.client import BINARY_PATHS; paths = list(BINARY_PATHS.query_engine.values()); assert paths and all(p.startswith('/opt/prisma/') for p in paths), paths"
 
