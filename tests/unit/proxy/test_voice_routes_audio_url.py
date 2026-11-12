@@ -13,12 +13,14 @@ from collections.abc import AsyncIterator
 from typing import Any, Final
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from litellm.proxy import proxy_server, voice_routes
+from litellm.proxy.common_utils.http_parsing_utils import read_request_body
 from litellm.proxy.voice_routes import (
     _audio_speech_chunk_generator,
     _join_audio_url,
@@ -324,6 +326,39 @@ def _mnemonic_request(path: str, payload: bytes = b"", query_string: bytes = b""
 
     request._receive = _receive  # pyright: ignore[reportPrivateUsage]  # starlette offers no public body-injection hook
     return request
+
+
+@pytest.mark.asyncio
+async def test_create_voice_consumed_multipart_reaches_missing_audio_validation():
+    encoded: Final = httpx.Request(
+        "POST",
+        "http://test/v1/audio/voices",
+        data={"name": "GuideTest", "consent": "Test only", "ref_text": "Sample"},
+        files={"ref_audio": ("empty.wav", b"", "application/octet-stream")},
+    )
+    body: Final = encoded.read()
+    messages: Final = [{"type": "http.request", "body": body, "more_body": False}]
+
+    async def receive() -> dict[str, Any]:
+        return messages.pop(0)
+
+    request: Final = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/audio/voices",
+            "headers": [(b"content-type", encoded.headers["content-type"].encode())],
+            "query_string": b"model=fishaudio/drama-3",
+        },
+        receive=receive,
+    )
+    form = await request.form()
+    parsed = await read_request_body(request)
+    assert parsed["name"] == "GuideTest"
+    assert parsed["consent"] == "Test only"
+    assert parsed["ref_text"] == "Sample"
+    assert await form["ref_audio"].read() == b""
+    assert parsed == await read_request_body(request)
 
 
 class TestVoiceManagementModelScoping:

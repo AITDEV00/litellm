@@ -384,7 +384,12 @@ async def create_voice(
         # whose callers genuinely send files.
         content_type = request.headers.get("content-type", "")
         if "multipart/form-data" in content_type:
-            form_data = await get_form_data(request)
+            try:
+                form_data = await get_form_data(request)
+            except RuntimeError as e:
+                if str(e) != "Stream consumed":
+                    raise
+                form_data = await request.form()
             raw = {key: value for key, value in form_data.items() if key != "ref_audio"}
             ref_audio_upload = form_data.get("ref_audio")
             if ref_audio_upload is not None and hasattr(ref_audio_upload, "read"):

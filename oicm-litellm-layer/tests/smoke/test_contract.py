@@ -204,6 +204,16 @@ class TestErrorContracts:
         )
         assert result.status in (400, 422), f"unsupported diarize field should be 400/422, got {result.status}"
 
+    def test_voice_upload_without_reference_audio_400(self, gw: Gateway) -> None:
+        key = _need_scoped(gw)
+        result = gw.post(
+            "/v1/audio/voices?model=fishaudio/drama-3",
+            key=key,
+            data={"name": "GuideMissingAudio", "consent": "test only", "ref_text": "sample"},
+        )
+        assert result.status == 400, f"Missing upload requires the guide's validation 400, got {result.status}"
+        assert "ref_audio" in error_detail(result), error_detail(result)
+
     def test_multipart_metadata_lone_surrogate_400(self, gw: Gateway) -> None:
         """v1.106.6: a lone surrogate escape in a multipart metadata field must
         400 the same way the JSON body path does (no provider or DB can encode
