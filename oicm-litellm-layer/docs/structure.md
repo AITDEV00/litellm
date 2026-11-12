@@ -99,11 +99,13 @@ oicm-litellm-layer/
 │   │   └── spend-logs-janitor/             ← CronJob + PVC + scripts/sql
 │   ├── dev/                           ← dev variants (controller, exclusions,
 │   │   │                                  postgres, servicemonitor, janitor)
-│   └── rollback/                      ← rollback manifests pinned to versions
-│       ├── litellm-proxy-rollback-jya0-v1.97.0.yaml ← pinned to image jya0-v1.97.0
-│       ├── litellm-proxy-rollback-jya0-v1.96.2.yaml ← pinned to image jya0-v1.96.2
-│       ├── litellm-proxy-rollback-key.yaml ← Secret for rollback apply
-│       └── discovery-controller-rollback-key.yaml
+│   └── rollback/                      ← 2026-11-12 live-production snapshot
+│       ├── gateway.yaml                ← v1.106.6 gateway pinned by digest
+│       ├── controller.yaml             ← current controller pinned by digest
+│       ├── store.yaml                  ← Redis + RustFS declarations
+│       ├── database.yaml               ← Postgres + archive definitions
+│       ├── monitoring.yaml             ← production ServiceMonitor
+│       └── access.yaml                 ← Ingress + network policy
 │
 ├── docs/                   ← ALL documentation (this site; mkdocs.yml nav is the
 │   │                          registry — every .md must appear in nav)

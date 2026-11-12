@@ -1,0 +1,274 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: adeo-litellm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-hooks
+  namespace: adeo-litellm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-logo
+  namespace: adeo-litellm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-sources
+  namespace: adeo-litellm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oicm-exclusions
+  namespace: adeo-litellm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-master-key
+  namespace: adeo-litellm
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-salt-key
+  namespace: adeo-litellm
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-db-credentials
+  namespace: adeo-litellm
+type: Opaque
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+  labels:
+    app: litellm-proxy
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: litellm-proxy
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-11-04T13:33:31+04:00'
+      labels:
+        app: litellm-proxy
+    spec:
+      containers:
+      - command:
+        - litellm
+        - --config
+        - /app/config.yaml
+        - --port
+        - '4000'
+        - --run_granian
+        - --num_workers
+        - '4'
+        - --use_v2_migration_resolver
+        env:
+        - name: LITELLM_PUBLIC_BASE_URL
+          value: https://litellm.ecouncil.ae
+        - name: STORE_MODEL_IN_DB
+          value: 'True'
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              key: master-key
+              name: litellm-master-key
+        - name: UI_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: master-key
+              name: litellm-master-key
+        - name: LITELLM_SALT_KEY
+          valueFrom:
+            secretKeyRef:
+              key: salt-key
+              name: litellm-salt-key
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: litellm-db-credentials
+        - name: REDIS_HOST
+          value: litellm-redis.redis.svc.cluster.local
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: litellm-redis-password
+        - name: REDIS_CONNECTION_POOL_TIMEOUT
+          value: '10'
+        - name: LITELLM_STREAM_TRACE_PATH
+          value: /tmp/stream_traces.jsonl
+        - name: LITELLM_STREAM_TRACE_GAP_THRESHOLD_MS
+          value: '500'
+        - name: UI_LOGO_PATH
+          value: /app/assets/adeo-ai-gateway.jpg
+        - name: LITELLM_FAVICON_URL
+          value: /app/assets/favicon.png
+        - name: SESSION_IDENTITY_ENABLED
+          value: 'true'
+        - name: SESSION_IDENTITY_TTL_SECONDS
+          value: '86400'
+        - name: PROMETHEUS_URL
+          value: http://kube-prometheus-stack-prometheus.kube-prometheus-stack:9090
+        - name: RUSTFS_ENDPOINT_URL
+          value: http://rustfs.adeo-litellm.svc.cluster.local:9000
+        - name: RUSTFS_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: access-key
+              name: litellm-rustfs-credentials
+        - name: RUSTFS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: secret-key
+              name: litellm-rustfs-credentials
+        - name: RUSTFS_BUCKET
+          value: litellm-client-mirror
+        - name: HOSTED_VLLM_API_KEY
+          value: dummy-not-used-by-backend
+        image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.106.6@sha256:4d1c98f9245b08002ea84ec4caa7b15bcf56f23136947fa15bdf67c3fc9e233e
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health/liveliness
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: litellm
+        ports:
+        - containerPort: 4000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health/readiness
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: '4'
+            memory: 16Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/config.yaml
+          name: config
+          subPath: config.yaml
+        - mountPath: /app/litellm_hooks
+          name: hooks
+          readOnly: true
+        - mountPath: /app/assets
+          name: logo
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: registry-credentials
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: tenant
+        value: adeo
+      - effect: NoExecute
+        key: tenant
+        value: adeo
+      - effect: NoSchedule
+        key: target
+        value: k8s
+      - effect: NoExecute
+        key: target
+        value: k8s
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: litellm-proxy
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: litellm-config
+        name: config
+      - configMap:
+          defaultMode: 420
+          name: litellm-hooks
+        name: hooks
+      - configMap:
+          defaultMode: 420
+          name: litellm-logo
+        name: logo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+  labels:
+    app: litellm-proxy
+spec:
+  clusterIP: 10.43.35.166
+  ports:
+  - name: http
+    port: 4000
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: litellm-proxy
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: litellm-proxy-pdb
+  namespace: adeo-litellm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: litellm-proxy

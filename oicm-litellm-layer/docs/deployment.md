@@ -54,10 +54,29 @@ they diverge in any way those patches do not declare.
 | `deploy/dev/litellm-postgres-dev-cluster.yaml` | Dev Postgres cluster | `adeo-litellm` |
 | `deploy/dev/litellm-servicemonitor-dev.yaml` | Dev ServiceMonitor | `adeo-litellm` |
 | `deploy/dev/spend-logs-janitor/` | Dev janitor (adds README) | `adeo-litellm` |
-| `deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml` | Rollback manifest pinned to image `jya0-v1.97.0` (newest) | `adeo-litellm` |
-| `deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml` | Rollback manifest pinned to image `jya0-v1.96.2` | `adeo-litellm` |
-| `deploy/rollback/litellm-proxy-rollback-key.yaml` | Secret for rollback apply | `adeo-litellm` |
-| `deploy/rollback/discovery-controller-rollback-key.yaml` | Secret for controller rollback apply | `adeo-litellm` |
+| `deploy/rollback/` | 2026-11-12 live-production configuration snapshot: v1.106.6 gateway and controller pinned by digest | `adeo-litellm`, plus watched/network-policy namespaces |
+
+## Configuration rollback
+
+`deploy/rollback/` contains a flat 31-resource snapshot of the **live production
+configuration before the v1.108.5 gateway rollout**. This includes the image
+digests, ConfigMaps, RBAC and supporting resources. Credential Secrets are
+stubs that preserve existing contents when applied to the same cluster. This
+is a configuration restore, not a data or fresh-cluster restoration.
+
+```bash
+export KUBECONFIG="$HOME/.kube/alain-oicm.conf"
+kubectl config current-context
+kubectl diff -f deploy/rollback/
+kubectl apply -f deploy/rollback/
+kubectl -n adeo-litellm rollout status deployment/litellm-proxy --timeout=300s
+kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller --timeout=300s
+```
+
+Review the complete diff first. Do not add `--prune`. Later-created resources
+need explicit review and deletion. Database records, persistent volumes,
+object-store contents and completed Jobs are not restored. The full
+[rollback runbook](rollback.md) has the inventory, limitations, and commands.
 
 ## Apply
 

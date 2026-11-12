@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm-proxy
+  namespace: adeo-litellm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: '0'
+    nginx.ingress.kubernetes.io/proxy-buffering: 'false'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-request-buffering: 'false'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: litellm.ecouncil.ae
+    http:
+      paths:
+      - backend:
+          service:
+            name: litellm-proxy
+            port:
+              number: 4000
+        path: /
+        pathType: Prefix
+  - host: litellm.adeoaiengine.ecouncil.ae
+    http:
+      paths:
+      - backend:
+          service:
+            name: litellm-proxy
+            port:
+              number: 4000
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - litellm.ecouncil.ae
+    - litellm.adeoaiengine.ecouncil.ae
+    secretName: litellm-ecouncil-ae-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-from-adeo-litellm
+  namespace: adeo
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: adeo-litellm
+  podSelector: {}
+  policyTypes:
+  - Ingress

@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: litellm-proxy-service-monitor
+  namespace: adeo-litellm
+  labels:
+    release: prometheus
+spec:
+  endpoints:
+  - bearerTokenSecret:
+      key: master-key
+      name: litellm-master-key
+    interval: 30s
+    path: /metrics/
+    port: http
+  namespaceSelector:
+    matchNames:
+    - adeo-litellm
+  selector:
+    matchLabels:
+      app: litellm-proxy

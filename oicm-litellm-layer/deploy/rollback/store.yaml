@@ -1,0 +1,364 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-redis-password
+  namespace: redis
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-redis-config
+  namespace: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: litellm-redis
+  namespace: redis
+  labels:
+    app: litellm-redis
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: litellm-redis
+  serviceName: litellm-redis
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-07-07T16:21:34+04:00'
+      labels:
+        app: litellm-redis
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - /bin/bash
+        - -ec
+        - "export REDIS_PASSWORD=\"$(< $REDIS_PASSWORD_FILE)\"\nexec redis-server \\\n  --port \"$REDIS_PORT\" \\\n  --requirepass \"$REDIS_PASSWORD\" \\\n  --include /opt/bitnami/redis/mounted-etc/redis.conf\n"
+        env:
+        - name: REDIS_REPLICATION_MODE
+          value: master
+        - name: ALLOW_EMPTY_PASSWORD
+          value: 'no'
+        - name: REDIS_PASSWORD_FILE
+          value: /opt/bitnami/redis/secrets/redis-password
+        - name: REDIS_TLS_ENABLED
+          value: 'no'
+        - name: REDIS_PORT
+          value: '6379'
+        image: docker.io/bitnamilegacy/redis:7.4.3-debian-12-r0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -ec
+            - 'export REDIS_PASSWORD="$(< $REDIS_PASSWORD_FILE)"
+
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+
+              redis-cli -h localhost -p "$REDIS_PORT" ping
+
+              '
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: redis
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -ec
+            - 'export REDIS_PASSWORD="$(< $REDIS_PASSWORD_FILE)"
+
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+
+              redis-cli -h localhost -p "$REDIS_PORT" ping
+
+              '
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 1001
+          runAsNonRoot: true
+          runAsUser: 1001
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/bitnami/redis/secrets/
+          name: redis-password
+          readOnly: true
+        - mountPath: /opt/bitnami/redis/mounted-etc
+          name: config
+          readOnly: true
+        - mountPath: /data
+          name: redis-data
+        - mountPath: /tmp
+          name: tmp
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: redis-password
+        secret:
+          defaultMode: 420
+          items:
+          - key: password
+            path: redis-password
+          secretName: litellm-redis-password
+      - configMap:
+          defaultMode: 420
+          name: litellm-redis-config
+        name: config
+      - emptyDir: {}
+        name: tmp
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: redis-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+      storageClassName: longhorn-rwx-crypto-retain
+      volumeMode: Filesystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-redis
+  namespace: redis
+spec:
+  clusterIP: 10.43.5.178
+  ports:
+  - name: tcp-redis
+    port: 6379
+    protocol: TCP
+    targetPort: redis
+  selector:
+    app: litellm-redis
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-rustfs-credentials
+  namespace: adeo-litellm
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+  labels:
+    app: rustfs
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: rustfs
+  serviceName: rustfs
+  template:
+    metadata:
+      labels:
+        app: rustfs
+    spec:
+      containers:
+      - env:
+        - name: RUSTFS_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: access-key
+              name: litellm-rustfs-credentials
+        - name: RUSTFS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: secret-key
+              name: litellm-rustfs-credentials
+        - name: RUSTFS_VOLUMES
+          value: /data
+        - name: RUSTFS_ADDRESS
+          value: 0.0.0.0:9000
+        - name: RUSTFS_CONSOLE_ENABLE
+          value: 'true'
+        - name: RUSTFS_CONSOLE_ADDRESS
+          value: 0.0.0.0:9001
+        - name: RUSTFS_OBS_LOG_DIRECTORY
+          value: ''
+        image: registry.adeoaiengine.ecouncil.ae/rustfs/rustfs:1.0.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: endpoint
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 3
+        name: rustfs
+        ports:
+        - containerPort: 9000
+          name: endpoint
+          protocol: TCP
+        - containerPort: 9001
+          name: console
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health/ready
+            port: endpoint
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: registry-credentials
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 10001
+        runAsUser: 10001
+      terminationGracePeriodSeconds: 30
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: longhorn-crypto-global
+      volumeMode: Filesystem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+  labels:
+    app: rustfs
+spec:
+  clusterIP: 10.43.189.232
+  ports:
+  - name: endpoint
+    port: 9000
+    protocol: TCP
+    targetPort: endpoint
+  - name: console
+    port: 9001
+    protocol: TCP
+    targetPort: console
+  selector:
+    app: rustfs
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rustfs
+  namespace: adeo-litellm
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: litellm-proxy
+    - podSelector:
+        matchLabels:
+          app: rustfs
+    ports:
+    - port: 9000
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: rustfs
+  policyTypes:
+  - Ingress

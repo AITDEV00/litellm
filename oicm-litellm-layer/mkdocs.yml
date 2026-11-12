@@ -105,6 +105,7 @@ nav:
       - OICM Custom Code (Vertical Slices): oicm-slices.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
+      - Production Configuration Rollback: rollback.md
       - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
       - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md

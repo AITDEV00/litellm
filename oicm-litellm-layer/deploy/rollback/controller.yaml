@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo-litellm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oicm-discovery-controller
+subjects:
+- kind: ServiceAccount
+  name: oicm-discovery-controller
+  namespace: adeo-litellm
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oicm-discovery-controller
+  namespace: adeo-litellm
+  labels:
+    app: oicm-discovery-controller
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: oicm-discovery-controller
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-10-26T11:53:28+04:00'
+      labels:
+        app: oicm-discovery-controller
+    spec:
+      containers:
+      - env:
+        - name: WATCH_NAMESPACE
+          value: adeo
+        - name: CLUSTER_NAME
+          value: alain
+        - name: LITELLM_ADMIN_URL
+          value: http://litellm-proxy.adeo-litellm.svc.cluster.local:4000
+        - name: LITELLM_ADMIN_KEY
+          valueFrom:
+            secretKeyRef:
+              key: master-key
+              name: litellm-master-key
+        - name: CLUSTER_DOMAIN
+          value: svc.cluster.local
+        - name: MODEL_PORT
+          value: '8080'
+        - name: SYNC_INTERVAL
+          value: '300'
+        - name: ENABLE_SUBMARINER_IMPORTS
+          value: 'true'
+        - name: OICM_SOURCES_FILE
+          value: /etc/oicm/sources.yaml
+        - name: OICM_EXCLUSIONS_FILE
+          value: /etc/oicm-exclusions/exclusions.yaml
+        - name: OICM_SOURCE_ALAIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: oicm-status-api
+        - name: OICM_SOURCE_ALAIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: oicm-status-api
+        - name: OICM_SOURCE_ABUDHABI_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: username
+              name: ad-oicm-status-api
+        - name: OICM_SOURCE_ABUDHABI_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: ad-oicm-status-api
+        - name: STATUS_SYNC_INTERVAL
+          value: '10'
+        - name: STATUS_STALE_AFTER
+          value: '90'
+        image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261111-7a1e97a@sha256:eeaa84b14fa920771122adf7a2ef8107ed358e12d9e3fc71b8cab8525fb3e8da
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8090
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: controller
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8090
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/oicm
+          name: oicm-sources
+          readOnly: true
+        - mountPath: /etc/oicm-exclusions
+          name: oicm-exclusions
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: registry-credentials
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: oicm-discovery-controller
+      serviceAccountName: oicm-discovery-controller
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: tenant
+        value: adeo
+      - effect: NoExecute
+        key: tenant
+        value: adeo
+      - effect: NoSchedule
+        key: target
+        value: k8s
+      - effect: NoExecute
+        key: target
+        value: k8s
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: oicm-sources
+        name: oicm-sources
+      - configMap:
+          defaultMode: 420
+          name: oicm-exclusions
+        name: oicm-exclusions

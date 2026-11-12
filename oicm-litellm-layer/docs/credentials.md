@@ -201,32 +201,35 @@ to decrypt the shared DB. **To prevent that, BOTH deployments pin
 - [ ] Is a credential re-encryption migration queued for BOTH dev and prod? →
       Only then is a salt change allowed.
 
-### ROLLBACK (in case a master-key change breaks prod)
+### CONFIGURATION ROLLBACK
 
-If a master-key rotation to `sk-05132025` ever breaks prod, revert with the
-dedicated rollback manifests in `deploy/rollback/`. They restore the master key
-to `sk-1234` and re-point the salt key so DB decryption keeps working:
+The production configuration snapshot in [deploy/rollback](deployment.md#configuration-rollback)
+excludes credential material and retains existing master and salt Secret values
+when applied to the existing production cluster. It does not rotate either
+key. Do not apply it to a fresh cluster before restoring its Secret contents
+separately.
 
-```bash
-KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl apply -f deploy/rollback/litellm-proxy-rollback-key.yaml
-KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl apply -f deploy/rollback/discovery-controller-rollback-key.yaml
-KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl rollout restart deployment/litellm-proxy -n adeo-litellm
-KUBECONFIG=$HOME/.kube/oicm-alain.conf \
-  kubectl rollout restart deployment/oicm-discovery-controller -n adeo-litellm
-```
-
-The rollback is idempotent and safe to apply at any time against the forward
-state.
+For a deliberate credential rotation, follow the entire key-rotation checklist
+above, update both deployments and all consumers, and restart them. The
+configuration snapshot is not a substitute for that rotation plan or the separate
+runbook for restoring a known pre-rotation credential store.
 
 ## Other secrets
 
 | Secret | File | Consumed by |
 |--------|------|-------------|
 | `litellm-db-credentials` (DATABASE_URL) | `deploy/base/gateway` | Proxy → Postgres |
-| `litellm-redis-password` | `deploy/base/gateway` | Proxy → Redis |
+| `litellm-redis-password` | `deploy/base/shared` | Proxy → Redis |
+| `litellm-rustfs-credentials` | `deploy/base/rustfs` | Per-environment object store |
+
+## OICM service-account Secrets
+
+The controller reads credentials for the configured OICM sources from the
+`oicm-status-api`, `ad-oicm-status-api`, `oicm-keycloak-admin`, and
+`ad-oicm-keycloak-admin` Secrets. `deploy/oicm/service-account-secret.yaml` is
+only a template with placeholder values. The actual credentials are generated
+by `scripts/make_service_account_secrets.sh` and are never committed. Applying
+the configuration backup does not reorder, clear or recreate those credentials.
 
 ## Local / non-cluster configs that also hold a master key
 
