@@ -562,8 +562,8 @@ async def test_parallel_request_limiter_v3_missing_model_falls_back():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v1_tpm_zero_populates_provider():
-    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache())
+async def test_dynamic_rate_limiter_v1_tpm_zero_populates_provider(verified_license):
+    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     handler.check_available_usage = AsyncMock(return_value=(0, 5, 100, 5, 1))
 
     user_api_key_dict = UserAPIKeyAuth(api_key="sk-dyn")
@@ -585,8 +585,8 @@ async def test_dynamic_rate_limiter_v1_tpm_zero_populates_provider():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v1_rpm_zero_populates_provider():
-    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache())
+async def test_dynamic_rate_limiter_v1_rpm_zero_populates_provider(verified_license):
+    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     handler.check_available_usage = AsyncMock(return_value=(5, 0, 5, 100, 1))
 
     user_api_key_dict = UserAPIKeyAuth(api_key="sk-dyn")
@@ -606,8 +606,8 @@ async def test_dynamic_rate_limiter_v1_rpm_zero_populates_provider():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v1_unknown_model_falls_back():
-    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache())
+async def test_dynamic_rate_limiter_v1_unknown_model_falls_back(verified_license):
+    handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     handler.check_available_usage = AsyncMock(return_value=(0, 5, 100, 5, 1))
 
     user_api_key_dict = UserAPIKeyAuth(api_key="sk-dyn")
@@ -632,17 +632,10 @@ async def test_dynamic_rate_limiter_v1_unknown_model_falls_back():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_model_capacity_path_populates_provider():
-    """
-    The v3 dynamic limiter has three raise sites: model_saturation_check,
-    priority_model, and the fail-closed unknown-descriptor branch. We patch
-    the atomic increment to short-circuit straight into the model_saturation
-    path — that's the most common production trip — and confirm the
-    raised exception carries provider info.
-    """
+async def test_dynamic_rate_limiter_v3_model_capacity_path_populates_provider(verified_license):
     from litellm.types.router import ModelGroupInfo
 
-    handler = PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache())
+    handler = PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache(), license_verifier=verified_license)
     handler.v3_limiter.atomic_check_and_increment_by_n = AsyncMock(
         return_value={
             "overall_code": "OVER_LIMIT",
@@ -687,11 +680,11 @@ async def test_dynamic_rate_limiter_v3_model_capacity_path_populates_provider():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_unknown_descriptor_path_populates_provider():
+async def test_dynamic_rate_limiter_v3_unknown_descriptor_path_populates_provider(verified_license):
     """Fail-closed unknown-descriptor branch must still attribute provider."""
     from litellm.types.router import ModelGroupInfo
 
-    handler = PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache())
+    handler = PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=DualCache(), license_verifier=verified_license)
     handler.v3_limiter.atomic_check_and_increment_by_n = AsyncMock(
         return_value={
             "overall_code": "OVER_LIMIT",

@@ -15,10 +15,11 @@ from litellm.exceptions import RateLimitType
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.litellm_core_utils.hidden_params import set_hidden_param
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.common_utils.proxy_rate_limit_error import ProxyRateLimitError
 from litellm.proxy.hooks.rate_limiter_utils import (
-    convert_priority_to_percent,
     resolve_llm_provider_for_rate_limit,
+    resolve_priority_weights,
 )
 from litellm.types.router import ModelGroupInfo
 from litellm.types.utils import CallTypesLiteral, LLMResponseTypes
@@ -81,16 +82,11 @@ class _PROXY_DynamicRateLimitHandler(CustomLogger):
     def __init__(
         self,
         internal_usage_cache: DualCache,
+        license_verifier: LicenseCheck,
         time_fn: Callable[[], datetime] = get_utc_datetime,
-        license_verifier: Callable[[], bool] | None = None,
     ):
         self.internal_usage_cache = DynamicRateLimiterCache(cache=internal_usage_cache, time_fn=time_fn)
-        self._license_verifier = license_verifier or self._is_premium
-
-    def _is_premium(self) -> bool:
-        from litellm.proxy.auth.litellm_license import LicenseCheck
-
-        return LicenseCheck().is_premium()
+        self._license_verifier = license_verifier
 
     def update_variables(self, llm_router: Router) -> None:
         self.llm_router = llm_router
@@ -125,14 +121,9 @@ class _PROXY_DynamicRateLimitHandler(CustomLogger):
                     priority,
                     litellm.priority_reservation,
                 )
-            elif priority is not None and litellm.priority_reservation is not None:
-                if not self._license_verifier():
-                    verbose_proxy_logger.error(
-                        "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature."
-                    )
-                else:
-                    value: Final = litellm.priority_reservation[priority]
-                    weight = convert_priority_to_percent(value, model_group_info)
+            elif priority is not None:
+                weights, default_priority = resolve_priority_weights(model_group_info, 1.0, self._license_verifier)
+                weight = weights.get(priority, default_priority)
 
             active_projects: Final = await self.internal_usage_cache.async_get_cache(model=model)
             (

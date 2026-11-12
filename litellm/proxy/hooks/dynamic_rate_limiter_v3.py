@@ -2,7 +2,6 @@
 Dynamic rate limiter v3 - Saturation-aware priority-based rate limiting
 """
 
-import os
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Final, Literal
@@ -16,6 +15,7 @@ from litellm._logging import verbose_proxy_logger
 from litellm.caching.caching import DualCache
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.common_utils.proxy_rate_limit_error import (
     ProxyRateLimitError,
     map_v3_rate_limit_type,
@@ -30,8 +30,8 @@ from litellm.proxy.hooks.parallel_request_limiter_v3 import (  # noqa: F401  # l
     get_or_create_request_stash,
 )
 from litellm.proxy.hooks.rate_limiter_utils import (
-    convert_priority_to_percent,
     resolve_llm_provider_for_rate_limit,
+    resolve_priority_weights,
 )
 from litellm.proxy.utils import InternalUsageCache
 from litellm.router_utils.add_retry_fallback_headers import (
@@ -88,9 +88,11 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
     def __init__(
         self,
         internal_usage_cache: DualCache,
+        license_verifier: LicenseCheck,
         time_provider: Callable[[], datetime] | None = None,
     ):
         self.internal_usage_cache = InternalUsageCache(dual_cache=internal_usage_cache)
+        self._license_verifier = license_verifier
         self.v3_limiter = PROXY_MaxParallelRequestsHandler_v3(self.internal_usage_cache, time_provider=time_provider)
 
     def update_variables(self, llm_router: Router) -> None:
@@ -125,21 +127,6 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             ttl=local_cache_ttl,
         )
 
-    def _get_priority_weight(self, priority: str | None, model_info: ModelGroupInfo | None = None) -> float:
-        """Get the weight for a given priority from litellm.priority_reservation"""
-        weight: float = _get_priority_settings().default_priority
-        if litellm.priority_reservation is None or priority not in litellm.priority_reservation:
-            verbose_proxy_logger.debug("Priority Reservation not set for the given priority.")
-        elif priority is not None and litellm.priority_reservation is not None:
-            if os.getenv("LITELLM_LICENSE", None) is None:
-                verbose_proxy_logger.error(
-                    "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature. Please add a 'LITELLM_LICENSE' to your .env to enable this.\nGet a license: https://docs.litellm.ai/docs/proxy/enterprise."
-                )
-            else:
-                value: Final = litellm.priority_reservation[priority]
-                weight = convert_priority_to_percent(value, model_info)
-        return weight
-
     def _get_priority_from_user_api_key_dict(self, user_api_key_dict: UserAPIKeyAuth) -> str | None:
         """
         Get priority from user_api_key_dict.
@@ -164,28 +151,11 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
 
         return priority
 
+    def _get_priority_weights(self, model_info: ModelGroupInfo) -> tuple[dict[str, float], float]:
+        return resolve_priority_weights(model_info, _get_priority_settings().default_priority, self._license_verifier)
+
     def _normalize_priority_weights(self, model_info: ModelGroupInfo) -> dict[str, float]:
-        """
-        Normalize priority weights if they sum to > 1.0
-
-        Handles over-allocation: {key_a: 0.60, key_b: 0.80} -> {key_a: 0.43, key_b: 0.57}
-        Converts absolute rpm/tpm values to percentages based on model capacity.
-        """
-        if litellm.priority_reservation is None:
-            return {}
-
-        # Convert all values to percentages first
-        weights: Final[dict[str, float]] = {}
-        for k, v in litellm.priority_reservation.items():
-            weights[k] = convert_priority_to_percent(v, model_info)
-
-        total_weight: Final = sum(weights.values())
-
-        if total_weight > 1.0:
-            normalized: Final = {k: v / total_weight for k, v in weights.items()}
-            verbose_proxy_logger.debug("Normalized over-allocated priorities: %s -> %s", weights, normalized)
-            return normalized
-
+        weights, _ = self._get_priority_weights(model_info)
         return weights
 
     def _get_priority_allocation(
@@ -219,7 +189,7 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
 
         if has_explicit_priority and priority is not None:
             # Explicit priority: get its specific allocation
-            priority_weight = normalized_weights.get(priority, self._get_priority_weight(priority, model_info))
+            priority_weight = normalized_weights.get(priority, _get_priority_settings().default_priority)
             # Use unique key per priority level
             priority_key = f"{model}:{priority}"
         else:
@@ -321,7 +291,7 @@ class _PROXY_DynamicRateLimitHandlerV3(CustomLogger):
             return descriptors
 
         # Get normalized priority weight and pool key
-        normalized_weights: Final = self._normalize_priority_weights(model_group_info)
+        normalized_weights, default_priority = self._get_priority_weights(model_group_info)
         priority_weight, priority_key = self._get_priority_allocation(
             model=model,
             priority=priority,

@@ -26,6 +26,7 @@ import pytest
 import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.batch_rate_limiter import BatchFileUsage
 from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
     PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
@@ -187,7 +188,9 @@ async def test_batch_limiter_uses_atomic_check_and_increment():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity(monkeypatch):
+async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity(
+    monkeypatch: pytest.MonkeyPatch, verified_license: LicenseCheck
+):
     """
     DynamicRateLimitHandler PHASE 1 (read_only check) → PHASE 3 (increment)
     is non-atomic: dynamic_rate_limiter_v3.py:463-548.
@@ -211,7 +214,7 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity(monkey
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "toctou-dyn-model"
     llm_router = Router(
@@ -271,7 +274,9 @@ async def test_dynamic_rate_limiter_v3_concurrent_bypasses_model_capacity(monkey
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment(monkeypatch):
+async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment(
+    monkeypatch: pytest.MonkeyPatch, verified_license: LicenseCheck
+):
     """
     Regression test: dynamic limiter's enforced descriptors flow through
     `atomic_check_and_increment_by_n`, not the legacy
@@ -285,7 +290,7 @@ async def test_dynamic_rate_limiter_v3_uses_atomic_check_and_increment(monkeypat
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "atomic-dyn-model"
     llm_router = Router(
@@ -411,7 +416,9 @@ async def test_batch_zero_token_consumes_rpm_only():
 
 
 @pytest.mark.asyncio
-async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor(monkeypatch):
+async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor(
+    monkeypatch: pytest.MonkeyPatch, verified_license: LicenseCheck
+):
     """
     Fail-closed guard: when atomic_check_and_increment_by_n returns
     overall_code=OVER_LIMIT but with a descriptor_key the dispatcher does
@@ -427,7 +434,7 @@ async def test_dynamic_rate_limiter_v3_fails_closed_on_unknown_descriptor(monkey
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fail-closed-model"
     llm_router = Router(

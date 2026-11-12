@@ -2980,7 +2980,11 @@ open_telemetry_logger: OpenTelemetry | None = None
 # LiteLLM_DailyGatewayRequests by the update_gateway_requests scheduler job.
 gateway_request_accumulator: Final = GatewayRequestAccumulator()
 ### INITIALIZE GLOBAL LOGGING OBJECT ###
-proxy_logging_obj: ProxyLogging = ProxyLogging(user_api_key_cache=user_api_key_cache, premium_user=premium_user)
+proxy_logging_obj: ProxyLogging = ProxyLogging(
+    user_api_key_cache=user_api_key_cache,
+    premium_user=premium_user,
+    license_verifier=_license_check,
+)
 
 
 def _gateway_request_redis_buffer() -> GatewayRequestRedisBuffer | None:

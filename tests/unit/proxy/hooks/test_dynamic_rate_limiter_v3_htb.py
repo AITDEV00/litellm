@@ -8,20 +8,17 @@ import asyncio
 import os
 import sys
 import time
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 
 sys.path.insert(0, os.path.abspath("../../../.."))
 
 import litellm
 from litellm import DualCache, Router
-from litellm.llms.custom_httpx.http_handler import HTTPHandler
-from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
     _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
     htb_priority,
@@ -46,79 +43,63 @@ def time_controller(monkeypatch):
     return controller
 
 
-@pytest.fixture
-def verified_license() -> Callable[[], bool]:
-    checker = LicenseCheck()
-    checker.license_str = "test-license-key"
-    checker.http_handler = HTTPHandler(
-        client=httpx.Client(
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
+@pytest.mark.asyncio
+async def test_verified_premium_priority_counters_roll_over_at_midnight(
+    monkeypatch: pytest.MonkeyPatch, verified_license: LicenseCheck
+):
+    monkeypatch.setattr(litellm, "priority_reservation", {"high": 0.5})
+    clock = TimeController()
+    handler = DynamicRateLimitHandler(
+        internal_usage_cache=DualCache(),
+        time_provider=clock.now,
+        license_verifier=verified_license,
+    )
+    model = "premium-rollover"
+    handler.update_variables(
+        llm_router=Router(
+            model_list=[
+                {
+                    "model_name": model,
+                    "litellm_params": {
+                        "model": "openai/premium-rollover",
+                        "api_key": "test-key",
+                        "api_base": "http://localhost/test",
+                        "rpm": 2,
+                    },
+                }
+            ]
         )
     )
-    return checker.is_premium
-
-
-@pytest.mark.asyncio
-async def test_verified_premium_priority_counters_roll_over_at_midnight(monkeypatch):
-    license_server = httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
-    monkeypatch.setattr(litellm, "priority_reservation", {"high": 0.5})
-    with httpx.Client(transport=license_server) as client:
-        checker = LicenseCheck()
-        checker.http_handler = HTTPHandler(client=client)
-        checker.license_str = "locally-verified-license"
-        assert checker.is_premium()
-        clock = TimeController()
-        handler = DynamicRateLimitHandler(
-            internal_usage_cache=DualCache(),
-            time_provider=clock.now,
-            license_verifier=checker.is_premium,
-        )
-        model = "premium-rollover"
-        handler.update_variables(
-            llm_router=Router(
-                model_list=[
-                    {
-                        "model_name": model,
-                        "litellm_params": {
-                            "model": "openai/premium-rollover",
-                            "api_key": "test-key",
-                            "api_base": "http://localhost/test",
-                            "rpm": 2,
-                        },
-                    }
-                ]
-            )
-        )
-        model_group_info = handler.llm_router.get_model_group_info(model_group=model)
-        first = await handler._run_htb_check(model, model_group_info, "high", None)
-        assert first["overall_code"] == "OK"
-        priority = next(status for status in first["statuses"] if status["descriptor_key"] == "priority_model")
-        assert priority["current_limit"] == 1
-        assert priority["limit_remaining"] == 0
-        cache = handler.internal_usage_cache.dual_cache.in_memory_cache
-        before = {key: cache.get_cache(key) for key in cache.cache_dict}
-        assert {key: value for key, value in before.items() if key.endswith(":requests")} == {
-            "{htb:premium-rollover}:requests": 1,
-            "{htb:premium-rollover}:premium-rollover:high:demand:requests": 1,
-            "{htb:premium-rollover}:premium-rollover:high:requests": 1,
-        }
-        current = clock.now() + timedelta(seconds=61)
-        clock.advance(61)
-        second = await handler._run_htb_check(model, model_group_info, "high", None)
-        after = {key: cache.get_cache(key) for key in cache.cache_dict}
-        assert {
-            key: value
-            for key, value in after.items()
-            if key.endswith(":requests") and not key.endswith(":demand:requests")
-        } == {
-            "{htb:premium-rollover}:requests": 1,
-            "{htb:premium-rollover}:premium-rollover:high:requests": 1,
-        }
-        assert all(
-            after[key] == int(current.timestamp())
-            for key in before
-            if key.endswith(":window") and ":demand:" not in key
-        )
+    model_group_info = handler.llm_router.get_model_group_info(model_group=model)
+    first = await handler._run_htb_check(model, model_group_info, "high", None)
+    assert first["overall_code"] == "OK"
+    priority = next(status for status in first["statuses"] if status["descriptor_key"] == "priority_model")
+    assert priority["current_limit"] == 1
+    assert priority["limit_remaining"] == 0
+    cache = handler.internal_usage_cache.dual_cache.in_memory_cache
+    before = {key: cache.get_cache(key) for key in cache.cache_dict}
+    assert {key: value for key, value in before.items() if key.endswith(":requests")} == {
+        "{htb:premium-rollover}:requests": 1,
+        "{htb:premium-rollover}:premium-rollover:high:demand:requests": 1,
+        "{htb:premium-rollover}:premium-rollover:high:requests": 1,
+    }
+    current = clock.now() + timedelta(seconds=61)
+    clock.advance(61)
+    second = await handler._run_htb_check(model, model_group_info, "high", None)
+    after = {key: cache.get_cache(key) for key in cache.cache_dict}
+    assert {
+        key: value
+        for key, value in after.items()
+        if key.endswith(":requests") and not key.endswith(":demand:requests")
+    } == {
+        "{htb:premium-rollover}:requests": 1,
+        "{htb:premium-rollover}:premium-rollover:high:requests": 1,
+    }
+    assert all(
+        after[key] == int(current.timestamp())
+        for key in before
+        if key.endswith(":window") and ":demand:" not in key
+    )
 
 
 @pytest.mark.asyncio

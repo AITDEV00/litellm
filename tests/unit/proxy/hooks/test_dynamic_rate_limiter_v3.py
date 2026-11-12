@@ -10,12 +10,13 @@ import time
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
-
 
 import litellm
 from litellm import DualCache, Router
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.dynamic_rate_limiter_v3 import (
     PROXY_DynamicRateLimitHandlerV3 as DynamicRateLimitHandler,
 )
@@ -32,15 +33,8 @@ class TimeController:
         self._current += timedelta(seconds=seconds)
 
 
-@pytest.fixture
-def time_controller(monkeypatch):
-    controller = TimeController()
-    monkeypatch.setattr(time, "time", lambda: controller.now().timestamp())
-    return controller
-
-
 @pytest.mark.asyncio
-async def test_priority_weight_allocation(monkeypatch):
+async def test_priority_weight_allocation(monkeypatch, verified_license):
     """
     Test that priority weights are correctly applied instead of equal splitting.
 
@@ -57,7 +51,7 @@ async def test_priority_weight_allocation(monkeypatch):
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-model"
     total_tpm = 1000
@@ -126,7 +120,7 @@ async def test_priority_weight_allocation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_priority_requests(monkeypatch):
+async def test_concurrent_priority_requests(monkeypatch, verified_license):
     """
     Test the core issue: 5 concurrent requests with different priorities should get
     proper allocation based on priority weights, not equal splitting.
@@ -140,7 +134,7 @@ async def test_concurrent_priority_requests(monkeypatch):
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-model"
     total_tpm = 1000
@@ -212,7 +206,7 @@ async def test_concurrent_priority_requests(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_100_concurrent_priority_requests(time_controller, monkeypatch):
+async def test_100_concurrent_priority_requests(time_controller, monkeypatch, verified_license):
     """
     Stress test: 100 concurrent requests with mixed priorities over 10 seconds.
 
@@ -229,7 +223,9 @@ async def test_100_concurrent_priority_requests(time_controller, monkeypatch):
 
     dual_cache = DualCache()
     handler = DynamicRateLimitHandler(
-        internal_usage_cache=dual_cache, time_provider=time_controller.now
+        internal_usage_cache=dual_cache,
+        time_provider=time_controller.now,
+        license_verifier=verified_license,
     )
 
     model = "stress-test-model"
@@ -382,7 +378,7 @@ async def test_100_concurrent_priority_requests(time_controller, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_pre_call_hooks_stress(monkeypatch):
+async def test_concurrent_pre_call_hooks_stress(monkeypatch, verified_license):
     """
     Stress test: 50 concurrent pre-call hooks with saturation-aware priority enforcement.
 
@@ -397,7 +393,7 @@ async def test_concurrent_pre_call_hooks_stress(monkeypatch):
     litellm.priority_reservation = {"premium": 0.8, "standard": 0.2}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "pre-call-stress-model"
     total_tpm = 2000
@@ -632,7 +628,7 @@ async def test_concurrent_pre_call_hooks_stress(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_calls_case_1_no_rate_limiting_at_capacity(monkeypatch):
+async def test_fake_calls_case_1_no_rate_limiting_at_capacity(monkeypatch, verified_license):
     """
     Test Case 1: Saturation-Aware Rate Limiting at 50% Threshold
 
@@ -654,7 +650,7 @@ async def test_fake_calls_case_1_no_rate_limiting_at_capacity(monkeypatch):
     litellm.priority_reservation = {"key_a": 0.75, "key_b": 0.25}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fake-call-test-1"
     total_rpm = 100
@@ -757,7 +753,7 @@ async def test_fake_calls_case_1_no_rate_limiting_at_capacity(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_calls_case_2_priority_queue_during_saturation(monkeypatch):
+async def test_fake_calls_case_2_priority_queue_during_saturation(monkeypatch, verified_license):
     """
     Test Case 2: Priority Queue Behavior During Saturation
 
@@ -776,7 +772,7 @@ async def test_fake_calls_case_2_priority_queue_during_saturation(monkeypatch):
     litellm.priority_reservation = {"key_a": 0.75, "key_b": 0.25}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fake-call-test-2"
     total_rpm = 100
@@ -884,7 +880,7 @@ async def test_fake_calls_case_2_priority_queue_during_saturation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_calls_case_3_spillover_capacity_default_keys(monkeypatch):
+async def test_fake_calls_case_3_spillover_capacity_default_keys(monkeypatch, verified_license):
     """
     Test Case 3: Spillover Capacity for Default Keys
 
@@ -910,7 +906,7 @@ async def test_fake_calls_case_3_spillover_capacity_default_keys(monkeypatch):
     litellm.priority_reservation_settings.default_priority = 0.25
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fake-call-test-3"
     total_rpm = 100
@@ -1023,7 +1019,7 @@ async def test_fake_calls_case_3_spillover_capacity_default_keys(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_calls_case_4_over_allocated_with_normalization(monkeypatch):
+async def test_fake_calls_case_4_over_allocated_with_normalization(monkeypatch, verified_license):
     """
     Test Case 4: Over-Allocated Priority reservations with Normalization
 
@@ -1045,7 +1041,7 @@ async def test_fake_calls_case_4_over_allocated_with_normalization(monkeypatch):
     litellm.priority_reservation = {"key_a": 0.60, "key_b": 0.80}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fake-call-test-4"
     total_rpm = 100
@@ -1154,7 +1150,7 @@ async def test_fake_calls_case_4_over_allocated_with_normalization(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_calls_case_5_default_value_priority_reservation(monkeypatch):
+async def test_fake_calls_case_5_default_value_priority_reservation(monkeypatch, verified_license):
     """
     Test Case 5: Default value for priority reservation
 
@@ -1180,7 +1176,7 @@ async def test_fake_calls_case_5_default_value_priority_reservation(monkeypatch)
     litellm.priority_reservation_settings.default_priority = 0.05
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "fake-call-test-5"
     total_rpm = 100
@@ -1294,7 +1290,7 @@ async def test_fake_calls_case_5_default_value_priority_reservation(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_default_priority_shared_pool(monkeypatch):
+async def test_default_priority_shared_pool(monkeypatch, verified_license):
     """
     Test that keys without explicit priority share ONE default pool, not get individual allocations.
 
@@ -1308,7 +1304,7 @@ async def test_default_priority_shared_pool(monkeypatch):
     litellm.priority_reservation_settings.default_priority = 0.25
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-default-pool"
     total_rpm = 100
@@ -1380,7 +1376,7 @@ async def test_default_priority_shared_pool(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_log_success_event_increments_by_actual_tokens(monkeypatch):
+async def test_async_log_success_event_increments_by_actual_tokens(monkeypatch, verified_license):
     """
     Test that async_log_success_event increments token counters by actual token usage.
 
@@ -1396,7 +1392,7 @@ async def test_async_log_success_event_increments_by_actual_tokens(monkeypatch):
     litellm.priority_reservation = {"dev": 0.1, "prod": 0.9}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-token-increment"
     llm_router = Router(
@@ -1481,7 +1477,7 @@ async def test_async_log_success_event_increments_by_actual_tokens(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_saturation_check_cache_ttl_configuration(monkeypatch):
+async def test_saturation_check_cache_ttl_configuration(monkeypatch, verified_license):
     """
     Test that saturation_check_cache_ttl controls how long saturation values are cached locally.
 
@@ -1498,7 +1494,7 @@ async def test_saturation_check_cache_ttl_configuration(monkeypatch):
 
     try:
         dual_cache = DualCache()
-        handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+        handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
         model = "test-saturation-ttl"
         llm_router = Router(
@@ -1585,7 +1581,9 @@ async def test_saturation_check_cache_ttl_configuration(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_log_success_event_uses_team_priority_from_auth_metadata(monkeypatch):
+async def test_async_log_success_event_uses_team_priority_from_auth_metadata(
+    monkeypatch, verified_license
+):
     """
     Test that async_log_success_event correctly retrieves priority from user_api_key_auth_metadata.
 
@@ -1600,7 +1598,7 @@ async def test_async_log_success_event_uses_team_priority_from_auth_metadata(mon
     litellm.priority_reservation = {"team_priority": 0.8, "default": 0.2}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-team-priority"
     llm_router = Router(
@@ -1678,7 +1676,7 @@ async def test_async_log_success_event_uses_team_priority_from_auth_metadata(mon
 
 
 @pytest.mark.asyncio
-async def test_priority_429_includes_model_name_and_configured_limits(monkeypatch):
+async def test_priority_429_includes_model_name_and_configured_limits(monkeypatch, verified_license):
     """
     The priority-based 429 should tell operators which model was hit and what
     the model's configured TPM/RPM are, so they can decide whether to tune the
@@ -1696,7 +1694,7 @@ async def test_priority_429_includes_model_name_and_configured_limits(monkeypatc
     litellm.priority_reservation = {"prod": 0.5}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "gpt-4o-test"
     total_tpm = 1_000_000
@@ -1772,7 +1770,7 @@ async def test_priority_429_includes_model_name_and_configured_limits(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_tpm_only_model_enforces_priority_and_model_capacity(monkeypatch):
+async def test_tpm_only_model_enforces_priority_and_model_capacity(monkeypatch, verified_license):
     """Regression: a model configured with ONLY tpm (no rpm) must still be
     rate limited.
 
@@ -1791,7 +1789,7 @@ async def test_tpm_only_model_enforces_priority_and_model_capacity(monkeypatch):
     litellm.priority_reservation = {"dev": 0.25, "prod": 0.5}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "tpm-only-model"
     llm_router = Router(
@@ -1864,14 +1862,14 @@ async def test_tpm_only_model_enforces_priority_and_model_capacity(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_post_call_success_hook_attaches_priority_headers_to_dict_response():
+async def test_post_call_success_hook_attaches_priority_headers_to_dict_response(verified_license):
     from litellm.proxy.hooks.parallel_request_limiter_v3 import (
         RateLimitResponse,
         RateLimitStatus,
         get_or_create_request_stash,
     )
 
-    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache())
+    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     get_or_create_request_stash().rate_limit_response = RateLimitResponse(
         overall_code="OK",
         statuses=[
@@ -1907,8 +1905,8 @@ async def test_post_call_success_hook_attaches_priority_headers_to_dict_response
 
 
 @pytest.mark.asyncio
-async def test_post_call_success_hook_leaves_raw_provider_dict_untouched():
-    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache())
+async def test_post_call_success_hook_leaves_raw_provider_dict_untouched(verified_license):
+    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     response = {"id": "msg_123", "type": "message", "role": "assistant", "content": []}
 
     await handler.async_post_call_success_hook(
@@ -1929,10 +1927,12 @@ async def test_post_call_success_hook_leaves_raw_provider_dict_untouched():
         ({}, "default"),
     ],
 )
-async def test_post_call_success_hook_priority_header_is_always_http_encodable(team_metadata, expected_priority_header):
+async def test_post_call_success_hook_priority_header_is_always_http_encodable(
+    team_metadata, expected_priority_header, verified_license
+):
     from starlette.responses import Response
 
-    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache())
+    handler = DynamicRateLimitHandler(internal_usage_cache=DualCache(), license_verifier=verified_license)
     response = {"id": "msg_123", "type": "message", "role": "assistant", "content": [], "_hidden_params": {}}
 
     await handler.async_post_call_success_hook(

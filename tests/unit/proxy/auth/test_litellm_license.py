@@ -7,8 +7,10 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 
+import litellm
 from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from litellm.proxy.auth.litellm_license import LicenseCheck
+from litellm.proxy.hooks.rate_limiter_utils import resolve_priority_weights
 
 
 def test_read_public_key_loads_successfully():
@@ -158,6 +160,31 @@ def test_is_premium_follows_the_license_server_reply_for_an_unsigned_license(
 
     assert license_check.is_premium() is premium
     assert set(requested) == {"https://license.litellm.ai/verify_license/license-the-public-key-did-not-sign"}
+
+
+@pytest.mark.parametrize(("is_premium", "expected"), [(True, {"priority": 0.32}), (False, {})])
+def test_priority_policy_requires_real_premium_verification(
+    monkeypatch: pytest.MonkeyPatch, is_premium: bool, expected: dict[str, float]
+) -> None:
+    monkeypatch.setenv("LITELLM_LICENSE", "test-license-key")
+    monkeypatch.setattr(litellm, "priority_reservation", {"priority": 0.32})
+    checker = LicenseCheck()
+    checker.http_handler = HTTPHandler(
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": is_premium}))
+        )
+    )
+    weights, default = resolve_priority_weights(None, 0.25, checker)
+    assert weights == expected
+    assert default == 0.25
+
+
+def test_priority_policy_normalizes_verified_reservations(
+    monkeypatch: pytest.MonkeyPatch, verified_license: LicenseCheck
+) -> None:
+    monkeypatch.setattr(litellm, "priority_reservation", {"first": 0.6, "second": 0.6})
+    weights, _ = resolve_priority_weights(None, 0.25, verified_license)
+    assert weights == {"first": 0.5, "second": 0.5}
 
 
 @pytest.fixture

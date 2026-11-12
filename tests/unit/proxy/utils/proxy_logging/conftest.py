@@ -98,7 +98,7 @@ def make_user_api_key_auth():
 
 
 @pytest.fixture
-def proxy_logging(mock_callbacks_disabled):
+def proxy_logging(mock_callbacks_disabled, verified_license):
     """A wired-up ProxyLogging instance backed by a fresh DualCache.
 
     The fixture leaves it un-started; tests that need ``startup_event``
@@ -107,7 +107,7 @@ def proxy_logging(mock_callbacks_disabled):
     from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
     from litellm.proxy.utils import ProxyLogging
 
-    return ProxyLogging(user_api_key_cache=UserApiKeyCache())
+    return ProxyLogging(user_api_key_cache=UserApiKeyCache(), license_verifier=verified_license)
 
 
 @pytest.fixture

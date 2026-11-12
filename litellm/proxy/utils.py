@@ -73,6 +73,7 @@ from litellm.litellm_core_utils.bug_report import (
     should_report_bug,
     strip_bug_report_notice,
 )
+from litellm.proxy.auth.litellm_license import LicenseCheck
 
 # Row-count bound for the spend-log queue. Replaces the byte-budget accounting
 # (SPEND_LOG_QUEUE_MAX_BYTES), which legitimized unknown-row-length writes until
@@ -1708,8 +1709,10 @@ class ProxyLogging:
         self,
         user_api_key_cache: UserApiKeyCache,
         premium_user: bool = False,
+        license_verifier: LicenseCheck | None = None,
     ):
         ## INITIALIZE  LITELLM CALLBACKS ##
+        self._license_verifier = license_verifier or LicenseCheck()
         self.call_details: dict = {}
         self.call_details["user_api_key_cache"] = user_api_key_cache
         self.internal_usage_cache: InternalUsageCache = InternalUsageCache(
@@ -1880,6 +1883,7 @@ class ProxyLogging:
             available_args: Final[Mapping[str, object]] = {
                 "internal_usage_cache": self.internal_usage_cache,
                 "prisma_client": prisma_client,
+                "license_verifier": self._license_verifier,
             }
             passed_in_args: Final[Mapping[str, object]] = {
                 name: value for name, value in available_args.items() if name in expected_args
@@ -1911,6 +1915,7 @@ class ProxyLogging:
                     callback,
                     internal_usage_cache=self.internal_usage_cache.dual_cache,
                     llm_router=llm_router,
+                    license_verifier=self._license_verifier,
                 ),
             )
             for idx, callback in enumerate(litellm.callbacks)

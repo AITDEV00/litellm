@@ -13,6 +13,21 @@ import httpx
 import pytest
 from pytest_socket import enable_socket, socket_allow_hosts
 
+from litellm.llms.custom_httpx.http_handler import HTTPHandler
+from litellm.proxy.auth.litellm_license import LicenseCheck
+
+
+@pytest.fixture
+def verified_license() -> LicenseCheck:
+    checker = LicenseCheck()
+    checker.license_str = "test-license-key"
+    checker.http_handler = HTTPHandler(
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
+        )
+    )
+    return checker
+
 HOST_ENVIRONMENT_ALLOWLIST: Final = frozenset(
     (
         "PATH",

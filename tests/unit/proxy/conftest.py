@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from typing import Dict, Final, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient

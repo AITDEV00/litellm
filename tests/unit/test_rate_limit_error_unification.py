@@ -520,7 +520,7 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
         assert isinstance(e, HTTPException)
 
     @pytest.mark.asyncio
-    async def test_dynamic_rate_limiter_v1_raises_proxy_rate_limit_error(self):
+    async def test_dynamic_rate_limiter_v1_raises_proxy_rate_limit_error(self, verified_license):
         """
         Drive `_PROXY_DynamicRateLimitHandler` to raise via the available-TPM
         path (`available_tpm == 0`) and assert it raises the unified class.
@@ -534,7 +534,7 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
             PROXY_DynamicRateLimitHandler,
         )
 
-        handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=MagicMock())
+        handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=MagicMock(), license_verifier=verified_license)
         # check_available_usage returns (available_tpm, available_rpm,
         # model_tpm, model_rpm, active_projects). Setting available_tpm == 0
         # forces the TPM-exceeded raise.
@@ -715,7 +715,7 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
         assert exc_info.value.rate_limit_type == expected_type
 
     @pytest.mark.asyncio
-    async def test_dynamic_rate_limiter_v1_rpm_branch_raises(self):
+    async def test_dynamic_rate_limiter_v1_rpm_branch_raises(self, verified_license):
         """Cover the RPM raise branch in v1 dynamic_rate_limiter (the TPM
         branch is covered by the test above)."""
         from unittest.mock import AsyncMock, MagicMock
@@ -726,7 +726,7 @@ class TestProxyHooksActuallyRaiseProxyRateLimitError:
             PROXY_DynamicRateLimitHandler,
         )
 
-        handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=MagicMock())
+        handler = PROXY_DynamicRateLimitHandler(internal_usage_cache=MagicMock(), license_verifier=verified_license)
         # available_tpm > 0, available_rpm == 0 → RPM raise branch.
         handler.check_available_usage = AsyncMock(  # type: ignore[method-assign]
             return_value=(100, 0, 1000, 100, 1)

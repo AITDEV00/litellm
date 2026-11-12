@@ -24,20 +24,17 @@ These tests verify that the priority rules are respected:
 
 import os
 import sys
-from collections.abc import Callable
 import time
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 
 sys.path.insert(0, os.path.abspath("../../../.."))
 
 import litellm
 from litellm import DualCache, Router
-from litellm.llms.custom_httpx.http_handler import HTTPHandler
-from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.utils import InternalUsageCache
 from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
     _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
@@ -66,18 +63,6 @@ def adeo_priority_config():
     litellm.priority_reservation = None
     litellm.priority_reservation_settings = original_settings
     del os.environ["LITELLM_LICENSE"]
-
-
-@pytest.fixture
-def verified_license() -> Callable[[], bool]:
-    checker = LicenseCheck()
-    checker.license_str = "test-license-key"
-    checker.http_handler = HTTPHandler(
-        client=httpx.Client(
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
-        )
-    )
-    return checker.is_premium
 
 
 @pytest.fixture

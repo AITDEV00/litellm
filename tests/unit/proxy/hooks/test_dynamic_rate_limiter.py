@@ -2,10 +2,8 @@ from datetime import datetime, timezone
 from typing import Final
 
 import asyncio, importlib, litellm, os, pytest
-import httpx
 
 from litellm.caching.caching import DualCache
-from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.dynamic_rate_limiter import(
     PROXY_DynamicRateLimitHandler as DynamicRateLimitHandler,
@@ -48,35 +46,10 @@ async def test_minute_rollover_between_sadd_and_get_reads_empty_window():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("is_premium", "expected_rpm"), [(True, 32), (False, 100)])
-async def test_priority_reservation_requires_verified_premium_license(
-    monkeypatch: pytest.MonkeyPatch, is_premium: bool, expected_rpm: int
-) -> None:
-    monkeypatch.setenv("LITELLM_LICENSE", "unsigned-test-license")
-    monkeypatch.setattr(litellm, "priority_reservation", {"priority": 0.32})
-    router = Router(
-        model_list=[
-            {
-                "model_name": "licensed-priority",
-                "litellm_params": {"model": "gpt-3.5-turbo", "api_key": "test-key", "tpm": 100, "rpm": 100},
-                "model_info": {"id": "licensed-priority-deployment"},
-            }
-        ]
-    )
-    handler = PROXY_DynamicRateLimitHandler(
-        internal_usage_cache=DualCache(), license_verifier=lambda: is_premium
-    )
-    handler.update_variables(llm_router=router)
-
-    result = await handler.check_available_usage(model="licensed-priority", priority="priority")
-
-    assert result[1] == expected_rpm
-
-
-@pytest.mark.asyncio
-async def test_handler_threads_time_fn_to_internal_cache():
+async def test_handler_threads_time_fn_to_internal_cache(verified_license: LicenseCheck):
     handler = PROXY_DynamicRateLimitHandler(
         internal_usage_cache=DualCache(),
+        license_verifier=verified_license,
         time_fn=lambda: datetime(2024, 1, 1, 10, 30, 0, tzinfo=timezone.utc),
     )
     await handler.internal_usage_cache.async_set_cache_sadd(model="my-fake-model", value=["p1", "p2"])
@@ -84,7 +57,7 @@ async def test_handler_threads_time_fn_to_internal_cache():
 
 
 @pytest.mark.asyncio
-async def test_success_hook_updates_existing_hidden_params_storage() -> None:
+async def test_success_hook_updates_existing_hidden_params_storage(verified_license: LicenseCheck) -> None:
     model_id: Final = "rate-limit-deployment"
     router: Final = Router(
         model_list=[
@@ -95,7 +68,9 @@ async def test_success_hook_updates_existing_hidden_params_storage() -> None:
             }
         ]
     )
-    handler: Final = PROXY_DynamicRateLimitHandler(internal_usage_cache=DualCache())
+    handler: Final = PROXY_DynamicRateLimitHandler(
+        internal_usage_cache=DualCache(), license_verifier=verified_license
+    )
     handler.update_variables(llm_router=router)
     response: Final = ModelResponse()
     hidden_params: Final = HiddenParams(model_id=model_id)
@@ -224,25 +199,13 @@ Basic test cases:
 """
 
 @pytest.fixture
-def license_checker(monkeypatch: pytest.MonkeyPatch) -> LicenseCheck:
-    monkeypatch.setenv("LITELLM_LICENSE", "test-license-key")
-    checker = LicenseCheck()
-    checker.http_handler = HTTPHandler(
-        client=httpx.Client(
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
-        )
-    )
-    return checker
-
-
-@pytest.fixture
-def dynamic_rate_limit_handler(license_checker: LicenseCheck) -> DynamicRateLimitHandler:
+def dynamic_rate_limit_handler(verified_license: LicenseCheck) -> DynamicRateLimitHandler:
     internal_cache = DualCache_dynamic_rate()
     frozen_now = datetime(2024, 1, 1, 10, 30, 0, tzinfo=timezone.utc)
     return DynamicRateLimitHandler(
         internal_usage_cache=internal_cache,
         time_fn=lambda: frozen_now,
-        license_verifier=license_checker.is_premium,
+        license_verifier=verified_license,
     )
 
 @pytest.fixture

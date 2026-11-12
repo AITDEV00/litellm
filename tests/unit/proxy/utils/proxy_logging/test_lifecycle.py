@@ -216,46 +216,38 @@ async def test_startup_event_skips_the_daily_report_when_it_is_not_an_alert_type
 
 
 def test_add_proxy_hooks_registers_callbacks(proxy_logging, monkeypatch):
-    """Patch ``PROXY_HOOKS`` and the resolver so we control exactly
-    what gets registered. Verifies that the resulting instances land in
-    ``proxy_logging.proxy_hook_mapping`` keyed by hook name.
-    """
-    hook_keys = ["cache_control_check", "max_iterations_limiter"]
     registered: List[Any] = []
 
     from litellm.proxy import utils as utils_mod
 
-    def fake_get_proxy_hook(hook_name):
-        class _Stub:
-            __name__ = hook_name
-
-            def __init__(self, **kwargs):
-                self.hook_name = hook_name
-
-        return _Stub
-
-    monkeypatch.setattr(utils_mod, "PROXY_HOOKS", hook_keys)
-    monkeypatch.setattr(utils_mod, "get_proxy_hook", fake_get_proxy_hook)
     monkeypatch.setattr(
-        litellm.logging_callback_manager,
-        "add_litellm_callback",
-        lambda cb: registered.append(cb),
+        utils_mod,
+        "PROXY_HOOKS",
+        {key: priority if key == "dynamic_rate_limiter_v3_htb" else 0 for key, priority in utils_mod.PROXY_HOOKS.items()},
     )
+    monkeypatch.setattr(litellm.logging_callback_manager, "add_litellm_callback", registered.append)
 
     with patch("litellm.proxy.proxy_server.prisma_client", None):
         proxy_logging._add_proxy_hooks(llm_router=None)
 
-    keys = list(proxy_logging.proxy_hook_mapping.keys())
-    snapshot = {
-        "mapping_keys": keys,
-        "registered_count": len(registered),
-        "registered_hook_names": [getattr(r, "hook_name", None) for r in registered],
-    }
-    assert snapshot == {
-        "mapping_keys": hook_keys,
-        "registered_count": len(hook_keys),
-        "registered_hook_names": hook_keys,
-    }
+    htb = proxy_logging.get_proxy_hook("dynamic_rate_limiter_v3_htb")
+    assert htb in registered
+    assert htb._license_verifier is proxy_logging._license_verifier
+
+
+@pytest.mark.parametrize("integration", ["dynamic_rate_limiter", "dynamic_rate_limiter_v3"])
+def test_init_string_callbacks_shares_license_verifier(proxy_logging, monkeypatch, integration):
+    from litellm.litellm_core_utils import litellm_logging
+
+    monkeypatch.setattr(litellm, "callbacks", [integration])
+    monkeypatch.setattr(proxy_logging, "_add_proxy_hooks", lambda _: None)
+    with (
+        patch.object(litellm_logging, "_in_memory_loggers", []),
+        patch("litellm.logging_callback_manager.add_litellm_callback"),
+    ):
+        proxy_logging._init_litellm_callbacks(llm_router=None)
+
+    assert litellm.callbacks[0]._license_verifier is proxy_logging._license_verifier
 
 
 def _stub_hook_classes():

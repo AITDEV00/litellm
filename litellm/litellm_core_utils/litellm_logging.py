@@ -124,6 +124,7 @@ from litellm.litellm_core_utils.served_output_texts import (
 from litellm.litellm_core_utils.thread_pool_executor import executor
 from litellm.llms.base_llm.ocr.transformation import OCRResponse
 from litellm.llms.base_llm.search.transformation import SearchResponse
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.responses.utils import ResponseAPILoggingUtils
 from litellm.types.agents import LiteLLMSendMessageResponse
 from litellm.types.containers.main import ContainerObject
@@ -4862,6 +4863,7 @@ def build_custom_logger_compatible_class(
     internal_usage_cache: DualCache | None,
     llm_router: object,
     custom_logger_init_args: dict[str, object] | None = None,
+    license_verifier: LicenseCheck | None = None,
 ) -> CustomLogger | None:
     custom_logger_init_args_value: Final[dict[str, object]] = custom_logger_init_args or {}
     if logging_integration == "agentops":  # Add AgentOps initialization
@@ -5279,7 +5281,12 @@ def build_custom_logger_compatible_class(
         if internal_usage_cache is None:
             raise Exception(f"Internal Error: Cache cannot be empty - internal_usage_cache={internal_usage_cache}")
 
-        dynamic_rate_limiter_obj: Final = PROXY_DynamicRateLimitHandler(internal_usage_cache=internal_usage_cache)
+        from litellm.proxy.auth.litellm_license import LicenseCheck
+
+        verifier: Final = license_verifier or LicenseCheck()
+        dynamic_rate_limiter_obj: Final = PROXY_DynamicRateLimitHandler(
+            internal_usage_cache=internal_usage_cache, license_verifier=verifier
+        )
 
         if llm_router is not None and isinstance(llm_router, litellm.Router):
             dynamic_rate_limiter_obj.update_variables(llm_router=llm_router)
@@ -5297,7 +5304,12 @@ def build_custom_logger_compatible_class(
         if internal_usage_cache is None:
             raise Exception(f"Internal Error: Cache cannot be empty - internal_usage_cache={internal_usage_cache}")
 
-        dynamic_rate_limiter_obj_v3: Final = PROXY_DynamicRateLimitHandlerV3(internal_usage_cache=internal_usage_cache)
+        from litellm.proxy.auth.litellm_license import LicenseCheck
+
+        verifier: Final = license_verifier or LicenseCheck()
+        dynamic_rate_limiter_obj_v3: Final = PROXY_DynamicRateLimitHandlerV3(
+            internal_usage_cache=internal_usage_cache, license_verifier=verifier
+        )
 
         if llm_router is not None and isinstance(llm_router, litellm.Router):
             dynamic_rate_limiter_obj_v3.update_variables(llm_router=llm_router)
@@ -5561,6 +5573,7 @@ def _init_custom_logger_compatible_class(
     llm_router: object,
     custom_logger_init_args: dict[str, object] | None = {},
     raise_import_errors: bool = False,
+    license_verifier: LicenseCheck | None = None,
 ) -> CustomLogger | None:
     """
     Initialize a custom logger compatible class
@@ -5571,6 +5584,7 @@ def _init_custom_logger_compatible_class(
             internal_usage_cache=internal_usage_cache,
             llm_router=llm_router,
             custom_logger_init_args=custom_logger_init_args,
+            license_verifier=license_verifier,
         )
     except Exception as e:
         if raise_import_errors and isinstance(e, ImportError):
@@ -5585,9 +5599,14 @@ def init_custom_logger_compatible_class_at_startup(
     callback: str,
     internal_usage_cache: DualCache | None,
     llm_router: object,
+    license_verifier: LicenseCheck | None = None,
 ) -> CustomLogger | None:
     return _init_custom_logger_compatible_class(
-        callback, internal_usage_cache=internal_usage_cache, llm_router=llm_router, raise_import_errors=True
+        callback,
+        internal_usage_cache=internal_usage_cache,
+        llm_router=llm_router,
+        raise_import_errors=True,
+        license_verifier=license_verifier,
     )
 
 

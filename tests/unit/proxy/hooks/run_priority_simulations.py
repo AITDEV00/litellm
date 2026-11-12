@@ -18,9 +18,13 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../../../.."))
 
+import httpx
+
 import litellm
 from litellm import DualCache, Router
+from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
     _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
     htb_priority,
@@ -42,8 +46,14 @@ def setup_handler():
         saturation_threshold=SATURATION_THRESHOLD,
         default_priority=0.25,
     )
+    checker = LicenseCheck()
+    checker.http_handler = HTTPHandler(
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
+        )
+    )
     dual_cache = DualCache()
-    h = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    h = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=checker)
     llm_router = Router(
         model_list=[
             {

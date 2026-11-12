@@ -7,6 +7,7 @@ from typing import Final
 import litellm
 from litellm._logging import verbose_proxy_logger
 from litellm.constants import PROXY_LLM_PROVIDER_FALLBACK
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.types.router import ModelGroupInfo
 from litellm.types.utils import PriorityReservationDict
 
@@ -117,6 +118,26 @@ def _resolve_provider_from_router_alias(
         return None
     except Exception:
         return None
+
+
+def resolve_priority_weights(
+    model_info: ModelGroupInfo | None,
+    default_priority: float,
+    license_verifier: LicenseCheck,
+) -> tuple[dict[str, float], float]:
+    reservations: Final = litellm.priority_reservation
+    if not reservations or not license_verifier.is_premium():
+        if reservations:
+            verbose_proxy_logger.error("PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature.")
+        return {}, default_priority
+    weights: Final = {name: convert_priority_to_percent(value, model_info) for name, value in reservations.items()}
+    total_weight: Final = sum(weights.values())
+    normalized: Final = (
+        {name: weight / total_weight for name, weight in weights.items()}
+        if total_weight > 1.0
+        else weights
+    )
+    return normalized, default_priority
 
 
 def convert_priority_to_percent(value: float | PriorityReservationDict, model_info: ModelGroupInfo | None) -> float:
