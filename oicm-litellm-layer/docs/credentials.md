@@ -10,6 +10,34 @@
 > IT WITHOUT A RE-ENCRYPTION MIGRATION BREAKS BOTH DEV AND PROD PERMANENTLY.
 > DO NOT TOUCH IT.** ⚠️
 
+## Premium trial entitlement
+
+This fork enables the development/testing premium entitlement in
+`LicenseCheck.is_premium()` by default. The sentinel license string
+`dev-trial-override` is deliberate: `/health/license` separately reads this
+attribute and must report `has_license: true` along with `license_type:
+enterprise`.
+
+The startup verifier uses the same entitlement for premium UI sessions,
+Organizations, and every dynamic-rate-limit priority path. All rate limiter
+construction paths must continue to receive that same verifier by dependency
+injection; do not create a separate independent override there.
+
+Set `LITELLM_DISABLE_PREMIUM_OVERRIDE=1` to restore genuine LiteLLM license
+verification. In that mode a valid license must come from the existing
+`LITELLM_LICENSE` environment value; this restoration does not add a paid key
+or a new Secret.
+
+UI session claims are issued at login and are not recomputed on each render.
+Sign out and in after changing or deploying this entitlement. A stale
+`premium_user: false` session claim alone cannot disprove that the proxy has
+the restored behavior.
+
+The original block dates to the v1.95 merge, was present in `jya0-v1.106.6`,
+and was accidentally lost in the v1.108.5 branch. Keep it and its regression
+tests when resolving future upstream changes to
+`litellm/proxy/auth/litellm_license.py`.
+
 ## The master key — a shared secret
 
 The proxy's admin key (the master key) is stored in **one Kubernetes Secret**
