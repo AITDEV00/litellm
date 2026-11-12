@@ -30,7 +30,9 @@ from litellm.types.router import Deployment
 _FORM_CONTENT_TYPES: Final[frozenset[str]] = frozenset({"application/x-www-form-urlencoded", "multipart/form-data"})
 # Binary bodies (e.g. OTLP trace exports on POST /v1/traces) are not JSON: arbitrary bytes used to
 # hit the JSON surrogate-repair path and fail auth with a 400. JSON under these types still parses.
-_BINARY_CONTENT_TYPES: Final[frozenset[str]] = frozenset({"application/x-protobuf", "application/protobuf"})
+_BINARY_CONTENT_TYPES: Final[frozenset[str]] = frozenset(
+    {"application/x-protobuf", "application/protobuf", "application/octet-stream"}
+)
 
 _ANNOTATION_QUALIFIERS: Final[frozenset[object]] = frozenset({Annotated, NotRequired, ReadOnly, Required})
 _DECODED_JSON: Final = TypeAdapter(object)

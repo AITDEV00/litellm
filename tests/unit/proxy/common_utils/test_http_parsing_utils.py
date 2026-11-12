@@ -143,6 +143,15 @@ async def test_protobuf_body_is_not_parsed_as_json(content_type):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b"#!/usr/bin/env bash\necho '{{ client }}'\n", b"\x00\xff\x10"])
+async def test_opaque_artifact_upload_is_buffered_not_rejected_as_json(body: bytes):
+    request: Final = _starlette_request(body, "application/octet-stream", "/install/admin/v1/artifact/templates/install.sh.tmpl")
+
+    assert await read_request_body(request) == {}
+    assert b"".join([chunk async for chunk in request.stream()]) == body
+
+
+@pytest.mark.asyncio
 async def test_gzipped_json_trace_body_survives_auth_pre_read():
     body = gzip.compress(b'{"resourceSpans": []}')
     request = _starlette_request(body, "application/json", "/v1/traces", "gzip")
