@@ -8,15 +8,19 @@ import asyncio
 import os
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 sys.path.insert(0, os.path.abspath("../../../.."))
 
 import litellm
 from litellm import DualCache, Router
+from litellm.llms.custom_httpx.http_handler import HTTPHandler
+from litellm.proxy.auth.litellm_license import LicenseCheck
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.hooks.dynamic_rate_limiter_v3_htb import (
     _PROXY_DynamicRateLimitHandlerV3Htb as DynamicRateLimitHandler,
@@ -42,8 +46,83 @@ def time_controller(monkeypatch):
     return controller
 
 
+@pytest.fixture
+def verified_license() -> Callable[[], bool]:
+    checker = LicenseCheck()
+    checker.license_str = "test-license-key"
+    checker.http_handler = HTTPHandler(
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
+        )
+    )
+    return checker.is_premium
+
+
 @pytest.mark.asyncio
-async def test_priority_weight_allocation():
+async def test_verified_premium_priority_counters_roll_over_at_midnight(monkeypatch):
+    license_server = httpx.MockTransport(lambda request: httpx.Response(200, json={"verify": True}))
+    monkeypatch.setattr(litellm, "priority_reservation", {"high": 0.5})
+    with httpx.Client(transport=license_server) as client:
+        checker = LicenseCheck()
+        checker.http_handler = HTTPHandler(client=client)
+        checker.license_str = "locally-verified-license"
+        assert checker.is_premium()
+        clock = TimeController()
+        handler = DynamicRateLimitHandler(
+            internal_usage_cache=DualCache(),
+            time_provider=clock.now,
+            license_verifier=checker.is_premium,
+        )
+        model = "premium-rollover"
+        handler.update_variables(
+            llm_router=Router(
+                model_list=[
+                    {
+                        "model_name": model,
+                        "litellm_params": {
+                            "model": "openai/premium-rollover",
+                            "api_key": "test-key",
+                            "api_base": "http://localhost/test",
+                            "rpm": 2,
+                        },
+                    }
+                ]
+            )
+        )
+        model_group_info = handler.llm_router.get_model_group_info(model_group=model)
+        first = await handler._run_htb_check(model, model_group_info, "high", None)
+        assert first["overall_code"] == "OK"
+        priority = next(status for status in first["statuses"] if status["descriptor_key"] == "priority_model")
+        assert priority["current_limit"] == 1
+        assert priority["limit_remaining"] == 0
+        cache = handler.internal_usage_cache.dual_cache.in_memory_cache
+        before = {key: cache.get_cache(key) for key in cache.cache_dict}
+        assert {key: value for key, value in before.items() if key.endswith(":requests")} == {
+            "{htb:premium-rollover}:requests": 1,
+            "{htb:premium-rollover}:premium-rollover:high:demand:requests": 1,
+            "{htb:premium-rollover}:premium-rollover:high:requests": 1,
+        }
+        current = clock.now() + timedelta(seconds=61)
+        clock.advance(61)
+        second = await handler._run_htb_check(model, model_group_info, "high", None)
+        after = {key: cache.get_cache(key) for key in cache.cache_dict}
+        assert {
+            key: value
+            for key, value in after.items()
+            if key.endswith(":requests") and not key.endswith(":demand:requests")
+        } == {
+            "{htb:premium-rollover}:requests": 1,
+            "{htb:premium-rollover}:premium-rollover:high:requests": 1,
+        }
+        assert all(
+            after[key] == int(current.timestamp())
+            for key in before
+            if key.endswith(":window") and ":demand:" not in key
+        )
+
+
+@pytest.mark.asyncio
+async def test_priority_weight_allocation(verified_license):
     """
     Test that priority weights are correctly applied instead of equal splitting.
 
@@ -60,7 +139,7 @@ async def test_priority_weight_allocation():
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-model"
     total_tpm = 1000
@@ -125,7 +204,7 @@ async def test_priority_weight_allocation():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_priority_requests():
+async def test_concurrent_priority_requests(verified_license):
     """
     Test the core issue: 5 concurrent requests with different priorities should get
     proper allocation based on priority weights, not equal splitting.
@@ -139,7 +218,7 @@ async def test_concurrent_priority_requests():
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-model"
     total_tpm = 1000
@@ -207,7 +286,7 @@ async def test_concurrent_priority_requests():
 
 
 @pytest.mark.asyncio
-async def test_100_concurrent_priority_requests(time_controller):
+async def test_100_concurrent_priority_requests(time_controller, verified_license):
     """
     Stress test: 100 concurrent requests with mixed priorities over 10 seconds.
 
@@ -223,7 +302,11 @@ async def test_100_concurrent_priority_requests(time_controller):
     litellm.priority_reservation = {"high": 0.9, "low": 0.1}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, time_provider=time_controller.now)
+    handler = DynamicRateLimitHandler(
+        internal_usage_cache=dual_cache,
+        time_provider=time_controller.now,
+        license_verifier=verified_license,
+    )
 
     model = "stress-test-model"
     total_tpm = 1000
@@ -352,7 +435,7 @@ async def test_100_concurrent_priority_requests(time_controller):
 
 
 @pytest.mark.asyncio
-async def test_default_priority_shared_pool():
+async def test_default_priority_shared_pool(verified_license):
     """
     Test that keys without explicit priority share ONE default pool, not get individual allocations.
 
@@ -366,7 +449,7 @@ async def test_default_priority_shared_pool():
     litellm.priority_reservation_settings.default_priority = 0.25
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-default-pool"
     total_rpm = 100
@@ -430,7 +513,7 @@ async def test_default_priority_shared_pool():
 
 
 @pytest.mark.asyncio
-async def test_async_log_success_event_increments_by_actual_tokens():
+async def test_async_log_success_event_increments_by_actual_tokens(verified_license):
     """
     Test that async_log_success_event increments token counters by actual token usage.
 
@@ -446,7 +529,7 @@ async def test_async_log_success_event_increments_by_actual_tokens():
     litellm.priority_reservation = {"dev": 0.1, "prod": 0.9}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-token-increment"
     llm_router = Router(
@@ -527,7 +610,7 @@ async def test_async_log_success_event_increments_by_actual_tokens():
 
 
 @pytest.mark.asyncio
-async def test_async_log_success_event_uses_team_priority_from_auth_metadata():
+async def test_async_log_success_event_uses_team_priority_from_auth_metadata(verified_license):
     """
     Test that async_log_success_event correctly retrieves priority from user_api_key_auth_metadata.
 
@@ -542,7 +625,7 @@ async def test_async_log_success_event_uses_team_priority_from_auth_metadata():
     litellm.priority_reservation = {"team_priority": 0.8, "default": 0.2}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "test-team-priority"
     llm_router = Router(
@@ -617,7 +700,7 @@ async def test_async_log_success_event_uses_team_priority_from_auth_metadata():
 
 
 @pytest.mark.asyncio
-async def test_priority_429_includes_model_name_and_configured_limits():
+async def test_priority_429_includes_model_name_and_configured_limits(verified_license):
     """
     The HTB 429 should tell operators which model was hit and what
     the model's configured RPM is, so they can decide whether to tune the
@@ -633,7 +716,7 @@ async def test_priority_429_includes_model_name_and_configured_limits():
     litellm.priority_reservation = {"prod": 0.5}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
 
     model = "gpt-4o-test"
     total_rpm = 10_000
@@ -691,7 +774,9 @@ async def test_priority_429_includes_model_name_and_configured_limits():
 
 
 @pytest.mark.asyncio
-async def test_success_event_tokens_land_in_the_pre_call_bucket_when_team_priority_overrides_key_priority():
+async def test_success_event_tokens_land_in_the_pre_call_bucket_when_team_priority_overrides_key_priority(
+    verified_license,
+):
     """Token accounting must use the same priority the RPM check did.
 
     The pre-call hook resolves priority with team-first precedence and stores
@@ -709,7 +794,7 @@ async def test_success_event_tokens_land_in_the_pre_call_bucket_when_team_priori
     litellm.priority_reservation = {"high": 0.8, "low": 0.2}
 
     dual_cache = DualCache()
-    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache)
+    handler = DynamicRateLimitHandler(internal_usage_cache=dual_cache, license_verifier=verified_license)
     handler.update_variables(llm_router=MagicMock())
 
     incremented_keys = []

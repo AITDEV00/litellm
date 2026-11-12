@@ -2,7 +2,6 @@
 ## Allocates dynamic tpm/rpm quota for a project based on current traffic
 ## Tracks num active projects per minute
 import asyncio
-import os
 from collections.abc import Callable
 from datetime import datetime
 from typing import Final
@@ -79,8 +78,19 @@ class DynamicRateLimiterCache:
 
 class _PROXY_DynamicRateLimitHandler(CustomLogger):
     # Class variables or attributes
-    def __init__(self, internal_usage_cache: DualCache, time_fn: Callable[[], datetime] = get_utc_datetime):
+    def __init__(
+        self,
+        internal_usage_cache: DualCache,
+        time_fn: Callable[[], datetime] = get_utc_datetime,
+        license_verifier: Callable[[], bool] | None = None,
+    ):
         self.internal_usage_cache = DynamicRateLimiterCache(cache=internal_usage_cache, time_fn=time_fn)
+        self._license_verifier = license_verifier or self._is_premium
+
+    def _is_premium(self) -> bool:
+        from litellm.proxy.auth.litellm_license import LicenseCheck
+
+        return LicenseCheck().is_premium()
 
     def update_variables(self, llm_router: Router) -> None:
         self.llm_router = llm_router
@@ -116,9 +126,9 @@ class _PROXY_DynamicRateLimitHandler(CustomLogger):
                     litellm.priority_reservation,
                 )
             elif priority is not None and litellm.priority_reservation is not None:
-                if os.getenv("LITELLM_LICENSE", None) is None:
+                if not self._license_verifier():
                     verbose_proxy_logger.error(
-                        "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature. Please add a 'LITELLM_LICENSE' to your .env to enable this.\nGet a license: https://docs.litellm.ai/docs/proxy/enterprise."
+                        "PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature."
                     )
                 else:
                     value: Final = litellm.priority_reservation[priority]

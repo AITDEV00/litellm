@@ -589,13 +589,20 @@ class _PROXY_DynamicRateLimitHandlerV3Htb(CustomLogger):
         self,
         internal_usage_cache: Union["InternalUsageCache", DualCache],
         time_provider: Callable[[], datetime] | None = None,
+        license_verifier: Callable[[], bool] | None = None,
     ):
         if isinstance(internal_usage_cache, DualCache):
             from litellm.proxy.utils import InternalUsageCache
 
             internal_usage_cache = InternalUsageCache(dual_cache=internal_usage_cache)
         self.internal_usage_cache = internal_usage_cache
+        self._license_verifier = license_verifier or self._is_premium
         self.v3_limiter = _PROXY_HtbMaxParallelRequestsHandlerV3(self.internal_usage_cache, time_provider=time_provider)
+
+    def _is_premium(self) -> bool:
+        from litellm.proxy.auth.litellm_license import LicenseCheck
+
+        return LicenseCheck().is_premium()
 
     def update_variables(self, llm_router: Router):
         self.llm_router = llm_router
@@ -606,9 +613,7 @@ class _PROXY_DynamicRateLimitHandlerV3Htb(CustomLogger):
         if litellm.priority_reservation is None or priority not in litellm.priority_reservation:
             verbose_proxy_logger.debug("Priority Reservation not set for the given priority.")
         elif priority is not None and litellm.priority_reservation is not None:
-            from litellm.proxy.auth.litellm_license import LicenseCheck
-
-            if not LicenseCheck().is_premium():
+            if not self._license_verifier():
                 verbose_proxy_logger.error("PREMIUM FEATURE: Reserving tpm/rpm by priority is a premium feature.")
             else:
                 value = litellm.priority_reservation[priority]
