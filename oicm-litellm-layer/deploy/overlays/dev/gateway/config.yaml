@@ -102,6 +102,8 @@ data:
       cooldown_time: 30
       # Fallbacks intentionally omitted for now; to be configured separately.
     general_settings:
+      user_url_allowed_hosts:
+        - 127.0.0.1:4000
       use_redis_transaction_buffer: true
       # Native PG partitioning: upstream creates daily partitions and drops
       # them at retention. 999d means upstream never drops; the janitor

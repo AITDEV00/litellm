@@ -20,3 +20,5 @@ resources:
   - gateway
   # Dev's own object store and its NetworkPolicy; prod has its own.
   - rustfs
+  # The dev-only source broker. Production never includes this overlay.
+  - mcp-source-broker

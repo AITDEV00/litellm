@@ -43,6 +43,7 @@ HOST_ENVIRONMENT_ALLOWLIST: Final = frozenset(
         "TZ",
         "VIRTUAL_ENV",
         "LITELLM_LOCAL_MODEL_COST_MAP",
+        "LITELLM_TEST_POSTGRES",
         "TIKTOKEN_CACHE_DIR",
     )
 )

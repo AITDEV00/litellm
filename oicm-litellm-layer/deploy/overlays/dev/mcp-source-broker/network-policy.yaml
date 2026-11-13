@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-mcp-broker-dev
+  namespace: adeo-litellm
+spec:
+  podSelector:
+    matchLabels:
+      app: litellm-mcp-broker-dev
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: litellm-proxy-dev
+      ports:
+        - port: 8089
+        - port: 9090
+    - ports:
+        - port: 8088
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels: {}
+      ports:
+        - port: 5432
+        - port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-rustfs-dev-source-broker
+  namespace: adeo-litellm
+spec:
+  podSelector:
+    matchLabels:
+      app: rustfs-dev
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: litellm-proxy-dev
+        - podSelector:
+            matchLabels:
+              app: litellm-mcp-broker-dev
+      ports:
+        - port: 9000

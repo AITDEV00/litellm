@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm-mcp-worker-dev
+  namespace: adeo-litellm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: litellm.ecouncil.ae
+      http:
+        paths:
+          - path: /mcp-worker
+            pathType: Exact
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: worker
+  tls:
+    - hosts:
+        - litellm.ecouncil.ae
+      secretName: litellm-ecouncil-ae-tls

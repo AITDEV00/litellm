@@ -65,9 +65,19 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
 # `DATABASE_URL`; dev sets the discrete `DATABASE_*` vars LiteLLM assembles a URL
 # from instead, so it can read CNPG's per-field keys rather than the Secret's
 # `uri` key (whose embedded password is stale).
-_DEV_ONLY_ENV_VARS: Final = frozenset(
+_BROKER_ONLY_ENV_VARS: Final = frozenset(
     {
-        "DATABASE_HOST",
+        "MCP_SOURCE_BROKER_ENABLED",
+        "MCP_SOURCE_BROKER_PUBLIC_URL",
+        "MCP_SOURCE_BROKER_RELAY_URL",
+        "MCP_SOURCE_BROKER_CHISEL_SHA256",
+        "MCP_SOURCE_BROKER_PEPPER",
+        "MCP_SOURCE_BROKER_SERVICE_TOKEN",
+        "MCP_SOURCE_BROKER_FINGERPRINT",
+    }
+)
+
+_DEV_ONLY_ENV_VARS: Final = frozenset(_BROKER_ONLY_ENV_VARS | {"DATABASE_HOST",
         "DATABASE_USERNAME",
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
@@ -125,7 +135,7 @@ _DEV_DB_ENV_VARS: Final = (
 # Empty since 4f513b1dca mirrored prod's retention settings on dev: the dev
 # overlay's general_settings is byte-identical to the base config prod runs.
 # When a dev-only knob is re-introduced, declare it here with its reason.
-_EXPECTED_CONFIG_DIFFS: Final = frozenset()
+_EXPECTED_CONFIG_DIFFS: Final = frozenset({"user_url_allowed_hosts"})
 
 # Top-level config paths expected to differ. The KEDA gauge callback ships in
 # the shared hooks ConfigMap for both environments, but only dev activates it:
@@ -192,10 +202,20 @@ def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dic
         for key in prod
         if key not in _PROD_ONLY_OBJECTS
     }
-    assert set(dev) == expected, (
-        "dev must declare one object per prod object (shared ones unsuffixed).\n"
+    broker = {
+        "Deployment/litellm-mcp-broker-dev",
+        "Service/litellm-mcp-broker-dev",
+        "NetworkPolicy/litellm-mcp-broker-dev",
+        "NetworkPolicy/litellm-rustfs-dev-source-broker",
+        "Ingress/litellm-mcp-worker-dev",
+        "Ingress/litellm-mcp-enrollment-dev",
+        "Ingress/litellm-mcp-public-mirror-dev",
+    }
+    assert set(dev) == expected | broker, (
+        "dev must match prod plus its explicitly dev-only broker overlay.\n"
         f"missing from dev: {sorted(expected - set(dev))}\n"
-        f"unexpected in dev: {sorted(set(dev) - expected)}"
+        f"unexpected in dev: {sorted(set(dev) - expected)}\n"
+        "prod must not declare or enable the broker"
     )
 
 
@@ -435,7 +455,18 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
     deliberately unsuffixed and unlabeled, so they are not part of this contract.
     """
     store_names = {f"{k}/{n}{_DEV_SUFFIX}" for k, n in (s.split("/", 1) for s in _STORE_OBJECT_SETS)}
-    gateway = {key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX) and key not in store_names}
+    broker_names = {
+        "Deployment/litellm-mcp-broker-dev",
+        "Service/litellm-mcp-broker-dev",
+        "NetworkPolicy/litellm-mcp-broker-dev",
+        "NetworkPolicy/litellm-rustfs-dev-source-broker",
+        "Ingress/litellm-mcp-worker-dev",
+        "Ingress/litellm-mcp-enrollment-dev",
+        "Ingress/litellm-mcp-public-mirror-dev",
+    }
+    gateway = {
+        key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX) and key not in store_names | broker_names
+    }
     assert gateway, "expected the suffixed gateway objects in the dev render"
     for key, doc in gateway.items():
         own = (doc.get("metadata") or {}).get("labels") or {}

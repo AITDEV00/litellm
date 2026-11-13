@@ -1531,6 +1531,10 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[ProxyLifespanState
     )
 
     if prisma_client is not None:
+        from litellm.proxy._experimental.mcp_server.mcp_server_manager import global_mcp_server_manager
+        from litellm.proxy.mcp_source_broker.gateway import mount_mcp_sources_when_enabled
+
+        mount_mcp_sources_when_enabled(app, prisma_client, global_mcp_server_manager)
 
         async def _run_pw_migration():
             try:

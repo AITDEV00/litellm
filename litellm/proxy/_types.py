@@ -516,6 +516,8 @@ class LiteLLMRoutes(enum.Enum):
         "/v1/mcp/server",
         "/v1/mcp/server/{path:path}",
         "/v1/mcp/sessions",
+        "/mcp-sources",
+        "/mcp-source-broker/install/{grant_id}",
     ]
 
     # Backwards-compat union — virtual keys may be configured with

@@ -125,6 +125,29 @@ spec:
             # Dev is reached via port-forward; prod uses its ingress host.
             - name: LITELLM_PUBLIC_BASE_URL
               value: "http://localhost:14001"
+            - name: MCP_SOURCE_BROKER_ENABLED
+              value: "true"
+            - name: MCP_SOURCE_BROKER_RELAY_URL
+              value: "https://litellm.ecouncil.ae/mcp-worker"
+            - name: MCP_SOURCE_BROKER_PUBLIC_URL
+              value: "https://litellm.ecouncil.ae/mcp-source-broker/public"
+            - name: MCP_SOURCE_BROKER_CHISEL_SHA256
+              value: "f3f180f1d93aa72cce4e6386f98cc06569a0146fbd65eb4423cf83e6434bcfe6"
+            - name: MCP_SOURCE_BROKER_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: pepper
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: service-token
+            - name: MCP_SOURCE_BROKER_FINGERPRINT
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: fingerprint
             - name: HAMSA_API_KEY
               valueFrom:
                 secretKeyRef:

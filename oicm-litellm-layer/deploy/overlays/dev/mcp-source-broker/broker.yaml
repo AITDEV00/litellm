@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-mcp-broker-dev
+  namespace: adeo-litellm
+  labels:
+    app: litellm-mcp-broker-dev
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-mcp-broker-dev
+  template:
+    metadata:
+      labels:
+        app: litellm-mcp-broker-dev
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: broker
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5
+          imagePullPolicy: Always
+          command: ["python", "-m", "litellm.proxy.mcp_source_broker.main"]
+          env:
+            - name: MCP_SOURCE_BROKER_ENABLED
+              value: "true"
+            - name: LITELLM_LOCAL_MODEL_COST_MAP
+              value: "true"
+            - name: MCP_SOURCE_BROKER_RELAY_URL
+              value: https://litellm.ecouncil.ae/mcp-worker
+            - name: MCP_SOURCE_BROKER_PUBLIC_URL
+              value: https://litellm.ecouncil.ae/mcp-source-broker/public
+            - name: MCP_SOURCE_BROKER_CHISEL_SHA256
+              value: f3f180f1d93aa72cce4e6386f98cc06569a0146fbd65eb4423cf83e6434bcfe6
+            - name: PRISMA_BINARY_CACHE_DIR
+              value: /opt/prisma/binaries
+            - name: PRISMA_CLI_QUERY_ENGINE_TYPE
+              value: binary
+            - name: MCP_SOURCE_BROKER_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: pepper
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: service-token
+            - name: MCP_SOURCE_BROKER_FINGERPRINT
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: fingerprint
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: host
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-dev-app
+                  key: dbname
+          ports:
+            - name: control
+              containerPort: 8089
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: control
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: control
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+        - name: relay
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5
+          imagePullPolicy: Always
+          command: ["/usr/local/bin/mcp-relay-entrypoint"]
+          env:
+            - name: MCP_SOURCE_BROKER_URL
+              value: http://127.0.0.1:8089
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: service-token
+            - name: MCP_SOURCE_BROKER_HOST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: relay-host-key
+            - name: PRISMA_BINARY_CACHE_DIR
+              value: /opt/prisma/binaries
+          ports:
+            - name: worker
+              containerPort: 8088
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-mcp-broker-dev
+  namespace: adeo-litellm
+  labels:
+    app: litellm-mcp-broker-dev
+spec:
+  selector:
+    app: litellm-mcp-broker-dev
+  ports:
+    - name: worker
+      port: 8088
+      targetPort: 8088
+    - name: control
+      port: 8089
+      targetPort: 8089
+    - name: dispatch
+      port: 9090
+      targetPort: 9090
