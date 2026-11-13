@@ -113,6 +113,8 @@ nav:
       - MCP Source Broker Proposal: mcp-source-broker/README.md
       - Dev MCP Source Broker: mcp-source-broker/dev-implementation.md
       - MCP Source Lifecycle Research Questions: mcp-source-broker/research-questions.md
+      - Nginx Reverse-Tunnel Pilot: mcp-source-broker/LiteLLM-Reverse-Tunnel-Nginx-Pilot.md
+      - Unified MCP Implementation Guide: mcp-source-broker/LiteLLM-v1.108.5-Unified-MCP-Implementation-Guide.md
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md

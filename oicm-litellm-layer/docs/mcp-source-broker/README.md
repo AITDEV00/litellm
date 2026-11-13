@@ -4,7 +4,7 @@ Status: proposed, no implementation or release gate has run
 Baseline: upstream LiteLLM **v1.108.5 LTS**, release commit `2a61f21`
 Pattern: **modular vertical slice**, as required by [the OICM slice pattern](../oicm-slices.md)
 Method: [Trace-Through-Before-You-Build](../techniques/logic_mapping_technique.md)
-Source flow: the Nginx reverse-tunnel pilot `docs/LiteLLM-Reverse-Tunnel-Nginx-Pilot.md`, an uncommitted local research input not intended for this docs-only patch
+Source flow: the Nginx reverse-tunnel pilot `LiteLLM-Reverse-Tunnel-Nginx-Pilot.md`, committed alongside this proposal in the same directory
 
 ## 1. Goal and design decisions
 

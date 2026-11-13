@@ -18,7 +18,7 @@
         <link rel="prev" href="../oicm-slices/">
       
       
-        <link rel="next" href="../Makefile-reference/">
+        <link rel="next" href="../rollback/">
       
       
         
@@ -1446,6 +1446,20 @@
       
         
       
+        
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1465,8 +1479,9 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
-            
+          <div class="md-nav__link md-nav__container">
+            <a href="../mcp-source-broker/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
@@ -1480,8 +1495,14 @@
   
   
 
-            <span class="md-nav__icon md-icon"></span>
-          </label>
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
@@ -1572,6 +1593,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#configuration-rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#apply" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1619,6 +1651,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rollback/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Production Configuration Rollback
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1723,6 +1783,120 @@
     
   
     Session Identity Resolver — Implementation Plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-source-broker/dev-implementation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dev MCP Source Broker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-source-broker/research-questions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Source Lifecycle Research Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-source-broker/LiteLLM-Reverse-Tunnel-Nginx-Pilot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Nginx Reverse-Tunnel Pilot
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-source-broker/LiteLLM-v1.108.5-Unified-MCP-Implementation-Guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified MCP Implementation Guide
   
 
     
@@ -5863,6 +6037,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#configuration-rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#apply" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6051,34 +6236,36 @@ they diverge in any way those patches do not declare.</p>
 <td><code>adeo-litellm</code></td>
 </tr>
 <tr>
-<td><code>deploy/rollback/litellm-proxy-rollback-jya0-v1.97.0.yaml</code></td>
-<td>Rollback manifest pinned to image <code>jya0-v1.97.0</code> (newest)</td>
-<td><code>adeo-litellm</code></td>
-</tr>
-<tr>
-<td><code>deploy/rollback/litellm-proxy-rollback-jya0-v1.96.2.yaml</code></td>
-<td>Rollback manifest pinned to image <code>jya0-v1.96.2</code></td>
-<td><code>adeo-litellm</code></td>
-</tr>
-<tr>
-<td><code>deploy/rollback/litellm-proxy-rollback-key.yaml</code></td>
-<td>Secret for rollback apply</td>
-<td><code>adeo-litellm</code></td>
-</tr>
-<tr>
-<td><code>deploy/rollback/discovery-controller-rollback-key.yaml</code></td>
-<td>Secret for controller rollback apply</td>
-<td><code>adeo-litellm</code></td>
+<td><code>deploy/rollback/</code></td>
+<td>2026-11-12 live-production configuration snapshot: v1.106.6 gateway and controller pinned by digest</td>
+<td><code>adeo-litellm</code>, plus watched/network-policy namespaces</td>
 </tr>
 </tbody>
 </table>
+<h2 id="configuration-rollback">Configuration rollback<a class="headerlink" href="#configuration-rollback" title="Permanent link">&para;</a></h2>
+<p><code>deploy/rollback/</code> contains a flat 31-resource snapshot of the <strong>live production
+configuration before the v1.108.5 gateway rollout</strong>. This includes the image
+digests, ConfigMaps, RBAC and supporting resources. Credential Secrets are
+stubs that preserve existing contents when applied to the same cluster. This
+is a configuration restore, not a data or fresh-cluster restoration.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">KUBECONFIG</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/.kube/alain-oicm.conf"</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>kubectl<span class="w"> </span>config<span class="w"> </span>current-context
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>kubectl<span class="w"> </span>diff<span class="w"> </span>-f<span class="w"> </span>deploy/rollback/
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>deploy/rollback/
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/litellm-proxy<span class="w"> </span>--timeout<span class="o">=</span>300s
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/oicm-discovery-controller<span class="w"> </span>--timeout<span class="o">=</span>300s
+</span></code></pre></div>
+<p>Review the complete diff first. Do not add <code>--prune</code>. Later-created resources
+need explicit review and deletion. Database records, persistent volumes,
+object-store contents and completed Jobs are not restored. The full
+<a href="../rollback/">rollback runbook</a> has the inventory, limitations, and commands.</p>
 <h2 id="apply">Apply<a class="headerlink" href="#apply" title="Permanent link">&para;</a></h2>
 <p>The Makefile composes deployments from per-object-group primitives, so you never
 have to apply a whole environment when only one piece changed. Each of these
 takes the usual variables (<code>TAG</code>, <code>BUILD</code>, <code>NAMESPACE</code>, <code>ROLLOUT_TIMEOUT</code>), see
 <a href="../Makefile-reference/">Makefile reference</a>.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>make<span class="w"> </span>controller-deploy-prod<span class="w">     </span><span class="c1"># build, push, pin, apply, roll out the controller</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>make<span class="w"> </span>litellm-src-release<span class="w">        </span><span class="c1"># build, push, pin, and roll out the gateway</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>make<span class="w"> </span>controller-deploy-prod<span class="w">     </span><span class="c1"># build, push, pin, apply, roll out the controller</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>make<span class="w"> </span>litellm-src-release<span class="w">        </span><span class="c1"># build, push, pin, and roll out the gateway</span>
 </span></code></pre></div>
 <p><code>make deploy</code> and <code>make deploy-dev</code> still work as the convenience compositions
 (<code>prod-controller prod-gateway</code> and <code>dev-controller dev-gateway</code> respectively).
@@ -6087,18 +6274,18 @@ restart the gateway, so an unchanged image keeps its running container. Use
 <code>litellm-src-release</code> when the image should move too.
 To apply an already-validated controller tag without rebuilding, pass <code>BUILD=0</code>
 and the tag:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>make<span class="w"> </span>controller-deploy-prod<span class="w"> </span><span class="nv">BUILD</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="nv">TAG</span><span class="o">=</span><span class="m">0</span>.1.0-20261103-4d922d8
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>make<span class="w"> </span>controller-deploy-prod<span class="w"> </span><span class="nv">BUILD</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="nv">TAG</span><span class="o">=</span><span class="m">0</span>.1.0-20261103-4d922d8
 </span></code></pre></div>
 <p>For source changes, build the controller first. Do not take a successful
 <code>make dev-controller</code> / <code>make prod-controller</code> as an image deployment: those
 primitives apply the manifest's existing pin and the environment's exclusions,
 but do not build, push, or repoint the image. Build and validate dev, promote the
 same bytes without rebuilding, then wait through a later full reconciliation:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>make<span class="w"> </span>controller-build-push<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;version&gt;
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>make<span class="w"> </span>controller-deploy-dev<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;version&gt;
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>logs<span class="w"> </span>deploy/oicm-discovery-controller-dev
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>make<span class="w"> </span>controller-deploy-prod<span class="w"> </span><span class="nv">BUILD</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;the-dev-validated-tag&gt;
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>logs<span class="w"> </span>deploy/oicm-discovery-controller
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>make<span class="w"> </span>controller-build-push<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;version&gt;
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>make<span class="w"> </span>controller-deploy-dev<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;version&gt;
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>logs<span class="w"> </span>deploy/oicm-discovery-controller-dev
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>make<span class="w"> </span>controller-deploy-prod<span class="w"> </span><span class="nv">BUILD</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;the-dev-validated-tag&gt;
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>logs<span class="w"> </span>deploy/oicm-discovery-controller
 </span></code></pre></div>
 <p>For aliases, expect <code>/model/info</code> to show the canonical and short names with
 the same deployment ID as the controller learns them. Exercise real inference
@@ -6108,17 +6295,17 @@ sync alone do not establish long-term behavior.</p>
 <p>Gateway and controller roll out independently. Restarting one does not restart
 the other.</p>
 <p>To see what an overlay would produce without applying it:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>kustomize<span class="w"> </span>deploy/overlays/prod
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>kustomize<span class="w"> </span>deploy/overlays/dev
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>kustomize<span class="w"> </span>deploy/overlays/prod
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>kustomize<span class="w"> </span>deploy/overlays/dev
 </span></code></pre></div>
 <h2 id="rollout-restart">Rollout restart<a class="headerlink" href="#rollout-restart" title="Permanent link">&para;</a></h2>
 <p>Env vars from <code>secretKeyRef</code> are snapshotted when a pod is created. If you
 change a Secret value, <strong>you must restart the Deployment</strong> for running pods to
 pick up the new value. Kubernetes does not auto-restart on secret change.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/litellm-proxy
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/oicm-discovery-controller
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/litellm-proxy
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/oicm-discovery-controller
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/litellm-proxy
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/oicm-discovery-controller
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/litellm-proxy
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>adeo-litellm<span class="w"> </span>rollout<span class="w"> </span>status<span class="w"> </span>deployment/oicm-discovery-controller
 </span></code></pre></div>
 <div class="admonition danger">
 <p class="admonition-title">Rotating the master key breaks both</p>
@@ -6164,7 +6351,7 @@ Makefile default for <code>ALAIN_KUBECONFIG</code>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 14:00:47 UTC">November 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 15:01:31 UTC">November 13, 2026</span>
   </span>
 
     
@@ -6226,13 +6413,13 @@ Makefile default for <code>ALAIN_KUBECONFIG</code>.</p>
         
         
           
-          <a href="../Makefile-reference/" class="md-footer__link md-footer__link--next" aria-label="Next: Makefile Reference">
+          <a href="../rollback/" class="md-footer__link md-footer__link--next" aria-label="Next: Production Configuration Rollback">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Makefile Reference
+                Production Configuration Rollback
               </div>
             </div>
             <div class="md-footer__button md-icon">
