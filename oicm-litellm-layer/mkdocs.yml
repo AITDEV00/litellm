@@ -112,6 +112,7 @@ nav:
       - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
       - MCP Source Broker Proposal: mcp-source-broker/README.md
       - Dev MCP Source Broker: mcp-source-broker/dev-implementation.md
+      - MCP Source Lifecycle Research Questions: mcp-source-broker/research-questions.md
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
