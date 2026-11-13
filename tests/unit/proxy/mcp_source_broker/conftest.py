@@ -131,7 +131,12 @@ class MemoryDatabase:
         raise AssertionError(sql[:100])
 
     async def execute_raw(self, sql: str, *args: object) -> int:
-        if "advisory_xact_lock" in sql or "LOCK TABLE" in sql or "CREATE TABLE" in sql:
+        if (
+            "advisory_xact_lock" in sql
+            or "LOCK TABLE" in sql
+            or "CREATE TABLE" in sql
+            or "ADD COLUMN IF NOT EXISTS" in sql
+        ):
             self.locks.append(sql)
             return 0
         if "SET target_host=" in sql:

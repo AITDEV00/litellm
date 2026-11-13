@@ -148,6 +148,8 @@ spec:
                 secretKeyRef:
                   name: litellm-mcp-source-broker-dev
                   key: fingerprint
+            - name: MCP_REMOTEDIALER_SHA256
+              value: "255d2e2cd1b302b6cba1b2b9bcb7831950ef703395597ff71c074374ebb2cdec"
             - name: HAMSA_API_KEY
               valueFrom:
                 secretKeyRef:

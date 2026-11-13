@@ -32,6 +32,7 @@ from litellm.proxy.client_distribution.storage import (
 )
 from litellm.proxy.mcp_source_broker.keys import Keys
 from litellm.proxy.mcp_source_broker.models import Claim, EnrollResponse, RelayConfig, SourceCreate
+from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_gateway_router
 from litellm.proxy.mcp_source_broker.store import Database, NotOwner, NotOwnerConflict, SourceStore
 from litellm.proxy.utils import PrismaClient
 from litellm.types.mcp import MCPAuth, MCPTransport
@@ -61,6 +62,9 @@ class MCPUpdate(Protocol):
         data: UpdateMCPServerRequest,
         touched_by: str,
     ) -> LiteLLM_MCPServerTable | McpIdentifierConflict | None: ...
+
+
+RouteSource: TypeAlias = Callable[[str, bool], Awaitable[None]]
 
 
 def create_gateway_router(
@@ -212,7 +216,34 @@ def mount_mcp_sources(
     async def create(request: NewMCPServerRequest) -> None:
         await default_registration(prisma, manager, request)
 
+    async def route_source(source_id: str, remote: bool) -> None:
+        found: Final = await get_mcp_server(prisma, source_id)
+        if found is None:
+            raise ValueError("source registration is missing")
+        await source_store.route(source_id, "remotedialer" if remote else "chisel")
+        await update_mcp_server(
+            prisma,
+            UpdateMCPServerRequest(
+                server_id=source_id,
+                url=(
+                    f"http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9092/sources/{source_id}"
+                    if remote
+                    else f"http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9090/sources/{source_id}"
+                ),
+            ),
+            touched_by=found.mcp_info.get("owner", "mcp-source-broker") if found.mcp_info else "mcp-source-broker",
+        )
+        await manager.reload_servers_from_database()
+
     app.include_router(create_gateway_router(source_store, settings, create, token))
+    app.include_router(
+        create_remote_gateway_router(
+            source_store,
+            token,
+            os.environ.get("MCP_REMOTEDIALER_SHA256", "0" * 64),
+            route=route_source,
+        )
+    )
 
 
 async def default_registration(

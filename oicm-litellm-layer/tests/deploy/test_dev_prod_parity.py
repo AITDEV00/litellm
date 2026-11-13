@@ -74,6 +74,7 @@ _BROKER_ONLY_ENV_VARS: Final = frozenset(
         "MCP_SOURCE_BROKER_PEPPER",
         "MCP_SOURCE_BROKER_SERVICE_TOKEN",
         "MCP_SOURCE_BROKER_FINGERPRINT",
+        "MCP_REMOTEDIALER_SHA256",
     }
 )
 
@@ -210,6 +211,7 @@ def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dic
         "Ingress/litellm-mcp-worker-dev",
         "Ingress/litellm-mcp-enrollment-dev",
         "Ingress/litellm-mcp-public-mirror-dev",
+        "Ingress/litellm-mcp-remotedialer-worker-dev",
     }
     assert set(dev) == expected | broker, (
         "dev must match prod plus its explicitly dev-only broker overlay.\n"
@@ -463,6 +465,7 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
         "Ingress/litellm-mcp-worker-dev",
         "Ingress/litellm-mcp-enrollment-dev",
         "Ingress/litellm-mcp-public-mirror-dev",
+        "Ingress/litellm-mcp-remotedialer-worker-dev",
     }
     gateway = {
         key: doc for key, doc in dev.items() if key.endswith(_DEV_SUFFIX) and key not in store_names | broker_names

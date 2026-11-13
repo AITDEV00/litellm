@@ -518,6 +518,7 @@ class LiteLLMRoutes(enum.Enum):
         "/v1/mcp/sessions",
         "/mcp-sources",
         "/mcp-source-broker/install/{grant_id}",
+        "/mcp-remotedialer-sources/{path:path}",
     ]
 
     # Backwards-compat union — virtual keys may be configured with
@@ -1154,7 +1155,20 @@ class ModelInfoDelete(LiteLLMPydanticObjectBase):
 
 class ModelInfo(LiteLLMPydanticObjectBase):
     id: str | None
-    mode: Literal["embedding", "chat", "completion", "image_generation", "audio_transcription", "audio_speech", "rerank", "moderations", "diarization"] | None
+    mode: (
+        Literal[
+            "embedding",
+            "chat",
+            "completion",
+            "image_generation",
+            "audio_transcription",
+            "audio_speech",
+            "rerank",
+            "moderations",
+            "diarization",
+        ]
+        | None
+    )
     input_cost_per_token: float | None = 0.0
     output_cost_per_token: float | None = 0.0
     max_tokens: int | None = 2048  # assume 2048 if not set

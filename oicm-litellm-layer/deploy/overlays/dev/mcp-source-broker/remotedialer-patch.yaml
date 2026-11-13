@@ -1,0 +1,87 @@
+## Dev-only remotedialer data plane for the MCP source broker.
+##
+## Adds a Go worker sidecar to the existing dev broker Deployment. The sidecar
+## shares the pod network namespace with the Python control app, which is a
+## load-bearing constraint: the Go revocation endpoint accepts loopback
+## callers only, so the FastAPI remote control app (port 9091) must be able
+## to reach it on 127.0.0.1.
+##
+## Port map inside the one pod:
+##   8089  FastAPI Chisel control (existing)
+##   8088  chisel server, reverse mode (existing relay container)
+##   9090  FastAPI Chisel pool (existing)
+##   9091  FastAPI remotedialer control (new; MCP_REMOTEDIALER_ENABLED=true)
+##   8092  Go worker ingress: GET /mcp-remotedialer-worker (new sidecar)
+##   9092  Go private dispatch: /sources/{id}/{path}, /v1/remotedialer/revoke (new sidecar)
+##
+## The Service below adds 8092 and 9092 to the existing litellm-mcp-broker-dev
+## Service so the proxy and the gateway management routes can reach them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-mcp-broker-dev
+  namespace: adeo-litellm
+spec:
+  template:
+    spec:
+      containers:
+        - name: broker
+          env:
+            - name: MCP_REMOTEDIALER_ENABLED
+              value: "true"
+            - name: MCP_REMOTEDIALER_SHA256
+              value: "255d2e2cd1b302b6cba1b2b9bcb7831950ef703395597ff71c074374ebb2cdec"
+        - name: remotedialer
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-remotedialer-worker:jya0-v1.108.5
+          imagePullPolicy: Always
+          command: ["/source-link", "worker"]
+          env:
+            - name: MCP_REMOTEDIALER_CONTROL_URL
+              value: http://127.0.0.1:9091
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker-dev
+                  key: service-token
+            - name: MCP_REMOTEDIALER_WORKER_LISTEN
+              value: "0.0.0.0:8092"
+            - name: MCP_REMOTEDIALER_DATA_LISTEN
+              value: "0.0.0.0:9092"
+          ports:
+            - name: rd-worker
+              containerPort: 8092
+            - name: rd-data
+              containerPort: 9092
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: rd-data
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-mcp-broker-dev
+  namespace: adeo-litellm
+spec:
+  ports:
+    - name: rd-worker
+      port: 8092
+      targetPort: 8092
+    - name: rd-data
+      port: 9092
+      targetPort: 9092
+    - name: remote-control
+      port: 9091
+      targetPort: 9091

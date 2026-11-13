@@ -38,15 +38,22 @@ async def serve() -> None:
     )
     token: Final = os.environ["MCP_SOURCE_BROKER_SERVICE_TOKEN"]
     await db.execute_raw('UPDATE "OicmMcpConnector" SET healthy_at=NULL')
-    control: Final = create_control_app(store, token, config)
     pool: Final = create_pool_app(store, token)
     from litellm.proxy.mcp_source_broker.probes import probe_loop
 
+    control: Final = create_control_app(store, token, config)
+    servers: Final = [
+        uvicorn.Server(uvicorn.Config(control, host="0.0.0.0", port=8089)),
+        uvicorn.Server(uvicorn.Config(pool, host="0.0.0.0", port=9090)),
+    ]
+    if os.environ.get("MCP_REMOTEDIALER_ENABLED") == "true":
+        await db.execute_raw('UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL')
+        from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_control_app
+
+        remote: Final = create_remote_control_app(store, token)
+        servers.append(uvicorn.Server(uvicorn.Config(remote, host="0.0.0.0", port=9091)))
+
     async with probe_loop(store):
-        servers: Final = (
-            uvicorn.Server(uvicorn.Config(control, host="0.0.0.0", port=8089)),
-            uvicorn.Server(uvicorn.Config(pool, host="0.0.0.0", port=9090)),
-        )
         try:
             await asyncio.gather(*(server.serve() for server in servers))
         finally:

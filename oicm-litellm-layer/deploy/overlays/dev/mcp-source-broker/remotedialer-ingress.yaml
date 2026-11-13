@@ -1,0 +1,31 @@
+## Public ingress for the remotedialer connector upgrade. The connector on a
+## source host initiates the WSS connection here; nothing on the source host
+## listens. Exact path match keeps it disjoint from the chisel /mcp-worker
+## route owned by litellm-mcp-worker-dev.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm-mcp-remotedialer-worker-dev
+  namespace: adeo-litellm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: litellm.ecouncil.ae
+      http:
+        paths:
+          - path: /mcp-remotedialer-worker
+            pathType: Exact
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: rd-worker
+  tls:
+    - hosts:
+        - litellm.ecouncil.ae
+      secretName: litellm-ecouncil-ae-tls

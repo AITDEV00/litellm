@@ -18,8 +18,11 @@ spec:
       ports:
         - port: 8089
         - port: 9090
+        - port: 9091
+        - port: 9092
     - ports:
         - port: 8088
+        - port: 8092
   egress:
     - to:
         - namespaceSelector:

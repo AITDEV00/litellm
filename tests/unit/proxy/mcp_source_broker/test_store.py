@@ -36,7 +36,8 @@ async def test_enroll_no_plaintext_one_claim_and_recovery(store: SourceStore, so
     users = await store.users()
     assert [(u.password, u.target_port, u.status) for u in users] == [(claim.password, 18080, "pending")]
     assert users[0].enrollment_id == result.enrollment_id
-    assert sum("CREATE TABLE IF NOT EXISTS" in sql for sql in db.locks) == 3
+    assert sum("CREATE TABLE IF NOT EXISTS" in sql for sql in db.locks) == 4
+    assert any("ADD COLUMN IF NOT EXISTS remote_transport" in sql for sql in db.locks)
     assert any("advisory_xact_lock" in sql for sql in db.locks)
     assert sum("SHARE ROW EXCLUSIVE" in sql for sql in db.locks) == 1
     assert await store.owner_of_enrollment(result.enrollment_id) == "alice"

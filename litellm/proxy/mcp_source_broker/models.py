@@ -8,7 +8,16 @@ from typing import Final, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    TypeAdapter,
+    field_serializer,
+    field_validator,
+)
 
 NAMESPACE: Final = UUID("67a55270-c485-45b4-8f1a-fc89c2e36078")
 HOSTNAME: Final = TypeAdapter(str)
@@ -156,6 +165,83 @@ class EnrollResponse(Frozen):
     enrollment_id: str
     token: str | None
     install_path: str
+
+
+class RemotePeer(Frozen):
+    label: str = Field(pattern=r"^[a-z][a-z0-9-]{1,31}$")
+    dataset_id: str = Field(min_length=1, max_length=255, pattern=r"^[^\r\n]+$")
+    proof_key: str = Field(pattern=r"^[A-Za-z0-9+/]{43}=?$")
+    target: Target
+
+    @field_validator("proof_key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        import base64
+
+        if len(base64.b64decode(value, validate=True)) != 32:
+            raise ValueError("origin proof public key must be Ed25519")
+        return value
+
+
+class RouteSelection(Frozen):
+    transport: Literal["chisel", "remotedialer"] = "chisel"
+
+
+class RemotePeerResponse(Frozen):
+    worker_id: str
+    source_id: str
+    enrollment_token: str
+    install_path: str
+    expires_at: datetime
+    label: str
+    dataset_id: str
+
+
+class RemoteRemoteInstall(Frozen):
+    worker_id: str
+    source_id: str
+    target: Target
+    dataset_id: str
+    generation: int
+    credential: str
+
+    @field_serializer("target")
+    def serialize_target(self, value: Target) -> str:
+        return f"{value.host}:{value.port}"
+
+
+class RemoteGoPeer(Frozen):
+    worker_id: str
+    source_id: str
+    label: str
+    target: str
+    dataset_id: str
+    proof_key: str
+    generation: int
+    phase: str
+    credential_digest: str
+    expected_catalog: str
+    catalog_fingerprint: str | None
+    healthy_at: datetime | None
+
+
+class RemoteHealthReport(Frozen):
+    worker_id: str
+    generation: int
+    catalog_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class RemoteLifecycle(Frozen):
+    worker_id: str
+    source_id: str
+    phase: Literal["active", "draining", "revoked"]
+    generation: int
+    install_path: str | None = None
+    enrollment_token: str | None = None
+
+
+class LifecycleRequest(Frozen):
+    generation: int = Field(ge=1)
 
 
 class Health(Frozen):

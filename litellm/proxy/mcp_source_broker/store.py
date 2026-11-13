@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import hmac
 from collections.abc import Mapping, Sequence
@@ -22,6 +21,7 @@ from litellm.proxy.mcp_source_broker.models import (
     Member,
     MemberView,
     RelayMember,
+    RouteSelection,
     SourceCreate,
     SourceRecord,
     Target,
@@ -175,6 +175,28 @@ class SourceStore:
     def __init__(self, db: Database, keyring: Keys) -> None:
         self.db: Final = db
         self.keyring: Final = keyring
+        from litellm.proxy.mcp_source_broker.remote_store import RemoteStore
+
+        self.remote: Final = RemoteStore(self)
+
+    async def route(self, source_id: str, transport: Literal["chisel", "remotedialer"]) -> None:
+        await self.db.execute_raw(
+            'UPDATE "OicmMcpSource" SET remote_transport=$2,revision=revision+1 '
+            "WHERE source_id=$1 AND remote_transport IS DISTINCT FROM $2",
+            source_id,
+            transport,
+        )
+
+    async def selection(self, source_id: str) -> RouteSelection:
+        rows: Final = TypeAdapter(tuple[dict[str, object], ...]).validate_python(
+            await self.db.query_raw('SELECT remote_transport FROM "OicmMcpSource" WHERE source_id=$1', source_id)
+        )
+        if not rows:
+            raise KeyError(source_id)
+        transport: Final = rows[0]["remote_transport"]
+        if transport not in ("chisel", "remotedialer"):
+            raise ValueError("stored transport is invalid")
+        return RouteSelection(transport=transport)
 
     async def _sources(self, db: SQLDatabase, query: LiteralString, *args: object) -> Sequence[SourceRecord]:
         return tuple(row.value() for row in SOURCES.validate_python(await db.query_raw(query, *args)))
@@ -196,11 +218,12 @@ class SourceStore:
         return rows[0].tenant if rows else None
 
     async def ensure(self) -> None:
-        statements: Final = (
+        ordered: Final = (
             """CREATE TABLE IF NOT EXISTS "OicmMcpSource" (source_id TEXT PRIMARY KEY, tenant TEXT NOT NULL,
                key TEXT NOT NULL, alias TEXT NOT NULL, target_host TEXT NOT NULL, target_port INT NOT NULL,
                spec_path TEXT NOT NULL, expected TEXT NOT NULL, gateway_auth_ciphertext TEXT NOT NULL,
-               status TEXT NOT NULL, revision BIGINT NOT NULL, CONSTRAINT source_owner_alias UNIQUE (tenant,alias))""",
+               status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'chisel',
+               CONSTRAINT source_owner_alias UNIQUE (tenant,alias))""",
             """CREATE TABLE IF NOT EXISTS "OicmMcpEnrollment" (id TEXT PRIMARY KEY, source_id TEXT NOT NULL UNIQUE
                REFERENCES "OicmMcpSource"(source_id), token_hash BYTEA NOT NULL,
                expires_at TIMESTAMPTZ NOT NULL, redeemed_at TIMESTAMPTZ)""",
@@ -209,8 +232,19 @@ class SourceStore:
                relay_host TEXT NOT NULL, relay_port INT NOT NULL, credential_digest BYTEA NOT NULL,
                healthy_at TIMESTAMPTZ, catalog_fingerprint TEXT, status TEXT NOT NULL, generation BIGINT NOT NULL,
                UNIQUE(source_id,connector_id), UNIQUE(relay_host,relay_port))""",
+            """CREATE TABLE IF NOT EXISTS "OicmMcpRemoteWorker" (worker_id TEXT PRIMARY KEY, enrollment_id TEXT NOT NULL
+               REFERENCES "OicmMcpEnrollment"(id), source_id TEXT NOT NULL REFERENCES "OicmMcpSource"(source_id),
+               label TEXT NOT NULL, target_host TEXT NOT NULL, target_port INT NOT NULL, dataset_id TEXT NOT NULL,
+               proof_key TEXT NOT NULL, token_hash BYTEA NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+               redeemed_at TIMESTAMPTZ, healthy_at TIMESTAMPTZ, catalog_fingerprint TEXT,
+               status TEXT NOT NULL, generation BIGINT NOT NULL,
+               UNIQUE(source_id,label))""",
         )
-        await asyncio.gather(*(self.db.execute_raw(sql) for sql in statements))
+        for sql in ordered:
+            await self.db.execute_raw(sql)
+        await self.db.execute_raw(
+            "ALTER TABLE \"OicmMcpSource\" ADD COLUMN IF NOT EXISTS remote_transport TEXT NOT NULL DEFAULT 'chisel'"
+        )
 
     async def source(self, source_id: str) -> SourceRecord | None:
         rows: Final = await self._sources(
