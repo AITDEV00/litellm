@@ -118,3 +118,15 @@ The real-PostgreSQL store suite passed nine tests, including catalog-mismatch qu
 Focused broker tests, deploy parity tests, strict Ruff, and basedpyright passed. The complete repository gates were attempted but did not pass: dependency resolution was blocked by the GitHub codeload DNS sinkhole, format checks reported inherited files, and default-branch discipline comparisons reported inherited findings. The strict Ruff worktree gate also lacked its expected configuration. These are not claimed as successful repository-wide checks
 
 Multi-source host failover, native MCP catalog membership, authorization across source replicas, root/system connector installation, and multi-replica session ownership are not implemented or claimed by this dev slice. The README next to this document remains the earlier design proposal, not a release claim
+
+## Next steps
+
+The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did:
+
+1. Multi-host failover. Enroll a second source host with its own origin and proof key, run both connectors concurrently, and verify request distribution and failover when one host stops. The pool already prefers least-in-flight members, but no test has exercised two live reverse sessions from different hosts
+2. Load profile. The Pass 3 feasibility control held 100k SSE streams on one h2c connection at 610 MiB with a raw prototype; the shipped long-poll design has not been loaded past tens of concurrent requests. Run the Pass 3 harness against the dev deployment and record streams, memory per connector, and p95 dispatch latency, so the architecture claim is measured on the real protocol
+3. Session and connector ownership. The dispatch long-poll ties a session to one pod; a multi-replica broker needs one ingress per session or a shared dispatch queue. Decide before any replica increase
+4. Recovery tooling. After `revoke`, a worker is terminal and a new label must be enrolled by hand. Decide whether an admin-facing replace flow should mint the next label and a fresh connector config in one step, or whether terminal revoke stays manual by design
+5. Production overlay. Only when 1-3 land: mirror the 8093 listener, the reverse ingress, and the network-policy port into the prod overlay, and re-run the parity suite, which will require declaring the new objects in both
+
+The Pass 2 delta and Pass 3 handover archives next to this document hold the prototype source, benchmark evidence, and profile data that steps 2-3 build on. `LiteLLM-1.108.5-Source-Agent-Reference.zip` remains the received research reference for the parallel source-agent staging relay

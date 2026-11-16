@@ -228,6 +228,8 @@ than hand-edit; each file states its generation date.
 | Nginx reverse-tunnel pilot: the lab flow that preceded the broker | `docs/mcp-source-broker/LiteLLM-Reverse-Tunnel-Nginx-Pilot.md` |
 | Unified MCP implementation guide: gateway-owned tool namespace and harness flow | `docs/mcp-source-broker/LiteLLM-v1.108.5-Unified-MCP-Implementation-Guide.md` |
 | MCP ingress research archive: the evaluated Go stack with evidence logs and the reference `gateway.go` digest contract | `docs/mcp-source-broker/LiteLLM-1.108.5-MCP-Ingress-Pilot.zip` |
+| Source-agent Pass 2 delta: the candidate prototype source, benchmarks, and delta-apply evidence against the baseline | `docs/mcp-source-broker/LiteLLM-Source-Agent-Pass2-Delta.zip` |
+| Source-agent Pass 3 handover: the validated prototype, behavior-suite evidence, and load/alloc profiles backing the reverse-h2 feasibility control | `docs/mcp-source-broker/LiteLLM-Source-Agent-Pass3-Handover.zip` |
 
 ## Cache invalidation
 
