@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 type control struct {
@@ -30,17 +31,25 @@ func digestValue(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func newControl(cfg config, client *http.Client) (*control, error) {
+func newControl(ctx context.Context, cfg config, client *http.Client) (*control, error) {
 	parsed, err := url.Parse(cfg.ControlURL)
 	if err != nil || (parsed.Scheme != "https" && parsed.Hostname() != "127.0.0.1") || parsed.Host == "" {
 		return nil, errors.New("control URL must use an internal HTTP loopback or HTTPS endpoint")
 	}
 	server := &control{base: strings.TrimSuffix(cfg.ControlURL, "/"), token: cfg.ServiceToken,
 		tokenDigest: digestValue(cfg.ServiceToken), client: client, workers: make(map[string]peer)}
-	if err := server.refresh(context.Background()); err != nil {
-		return nil, fmt.Errorf("load PostgreSQL worker state: %w", err)
+	for deadline := time.Now().Add(2 * time.Minute); ; {
+		if err := server.refresh(ctx); err == nil {
+			return server, nil
+		} else if time.Now().After(deadline) {
+			return nil, fmt.Errorf("load PostgreSQL worker state: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
-	return server, nil
 }
 
 func (c *control) request(ctx context.Context, method, path string, payload any) error {

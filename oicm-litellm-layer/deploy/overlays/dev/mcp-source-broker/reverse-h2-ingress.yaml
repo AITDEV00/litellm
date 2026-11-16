@@ -1,0 +1,54 @@
+## Public ingress for the reverse-h2 connector transport. The connector on a
+## source host initiates one multiplexed HTTP/2 session here; nothing on the
+## source host listens. The GRPC backend protocol switches nginx to grpc_pass,
+## which proxies cleartext HTTP/2 (h2c) to the sidecar's reverse listener on
+## 8093, so HTTP/2 stream multiplexing survives the hop through the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm-mcp-reverse-h2-dev
+  namespace: adeo-litellm
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: litellm.ecouncil.ae
+      http:
+        paths:
+          - path: /mcp-remotedialer-reverse
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: rd-reverse
+          - path: /mcp-remotedialer-hold
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: rd-reverse
+          - path: /mcp-remotedialer-dispatch
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: rd-reverse
+          - path: /mcp-remotedialer-respond
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: rd-reverse
+  tls:
+    - hosts:
+        - litellm.ecouncil.ae
+      secretName: litellm-ecouncil-ae-tls

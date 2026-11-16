@@ -138,6 +138,7 @@ class RemoteMemoryDatabase:
         if 'INSERT INTO "OicmMcpRemoteWorker"' in sql:
             expires_inserted = args[8]
             assert isinstance(expires_inserted, datetime)
+            assert "$9::timestamptz" in sql, "expires_at must be cast for timestamptz; text binding is rejected by PostgreSQL"
             assert "NOW()" in sql and "'active'" in sql, "membership must be born redeemed and active"
             self.workers.append(
                 RemoteWorkerRow(

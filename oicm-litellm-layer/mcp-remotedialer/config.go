@@ -16,12 +16,19 @@ import (
 )
 
 type config struct {
-	ControlURL   string
-	ServiceToken string
-	WorkerListen string
-	DataListen   string
-	CAFile       string
+	ControlURL    string
+	ServiceToken  string
+	WorkerListen  string
+	DataListen    string
+	ReverseListen string
+	Transport     string
+	CAFile        string
 }
+
+const (
+	transportRemotedialer = "remotedialer"
+	transportReverseH2     = "reverse-h2"
+)
 
 type peer struct {
 	WorkerID           string  `json:"worker_id"`
@@ -57,16 +64,31 @@ func environment(name string) string {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		ControlURL:   environment("MCP_REMOTEDIALER_CONTROL_URL"),
-		ServiceToken: environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
-		WorkerListen: environment("MCP_REMOTEDIALER_WORKER_LISTEN"),
-		DataListen:   environment("MCP_REMOTEDIALER_DATA_LISTEN"),
-		CAFile:       environment("MCP_REMOTEDIALER_CA_FILE"),
+		ControlURL:    environment("MCP_REMOTEDIALER_CONTROL_URL"),
+		ServiceToken:  environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
+		WorkerListen:  environment("MCP_REMOTEDIALER_WORKER_LISTEN"),
+		DataListen:    environment("MCP_REMOTEDIALER_DATA_LISTEN"),
+		ReverseListen: environment("MCP_REMOTEDIALER_REVERSE_LISTEN"),
+		Transport:     environment("MCP_REMOTEDIALER_TRANSPORT"),
+		CAFile:        environment("MCP_REMOTEDIALER_CA_FILE"),
 	}
 	if cfg.ControlURL == "" || len(cfg.ServiceToken) < 32 {
 		return cfg, errors.New("control URL and service token are required")
 	}
-	for _, address := range []string{cfg.WorkerListen, cfg.DataListen} {
+	if cfg.Transport == "" {
+		cfg.Transport = transportRemotedialer
+	}
+	if cfg.Transport != transportRemotedialer && cfg.Transport != transportReverseH2 {
+		return cfg, errors.New("transport must be remotedialer or reverse-h2")
+	}
+	if cfg.Transport == transportReverseH2 && cfg.ReverseListen == "" {
+		return cfg, errors.New("reverse-h2 transport requires a reverse listener address")
+	}
+	addresses := []string{cfg.WorkerListen, cfg.DataListen}
+	if cfg.Transport == transportReverseH2 {
+		addresses = append(addresses, cfg.ReverseListen)
+	}
+	for _, address := range addresses {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil || (host != "0.0.0.0" && host != "127.0.0.1") || port == "" {
 			return cfg, errors.New("worker and data listeners must be numeric addresses")

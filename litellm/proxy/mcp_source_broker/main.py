@@ -29,7 +29,7 @@ async def serve() -> None:
     await store.ensure()
     await db.execute_raw('UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL')
     if os.environ.get("MCP_REMOTEDIALER_ENABLED") != "true":
-        raise RuntimeError("the remotedialer transport is the only supported transport")
+        raise RuntimeError("a remotedialer-class transport must be enabled")
     from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_control_app
 
     remote: Final = create_remote_control_app(store, os.environ["MCP_SOURCE_BROKER_SERVICE_TOKEN"])

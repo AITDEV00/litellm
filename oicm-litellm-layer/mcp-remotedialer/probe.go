@@ -90,10 +90,7 @@ func (r *runtime) probeLoop(ctx context.Context, member *memberSession) {
 	}
 }
 
-func (m *memberSession) probe(worker peer) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
+func probeCatalog(ctx context.Context, transport http.RoundTripper, worker peer) (string, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
@@ -104,7 +101,7 @@ func (m *memberSession) probe(worker peer) (string, error) {
 		return "", err
 	}
 	req.Header.Set("X-Source-Nonce", nonceText)
-	resp, err := m.transport.RoundTrip(req)
+	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		return "", err
 	}
@@ -130,4 +127,63 @@ func (m *memberSession) probe(worker peer) (string, error) {
 		return "", errors.New("origin proof signature mismatch")
 	}
 	return actual, nil
+}
+
+func (m *memberSession) probe(worker peer) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return probeCatalog(ctx, m.transport, worker)
+}
+
+func (s *reverseSession) probe(worker peer) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return probeCatalog(ctx, roundTripFunc(s.roundTrip), worker)
+}
+
+func (r *runtime) reverseProbeLoop(ctx context.Context, session *reverseSession) {
+	defer session.close()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-session.closed:
+			return
+		default:
+		}
+		worker, ok := r.state.peer(session.workerID)
+		if !ok || worker.Phase == "revoked" || worker.Generation != session.generation {
+			return
+		}
+		if worker.Phase != "active" {
+			select {
+			case <-ctx.Done():
+				return
+			case <-session.closed:
+				return
+			case <-time.After(2 * time.Second):
+			}
+			continue
+		}
+		fingerprint, err := session.probe(worker)
+		if err != nil || fingerprint != worker.ExpectedCatalog {
+			fingerprint = ""
+		}
+		report := healthReport{WorkerID: session.workerID, Generation: session.generation, CatalogFingerprint: nil}
+		if fingerprint != "" {
+			report.CatalogFingerprint = &fingerprint
+		}
+		if admitted, err := r.state.report(ctx, report); err == nil && admitted && fingerprint != "" {
+			session.mu.Lock()
+			session.lastProbe = time.Now()
+			session.mu.Unlock()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-session.closed:
+				return
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

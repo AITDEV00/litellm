@@ -117,16 +117,27 @@ func (r *runtime) revokeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *runtime) reconcile() {
 	r.mu.Lock()
-	closed := make([]*memberSession, 0, len(r.sessions))
+	closed := make([]dispatchMember, 0, len(r.sessions)+len(r.reverse))
 	for _, member := range r.sessions {
 		worker, ok := r.state.peer(member.workerID)
 		if !ok {
-			closed = append(closed, member)
+			closed = append(closed, dispatchMember{session: member})
 			continue
 		}
 		r.drained[member.workerID] = worker.Phase == "draining"
 		if worker.Generation != member.generation || worker.Phase == "revoked" {
-			closed = append(closed, member)
+			closed = append(closed, dispatchMember{session: member})
+		}
+	}
+	for id, session := range r.reverse {
+		worker, ok := r.state.peer(id)
+		if !ok {
+			closed = append(closed, dispatchMember{reverse: session})
+			continue
+		}
+		r.drained[id] = worker.Phase == "draining"
+		if worker.Generation != session.generation || worker.Phase == "revoked" {
+			closed = append(closed, dispatchMember{reverse: session})
 		}
 	}
 	r.mu.Unlock()
@@ -138,9 +149,13 @@ func (r *runtime) reconcile() {
 func (r *runtime) revoke(sourceID, workerID string) {
 	r.mu.Lock()
 	member := r.sessions[workerID]
+	rev := r.reverse[workerID]
 	r.mu.Unlock()
 	if member != nil && member.sourceID == sourceID {
 		member.close()
+	}
+	if rev != nil && rev.sourceID == sourceID {
+		rev.close()
 	}
 }
 

@@ -10,13 +10,47 @@ import (
 	"github.com/rancher/remotedialer"
 )
 
+type dispatchMember struct {
+	session *memberSession
+	reverse *reverseSession
+}
+
+func (d dispatchMember) workerID() string {
+	if d.session != nil {
+		return d.session.workerID
+	}
+	return d.reverse.workerID
+}
+
+func (d dispatchMember) roundTrip(req *http.Request) (*http.Response, error) {
+	if d.session != nil {
+		return transportWithSession{d.session.transport, d.session}.RoundTrip(req)
+	}
+	return d.reverse.roundTrip(req)
+}
+
+func (d dispatchMember) ready(sourceID string) bool {
+	if d.session != nil {
+		return d.session.ready(sourceID)
+	}
+	return d.reverse.ready(sourceID)
+}
+
+func (d dispatchMember) close() {
+	if d.session != nil {
+		d.session.close()
+		return
+	}
+	d.reverse.close()
+}
+
 type runtime struct {
 	state    *control
 	relay    *remotedialer.Server
 	mu       sync.Mutex
 	sessions map[string]*memberSession
+	reverse  map[string]*reverseSession
 	serial   uint64
-	use      map[string]*memberSession
 	last     map[string]uint64
 	inFlight map[string]int
 	drained  map[string]bool
@@ -27,13 +61,23 @@ func newRuntime(state *control) *runtime {
 		clientKey, ok := req.Context().Value(workerKey{}).(string)
 		return clientKey, ok, nil
 	}, remotedialer.DefaultErrorWriter)
-	return &runtime{state: state, relay: relay, sessions: make(map[string]*memberSession), use: make(map[string]*memberSession), last: make(map[string]uint64), inFlight: make(map[string]int), drained: make(map[string]bool)}
+	return &runtime{state: state, relay: relay, sessions: make(map[string]*memberSession), reverse: make(map[string]*reverseSession), last: make(map[string]uint64), inFlight: make(map[string]int), drained: make(map[string]bool)}
 }
 
-func (r *runtime) pick(sourceID string, exclude string) *memberSession {
+func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var chosen *memberSession
+	var chosen *dispatchMember
+	consider := func(id string, ready bool) {
+		if r.drained[id] {
+			return
+		}
+		if chosen == nil || r.inFlight[id] < r.inFlight[chosen.workerID()] ||
+			(r.inFlight[id] == r.inFlight[chosen.workerID()] && r.last[id] < r.last[chosen.workerID()]) {
+			_ = ready
+			chosen = &dispatchMember{session: r.sessions[id], reverse: r.reverse[id]}
+		}
+	}
 	for _, member := range r.sessions {
 		worker, ok := r.state.peer(member.workerID)
 		if !ok || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
@@ -41,25 +85,28 @@ func (r *runtime) pick(sourceID string, exclude string) *memberSession {
 			!member.ready(sourceID) || r.inFlight[member.workerID] >= 64 {
 			continue
 		}
-		if r.drained[member.workerID] {
+		consider(member.workerID, true)
+	}
+	for id, session := range r.reverse {
+		worker, ok := r.state.peer(id)
+		if !ok || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
+			(worker.CatalogFingerprint == nil || *worker.CatalogFingerprint != worker.ExpectedCatalog) ||
+			!session.ready(sourceID) || r.inFlight[id] >= 64 {
 			continue
 		}
-		if chosen == nil || r.inFlight[member.workerID] < r.inFlight[chosen.workerID] ||
-			(r.inFlight[member.workerID] == r.inFlight[chosen.workerID] && r.last[member.workerID] < r.last[chosen.workerID]) {
-			chosen = member
-		}
+		consider(id, true)
 	}
 	if chosen != nil {
 		r.serial++
-		r.last[chosen.workerID] = r.serial
-		r.inFlight[chosen.workerID]++
+		r.last[chosen.workerID()] = r.serial
+		r.inFlight[chosen.workerID()]++
 	}
 	return chosen
 }
 
-func (r *runtime) release(member *memberSession) {
+func (r *runtime) release(member *dispatchMember) {
 	r.mu.Lock()
-	r.inFlight[member.workerID]--
+	r.inFlight[member.workerID()]--
 	r.mu.Unlock()
 }
 
@@ -70,6 +117,13 @@ func (r *runtime) hasActive(sourceID string) bool {
 		worker, ok := r.state.peer(member.workerID)
 		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
 			*worker.CatalogFingerprint == worker.ExpectedCatalog && member.ready(sourceID) {
+			return true
+		}
+	}
+	for id, session := range r.reverse {
+		worker, ok := r.state.peer(id)
+		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
+			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) {
 			return true
 		}
 	}
@@ -108,7 +162,7 @@ func (r *runtime) forward(w http.ResponseWriter, req *http.Request) {
 	r.forwardOnce(w, req, sourceID, path, member)
 }
 
-func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID, path string, member *memberSession) {
+func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID, path string, member *dispatchMember) {
 	released := false
 	release := func() {
 		if !released {
@@ -128,14 +182,14 @@ func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID
 			for _, name := range []string{"Accept", "Accept-Encoding", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id", "If-None-Match", "If-Modified-Since"} {
 				for _, value := range req.Header.Values(name) {
 					out.Out.Header.Add(name, value)
-				}
+			}
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("Set-Cookie")
 			return nil
 		},
-		Transport: transportWithSession{member.transport, member},
+		Transport: roundTripFunc(member.roundTrip),
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			http.Error(w, "source upstream unavailable", http.StatusBadGateway)
 		},
@@ -149,15 +203,22 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-func (r *runtime) eligibleMembers(sourceID string) []*memberSession {
+func (r *runtime) eligibleMembers(sourceID string) []dispatchMember {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var members []*memberSession
+	var members []dispatchMember
 	for _, member := range r.sessions {
 		worker, ok := r.state.peer(member.workerID)
 		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
 			*worker.CatalogFingerprint == worker.ExpectedCatalog && member.ready(sourceID) {
-			members = append(members, member)
+			members = append(members, dispatchMember{session: member})
+		}
+	}
+	for id, session := range r.reverse {
+		worker, ok := r.state.peer(id)
+		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
+			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) {
+			members = append(members, dispatchMember{reverse: session})
 		}
 	}
 	return members

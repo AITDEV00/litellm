@@ -51,6 +51,7 @@ class MemoryDatabase:
             self.locks.append(sql)
             return 0
         if 'INSERT INTO "OicmMcpEnrollment"' in sql:
+            assert "$4::timestamptz" in sql, "expires_at must be cast for timestamptz; text binding is rejected by PostgreSQL"
             return 1
         if 'INSERT INTO "OicmMcpSource"' in sql:
             self.sources.append(SQLRow.model_validate(dict(zip(

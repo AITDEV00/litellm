@@ -1,8 +1,25 @@
 # Dev source broker
 
-This dev slice exposes one approved OpenAPI service on a source host through the existing MCP gateway. The source host makes an outbound Chisel TLS WebSocket to the broker relay. LiteLLM authenticates and authorizes the normal MCP tool request before the private broker dispatches it to a healthy member
+This dev slice exposes one approved OpenAPI service on a source host through the existing MCP gateway. The source host makes an outbound TLS WebSocket to the broker relay. LiteLLM authenticates and authorizes the normal MCP tool request before the private broker dispatches it to a healthy member
 
 The dev overlay is `deploy/overlays/dev/mcp-source-broker`. It creates one auxiliary Pod with broker and relay containers. The gateway contains no relay and starts no connector. Production is not enabled by this slice
+
+## Reverse-h2 transport (second data plane)
+
+The same Go worker binary now carries a `reverse-h2` transport alongside the WebSocket remotedialer, selected by `MCP_REMOTEDIALER_TRANSPORT=reverse-h2` (default remains `remotedialer`). The connector dials one outbound TLS HTTP/2 session to the public gateway and keeps it alive; every forwarded request is an HTTP/2 stream on that session, so a held request costs stream state on the channel instead of a origin TCP socket per request. The protocol is a dispatch long-poll: the connector registers (`POST /mcp-remotedialer-reverse`), holds (`POST /mcp-remotedialer-hold`, the stream that carries liveness and generation fencing), polls for work (`POST /mcp-remotedialer-dispatch`, the relay answers one pending poll per forwarded request), and posts each origin response back (`POST /mcp-remotedialer-respond`). All four routes ride the reverse listener on port 8093 and are published through the same public host with the nginx `GRPC` backend protocol, which proxies cleartext HTTP/2 to the sidecar so stream multiplexing survives the ingress hop. Per-worker enrollment, catalog-fingerprint gating, generation fencing, revocation, and header stripping are identical across both transports; the dispatch queue is bounded and slow connectors shed to HTTP 503 rather than buffering unboundedly
+
+## Live reverse-h2 verification (2026-11-16)
+
+The reverse data plane was verified end to end on the dev cluster with a scratch origin fixture on the source host (fresh Ed25519 proof key, port 18084) and two enrolled workers (`reverse-h2`, `reverse-h2-b`) for source `f804e8c9-a9c7-5824-a90a-837262788be8`. All of the following were observed live, each through the public ingress `https://litellm.ecouncil.ae/mcp-remotedialer-*` (nginx to h2c `grpc_pass` to sidecar 8093):
+
+- Registration and liveness: the connector registered, held its session, and the probe loop admitted it with `catalog_fingerprint` equal to the enrollment's expected fingerprint; the broker's peers view showed the worker `healthy`
+- Auth gating: no-credential and wrong-credential calls to all four reverse routes returned 401, through the ingress and directly on 8093 (`curl --http2-prior-knowledge`, since the listener is h2c-only and correctly gives HTTP/1.1 an empty reply)
+- Data plane: `GET /sources/{id}/source.json` and `POST /sources/{id}/echo.json?channel=...` through the private dispatch port returned origin data with `credentials_seen=false` and `cookies_seen=false`
+- Concurrency: 8 parallel reads through one reverse session all returned 200 in under 0.62s wall
+- Fencing and lifecycle: `revoke` locked the connector out immediately (re-register 401, dispatch 503 with `Retry-After: 1`); `drain` stopped dispatch; `recover` minted a new generation and the connector rejoined with a freshly derived generation-matching credential; duplicate registration for a worker with a live session was rejected with 401 while the original session kept serving
+- User path: a virtual key scoped to the source's `mcp_access_groups` called `read_source` and `echo_source` through `POST /mcp-rest/tools/call` on the dev gateway and received origin data (`isError: false`), exercising gateway auth, MCP tool dispatch, the 9092 pool URL, the reverse long-poll, and the origin round trip
+
+Two latent defects surfaced and were fixed during the live run. The worker-enrollment INSERT bound its `expires_at` parameter without a `::timestamptz` cast, so Prisma sent text and PostgreSQL rejected the insert (the enrollment route 500ed); both worker and enrollment inserts now cast explicitly. A pre-existing source row also carried the retired `chisel` value in `remote_transport`, which `selection()` correctly rejected; re-pointing the source with `PUT /mcp-remotedialer-sources/{id}/selection` `{"transport":"remotedialer"}` refreshed both the stored transport and the registered pool URL (9090 to 9092)
 
 ## Enrollment
 

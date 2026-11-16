@@ -106,9 +106,10 @@ class RemoteStore:
                 return None
             worker_id: Final = str(uuid5(NAMESPACE, f"remote-worker:{source_id}:{peer.label}"))
             grant_id: Final = self.keys.enrollment_id(source_id)
+            expires: Final = datetime.now(timezone.utc) + timedelta(minutes=10)
             await tx.execute_raw(
                 'INSERT INTO "OicmMcpRemoteWorker" (' + REMOTE_COLUMNS + ") "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::bytea,$9,NOW(),NULL,NULL,'active',1,$10)",
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::bytea,$9::timestamptz,NOW(),NULL,NULL,'active',1,$10)",
                 worker_id,
                 source_id,
                 peer.label,
@@ -117,13 +118,13 @@ class RemoteStore:
                 peer.dataset_id,
                 peer.proof_key,
                 "\\x" + self.keys.token_hash(grant_id, self.keys.mint_token()).hex(),
-                datetime.now(timezone.utc) + timedelta(minutes=10),
+                expires,
                 grant_id,
             )
             return RemotePeerResponse(
                 worker_id=worker_id,
                 source_id=source_id,
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+                expires_at=expires,
                 label=peer.label,
                 dataset_id=peer.dataset_id,
             )

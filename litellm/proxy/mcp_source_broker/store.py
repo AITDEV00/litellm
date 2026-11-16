@@ -16,6 +16,7 @@ from litellm.proxy.mcp_source_broker.models import (
     SourceCreate,
     SourceRecord,
     Target,
+    TransportName,
 )
 
 
@@ -113,7 +114,7 @@ class SourceStore:
 
         self.remote: Final = RemoteStore(self)
 
-    async def route(self, source_id: str, transport: Literal["remotedialer"]) -> None:
+    async def route(self, source_id: str, transport: TransportName) -> None:
         await self.db.execute_raw(
             'UPDATE "OicmMcpSource" SET remote_transport=$2,revision=revision+1 '
             "WHERE source_id=$1 AND remote_transport IS DISTINCT FROM $2",
@@ -127,7 +128,10 @@ class SourceStore:
         )
         if not rows:
             raise KeyError(source_id)
-        return RouteSelection(transport="remotedialer")
+        transport: Final = rows[0]["remote_transport"]
+        if transport not in ("remotedialer", "reverse-h2"):
+            raise ValueError(f"unsupported stored transport {transport!r}")
+        return RouteSelection(transport=transport)
 
     async def _sources(self, db: SQLDatabase, query: LiteralString, *args: object) -> Sequence[SourceRecord]:
         return tuple(row.value() for row in SOURCES.validate_python(await db.query_raw(query, *args)))
@@ -216,7 +220,7 @@ class SourceStore:
             )
             await tx.execute_raw(
                 'INSERT INTO "OicmMcpEnrollment" (id,source_id,token_hash,expires_at,redeemed_at) '
-                "VALUES ($1,$2,$3::bytea,$4,NOW())",
+                "VALUES ($1,$2,$3::bytea,$4::timestamptz,NOW())",
                 grant,
                 sid,
                 "\\x" + self.keyring.token_hash(grant, self.keyring.mint_token()).hex(),

@@ -10,8 +10,9 @@
 ##   9091  FastAPI remotedialer control (the broker process)
 ##   8092  Go worker ingress: GET /mcp-remotedialer-worker (sidecar)
 ##   9092  Go private dispatch: /sources/{id}/{path}, /v1/remotedialer/revoke (sidecar)
+##   8093  Go reverse-h2 ingress: /mcp-remotedialer-{reverse,hold,dispatch,respond} (sidecar)
 ##
-## The Service below adds 8092 and 9092 to the litellm-mcp-broker-dev
+## The Service below adds 8092, 9092, and 8093 to the litellm-mcp-broker-dev
 ## Service so the proxy and the gateway management routes can reach them.
 apiVersion: apps/v1
 kind: Deployment
@@ -42,11 +43,17 @@ spec:
               value: "0.0.0.0:8092"
             - name: MCP_REMOTEDIALER_DATA_LISTEN
               value: "0.0.0.0:9092"
+            - name: MCP_REMOTEDIALER_REVERSE_LISTEN
+              value: "0.0.0.0:8093"
+            - name: MCP_REMOTEDIALER_TRANSPORT
+              value: "reverse-h2"
           ports:
             - name: rd-worker
               containerPort: 8092
             - name: rd-data
               containerPort: 9092
+            - name: rd-reverse
+              containerPort: 8093
           readinessProbe:
             httpGet:
               path: /readyz
@@ -77,6 +84,9 @@ spec:
     - name: rd-data
       port: 9092
       targetPort: 9092
+    - name: rd-reverse
+      port: 8093
+      targetPort: 8093
     - name: remote-control
       port: 9091
       targetPort: 9091
