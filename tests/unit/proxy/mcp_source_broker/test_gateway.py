@@ -1,4 +1,6 @@
-import shlex
+from __future__ import annotations
+
+from typing import Final
 
 import httpx
 import pytest
@@ -9,22 +11,19 @@ from fastapi import FastAPI
 from litellm.proxy._experimental.mcp_server.db import _prepare_mcp_server_data
 from litellm.proxy._types import LitellmUserRoles, NewMCPServerRequest, UpdateMCPServerRequest
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
-from litellm.proxy.mcp_source_broker.control import create_control_app
 from litellm.proxy.mcp_source_broker.gateway import (
     create_gateway_router,
     default_registration,
     mount_mcp_sources_when_enabled,
-    render_installer,
 )
-from litellm.proxy.mcp_source_broker.models import RelayConfig, SourceCreate
-from litellm.proxy.mcp_source_broker.store import Enrollment, SourceStore
+from litellm.proxy.mcp_source_broker.models import SourceCreate
+from litellm.proxy.mcp_source_broker.store import SourceStore
 
 
 @pytest.mark.asyncio
-async def test_gateway_enrolls_and_installs_via_service_auth(
+async def test_gateway_enrolls_catalog_and_registers_mcp_row(
     store: SourceStore,
     source: SourceCreate,
-    settings: RelayConfig,
     respx_mock: MockRouter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -38,7 +37,10 @@ async def test_gateway_enrolls_and_installs_via_service_auth(
     async def artifact(key: str, body: bytes) -> None:
         uploads[key] = body
 
-    control = create_control_app(store, "service-token", settings)
+    class Catalog:
+        def catalog_url(self, path: str) -> str:
+            return f"http://127.0.0.1:4000/install/{path}"
+
     app = FastAPI()
     app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
         user_role=LitellmUserRoles.PROXY_ADMIN, user_id="alice"
@@ -46,24 +48,22 @@ async def test_gateway_enrolls_and_installs_via_service_auth(
     app.include_router(
         create_gateway_router(
             store,
-            settings,
             register,
+            Catalog(),
             "service-token",
-            transport=httpx.ASGITransport(app=control),
+            data_plane_url="http://127.0.0.1:9092",
             artifacts=artifact,
-            pool_url="http://127.0.0.1:9090",
         )
     )
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+        response: Final = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
         assert response.status_code == 201
-        result = response.json()
         assert registrations[0].server_id == source.source_id
-        assert registrations[0].url == f"http://127.0.0.1:9090/sources/{source.source_id}"
+        assert registrations[0].url == f"http://127.0.0.1:9092/sources/{source.source_id}"
         from litellm.proxy._experimental.mcp_server.openapi_to_mcp_generator import create_tool_function
 
         call = create_tool_function("/v1/pets", "get", {}, registrations[0].url)
-        dispatched = respx_mock.get(f"http://127.0.0.1:9090/sources/{source.source_id}/v1/pets").respond(
+        dispatched = respx_mock.get(f"http://127.0.0.1:9092/sources/{source.source_id}/v1/pets").respond(
             200, json={"source": "fixture"}
         )
         tool_result = await call()
@@ -73,114 +73,23 @@ async def test_gateway_enrolls_and_installs_via_service_auth(
         assert registrations[0].mcp_access_groups == [f"mcp-source-{source.source_id}"]
         assert uploads[source.spec_path] == source.spec.encode()
         assert registrations[0].spec_path == f"http://127.0.0.1:4000/install/{source.spec_path}"
-        installer = await client.get(
-            f"/mcp-source-broker/install/{result['enrollment_id']}", params={"token": result["token"]}
-        )
-        assert installer.status_code == 200 and "systemctl --user" in installer.text
-        recovered = await client.get(f"/mcp-source-broker/install/{result['enrollment_id']}")
-        assert recovered.text == installer.text
-        replay = await client.get(
-            f"/mcp-source-broker/install/{result['enrollment_id']}", params={"token": result["token"]}
-        )
-        assert replay.status_code == 404
-
-        await client.post("/mcp-sources", json=source.model_dump(mode="json"))
-        assert len(registrations) == 2
-        assert len(store.db.state.sources) == 1
-        assert store.db.state.sources[0].tenant == "alice"
-        revised_spec = '{"openapi":"3.1.0","paths":{}}'
-        store.db.state.sources[0] = store.db.state.sources[0].model_copy(update={"status": "quarantined"})
-        repeat_response = await client.post(
-            "/mcp-sources", json=source.model_copy(update={"spec": revised_spec}).model_dump(mode="json")
-        )
-        assert repeat_response.status_code == 201
-        assert repeat_response.json()["enrollment_id"] == result["enrollment_id"]
-        changed = source.model_copy(update={"spec": revised_spec})
-        assert store.db.state.sources[0].expected == changed.fingerprint()
-        assert len(store.db.state.members) == 1
-        assert store.db.state.sources[0].status == "pending"
-        app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="bob")
-        assert (await client.get(f"/mcp-source-broker/install/{result['enrollment_id']}")).status_code == 404
-        app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="alice")
-        assert (await client.get(f"/mcp-source-broker/install/{result['enrollment_id']}")).text == installer.text
-        app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
-            user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin"
-        )
-        assert (await client.get(f"/mcp-source-broker/install/{result['enrollment_id']}")).text == installer.text
 
 
 @pytest.mark.asyncio
-async def test_install_requires_user_authentication(
-    store: SourceStore, source: SourceCreate, settings: RelayConfig
-) -> None:
-    grant = await store.enroll(source, source.owner, source.key)
-    claims: list[httpx.Request] = []
-
-    def record_claim(request: httpx.Request) -> httpx.Response:
-        claims.append(request)
-        return httpx.Response(500)
+async def test_enroll_requires_admin(store: SourceStore, source: SourceCreate) -> None:
+    class Catalog:
+        def catalog_url(self, path: str) -> str:
+            return f"http://127.0.0.1:4000/install/{path}"
 
     async def register(request: NewMCPServerRequest) -> None:
         pass
 
     app = FastAPI()
-    app.include_router(
-        create_gateway_router(
-            store,
-            settings,
-            register,
-            "service-token",
-            transport=httpx.MockTransport(record_claim),
-        )
-    )
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="mallory")
+    app.include_router(create_gateway_router(store, register, Catalog(), "service-token"))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-        assert (await client.get(f"/mcp-source-broker/install/{grant.enrollment_id}")).status_code == 404
-        assert claims == []
-
-
-def test_relay_urls(settings: RelayConfig) -> None:
-    from pydantic import ValidationError
-
-    acceptable = RelayConfig(**{**settings.model_dump(), "public_url": "https://gateway.example/client/"})
-    assert acceptable.public_url == "https://gateway.example/client"
-    assert acceptable.catalog_url("artifact") == "http://127.0.0.1:4000/install/artifact"
-    local_config = RelayConfig(**{**settings.model_dump(), "public_url": "http://localhost:4000"})
-    assert local_config.public_url == "http://localhost:4000"
-    values = (
-        "https://relay.example",
-        "https://relay.example/mcp-worker?next=x",
-        "https://relay.example/a/../mcp-worker",
-    )
-    for value in values:
-        with pytest.raises(ValidationError, match="URL"):
-            RelayConfig(**{**settings.model_dump(), "relay_url": value})
-
-
-@pytest.mark.asyncio
-async def test_installer_pinned_download_checksum_and_persisted_lease(
-    store: SourceStore, source: SourceCreate, settings: RelayConfig
-) -> None:
-    result = await store.enroll(source, source.owner, "key")
-    claim = await store.claim(result.enrollment_id, result.token)
-    assert claim is not None
-    script = render_installer(claim, settings)
-    assert script.startswith("#!/bin/sh\nset -eu")
-    assert "/install/chisel/1.12.0/linux_amd64.gz" in script
-    assert '[ "$actual" = "$expected" ]' in script
-    assert "eval" not in script and "--tls-skip-verify" not in script and "sudo" not in script
-    assert "mcp-source-connector.service" in script and "$HOME/.config/systemd/user" in script
-    assert f"R:{claim.member.relay_host}:{claim.member.relay_port}:127.0.0.1:18080" in script
-    exec_line = next(line for line in script.splitlines() if line.startswith("ExecStart="))
-    tokens = shlex.split(exec_line.removeprefix("ExecStart="))
-    assert tokens[0:2] == ["/bin/sh", "-c"]
-    command = shlex.split(tokens[2])
-    assert command[0] == "${CONNECTOR_STATE}/chisel" and command[1:3] == ["client", settings.relay_url]
-    assert command[command.index("--fingerprint") + 1] == settings.fingerprint
-    assert command[command.index("--auth") + 1] == "${CONNECTOR_AUTH}"
-    assert "R:" in tokens[2] and "service-token" not in tokens[2]
-    assert 'chmod 600 "$state/connector.env"' in script
-    assert shlex.quote(f"{claim.username}:{claim.password}") in script
-    assert not any(line.startswith("echo") and claim.password in line for line in script.splitlines())
+        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+        assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -188,7 +97,7 @@ async def test_registration_inner_factory_registers(source: SourceCreate, monkey
     monkeypatch.setenv("LITELLM_SALT_KEY", "unit-test-only")
     mcp = NewMCPServerRequest(
         server_id=source.source_id,
-        url="http://127.0.0.1:9090/" + source.source_id,
+        url="http://127.0.0.1:9092/" + source.source_id,
         spec_path="/install/catalog",
         mcp_info={"owner": "alice"},
     )
@@ -230,20 +139,18 @@ async def test_registration_inner_factory_registers(source: SourceCreate, monkey
 
 @pytest.mark.asyncio
 async def test_mount_after_prisma_initialization(
-    monkeypatch, settings: RelayConfig, store: SourceStore, source: SourceCreate
+    monkeypatch, store: SourceStore, source: SourceCreate
 ) -> None:
     async def test_enabled_mount():
         monkeypatch.setenv("MCP_SOURCE_BROKER_ENABLED", "true")
-        monkeypatch.setenv("MCP_SOURCE_BROKER_RELAY_URL", settings.relay_url)
-        monkeypatch.setenv("MCP_SOURCE_BROKER_PUBLIC_URL", settings.public_url)
-        monkeypatch.setenv("MCP_SOURCE_BROKER_FINGERPRINT", settings.fingerprint)
-        monkeypatch.setenv("MCP_SOURCE_BROKER_CHISEL_SHA256", settings.chisel_sha256)
         monkeypatch.setenv("MCP_SOURCE_BROKER_PEPPER", "test-only-pepper-at-least-32-characters-long")
         monkeypatch.setenv("MCP_SOURCE_BROKER_SERVICE_TOKEN", "test-only-service-token")
         app = FastAPI()
         mount_mcp_sources_when_enabled(app, object(), object(), store=store)
         routes = {route.path for route in app.routes}
-        assert "/mcp-sources" in routes and "/mcp-source-broker/install/{grant_id}" in routes
+        assert "/mcp-sources" in routes
+        assert "/mcp-remotedialer-sources/{source_id}/workers" in routes
+        assert all("install" not in path for path in routes), "installer routes must be gone"
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
             assert (await client.post("/mcp-sources", json=source.model_dump(mode="json"))).status_code == 403
 

@@ -41,14 +41,10 @@ spec:
           env:
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
+            - name: MCP_REMOTEDIALER_ENABLED
+              value: "true"
             - name: LITELLM_LOCAL_MODEL_COST_MAP
               value: "true"
-            - name: MCP_SOURCE_BROKER_RELAY_URL
-              value: https://litellm.ecouncil.ae/mcp-worker
-            - name: MCP_SOURCE_BROKER_PUBLIC_URL
-              value: https://litellm.ecouncil.ae/mcp-source-broker/public
-            - name: MCP_SOURCE_BROKER_CHISEL_SHA256
-              value: f3f180f1d93aa72cce4e6386f98cc06569a0146fbd65eb4423cf83e6434bcfe6
             - name: PRISMA_BINARY_CACHE_DIR
               value: /opt/prisma/binaries
             - name: PRISMA_CLI_QUERY_ENGINE_TYPE
@@ -63,11 +59,6 @@ spec:
                 secretKeyRef:
                   name: litellm-mcp-source-broker-dev
                   key: service-token
-            - name: MCP_SOURCE_BROKER_FINGERPRINT
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-mcp-source-broker-dev
-                  key: fingerprint
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -90,7 +81,7 @@ spec:
                   key: dbname
           ports:
             - name: control
-              containerPort: 8089
+              containerPort: 9091
           readinessProbe:
             httpGet:
               path: /health
@@ -114,35 +105,6 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
-        - name: relay
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5
-          imagePullPolicy: Always
-          command: ["/usr/local/bin/mcp-relay-entrypoint"]
-          env:
-            - name: MCP_SOURCE_BROKER_URL
-              value: http://127.0.0.1:8089
-            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-mcp-source-broker-dev
-                  key: service-token
-            - name: MCP_SOURCE_BROKER_HOST_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-mcp-source-broker-dev
-                  key: relay-host-key
-            - name: PRISMA_BINARY_CACHE_DIR
-              value: /opt/prisma/binaries
-          ports:
-            - name: worker
-              containerPort: 8088
-          resources:
-            requests:
-              cpu: 100m
-              memory: 64Mi
-            limits:
-              cpu: "1"
-              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -155,12 +117,6 @@ spec:
   selector:
     app: litellm-mcp-broker-dev
   ports:
-    - name: worker
-      port: 8088
-      targetPort: 8088
     - name: control
-      port: 8089
-      targetPort: 8089
-    - name: dispatch
-      port: 9090
-      targetPort: 9090
+      port: 9091
+      targetPort: 9091

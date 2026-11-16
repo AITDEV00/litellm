@@ -24,21 +24,11 @@ class Keys:
     def token_hash(self, grant_id: str, token: str) -> bytes:
         return self._hmac("enrollment-token", grant_id, token)
 
-    def password(self, grant_id: str, connector_id: str) -> str:
-        return self._hmac("connector", grant_id, connector_id).hex()
-
-    def digest(self, grant_id: str, connector_id: str) -> bytes:
-        return self._hmac("credential", grant_id, self.password(grant_id, connector_id))
-
     def remote_credential(self, grant_id: str, worker_id: str, generation: int) -> str:
         return self._hmac("remotedialer-credential", grant_id, worker_id, str(generation)).hex()
 
     def remote_digest(self, grant_id: str, worker_id: str, generation: int) -> str:
         return hashlib.sha256(self.remote_credential(grant_id, worker_id, generation).encode()).hexdigest()
-
-    @staticmethod
-    def username(connector_id: str) -> str:
-        return f"source-{connector_id.replace('-', '')[:24]}"
 
     def gateway_ciphertext(self, key: str) -> str:
         return self._hmac("gateway", key).hex()

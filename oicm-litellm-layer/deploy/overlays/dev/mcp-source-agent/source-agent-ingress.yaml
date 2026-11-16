@@ -1,7 +1,7 @@
 ## Public ingress for the source-agent connector upgrade. The agent on a
 ## source host initiates the WSS connection here; nothing on the source
 ## host listens. Exact path match keeps it disjoint from /mcp-worker
-## (chisel) and /mcp-remotedialer-worker (Go remotedialer).
+## (retired) and /mcp-remotedialer-worker (Go remotedialer).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

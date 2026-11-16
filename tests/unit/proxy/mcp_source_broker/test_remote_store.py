@@ -23,7 +23,7 @@ PEPPER: Final = "p" * 32
 
 
 class FakeTx:
-    def __init__(self, database: "RemoteMemoryDatabase") -> None:
+    def __init__(self, database: RemoteMemoryDatabase) -> None:
         self.database: Final = database
 
     async def query_raw(self, sql: str, *args: object) -> object:
@@ -32,7 +32,7 @@ class FakeTx:
     async def execute_raw(self, sql: str, *args: object) -> int:
         return await self.database.execute_raw(sql, *args)
 
-    async def __aenter__(self) -> "FakeTx":
+    async def __aenter__(self) -> FakeTx:
         return self
 
     async def __aexit__(self, kind: object, error: object, tb: TracebackType | None) -> None:
@@ -77,8 +77,6 @@ class RemoteMemoryDatabase:
                     continue
                 rows.append({"worker": worker.model_dump(), "expected": source.expected})
             return rows
-        if 'SELECT remote_transport FROM "OicmMcpSource"' in sql:
-            return [{"remote_transport": "chisel"} for _ in self.sources if str(args[0])]
         if "SELECT worker_id FROM" in sql:
             return [
                 {"worker_id": w.worker_id}
@@ -90,18 +88,6 @@ class RemoteMemoryDatabase:
     async def execute_raw(self, sql: str, *args: object) -> int:
         if "CREATE TABLE" in sql or "ADD COLUMN" in sql or "pg_advisory_xact_lock" in sql:
             return 0
-        if "SET redeemed_at=NOW(),status='active'" in sql:
-            worker = self._worker_by_id(str(args[0]))
-            if (
-                worker is not None
-                and worker.status == "pending"
-                and worker.redeemed_at is None
-                and worker.token_hash == self._hex(args[1])
-                and worker.expires_at > self.now
-            ):
-                self._replace(worker, worker.model_copy(update={"redeemed_at": self.now, "status": "active"}))
-                return 1
-            return 0
         if "SET generation=$2,status=$3" in sql:
             worker = self._worker_by_id(str(args[0]))
             if worker is not None:
@@ -111,12 +97,7 @@ class RemoteMemoryDatabase:
                 )
                 return 1
             return 0
-        if "SET healthy_at=NULL,catalog_fingerprint=NULL" in sql:
-            worker = self._worker_by_id(str(args[0]))
-            if worker is not None:
-                self._replace(worker, worker.model_copy(update={"healthy_at": None, "catalog_fingerprint": None}))
-            return 1
-        if "SET token_hash=$2::bytea,expires_at=$3::timestamptz,redeemed_at=NULL" in sql:
+        if "SET healthy_at=NULL,catalog_fingerprint=NULL,token_hash=$2::bytea" in sql:
             worker = self._worker_by_id(str(args[0]))
             if worker is not None:
                 expires = args[2]
@@ -125,10 +106,10 @@ class RemoteMemoryDatabase:
                     worker,
                     worker.model_copy(
                         update={
+                            "healthy_at": None,
+                            "catalog_fingerprint": None,
                             "token_hash": self._hex(args[1]),
                             "expires_at": expires,
-                            "redeemed_at": None,
-                            "status": "pending",
                         }
                     ),
                 )
@@ -157,6 +138,7 @@ class RemoteMemoryDatabase:
         if 'INSERT INTO "OicmMcpRemoteWorker"' in sql:
             expires_inserted = args[8]
             assert isinstance(expires_inserted, datetime)
+            assert "NOW()" in sql and "'active'" in sql, "membership must be born redeemed and active"
             self.workers.append(
                 RemoteWorkerRow(
                     worker_id=str(args[0]),
@@ -168,10 +150,10 @@ class RemoteMemoryDatabase:
                     proof_key=str(args[6]),
                     token_hash=self._hex(args[7]),
                     expires_at=expires_inserted,
-                    redeemed_at=None,
+                    redeemed_at=self.now,
                     healthy_at=None,
                     catalog_fingerprint=None,
-                    status="pending",
+                    status="active",
                     generation=1,
                     enrollment_id=str(args[9]),
                 )
@@ -236,19 +218,15 @@ def peer() -> RemotePeer:
 
 
 @pytest.mark.asyncio
-async def test_token_redeems_once_and_activates_worker() -> None:
+async def test_create_peer_activates_membership_without_installer_tokens() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
     assert created is not None
-    assert broker.worker.status == "pending"
-    install: Final = await broker.store.config(created.worker_id, created.enrollment_token)
-    assert install is not None and install.credential == broker.keys.remote_credential(
-        broker.worker.enrollment_id, broker.worker.worker_id, broker.worker.generation
-    )
-    replayed: Final = await broker.store.config(created.worker_id, created.enrollment_token)
-    assert replayed is None, "one-time token must not redeem twice"
-    bad: Final = await broker.store.config(created.worker_id, "wrong-token")
-    assert bad is None
+    assert created.worker_id and created.label == "worker-a"
+    assert "install_path" not in created.model_dump()
+    assert "enrollment_token" not in created.model_dump()
+    assert broker.worker.status == "active"
+    assert broker.worker.redeemed_at is not None, "membership anchor is pre-redeemed; no installer redemption exists"
 
 
 @pytest.mark.asyncio
@@ -256,7 +234,6 @@ async def test_report_admits_only_matching_catalog() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
     assert created is not None
-    await broker.store.config(created.worker_id, created.enrollment_token)
     admitted: Final = await broker.store.report(created.worker_id, 1, "f" * 64)
     assert admitted, "matching fingerprint must activate the source"
     assert broker.db.sources[0].status == "active"
@@ -268,21 +245,18 @@ async def test_report_admits_only_matching_catalog() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_drain_revoke_and_recover_rotate_generation() -> None:
+async def test_lifecycle_drain_keeps_generation_and_recover_rotates_it() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
     assert created is not None
-    await broker.store.config(created.worker_id, created.enrollment_token)
+    broker.db.workers[0] = broker.worker.model_copy(update={"status": "active"})
     drained: Final = await broker.store.lifecycle(created.worker_id, "drain", 1)
     assert drained is not None and drained.phase == "draining" and drained.generation == 1
     stale: Final = await broker.store.lifecycle(created.worker_id, "revoke", 99)
     assert stale is None, "stale generation must be rejected"
     recovered: Final = await broker.store.lifecycle(created.worker_id, "recover", 1)
     assert recovered is not None and recovered.phase == "active" and recovered.generation == 2
-    assert recovered.enrollment_token is not None
-    reinstalled: Final = await broker.store.config(created.worker_id, recovered.enrollment_token)
-    assert reinstalled is not None, "recovery token must redeem after status returns to pending"
-    assert reinstalled.generation == 2
+    assert "enrollment_token" not in recovered.model_dump()
 
 
 @pytest.mark.asyncio
@@ -290,14 +264,11 @@ async def test_revoke_is_terminal() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
     assert created is not None
-    await broker.store.config(created.worker_id, created.enrollment_token)
     revoked: Final = await broker.store.lifecycle(created.worker_id, "revoke", 1)
     assert revoked is not None and revoked.phase == "revoked" and revoked.generation == 2
     assert broker.worker.healthy_at is None and broker.worker.catalog_fingerprint is None
     readmission: Final = await broker.store.lifecycle(created.worker_id, "recover", 2)
     assert readmission is None, "revoked workers must not be recoverable; a new membership is required"
-    drained: Final = await broker.store.lifecycle(created.worker_id, "drain", 2)
-    assert drained is None
 
 
 @pytest.mark.asyncio
@@ -305,7 +276,6 @@ async def test_peers_publish_plain_sha256_digest_matching_go_contract() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
     assert created is not None
-    await broker.store.config(created.worker_id, created.enrollment_token)
     await broker.store.report(created.worker_id, 1, "f" * 64)
     listed: Final = await broker.store.peers()
     assert len(listed) == 1
@@ -326,3 +296,47 @@ async def test_create_peer_rejects_duplicate_label_and_revoked_source() -> None:
     assert duplicate is None
     missing: Final = await broker.store.create_peer("missing-source", peer())
     assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_control_app_peers_requires_bearer_header_not_query() -> None:
+    """The Go worker sends the service token in the Authorization header."""
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_control_app
+
+    broker: Final = make_broker()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+
+    class StoreWithRemote:
+        remote: RemoteStore = broker.store
+
+    secret: Final = "service-secret-for-control-app"
+    app: Final = FastAPI()
+    app.mount("/", create_remote_control_app(StoreWithRemote(), secret))
+    transport: Final = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        denied: Final = await client.get("/v1/remotedialer/peers")
+        assert denied.status_code == 401, "missing header must be rejected"
+        wrong_header: Final = await client.get(
+            "/v1/remotedialer/peers", headers={"Authorization": f"Bearer wrong-{secret}"}
+        )
+        assert wrong_header.status_code == 401
+        as_query: Final = await client.get(
+            "/v1/remotedialer/peers", params={"authorization": f"Bearer {secret}"}
+        )
+        assert as_query.status_code == 401, "token passed as query parameter must not authenticate"
+        ok: Final = await client.get("/v1/remotedialer/peers", headers={"Authorization": f"Bearer {secret}"})
+        assert ok.status_code == 200
+        listed: Final = ok.json()
+        assert len(listed) == 1 and listed[0]["worker_id"] == created.worker_id
+        reported: Final = await client.post(
+            "/v1/remotedialer/report",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={"worker_id": created.worker_id, "generation": 1, "catalog_fingerprint": "f" * 64},
+        )
+        assert reported.status_code == 200 and reported.json() == {"admitted": True}
+        probe: Final = await client.get("/health")
+        assert probe.status_code == 200, "kubelet probes must not need the service token"

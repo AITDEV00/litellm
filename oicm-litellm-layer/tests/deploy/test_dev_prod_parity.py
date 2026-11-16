@@ -68,13 +68,9 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
 _BROKER_ONLY_ENV_VARS: Final = frozenset(
     {
         "MCP_SOURCE_BROKER_ENABLED",
-        "MCP_SOURCE_BROKER_PUBLIC_URL",
-        "MCP_SOURCE_BROKER_RELAY_URL",
-        "MCP_SOURCE_BROKER_CHISEL_SHA256",
         "MCP_SOURCE_BROKER_PEPPER",
         "MCP_SOURCE_BROKER_SERVICE_TOKEN",
-        "MCP_SOURCE_BROKER_FINGERPRINT",
-        "MCP_REMOTEDIALER_SHA256",
+        "SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64",
     }
 )
 
@@ -208,9 +204,6 @@ def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dic
         "Service/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-rustfs-dev-source-broker",
-        "Ingress/litellm-mcp-worker-dev",
-        "Ingress/litellm-mcp-enrollment-dev",
-        "Ingress/litellm-mcp-public-mirror-dev",
         "Ingress/litellm-mcp-remotedialer-worker-dev",
     }
     assert set(dev) == expected | broker, (
@@ -462,9 +455,7 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
         "Service/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-rustfs-dev-source-broker",
-        "Ingress/litellm-mcp-worker-dev",
-        "Ingress/litellm-mcp-enrollment-dev",
-        "Ingress/litellm-mcp-public-mirror-dev",
+
         "Ingress/litellm-mcp-remotedialer-worker-dev",
     }
     gateway = {

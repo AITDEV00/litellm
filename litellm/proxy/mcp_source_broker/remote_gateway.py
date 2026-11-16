@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import hmac
-import json
 import os
-import shlex
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Annotated, Final, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 
 from litellm.proxy._types import LitellmUserRoles
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
-from litellm.proxy.mcp_source_broker.control import service_authenticated
 from litellm.proxy.mcp_source_broker.models import (
     LifecycleRequest,
     RemoteGoPeer,
@@ -21,7 +17,6 @@ from litellm.proxy.mcp_source_broker.models import (
     RemoteLifecycle,
     RemotePeer,
     RemotePeerResponse,
-    RemoteRemoteInstall,
     RouteSelection,
 )
 from litellm.proxy.mcp_source_broker.store import SourceStore
@@ -33,8 +28,11 @@ async def administrator(user: Annotated[UserAPIKeyAuth, Depends(user_api_key_aut
     return user
 
 
-def remote_public_install_path(worker_id: str, source_id: str, token: str | None = None) -> str:
-    return f"/mcp-remotedialer-sources/{source_id}/workers/{worker_id}/install" + (f"?token={token}" if token else "")
+async def service_authenticated(
+    secret: str, authorization: Annotated[str | None, Header(alias="authorization")] = None
+) -> None:
+    if not hmac.compare_digest(authorization or "", f"Bearer {secret}"):
+        raise HTTPException(401, "service authentication required")
 
 
 async def revoke_remote_worker(
@@ -65,9 +63,8 @@ LIFECYCLE_ACTIONS: Final[Mapping[str, Literal["drain", "revoke", "recover"]]] = 
 def create_remote_gateway_router(
     store: SourceStore,
     service_secret: str,
-    worker_sha256: str,
     *,
-    route: Callable[[str, bool], Awaitable[None]],
+    route: Callable[[str], Awaitable[None]],
     control_url: str = "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9091",
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> APIRouter:
@@ -85,7 +82,7 @@ def create_remote_gateway_router(
         source_id: str, selection: RouteSelection, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
     ) -> RouteSelection:
         del user
-        await route(source_id, selection.transport == "remotedialer")
+        await route(source_id)
         return selection
 
     @router.post("/mcp-remotedialer-sources/{source_id}/workers", response_model=RemotePeerResponse, status_code=201)
@@ -97,25 +94,6 @@ def create_remote_gateway_router(
         if created is None:
             raise HTTPException(409, "source or worker label is unavailable")
         return created
-
-    @router.get(
-        "/mcp-remotedialer-sources/{source_id}/workers/{worker_id}/install",
-        response_class=Response,
-    )
-    async def install(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
-        source_id: str,
-        worker_id: str,
-        token: str | None = None,
-    ) -> Response:
-        if token is None:
-            raise HTTPException(403, "enrollment token required")
-        found: Final = await store.remote.worker(worker_id)
-        if found is None or found.source_id != source_id:
-            raise HTTPException(404, "connector installation unavailable")
-        config: Final = await store.remote.config(worker_id, token)
-        if config is None:
-            raise HTTPException(410, "enrollment token is invalid, expired, or redeemed")
-        return Response(render_remote_installer(config, worker_sha256), media_type="text/x-shellscript")
 
     @router.post(
         "/mcp-remotedialer-sources/{source_id}/workers/{worker_id}/{action}",
@@ -144,51 +122,6 @@ def create_remote_gateway_router(
     return router
 
 
-def render_remote_installer(config: RemoteRemoteInstall, expected_sha256: str) -> str:
-    if len(expected_sha256) != 64 or any(character not in "0123456789abcdef" for character in expected_sha256):
-        raise ValueError("worker checksum must be SHA-256")
-    settings: Final = json.dumps(config.model_dump(), separators=(",", ":"), sort_keys=True)
-    unit: Final = f"mcp-remotedialer-{config.worker_id[:8]}.service"
-    worker_url: Final = os.environ.get(
-        "MCP_REMOTEDIALER_PUBLIC_URL", "https://litellm.ecouncil.ae/mcp-remotedialer-worker"
-    )
-    download: Final = os.environ.get(
-        "MCP_REMOTEDIALER_BINARY_URL",
-        "https://litellm.ecouncil.ae/mcp-source-broker/public/install/remotedialer/source-link",
-    )
-    return f"""#!/bin/sh
-set -eu
-umask 077
-state="$HOME/.config/oicm-remotedialer-{config.worker_id}"
-mkdir -p "$state" "$HOME/.config/systemd/user"
-chmod 700 "$state" "$HOME/.config/systemd/user"
-curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --output "$state/source-link.new" {shlex.quote(download)}
-actual=$(sha256sum "$state/source-link.new" | cut -d ' ' -f 1)
-[ "$actual" = {shlex.quote(expected_sha256)} ] || {{ echo 'connector checksum mismatch' >&2; exit 1; }}
-chmod 500 "$state/source-link.new"
-mv -f "$state/source-link.new" "$state/source-link"
-printf %s {shlex.quote(settings)} > "$state/connector.json"
-printf 'MCP_REMOTEDIALER_CONNECTOR_CONFIG=%s\\nMCP_REMOTEDIALER_PUBLIC_URL=%s\\n' "$state/connector.json" {shlex.quote(worker_url)} > "$state/connector.env"
-chmod 600 "$state/connector.json" "$state/connector.env"
-cat > "$HOME/.config/systemd/user/{unit}" <<'UNIT'
-[Unit]
-Description=OICM remotedialer source {config.worker_id}
-
-[Service]
-Restart=always
-RestartSec=2s
-EnvironmentFile=%h/.config/oicm-remotedialer-{config.worker_id}/connector.env
-ExecStart=%h/.config/oicm-remotedialer-{config.worker_id}/source-link connector
-NoNewPrivileges=yes
-
-[Install]
-WantedBy=default.target
-UNIT
-systemctl --user daemon-reload
-systemctl --user enable --now {unit}
-"""
-
-
 async def invalidate_local_adapter(worker_id: str, source_id: str) -> None:
     if not worker_id:
         raise HTTPException(400)
@@ -211,6 +144,10 @@ def create_remote_control_app(
     if not service_secret:
         raise ValueError("service secret required")
     app: Final = FastAPI()
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
+        return {"status": "ok"}
 
     @app.post("/v1/remotedialer/revoke", status_code=204)
     async def revoke_local(request: Request) -> None:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route

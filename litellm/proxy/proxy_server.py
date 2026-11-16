@@ -21063,6 +21063,7 @@ app.include_router(agent_skills_discovery_router)
 app.include_router(google_router)
 
 from litellm.proxy.client_distribution.routes import router as client_distribution_router
+from litellm.proxy.client_distribution.source_agent_distribution import router as source_agent_distribution_router
 from litellm.proxy.diarization_routes import router as oicm_diarization_router
 from litellm.proxy.oicm_routes import router as oicm_status_router
 from litellm.proxy.openrouter_compat.routes import router as openrouter_compat_router
@@ -21070,6 +21071,7 @@ from litellm.proxy.voice_routes import router as oicm_voice_router
 
 app.include_router(oicm_voice_router)
 app.include_router(oicm_status_router)
+app.include_router(source_agent_distribution_router)
 app.include_router(client_distribution_router)
 app.include_router(oicm_diarization_router)
 app.include_router(openrouter_compat_router)

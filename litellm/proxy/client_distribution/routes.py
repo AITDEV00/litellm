@@ -31,10 +31,10 @@ from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_au
 from litellm.proxy.client_distribution.generator import (
     MirrorManifest,
     get_baked_preset,
+    get_template,
     manifest_from_json,
     render_install_script,
 )
-from litellm.proxy.client_distribution.generator import get_template
 from litellm.proxy.client_distribution.storage import (
     RustFSConfig,
     create_s3_client,
@@ -347,7 +347,7 @@ async def admin_put_artifact(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="object store error",
             ) from exc
-        pass  # Object doesn't exist yet; proceed to upload
+        # Object doesn't exist yet; proceed to upload
 
     if not unchanged:
         await asyncio.to_thread(
@@ -408,7 +408,7 @@ async def admin_delete_artifact(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="object store error",
             ) from exc
-        pass  # No manifest yet; nothing references the object
+        # No manifest yet; nothing references the object
 
     await asyncio.to_thread(s3.delete_object, Bucket=config.bucket, Key=key)
     return {"ok": True, "path": key}

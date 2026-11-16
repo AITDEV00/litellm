@@ -15,9 +15,7 @@ from litellm.proxy.mcp_source_broker.models import (
     RemoteLifecycle,
     RemotePeer,
     RemotePeerResponse,
-    RemoteRemoteInstall,
     SourceRecord,
-    Target,
 )
 from litellm.proxy.mcp_source_broker.store import Database, SQLDatabase, postgres_json_row
 
@@ -108,11 +106,9 @@ class RemoteStore:
                 return None
             worker_id: Final = str(uuid5(NAMESPACE, f"remote-worker:{source_id}:{peer.label}"))
             grant_id: Final = self.keys.enrollment_id(source_id)
-            token: Final = self.keys.mint_token()
-            expires: Final = datetime.now(timezone.utc) + timedelta(minutes=10)
             await tx.execute_raw(
                 'INSERT INTO "OicmMcpRemoteWorker" (' + REMOTE_COLUMNS + ") "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::bytea,$9::timestamptz,NULL,NULL,NULL,'pending',1,$10)",
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::bytea,$9,NOW(),NULL,NULL,'active',1,$10)",
                 worker_id,
                 source_id,
                 peer.label,
@@ -120,44 +116,17 @@ class RemoteStore:
                 peer.target.port,
                 peer.dataset_id,
                 peer.proof_key,
-                "\\x" + self.keys.token_hash(grant_id, token).hex(),
-                expires,
+                "\\x" + self.keys.token_hash(grant_id, self.keys.mint_token()).hex(),
+                datetime.now(timezone.utc) + timedelta(minutes=10),
                 grant_id,
             )
             return RemotePeerResponse(
                 worker_id=worker_id,
                 source_id=source_id,
-                enrollment_token=token,
-                install_path=f"/mcp-remotedialer-sources/{source_id}/workers/{worker_id}/install?token={token}",
-                expires_at=expires,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
                 label=peer.label,
                 dataset_id=peer.dataset_id,
             )
-
-    async def config(self, worker_id: str, token: str | None) -> RemoteRemoteInstall | None:
-        worker: Final = await self.worker(worker_id)
-        if worker is None or worker.status not in {"pending", "active"}:
-            return None
-        if token is not None:
-            claimed: Final = await self.db.execute_raw(
-                "UPDATE \"OicmMcpRemoteWorker\" SET redeemed_at=NOW(),status='active' WHERE worker_id=$1 "
-                "AND token_hash=$2::bytea AND redeemed_at IS NULL AND expires_at>NOW() AND status='pending'",
-                worker_id,
-                "\\x" + self.keys.token_hash(worker.enrollment_id, token).hex(),
-            )
-            if claimed != 1:
-                return None
-        return self.install(worker)
-
-    def install(self, worker: RemoteWorkerRow) -> RemoteRemoteInstall:
-        return RemoteRemoteInstall(
-            worker_id=worker.worker_id,
-            source_id=worker.source_id,
-            target=Target(host=worker.target_host, port=worker.target_port),
-            dataset_id=worker.dataset_id,
-            generation=worker.generation,
-            credential=self.keys.remote_credential(worker.enrollment_id, worker.worker_id, worker.generation),
-        )
 
     async def lifecycle(
         self,
@@ -192,29 +161,14 @@ class RemoteStore:
             )
             if action in {"revoke", "recover"}:
                 await tx.execute_raw(
-                    'UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL,catalog_fingerprint=NULL WHERE worker_id=$1',
+                    'UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL,catalog_fingerprint=NULL,token_hash=$2::bytea,'
+                    "expires_at=$3::timestamptz WHERE worker_id=$1",
                     worker_id,
+                    "\\x" + self.keys.token_hash(worker.enrollment_id, self.keys.mint_token()).hex(),
+                    datetime.now(timezone.utc) + timedelta(minutes=10),
                 )
-            if action != "recover":
-                return RemoteLifecycle(
-                    worker_id=worker_id, source_id=worker.source_id, phase=result_phase, generation=next_generation
-                )
-            token: Final = self.keys.mint_token()
-            expires: Final = datetime.now(timezone.utc) + timedelta(minutes=10)
-            await tx.execute_raw(
-                'UPDATE "OicmMcpRemoteWorker" SET token_hash=$2::bytea,expires_at=$3::timestamptz,redeemed_at=NULL,'
-                "status='pending' WHERE worker_id=$1",
-                worker_id,
-                "\\x" + self.keys.token_hash(worker.enrollment_id, token).hex(),
-                expires,
-            )
             return RemoteLifecycle(
-                worker_id=worker_id,
-                source_id=worker.source_id,
-                phase=result_phase,
-                generation=next_generation,
-                install_path=f"/mcp-remotedialer-sources/{worker.source_id}/workers/{worker_id}/install?token={token}",
-                enrollment_token=token,
+                worker_id=worker_id, source_id=worker.source_id, phase=result_phase, generation=next_generation
             )
 
     async def report(self, worker_id: str, generation: int, fingerprint: str | None) -> bool:

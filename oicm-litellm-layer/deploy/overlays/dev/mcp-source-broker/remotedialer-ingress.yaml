@@ -1,7 +1,6 @@
 ## Public ingress for the remotedialer connector upgrade. The connector on a
 ## source host initiates the WSS connection here; nothing on the source host
-## listens. Exact path match keeps it disjoint from the chisel /mcp-worker
-## route owned by litellm-mcp-worker-dev.
+## listens. This is the only transport ingress the broker owns.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
