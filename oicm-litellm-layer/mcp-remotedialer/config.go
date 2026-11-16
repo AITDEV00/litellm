@@ -27,7 +27,7 @@ type config struct {
 
 const (
 	transportRemotedialer = "remotedialer"
-	transportReverseH2     = "reverse-h2"
+	transportReverseH2    = "reverse-h2"
 )
 
 type peer struct {

@@ -216,7 +216,7 @@ func TestSyntheticCredentials(t *testing.T) {
 	}
 }
 
-func TestSignedPeerReadSharingAndRevoke(t *testing.T) { 
+func TestSignedPeerReadSharingAndRevoke(t *testing.T) {
 	pub, signing, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

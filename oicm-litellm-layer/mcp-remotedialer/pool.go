@@ -68,13 +68,12 @@ func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var chosen *dispatchMember
-	consider := func(id string, ready bool) {
+	consider := func(id string) {
 		if r.drained[id] {
 			return
 		}
 		if chosen == nil || r.inFlight[id] < r.inFlight[chosen.workerID()] ||
 			(r.inFlight[id] == r.inFlight[chosen.workerID()] && r.last[id] < r.last[chosen.workerID()]) {
-			_ = ready
 			chosen = &dispatchMember{session: r.sessions[id], reverse: r.reverse[id]}
 		}
 	}
@@ -85,7 +84,7 @@ func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {
 			!member.ready(sourceID) || r.inFlight[member.workerID] >= 64 {
 			continue
 		}
-		consider(member.workerID, true)
+		consider(member.workerID)
 	}
 	for id, session := range r.reverse {
 		worker, ok := r.state.peer(id)
@@ -94,7 +93,7 @@ func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {
 			!session.ready(sourceID) || r.inFlight[id] >= 64 {
 			continue
 		}
-		consider(id, true)
+		consider(id)
 	}
 	if chosen != nil {
 		r.serial++
@@ -182,7 +181,7 @@ func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID
 			for _, name := range []string{"Accept", "Accept-Encoding", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id", "If-None-Match", "If-Modified-Since"} {
 				for _, value := range req.Header.Values(name) {
 					out.Out.Header.Add(name, value)
-			}
+				}
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {

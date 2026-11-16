@@ -27,7 +27,7 @@ func (r *runtime) registerReverse(req *http.Request) (*reverseSession, error) {
 		return nil, errors.New("reverse session exists")
 	}
 	session := &reverseSession{
-		workerID: worker.WorkerID, sourceID: worker.SourceID, generation: worker.Generation,
+		workerID: worker.WorkerID, sourceID: worker.SourceID, generation: worker.Generation, deadline: reverseResponseDeadline,
 		closed: make(chan struct{}), pending: make(chan dispatchRequest, 128), inflight: make(map[string]chan dispatchResponse),
 	}
 	session.onClose = func() { r.removeReverse(session) }
@@ -117,7 +117,12 @@ func (r *runtime) reverseRespond(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var payload dispatchResponse
-	if err := json.NewDecoder(io.LimitReader(req.Body, reverseMaxBody)).Decode(&payload); err != nil {
+	decode := json.NewDecoder(io.LimitReader(req.Body, reverseMaxBody))
+	if err := decode.Decode(&payload); err != nil {
+		// Drain the rejected upload so the connector's body write can
+		// finish and observe the status instead of wedging on flow
+		// control with the response already refused.
+		_, _ = io.Copy(io.Discard, io.LimitReader(req.Body, 2*reverseMaxBody))
 		http.Error(w, "invalid dispatch response", http.StatusBadRequest)
 		return
 	}

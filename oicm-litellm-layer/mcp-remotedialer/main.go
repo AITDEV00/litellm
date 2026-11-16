@@ -312,8 +312,16 @@ func reverseTunnelSession(ctx context.Context, client *http.Client, base string,
 					_ = done
 					return
 				}
+				status := done.StatusCode
 				_, _ = io.Copy(io.Discard, io.LimitReader(done.Body, 4096))
 				_ = done.Body.Close()
+				if status != http.StatusNoContent {
+					select {
+					case lost <- struct{}{}:
+					default:
+					}
+					return
+				}
 			}
 		}()
 	}
@@ -337,9 +345,15 @@ func executeDispatch(ctx context.Context, origin *http.Transport, item dispatchR
 		return dispatchResponse{}, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, reverseMaxBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, reverseMaxOriginBody+1))
 	if err != nil {
 		return dispatchResponse{}, err
+	}
+	if len(body) > reverseMaxOriginBody {
+		return dispatchResponse{}, errors.New("origin response exceeds the dispatch body limit")
+	}
+	if len(body) > reverseMaxBody {
+		return dispatchResponse{}, errors.New("origin response exceeds the dispatch body limit")
 	}
 	headers := make(map[string][]string, len(resp.Header))
 	for name, values := range resp.Header {

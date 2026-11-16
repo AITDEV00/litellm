@@ -16,21 +16,26 @@ import (
 var errReverseClosed = errors.New("reverse session closed")
 
 const (
-	reverseStreamWindow        = 64 << 10
-	reverseStreamLimit         = 1 << 17
-	reversePingTimeout         = 15 * time.Second
-	reverseSendPingAfter       = 30 * time.Second
-	reverseProbeInterval       = 15 * time.Second
-	reverseDispatchWait        = 55 * time.Second
-	reverseMaxBody             = 1 << 20
-	reverseConnectionBufferMiB = 1 << 20
+	reverseStreamWindow     = 64 << 10
+	reverseStreamLimit      = 1 << 17
+	reversePingTimeout      = 15 * time.Second
+	reverseSendPingAfter    = 30 * time.Second
+	reverseProbeInterval    = 15 * time.Second
+	reverseResponseDeadline = 90 * time.Second
+	reverseMaxBody          = 1 << 20
+	// reverseMaxOriginBody bounds the request and origin-response payload
+	// carried inside a dispatch envelope. The envelope base64-inflates the
+	// payload by 4/3 and adds the id, status, and header fields, so the
+	// payload cap must keep the whole envelope under reverseMaxBody.
+	reverseMaxOriginBody    = 760 << 10
+	reverseConnectionBuffer = 1 << 20
 )
 
 func reverseHTTP2Config() *http.HTTP2Config {
 	return &http.HTTP2Config{
 		MaxConcurrentStreams:          reverseStreamLimit,
 		MaxReceiveBufferPerStream:     reverseStreamWindow,
-		MaxReceiveBufferPerConnection: reverseConnectionBufferMiB,
+		MaxReceiveBufferPerConnection: reverseConnectionBuffer,
 		SendPingTimeout:               reverseSendPingAfter,
 		PingTimeout:                   reversePingTimeout,
 	}
@@ -73,6 +78,9 @@ func (r dispatchResponse) httpResponse() (*http.Response, error) {
 	for name, values := range r.Headers {
 		header[name] = values
 	}
+	for _, name := range []string{"Content-Length", "Transfer-Encoding", "Connection", "Keep-Alive", "Trailer"} {
+		header.Del(name)
+	}
 	return &http.Response{
 		Status:        strconv.Itoa(r.Status),
 		StatusCode:    r.Status,
@@ -86,6 +94,7 @@ type reverseSession struct {
 	workerID   string
 	sourceID   string
 	generation uint64
+	deadline   time.Duration
 	closeOnce  sync.Once
 	closed     chan struct{}
 	onClose    func()
@@ -131,9 +140,12 @@ func (s *reverseSession) noteProbe() {
 func (s *reverseSession) roundTrip(req *http.Request) (*http.Response, error) {
 	var body []byte
 	if req.Body != nil {
-		read, err := io.ReadAll(io.LimitReader(req.Body, reverseMaxBody))
+		read, err := io.ReadAll(io.LimitReader(req.Body, reverseMaxOriginBody+1))
 		if err != nil {
 			return nil, err
+		}
+		if len(read) > reverseMaxOriginBody {
+			return nil, errors.New("reverse dispatch request exceeds the body limit")
 		}
 		body = read
 		_ = req.Body.Close()
@@ -178,6 +190,8 @@ func (s *reverseSession) roundTrip(req *http.Request) (*http.Response, error) {
 		return nil, errReverseClosed
 	case resp := <-waiter:
 		return resp.httpResponse()
+	case <-time.After(s.deadline):
+		return nil, errors.New("reverse dispatch exceeded its deadline")
 	}
 }
 

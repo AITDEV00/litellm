@@ -182,7 +182,7 @@ func (r *runtime) reverseProbeLoop(ctx context.Context, session *reverseSession)
 		case <-ctx.Done():
 			return
 		case <-session.closed:
-				return
+			return
 		case <-time.After(2 * time.Second):
 		}
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func reverseFixture(t *testing.T) (*fixture, *httptest.Server) {
@@ -31,8 +33,8 @@ func reverseFixture(t *testing.T) (*fixture, *httptest.Server) {
 func reverseHeaders(p peer, credential string) http.Header {
 	return http.Header{
 		"X-Source-Member":     {p.WorkerID},
-		"X-Source-Generation":  {strconv.FormatUint(p.Generation, 10)},
-		"Authorization":        {"Bearer " + credential},
+		"X-Source-Generation": {strconv.FormatUint(p.Generation, 10)},
+		"Authorization":       {"Bearer " + credential},
 	}
 }
 
@@ -68,8 +70,8 @@ func TestReverseRegistrationRejectsBadCredentials(t *testing.T) {
 	probe := func(member, generation, credential string) *http.Response {
 		resp, err := reverseCall(t, client, base+"/mcp-remotedialer-reverse", http.Header{
 			"X-Source-Member":     {member},
-			"X-Source-Generation":  {generation},
-			"Authorization":        {"Bearer " + credential},
+			"X-Source-Generation": {generation},
+			"Authorization":       {"Bearer " + credential},
 		}, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -302,7 +304,66 @@ func TestReverseDispatchBoundAreConservative(t *testing.T) {
 	}
 }
 
+func TestReverseResponseStripsFramingHeaders(t *testing.T) {
+	headers := map[string][]string{
+		"Content-Length":    {"9999"},
+		"Transfer-Encoding": {"chunked"},
+		"Content-Type":      {"application/json"},
+	}
+	resp, err := dispatchResponse{ID: "1", Status: 200, Headers: headers, Body: []byte(`{}`)}.httpResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("Content-Length") != "" || resp.Header.Get("Transfer-Encoding") != "" {
+		t.Fatal("framing headers survived the reverse response")
+	}
+	if resp.ContentLength != int64(len(`{}`)) || resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatal("reverse response lost its real payload description")
+	}
+}
 
+func TestReverseOversizeBodiesAreRejected(t *testing.T) {
+	oversize := make([]byte, reverseMaxOriginBody+1)
+	session := &reverseSession{
+		deadline: time.Second, closed: make(chan struct{}),
+		pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse),
+	}
+	req, err := http.NewRequest(http.MethodPost, "http://relay.invalid/sources/x/y", bytes.NewReader(oversize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.roundTrip(req); err == nil || !strings.Contains(err.Error(), "body limit") {
+		t.Fatalf("oversize request body accepted: %v", err)
+	}
+}
 
+func TestReverseEnvelopeFitsWireLimit(t *testing.T) {
+	payload := bytes.Repeat([]byte{0x78}, reverseMaxOriginBody)
+	headers := map[string][]string{"Content-Type": {"application/json"}}
+	envelope, err := json.Marshal(dispatchResponse{ID: strings.Repeat("i", 64), Status: 200, Headers: headers, Body: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope) > reverseMaxBody {
+		t.Fatalf("envelope for a maximum payload exceeds the wire limit: %d > %d", len(envelope), reverseMaxBody)
+	}
+}
 
-
+func TestReverseRoundTripHonorsDeadline(t *testing.T) {
+	session := &reverseSession{
+		deadline: 50 * time.Millisecond, closed: make(chan struct{}),
+		pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse),
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://relay.invalid/sources/x/y", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := session.roundTrip(req); err == nil || !strings.Contains(err.Error(), "deadline") {
+		t.Fatalf("unanswered dispatch did not time out: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("deadline not honored: %s", elapsed)
+	}
+}
