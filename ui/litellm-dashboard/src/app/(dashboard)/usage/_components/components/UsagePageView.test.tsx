@@ -204,6 +204,10 @@ vi.mock("@/app/(dashboard)/hooks/users/useUsers", () => ({
   useUserLookup: vi.fn(() => ({ data: null })),
 }));
 
+vi.mock("@/app/(dashboard)/hooks/models/useModelPerformance", () => ({
+  useModelPerformance: vi.fn(() => ({ data: undefined, isLoading: false, isError: false, dataUpdatedAt: 0 })),
+}));
+
 describe("UsagePage", () => {
   const mockUserDailyActivityAggregatedCall = vi.fn();
   const mockDailyActivityAggregatedCall = vi.mocked(networking.dailyActivityAggregatedCall);
@@ -697,6 +701,17 @@ describe("UsagePage", () => {
     expect(screen.getByText("Top models")).toBeInTheDocument();
     expect(screen.getByText("Top Virtual Keys")).toBeInTheDocument();
     expect(screen.getByText("Top Users by Spend")).toBeInTheDocument();
+  });
+
+  it("exposes the Model Performance tab and opens its panel", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<UsagePage {...defaultProps} />);
+
+    const performanceTab = await screen.findByRole("tab", { name: "Model Performance" });
+    await user.click(performanceTab);
+
+    const panel = await screen.findByRole("tabpanel", { name: "Model Performance" });
+    expect(within(panel).getByText(/Live/)).toBeInTheDocument();
   });
 
   it("places Top Users by Spend directly below Top Virtual Keys", async () => {

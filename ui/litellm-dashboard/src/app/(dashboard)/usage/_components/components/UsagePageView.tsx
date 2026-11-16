@@ -28,6 +28,7 @@ import CloudZeroExportModal from "@/components/cloudzero_export_modal";
 import UserDropdown from "@/components/common_components/UserDropdown";
 import EntityUsageExportModal from "@/components/EntityUsageExport";
 import KeyActivityPanel from "@/components/UsagePage/components/KeyActivityPanel";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
 import TopUsersView from "@/components/UsagePage/components/TopUsersView";
 import UserActivityPanel from "@/components/UsagePage/components/UserActivityPanel";
 import { filterModelActivity } from "@/components/UsagePage/modelActivityFilter";
@@ -408,6 +409,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <TabsTrigger value="endpoints" className="flex-none px-3">
                       Endpoint Activity
                     </TabsTrigger>
+                    <TabsTrigger value="performance" className="flex-none px-3">
+                      Model Performance
+                    </TabsTrigger>
                     {isAdmin && (
                       <TabsTrigger value="errors" className="flex-none px-3">
                         Errors
@@ -539,6 +543,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 </TabsContent>
                 <TabsContent value="endpoints" keepMounted>
                   <EndpointUsage userSpendData={userSpendData} />
+                </TabsContent>
+                <TabsContent value="performance" keepMounted>
+                  <ModelPerformanceView dateValue={dateValue} />
                 </TabsContent>
                 {isAdmin && (
                   <TabsContent value="errors">
