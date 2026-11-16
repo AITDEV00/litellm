@@ -172,28 +172,42 @@ caveats.
 
 ```
 ModelPerformance/
-├── api.ts              ← modelPerformanceCall fetch function
-├── types.ts            ← ModelPerformanceModel / Response / Scope / Summary / TimePoint
-├── index.ts            ← re-exports for the public import
+├── api.ts                   ← modelPerformanceCall fetch function
+├── types.ts                 ← ModelPerformanceModel / Response / Scope / Summary / TimePoint
+├── index.ts                 ← re-exports for the public import
 ├── ModelPerformanceView.tsx
-└── drop_detection.test.ts   ← fails if networking.tsx re-export is removed
+├── api.test.ts              ← fetch contract
+├── drop_detection.test.ts   ← fails if the networking.tsx re-export is removed
+└── slice_wiring.test.ts     ← fails if any slice wiring point is deleted
 ```
 
 - **Moved from** the global `ui/litellm-dashboard/src/components/networking.tsx`.
 - **Pattern:** co-located vertical slice matching the codebase's feature-folder
-  convention. `networking.tsx` now re-exports for backward compatibility.
-- **Wiring test:** `drop_detection.test.ts`.
-- `useModelPerformance` hook and `EntityUsage` now import from the slice.
+  convention. `networking.tsx` still re-exports `modelPerformanceCall` for
+  backward compatibility.
+- **Mounted twice:** the global Usage page (`UsagePageView.tsx`, tab key
+  `performance`) and every entity drill-down (`EntityUsage.tsx`, same key,
+  scoped by entity type). Both mounts have to exist; losing either hides the
+  tab for that surface only.
+- **Shared pieces the slice depends on** (an upstream refactor can delete these
+  without touching the slice itself): the optional `onPointClick` and
+  `highlightOnHover` props on `shared/charts/line_chart.tsx`, and the
+  `onKeyMouseEnter` / `onKeyMouseLeave` callbacks on `ChartLegendContent` in
+  `components/ui/chart.tsx`. All are opt-in and default off.
+- **Hook:** `app/(dashboard)/hooks/models/useModelPerformance.ts`, called with a
+  grouped options object (`window`, `modelGroup`, `scope`, `step`, `live`).
+- **Wiring tests:** `slice_wiring.test.ts` plus the two page-level tab
+  assertions. Run them together with `npm run test:drop-detection` from
+  `ui/litellm-dashboard`.
 
 ---
 
 ## Drop-detection tests
 
-The single safety net for all the above is
-`tests/unit/proxy/test_oicm_drop_detection.py`. It is intentionally
-**shallow** (assert the wiring exists / resolves) rather than full behavioral
-tests: the behavioral contract of each slice is covered by its own co-located
-test module. Run it after every upstream merge:
+The Python safety net is `tests/unit/proxy/test_oicm_drop_detection.py`. It is
+intentionally **shallow** (assert the wiring exists / resolves) rather than full
+behavioral tests: the behavioral contract of each slice is covered by its own
+co-located test module. Run it after every upstream merge:
 
 ```bash
 python -m pytest tests/unit/proxy/test_oicm_drop_detection.py -q
@@ -202,6 +216,13 @@ python -m pytest tests/unit/proxy/test_oicm_drop_detection.py -q
 It covers: voice routes mount, voice/script SDK re-export, OICM provider
 dispatch, Prometheus in-flight ledger mixin, HTB callback registration, and
 team cache invalidation slice identity.
+
+The dashboard has its own counterpart, because an upstream UI refactor is not
+visible to any Python test:
+
+```bash
+cd ui/litellm-dashboard && npm run test:drop-detection
+```
 
 > **Drop-detection proves wiring, not behavior.** It passes on a tree whose
 > gateway is broken at runtime (a bad dependency, a startup import). The

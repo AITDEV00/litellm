@@ -36,7 +36,7 @@ describe("useModelPerformance", () => {
 
   it("forwards the entity scope to the API call", async () => {
     const scope: ModelPerformanceScope = { teamId: "team-abc", userId: "user-xyz" };
-    renderHook(() => useModelPerformance("1h", undefined, scope), { wrapper });
+    renderHook(() => useModelPerformance({ window: "1h", scope }), { wrapper });
 
     await waitFor(() => {
       expect(modelPerformanceCall).toHaveBeenCalledWith("token-123", "1h", undefined, scope);
@@ -44,10 +44,25 @@ describe("useModelPerformance", () => {
   });
 
   it("uses an empty scope by default", async () => {
-    renderHook(() => useModelPerformance("24h"), { wrapper });
+    renderHook(() => useModelPerformance({ window: "24h" }), { wrapper });
 
     await waitFor(() => {
       expect(modelPerformanceCall).toHaveBeenCalledWith("token-123", "24h", undefined, {});
+    });
+  });
+
+  it.each([
+    { live: true, window: "24h", expected: 10_000 },
+    { live: false, window: "5m", expected: 30_000 },
+    { live: false, window: "24h", expected: false },
+  ])("refreshes live=$live window=$window at $expected ms", async ({ live, window, expected }) => {
+    const { result } = renderHook(() => useModelPerformance({ window, live }), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    await waitFor(() => {
+      const query = queryClient.getQueryCache().findAll().at(0);
+      expect(query?.options.refetchInterval).toBe(expected);
     });
   });
 });

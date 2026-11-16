@@ -155,6 +155,12 @@ vi.mock("@/app/(dashboard)/hooks/useTeams", () => ({
   })),
 }));
 
+vi.mock("@/components/UsagePage/components/ModelPerformance/ModelPerformanceView", () => ({
+  default: ({ scope }: { scope?: Record<string, string> }) => (
+    <div>{`model-performance-scope:${JSON.stringify(scope ?? {})}`}</div>
+  ),
+}));
+
 describe("EntityUsage", () => {
   const mockDailyActivityAggregatedCall = vi.mocked(networking.dailyActivityAggregatedCall);
   const mockDailyActivityKeyPageCall = vi.mocked(networking.dailyActivityKeyPageCall);
@@ -950,6 +956,19 @@ describe("EntityUsage", () => {
     });
 
     expect(screen.getByText("Agent Activity")).toBeInTheDocument();
+  });
+
+  it("exposes the entity Model Performance tab scoped to that entity", async () => {
+    const user = userEvent.setup();
+    render(<EntityUsage {...defaultProps} entityType="team" entityId="team-42" />);
+
+    await waitFor(() => {
+      expect(mockTeamDailyActivityCall).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Model Performance" }));
+
+    expect(screen.getByText('model-performance-scope:{"teamId":"team-42"}')).toBeInTheDocument();
   });
 
   it("should not display Agent Activity tab for non-team entity types", async () => {

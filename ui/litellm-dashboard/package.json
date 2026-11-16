@@ -12,6 +12,7 @@
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
     "test:integration": "vitest run --project integration",
+    "test:drop-detection": "vitest run src/components/UsagePage/components/ModelPerformance/slice_wiring.test.ts src/components/UsagePage/components/ModelPerformance/drop_detection.test.ts \"src/app/(dashboard)/usage/_components/components/UsagePageView.test.tsx\" \"src/app/(dashboard)/usage/_components/components/EntityUsage/EntityUsage.test.tsx\"",
     "test:dot": "vitest --reporter=dot",
     "test:types": "vitest run --project types",
     "typecheck": "tsc --project tsconfig.production.json",

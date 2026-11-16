@@ -105,6 +105,7 @@ from the custom branch before resolving anything.
 | Took the wrong side of a shared-file conflict | Dropped `Final:` annotation, dropped a custom handler block | Step 4: py_compile + re-diff |
 | Multi-line edit lost leading indentation | `Final:` annotation re-edit dropped 8/12 spaces | Step 4: py_compile every resolved file |
 | Slice wiring silently dropped by the merge | Mount line / re-export / callback registration deleted | Step 4: `test_oicm_drop_detection.py` |
+| **Dashboard slice deleted by an upstream UI refactor** | v1.108.5 removed the whole Model Performance component dir, its hook, the `LineChart` hover/click options and the `networking.tsx` re-export, and the Usage tab trigger with them; every Python test still passed | Step 4: `npm run test:drop-detection` |
 | Upstream deletes a file the branch still carries | Upstream's `test: drop static cost-map value assertions` removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict | Step 5: deletion audit |
 | Custom-only file deleted outright | Merge removed a file that existed only on the custom side, or one carrying custom edits | Step 5: drop audit |
 | Non-linear upstream history makes Git pick the wrong merge base | A fork that merged a staging snapshot with rebased release commits need not share an ancestor with the named tag. Taking the complete custom side drops newer upstream helper functions, while taking the upstream side silences newer custom slices | Find the last merge's first parent and divide custom work by that integration snapshot, then inspect late-start wiring and old co-located slices |
@@ -326,16 +327,31 @@ python -c "from litellm.proxy import proxy_server"
 
 # Slice wiring intact (the merge-specific safety net)
 python -m pytest tests/unit/proxy/test_oicm_drop_detection.py -q
+
+# Dashboard slice wiring intact (the UI safety net)
+cd ui/litellm-dashboard && npm run test:drop-detection
 ```
 
 > **Safety-net caveat:** drop-detection covers the *wired* slices (voice
 > routes mount, HTB callback registration, provider dispatch, team-cache
 > invalidation, prometheus ledger). It does not cover hamsa's `api_surface`
-> passthrough kwargs, the OCR `_RUST_OCR_PROVIDERS` gate, or the UI Model
-> Performance mounts — the v1.102.0 merge clobbered all three without failing
-> a single test. Wiring that lives outside `test_oicm_drop_detection.py` is
-> unprotected; check the merge diff for it manually, and add a drop-detection
-> case when you add a slice.
+> passthrough kwargs or the OCR `_RUST_OCR_PROVIDERS` gate — the v1.102.0
+> merge clobbered those without failing a single test. Wiring that lives
+> outside `test_oicm_drop_detection.py` is unprotected; check the merge diff
+> for it manually, and add a drop-detection case when you add a slice.
+>
+> **The UI Model Performance mounts are now covered, after being lost twice.**
+> The v1.102.0 merge dropped them, `1b75323dcf` restored them, and the v1.108.5
+> merge dropped them again: upstream deleted the whole
+> `components/UsagePage/components/ModelPerformance/` slice along with its hook,
+> the `LineChart` `highlightOnHover`/`onPointClick` options, the
+> `ChartLegendContent` hover callbacks, and the `networking.tsx` re-export. The
+> same merge also deleted the Usage page's tab trigger. Only the global Usage
+> page was re-covered at first (`f83299fc97e`), then the entity drill-down
+> mount was restored the same day. `npm run test:drop-detection` in
+> `ui/litellm-dashboard` now asserts every one of those wiring points, and both
+> `UsagePageView.test.tsx` and `EntityUsage.test.tsx` assert their page renders
+> the tab, so neither mount can be dropped silently again.
 
 > **Lost-indentation trap:** multi-line edit tools often trim the leading spaces
 > off the first line of the replaced block, producing a silent `IndentationError`.
@@ -646,7 +662,8 @@ git worktree remove /tmp/base --force && git worktree remove /tmp/old --force &&
 - **Drop-detection tests are your safety net — with limits.** The OICM slice
   refactors are covered by `tests/unit/proxy/test_oicm_drop_detection.py`;
   a future merge that drops a mount/re-export/callback fails a test instead of
-  production. But it only covers the wired slices; kwargs lists and UI mounts
+  of production. The dashboard slice wiring has its own counterpart,
+  `npm run test:drop-detection` in `ui/litellm-dashboard`. Kwargs lists still
   have no drop-detection coverage and must be checked in the diff.
 - **Production stays on the last known-good tag.** Merge and validate the debug
   gateway on the new image; never deploy the merged image to production.

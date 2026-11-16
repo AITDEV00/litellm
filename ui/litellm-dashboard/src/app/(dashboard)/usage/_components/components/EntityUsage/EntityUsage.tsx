@@ -53,6 +53,8 @@ import { Panel, Segmented, Sparkline, Stat } from "../overview/Primitives";
 import TopModelView from "./TopModelView";
 import TeamUserSpendCard from "./TeamUserSpendCard";
 import { ProviderSpendBreakdown } from "./SpendByProvider";
+import ModelPerformanceView from "@/components/UsagePage/components/ModelPerformance/ModelPerformanceView";
+import type { ModelPerformanceScope } from "@/components/UsagePage/components/ModelPerformance";
 
 const BRAND = "#2b3fd6";
 const FLAT_COST_SERIES = "Flat cost";
@@ -129,6 +131,15 @@ const ENTITY_CAPABILITIES: Partial<Record<EntityType, Capability>> = {
   agent: "viewAgentUsage",
 };
 
+/** Which Model Performance scope field an entity drill-down filters on. */
+const PERFORMANCE_SCOPE_FIELD: Partial<Record<EntityType, keyof ModelPerformanceScope>> = {
+  team: "teamId",
+  organization: "organizationId",
+  customer: "endUserId",
+  agent: "agentId",
+  user: "userId",
+};
+
 const EntityUsage: React.FC<EntityUsageProps> = ({
   accessToken,
   entityType,
@@ -149,6 +160,10 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
 
   const startTime = useMemo(() => (dateValue.from ? new Date(dateValue.from) : null), [dateValue.from]);
   const endTime = useMemo(() => (dateValue.to ? new Date(dateValue.to) : null), [dateValue.to]);
+  const modelPerformanceScope = useMemo<ModelPerformanceScope>(() => {
+    const scopeField = PERFORMANCE_SCOPE_FIELD[entityType];
+    return entityId && scopeField ? { [scopeField]: entityId } : {};
+  }, [entityType, entityId]);
   const api = ENTITY_API[entityType];
   const entityCapability = ENTITY_CAPABILITIES[entityType];
   const canViewEntity = entityCapability === undefined || hasCapability(userRole, entityCapability, isOrgAdmin);
@@ -652,6 +667,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       ),
     },
     { key: "endpoints", label: "Endpoint Activity", content: <EndpointUsage userSpendData={spendData} /> },
+    {
+      key: "performance",
+      label: "Model Performance",
+      content: <ModelPerformanceView scope={modelPerformanceScope} accessToken={accessToken} dateValue={dateValue} />,
+    },
   ];
 
   return (
