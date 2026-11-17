@@ -52,36 +52,6 @@ func newControl(ctx context.Context, cfg config, client *http.Client) (*control,
 	}
 }
 
-func (c *control) request(ctx context.Context, method, path string, payload any) error {
-	var body io.Reader
-	if payload != nil {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(encoded)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("control returned HTTP %d", resp.StatusCode)
-	}
-	_, err = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	return err
-}
-
 func (c *control) report(ctx context.Context, payload healthReport) (bool, error) {
 	var body io.Reader
 	encoded, err := json.Marshal(payload)

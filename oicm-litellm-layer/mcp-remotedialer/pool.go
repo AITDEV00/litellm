@@ -20,14 +20,6 @@ func (d dispatchMember) roundTrip(req *http.Request) (*http.Response, error) {
 	return d.reverse.roundTrip(req)
 }
 
-func (d dispatchMember) ready(sourceID string) bool {
-	return d.reverse.ready(sourceID)
-}
-
-func (d dispatchMember) close() {
-	d.reverse.close()
-}
-
 type runtime struct {
 	state    *control
 	mu       sync.Mutex
@@ -35,11 +27,10 @@ type runtime struct {
 	serial   uint64
 	last     map[string]uint64
 	inFlight map[string]int
-	drained  map[string]bool
 }
 
 func newRuntime(state *control) *runtime {
-	return &runtime{state: state, reverse: make(map[string]*reverseSession), last: make(map[string]uint64), inFlight: make(map[string]int), drained: make(map[string]bool)}
+	return &runtime{state: state, reverse: make(map[string]*reverseSession), last: make(map[string]uint64), inFlight: make(map[string]int)}
 }
 
 func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -144,8 +143,4 @@ func readConnector(path string) (connectorConfig, error) {
 
 func slot(sourceID string) string {
 	return sourceID + ".source.invalid:1"
-}
-
-func address(listen string) string {
-	return fmt.Sprintf("http://%s", listen)
 }

@@ -129,12 +129,6 @@ func (s *reverseSession) ready(sourceID string) bool {
 	return !s.lastProbe.IsZero() && time.Since(s.lastProbe) < 2*reverseProbeInterval && s.sourceID == sourceID
 }
 
-func (s *reverseSession) noteProbe() {
-	s.mu.Lock()
-	s.lastProbe = time.Now()
-	s.mu.Unlock()
-}
-
 // roundTrip serializes one request, queues it for the next connector
 // dispatch, and blocks until the connector posts the origin response.
 func (s *reverseSession) roundTrip(req *http.Request) (*http.Response, error) {

@@ -38,7 +38,6 @@ func (r *runtime) reconcile() {
 			closed = append(closed, session)
 			continue
 		}
-		r.drained[id] = worker.Phase == "draining"
 		if worker.Generation != session.generation || worker.Phase == "revoked" {
 			closed = append(closed, session)
 		}

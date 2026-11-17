@@ -302,9 +302,6 @@ func executeDispatch(ctx context.Context, origin *http.Transport, item dispatchR
 	if len(body) > reverseMaxOriginBody {
 		return dispatchResponse{}, errors.New("origin response exceeds the dispatch body limit")
 	}
-	if len(body) > reverseMaxBody {
-		return dispatchResponse{}, errors.New("origin response exceeds the dispatch body limit")
-	}
 	headers := make(map[string][]string, len(resp.Header))
 	for name, values := range resp.Header {
 		headers[name] = values
