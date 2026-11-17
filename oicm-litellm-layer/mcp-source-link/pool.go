@@ -19,6 +19,14 @@ type member interface {
 	close()
 }
 
+// dispatchInFlightCap bounds how many requests one member may hold in
+// flight at once. Set to 0 for the 2026-11-18 ceiling measurement: the
+// grpctunnel plane multiplexes every dispatch inside one HTTP/2 stream,
+// so the transport itself has no per-request resource beyond a goroutine
+// and a 64KB flow-control window per message, and the nginx body cap that
+// used to kill long-lived tunnels is lifted (proxy-body-size 0).
+const dispatchInFlightCap = 0
+
 type runtime struct {
 	state    *control
 	mu       sync.Mutex
@@ -40,7 +48,7 @@ func (r *runtime) pick(sourceID string, exclude string) member {
 		worker, ok := r.state.peer(id)
 		if !ok || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
 			(worker.CatalogFingerprint == nil || *worker.CatalogFingerprint != worker.ExpectedCatalog) ||
-			!session.ready(sourceID) || !session.capable("execute") || r.inFlight[id] >= 64 {
+			!session.ready(sourceID) || !session.capable("execute") || (dispatchInFlightCap > 0 && r.inFlight[id] >= dispatchInFlightCap) {
 			continue
 		}
 		if chosen == nil || r.inFlight[id] < r.inFlight[chosen.id()] ||
