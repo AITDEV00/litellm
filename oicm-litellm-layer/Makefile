@@ -38,6 +38,25 @@ LITELLM_SRC_BUILD_ARGS ?=
 LITELLM_VENV_BIN := .venv/bin
 LITELLM_LOCAL_CONFIG := config/local_dev.yaml
 LITELLM_LOCAL_PORT := 4000
+
+# MCP source broker images. The sidecar is a Go module built with the host Go
+# toolchain (no golang image is pullable from the internal registry), so its
+# build is two steps: compile a CGO_ENABLED=0 static binary, then `FROM scratch`.
+# The Python control app (MCP_BROKER_IMG) is a thin layer over a litellm-src
+# base digest selected at build time, because it must carry the exact gateway
+# code it runs beside.
+MCP_SIDECAR_DIR  := mcp-remotedialer
+MCP_SIDECAR_IMG  := $(REGISTRY)/$(REPO_PATH)/mcp-remotedialer-worker
+MCP_BROKER_IMG   := $(REGISTRY)/$(REPO_PATH)/litellm-mcp-broker
+MCP_SIDECAR_TAG  ?= $(LITELLM_SRC_TAG)
+MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)
+
+# Host Go toolchain and module cache for the sidecar build. GO_BIN defaults to
+# the user-local toolchain this repo's Go work has always used; override with
+# `make mcp-sidecar-build GO_BIN=go` on a machine with a system toolchain.
+GO_BIN       ?= /tmp/sa-build/bin/go
+GO_ENV       = PATH="$$(dirname $(GO_BIN)):$$PATH" GOPATH=/tmp/rd-gopath GOMODCACHE=/tmp/rd-gopath/pkg/mod GOFLAGS=-mod=mod CGO_ENABLED=0
+BROKER_DEPLOYMENT_DEV := litellm-mcp-broker-dev
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
 # The kubeconfig for the Al Ain cluster, where every target here runs. One
@@ -167,6 +186,10 @@ help:
 	@echo "  litellm-src-release-dev       build, push, pin, roll out DEV only"
 	@echo "  litellm-src-release           same for prod"
 	@echo ""
+	@echo "MCP source broker images."
+	@echo "  mcp-sidecar-release          build+push sidecar, delete the dev broker pod to re-pull"
+	@echo "  mcp-broker-release-dev       build+push control app on the running gateway digest, roll dev"
+	@echo ""
 	@echo "Local + smoke.  make litellm-local-run | litellm-ui-dev | smoke-fast"
 	@echo "Overridable: BASE KEY TAG LITELLM_SRC_TAG BUILD NAMESPACE ROLLOUT_TIMEOUT"
 
@@ -200,14 +223,49 @@ push-litellm:
 	podman tag $(LITELLM_IMG) $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG)
 	podman push --tls-verify=false $(LITELLM_HARBOR_IMG):$(LITELLM_LEGACY_TAG)
 
-## Build, push, and pin the version tag in the dev and prod manifests. This only
-## edits the manifest files and pushes the image; it never touches the cluster,
-## so prod is not upgraded until someone deliberately runs `make deploy`.
-# ---------------------------------------------------------------------------
-# Discovery controller: four primitives, composed per environment.
-#
-# Each primitive does exactly one thing, so a rollout can use the pieces it
-# actually needs. That matters most for prod: rolling out a tag already
+## ---------------------------------------------------------------------------
+## MCP source broker images.
+##
+## mcp-sidecar-build      compile the reverse-h2 sidecar (CGO_ENABLED=0, static)
+##                        and bake it into a FROM-scratch image at $(MCP_SIDECAR_TAG)
+## mcp-sidecar-push       push the sidecar image to Harbor
+## mcp-sidecar-release    build + push + roll the dev broker pod to the new bytes.
+##                        Same-tag updates need the pod DELETED to re-pull;
+##                        this target does that, then waits for the rollout.
+##
+## mcp-broker-build       build the Python control-app image as a thin layer over
+##                        the RUNNING dev gateway digest (LITELLM_SRC_BASE overrides)
+## mcp-broker-push       push it to Harbor
+## mcp-broker-release-dev build + push + roll the dev broker Deployment
+## ---------------------------------------------------------------------------
+mcp-sidecar-build:
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
+	file $(MCP_SIDECAR_DIR)/source-link | grep -q "statically linked" || { echo "sidecar binary is not static; CGO_ENABLED=0 is mandatory"; exit 1; }
+	podman build -t $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG) $(MCP_SIDECAR_DIR)
+
+mcp-sidecar-push:
+	podman push --tls-verify=false $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG)
+
+mcp-sidecar-release: mcp-sidecar-build mcp-sidecar-push
+	$(KUBECTL) -n $(NAMESPACE) delete pod -l app=$(BROKER_DEPLOYMENT_DEV) --wait=false
+	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(BROKER_DEPLOYMENT_DEV) --timeout=$(ROLLOUT_TIMEOUT)
+
+mcp-broker-build:
+	@base=$$($(KUBECTL) -n $(NAMESPACE) get pods -l app=litellm-proxy-dev \
+	        -o jsonpath='{.items[?(@.status.phase=="Running")].status.containerStatuses[0].imageID}'); \
+	base=$${LITELLM_SRC_BASE:-$$base}; \
+	echo "Building $(MCP_BROKER_IMG):$(MCP_BROKER_TAG) on base $$base"; \
+	podman build --pull=always --build-arg "LITELLM_SRC_BASE=$$base" \
+	        --tag $(MCP_BROKER_IMG):$(MCP_BROKER_TAG) \
+	        --file deploy/overlays/dev/mcp-source-broker/Dockerfile \
+	        deploy/overlays/dev/mcp-source-broker
+
+mcp-broker-push:
+	podman push --tls-verify=false $(MCP_BROKER_IMG):$(MCP_BROKER_TAG)
+
+mcp-broker-release-dev: mcp-broker-build mcp-broker-push
+	$(KUBECTL) -n $(NAMESPACE) rollout restart deployment/$(BROKER_DEPLOYMENT_DEV)
+	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(BROKER_DEPLOYMENT_DEV) --timeout=$(ROLLOUT_TIMEOUT)
 # validated in dev is `make controller-deploy-prod BUILD=0`, which reuses the
 # tested image bytes instead of rebuilding them.
 #

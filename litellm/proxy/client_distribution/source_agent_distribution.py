@@ -1,12 +1,16 @@
-"""Source-agent signed-release distribution over RustFS.
+"""Source connector signed-release distribution over RustFS.
 
-Extends the client-distribution slice for the MCP source agent: the broker
-operator publishes a signed release triple (binary, release.json, detached
-Ed25519 signature) through the admin API, and source hosts install through
+Extends the client-distribution slice for the MCP source broker's reverse-h2
+connector (the Go `source-link` binary): the broker operator publishes a
+signed release triple (binary, release.json, detached Ed25519 signature)
+through the admin API, and source hosts install through
 ``/install/source-agent`` with no secrets in any URL and no generated
 per-host scripts. The installer is a fixed script that downloads the
 versioned triple, verifies the SHA-256 checksum and the release signature
-against the pinned public key before anything executes.
+against the pinned public key before anything executes. The installed user
+systemd unit runs `source-link connector` with the environment sourced from
+`~/.config/source-agent/connector.env` (MCP_REMOTEDIALER_PUBLIC_URL,
+MCP_REMOTEDIALER_CONNECTOR_CONFIG).
 
 Reuse rules: connection parameters, bucket handling and key normalization all
 come from :mod:`litellm.proxy.client_distribution.storage`. Only the
@@ -174,17 +178,21 @@ async def admin_publish_release(
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"release.json is not a valid manifest: {exc}") from exc
     if manifest.version != version or manifest.sha256 != data.sha256:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="release.json does not agree with the payload version or digest")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="release.json does not agree with the payload version or digest"
+        )
     if hashlib.sha256(binary).hexdigest() != data.sha256:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="binary digest does not match release.json sha256")
     if not _verify_release_signature(manifest_body, data.release_sig_b64):
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="release signature failed verification against the pinned key")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="release signature failed verification against the pinned key"
+        )
 
     import asyncio
 
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     for key, body, content_type in (
-        (f"{_AGENT_PREFIX}/{version}/source-agent", binary, "application/octet-stream"),
+        (f"{_AGENT_PREFIX}/{version}/source-link", binary, "application/octet-stream"),
         (f"{_AGENT_PREFIX}/{version}/release.json", manifest_body, "application/json"),
         (f"{_AGENT_PREFIX}/{version}/release.sig.b64", data.release_sig_b64.encode(), "text/plain"),
         (_MANIFEST_KEY, manifest_body, "application/json"),
@@ -210,33 +218,35 @@ base="{base_url}"
 version="{version}"
 expected="{sha256}"
 sig="{sig_b64}"
-for asset in source-agent release.json release.sig.b64; do
+for asset in source-link release.json release.sig.b64; do
   curl --fail --location --silent --show-error \\
     --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
   mv -f "$state/$asset.new" "$state/$asset"
 done
-actual=$(sha256sum "$state/source-agent" | cut -d ' ' -f 1)
-[ "$actual" = "$expected" ] || {{ echo 'source-agent checksum mismatch' >&2; exit 1; }}
-chmod 500 "$state/source-agent"
+actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
+[ "$actual" = "$expected" ] || {{ echo 'source connector checksum mismatch' >&2; exit 1; }}
+chmod 500 "$state/source-link"
 printf '%s\\n' "$sig" > "$state/release.sig.b64"
 cat > "$HOME/.config/systemd/user/source-agent.service" <<'UNIT'
 [Unit]
-Description=ADEO MCP source agent
+Description=ADEO MCP source connector (reverse-h2)
 
 [Service]
 Restart=always
 RestartSec=2s
-ExecStart=$state/source-agent run -identity /etc/source-agent/identity.yaml -credential /etc/source-agent/credential.yaml -policy /etc/source-agent/targets.yaml -state /var/lib/source-agent/agent-state.yaml
+Environment=MCP_REMOTEDIALER_TRANSPORT=reverse-h2
+EnvironmentFile=-$HOME/.config/source-agent/connector.env
+ExecStart=$state/source-link connector
 NoNewPrivileges=yes
 
 [Install]
 WantedBy=default.target
 UNIT
-if [ "${{SOURCE_AGENT_START:-1}}" = "1" ] && [ -f /etc/source-agent/identity.yaml ]; then
+if [ "${{SOURCE_AGENT_START:-1}}" = "1" ] && [ -f "$HOME/.config/source-agent/connector.env" ]; then
   systemctl --user daemon-reload
   systemctl --user enable --now source-agent.service
 else
-  echo "source-agent installed at $state/source-agent (service starts after identity/credential files are provisioned)"
+  echo "source connector installed at $state/source-link (service starts after MCP_REMOTEDIALER_CONNECTOR_CONFIG is set in $state/connector.env)"
 fi
 """
 
@@ -262,14 +272,19 @@ async def source_agent_install_script(request: Request) -> Response:
     version: Final = manifest.version
     sha256: Final = manifest.sha256
     sig_object = await asyncio.to_thread(  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-        s3.get_object, Bucket=config.bucket, Key=f"{_AGENT_PREFIX}/{version}/release.sig.b64"  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
+        s3.get_object,
+        Bucket=config.bucket,
+        Key=f"{_AGENT_PREFIX}/{version}/release.sig.b64",  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
     )
     sig_b64: Final = sig_object["Body"].read().decode().strip()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
     base_url: Final = os.environ.get("LITELLM_PUBLIC_BASE_URL") or (
         f"{request.headers.get('x-forwarded-proto', 'https')}://{request.headers.get('host', 'localhost')}"
     )  # pyright: ignore[reportUnknownArgumentType]  # header get returns Unknown in this stubless venv
     script: Final = _render_source_agent_installer(
-        base_url, version, sha256, sig_b64  # pyright: ignore[reportUnknownArgumentType]  # sig_b64 carries the stubless-S3 Unknown through
+        base_url,
+        version,
+        sha256,
+        sig_b64,  # pyright: ignore[reportUnknownArgumentType]  # sig_b64 carries the stubless-S3 Unknown through
     )
     return Response(content=script, media_type="application/x-sh")
 
@@ -281,7 +296,7 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
 
     from botocore.exceptions import ClientError
 
-    if asset not in {"source-agent", "release.json", "release.sig.b64"} or "/" in version or version.startswith("."):
+    if asset not in {"source-link", "release.json", "release.sig.b64"} or "/" in version or version.startswith("."):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     key: Final = f"{_AGENT_PREFIX}/{version}/{asset}"

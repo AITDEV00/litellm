@@ -6,7 +6,7 @@ import base64
 import hashlib
 import io
 import json
-from typing import Final
+from typing import Any, Final
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -140,7 +140,7 @@ def test_publish_then_install_script_and_assets(app: FastAPI, release_key: Ed255
     assert "sha256sum" in text
     assert "checksum mismatch" in text
 
-    asset: Final = client.get("/install/source-agent/0.1.0/source-agent")
+    asset: Final = client.get("/install/source-agent/0.1.0/source-link")
     assert asset.status_code == 200 and asset.content == binary
     manifest: Final = client.get("/install/source-agent/0.1.0/release.json")
     assert manifest.status_code == 200 and manifest.content == manifest_body

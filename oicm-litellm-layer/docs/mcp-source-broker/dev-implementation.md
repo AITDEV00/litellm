@@ -43,18 +43,9 @@ The source target allows loopback only and requires an explicit local service. A
 
 The source target is only a loopback host and port. Source identity is derived from `owner` and `alias`. The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a stable private pool URL with LiteLLM, and grants that source its own MCP access group. Re-enrollment keeps its source, enrollment, connector lease, and relay credentials; it updates the target and expected canonical catalog fingerprint. It does not return another one-time token
 
-The returned `install_path` is relative to the gateway. Fetch it with the one-time enrollment token only once:
+Connector installation no longer has a per-source token installer; the Chisel relay text below is retained only as the 2026-11-13 historical record. The current contract is the client-distribution slice `litellm/proxy/client_distribution/source_agent_distribution.py`: an admin publishes a signed release triple (binary, `release.json`, detached Ed25519 signature over the exact `release.json` bytes) through `PUT /install/admin/v1/source-agent/release`, and any source host runs the fixed script from `GET /install/source-agent`, which downloads the versioned triple, verifies the SHA-256 checksum and the signature against the pinned `SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64`, writes `source-link` mode 500, and renders a user systemd unit `source-agent.service` running `source-link connector` with environment from `~/.config/source-agent/connector.env` (`MCP_REMOTEDIALER_PUBLIC_URL`, `MCP_REMOTEDIALER_CONNECTOR_CONFIG`). The unit only starts once the config exists; without it the installer leaves the binary installed and prints the gating message
 
-
-```sh
-curl -f "http://127.0.0.1:14002/mcp-source-broker/install/$ENROLLMENT_ID?token=$TOKEN" -o install-connector.sh
-```
-
-An authenticated owner or proxy administrator can retrieve the same persistent connector configuration without a token. The token is single-use and only its HMAC is saved. Treat the whole rendered installer as sensitive because it provisions relay credentials into a mode-600 environment file
-
-Run the script as the ordinary user who owns the source service. It installs a Chisel binary downloaded through the HTTPS gateway, verifies its pinned SHA-256, writes `~/.config/systemd/user/mcp-source-connector.service`, and enables the user unit. It does not require `sudo`. Prerequisites are `curl`, `gzip`, `sha256sum`, user systemd, and the host's normal CA trust store
-
-The broker control service is on `8089`, dispatch on `9090`, and Chisel relay on `8088`. Only the WebSocket relay and gateway ingress are public. Control and source dispatch require the independent broker service credential
+Release `0.2.0` (2026-11-17) is the current signed release: the reverse-h2 `source-link` binary (SHA-256 `03c607b6...702d00c`), built by `make mcp-sidecar-build`, with `release.json` pinning sidecar image manifest `sha256:47f3b330...f7102`. Verified end-to-end on `aitdev00` through the dev gateway port-forward: the installer's checksum gate passed, the installed binary executes (`usage: mcp-source-link worker|connector`), the unit was written, and a tampered-checksum run of the same script exits 1 at the gate. The pre-rename `0.1.0` release (retired WSS-era source-agent) stays in the bucket as harmless legacy
 
 ## Calls
 
@@ -100,22 +91,9 @@ The broker Service `litellm-mcp-broker-dev` is the only gateway-facing address. 
 make -C oicm-litellm-layer litellm-src-release-dev
 ```
 
-Build the auxiliary image from the exact running gateway digest after the gateway rollout completes. `LITELLM_SRC_BASE` explicitly selects that digest, so the same old base is not accidentally reused when the dev tag moves. The artifact sync checks the pinned checksum and gzip integrity. Its ignored `chisel.gz` belongs in the overlay directory, which is the complete Buildah context below. Keep `KUBECONFIG` pointing at the Al Ain kubeconfig for these commands
+Both broker images are reproducible from the Makefile and nothing else. `make -C oicm-litellm-layer mcp-broker-release-dev` resolves the running dev gateway's image digest itself, builds the auxiliary image from `deploy/overlays/dev/mcp-source-broker/Dockerfile` against it with `--pull=always`, pushes the tag, and rolls the dev broker Deployment. `make -C oicm-litellm-layer mcp-sidecar-release` builds the Go connector binary in `mcp-remotedialer` with the host toolchain (`CGO_ENABLED=0`, statically linked, guarded by a `file` check), layers it into the `FROM scratch` image in `mcp-remotedialer/Dockerfile`, pushes, and deletes the sidecar pod so the same tag re-pulls. The Go build runs through `GO_ENV` (`/tmp/sa-build/bin/go`, `GOPATH=/tmp/rd-gopath`); keep `KUBECONFIG` pointing at the Al Ain kubeconfig. Do not hand-roll `podman build` for either image: a same-tag push is invisible to a running pod without the pod delete / rollout the targets perform
 
-
-```sh
-sh oicm-litellm-layer/scripts/sync-mcp-source-artifacts.sh
-BASE=$(kubectl -n adeo-litellm get pods -l app=litellm-proxy-dev \
-  -o jsonpath='{.items[?(@.status.phase=="Running")].status.containerStatuses[0].imageID}')
-IMAGE=registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5
-podman build --pull=always --build-arg "LITELLM_SRC_BASE=$BASE" --tag "$IMAGE" \
-  -f oicm-litellm-layer/deploy/overlays/dev/mcp-source-broker/Dockerfile \
-  oicm-litellm-layer/deploy/overlays/dev/mcp-source-broker
-podman push --tls-verify=false "$IMAGE"
-kubectl -n adeo-litellm rollout restart deployment/litellm-mcp-broker-dev
-```
-
-Do not commit the downloaded `chisel.gz`. Its build input is checked by SHA-256 and gzip integrity. The existing gateway release workflow publishes only the dev overlay, never production
+The 2026-11-17 reproducibility audit closed the last manual paths: the auxiliary recipe above used to live only in this document and its `Dockerfile` had been deleted at commit `db12cdb7946`; both are now committed and the Makefile is the canonical build entry. The released binary provenance is the same chain: `make mcp-sidecar-build` produces the exact `source-link` that release `0.2.0` publishes, and its `release.json` pins the sidecar image's registry manifest digest so a release always names the image its connector matches
 
 On 2026-11-13, the installed dev gateway and auxiliary image carried `read_source` and `echo_source` for source `f804e8c9-a9c7-5824-a90a-837262788be8`. The one-time enrollment claim minted connector `7f3a49c4-59a7-5611-8c4e-fff9b8a0e670` at `127.0.0.20:18081`. An ordinary same-identity re-enrollment refreshed the saved canonical fingerprint after catalog drift. It returned no new token or connector
 
@@ -133,7 +111,9 @@ Multi-source host failover is implemented and verified live (see step 2 below): 
 
 ## Next steps
 
-The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did. Revised 2026-11-17 after the service-topology review:
+The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did. Revised 2026-11-17 after the service-topology review, and after the reproducibility audit:
+
+0. Reproducibility. Everything deployed must be spawnable again from the Makefile and the committed manifests, with no shadow patches. Status: DONE (2026-11-17). The audit compared every broker object (Deployment, Service, NetworkPolicy, Ingress) field-by-field against the live cluster: MATCH, no drift, no out-of-band patches; the broker Secret is deliberately untracked in git and the CNPG secret is operator-owned. Both image builds were previously Makefile-unrecorded (the sidecar had no Dockerfile at all, the auxiliary recipe lived only in this doc with its `Dockerfile` deleted at `db12cdb7946`), and the RustFS-stored install binary was the retired WSS-era source-agent. All three gaps are closed: `mcp-sidecar-release` and `mcp-broker-release-dev` build, push, and roll from the Makefile (proven live: the pods' imageIDs equal the pushed registry manifests `sha256:47f3b330...` and `sha256:641e085a...`), both Dockerfiles are committed, and release `0.2.0` publishes the current reverse-h2 `source-link` through the signed-release route. The vestigial `fingerprint` and `relay-host-key` keys on the broker Secret remain noted but unread by anything
 
 1. Service and port standardization. Both broker Services keep named ports, but the public data-plane entry is renumbered to the standard 8888 on the Service (gateway-facing dispatch), so no code or registration carries a magic number anymore: the gateway's pool URL moves into an overlay env var, the owning doc gets one canonical port map, and the parallel source-agent research relay is decommissioned once the broker path is proven (it has zero gateway references and doubles the review surface). The connector routes stay on the shared 443 ingress, unchanged. Status: DONE. The 8888 Service port, the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var, and the canonical port map above landed and were re-verified live; the research relay's Deployment, Service, Ingress, NetworkPolicy, secret, and overlay directory were all deleted on 2026-11-17 after the 8888 round trip passed (the install mirror still serves the signed source-agent release script, which is client-distribution surface, not relay surface)
 2. Multi-host failover. Enroll a second source host with its own origin and proof key, run both connectors concurrently, and verify request distribution and failover when one host stops. The pool already prefers least-in-flight members, but no test has exercised two live reverse sessions from different hosts. Status: DONE (2026-11-17). Two workers (`failover-host-a` on origin port 18084, `failover-host-b` on 18085, each with its own Ed25519 proof key and dataset) held concurrent reverse sessions; 12 dispatch calls split exactly 6/6 across markers; killing host A's origin moved all 12 subsequent calls to host B with zero failures while A's connector kept its session (the origin refused, dispatch shed, no poisoning); after one probe cycle the broker marked A `healthy_at=NULL` and excluded it from dispatch (8/8 to B); restarting A's origin re-admitted it within one probe cycle and distribution rebalanced 5/5 over 10 calls
