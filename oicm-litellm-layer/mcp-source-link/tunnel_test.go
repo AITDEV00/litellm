@@ -229,3 +229,26 @@ func TestTunnelProbeFencesRevokedGeneration(t *testing.T) {
 		t.Fatalf("fenced tunnel remained registered: %d", remaining)
 	}
 }
+
+func TestGRPCDialTargetStripsSchemeAndDefaultsPort(t *testing.T) {
+	for _, tc := range []struct {
+		gateway string
+		want    string
+	}{
+		{"https://litellm.ecouncil.ae", "litellm.ecouncil.ae:443"},
+		{"https://litellm.ecouncil.ae/", "litellm.ecouncil.ae:443"},
+		{"https://litellm.ecouncil.ae:8443", "litellm.ecouncil.ae:8443"},
+		{"https://litellm.ecouncil.ae/base/path", "litellm.ecouncil.ae:443"},
+	} {
+		got, err := grpcDialTarget(tc.gateway)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.gateway, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.gateway, got, tc.want)
+		}
+	}
+	if _, err := grpcDialTarget("not a url"); err == nil {
+		t.Fatal("expected an error for an unparsable gateway URL")
+	}
+}

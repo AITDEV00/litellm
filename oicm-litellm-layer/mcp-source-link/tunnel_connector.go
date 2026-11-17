@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -28,6 +27,25 @@ import (
 
 	"oicm-litellm-layer/mcp-source-link/dispatchpb"
 )
+
+// grpcDialTarget converts the public HTTPS gateway URL into the host:port form
+// gRPC requires, applying 443 when the URL omits a port. Passing the raw URL to
+// grpc.Dial leaves the scheme in the address, which the dialer cannot parse and
+// every attempt dies on the dial timeout.
+func grpcDialTarget(gateway string) (string, error) {
+	parsed, err := url.Parse(gateway)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Hostname() == "" {
+		return "", errors.New("gateway URL has no host")
+	}
+	port := parsed.Port()
+	if port == "" {
+		port = "443"
+	}
+	return net.JoinHostPort(parsed.Hostname(), port), nil
+}
 
 // connectorCapabilities is the capability set this connector build
 // implements. The broker gates each pushed RPC on this list.
@@ -110,11 +128,9 @@ func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRe
 // runTunnelConnector is the tunnel transport's reconnect loop: dial the
 // broker with TLS, attach identity metadata, and serve the reverse tunnel.
 func runTunnelConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config) error {
-	base := strings.TrimSuffix(gateway, "/")
-	// gRPC needs host:port; the gateway URL may carry no port.
-	dialTarget := base
-	if !strings.Contains(strings.TrimPrefix(strings.TrimPrefix(dialTarget, "https://"), "http://"), ":") {
-		dialTarget = dialTarget + ":443"
+	dialTarget, err := grpcDialTarget(gateway)
+	if err != nil {
+		return err
 	}
 	creds := credentials.NewTLS(tlsConfig)
 	local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
