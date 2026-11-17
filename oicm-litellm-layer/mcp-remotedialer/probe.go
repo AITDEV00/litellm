@@ -37,59 +37,6 @@ func canonicalCatalog(contents []byte) (string, error) {
 	return hex.EncodeToString(func() []byte { sum := sha256.Sum256(encoded); return sum[:] }()), nil
 }
 
-func (m *memberSession) ready(sourceID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return !m.lastProbe.IsZero() && time.Since(m.lastProbe) < 15*time.Second && m.sourceID == sourceID
-}
-
-func (r *runtime) probeLoop(ctx context.Context, member *memberSession) {
-	defer member.close()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-member.closed:
-			return
-		default:
-		}
-		worker, ok := r.state.peer(member.workerID)
-		if !ok || worker.Phase == "revoked" || worker.Generation != member.generation {
-			return
-		}
-		if worker.Phase != "active" {
-			select {
-			case <-ctx.Done():
-				return
-			case <-member.closed:
-				return
-			case <-time.After(2 * time.Second):
-			}
-			continue
-		}
-		fingerprint, err := member.probe(worker)
-		if err != nil || fingerprint != worker.ExpectedCatalog {
-			fingerprint = ""
-		}
-		report := healthReport{WorkerID: member.workerID, Generation: member.generation, CatalogFingerprint: nil}
-		if fingerprint != "" {
-			report.CatalogFingerprint = &fingerprint
-		}
-		if admitted, err := r.state.report(ctx, report); err == nil && admitted && fingerprint != "" {
-			member.mu.Lock()
-			member.lastProbe = time.Now()
-			member.mu.Unlock()
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-member.closed:
-			return
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
 func probeCatalog(ctx context.Context, transport http.RoundTripper, worker peer) (string, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
@@ -127,12 +74,6 @@ func probeCatalog(ctx context.Context, transport http.RoundTripper, worker peer)
 		return "", errors.New("origin proof signature mismatch")
 	}
 	return actual, nil
-}
-
-func (m *memberSession) probe(worker peer) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return probeCatalog(ctx, m.transport, worker)
 }
 
 func (s *reverseSession) probe(worker peer) (string, error) {

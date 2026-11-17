@@ -18,7 +18,6 @@ import (
 type config struct {
 	ControlURL    string
 	ServiceToken  string
-	WorkerListen  string
 	DataListen    string
 	ReverseListen string
 	Transport     string
@@ -26,8 +25,7 @@ type config struct {
 }
 
 const (
-	transportRemotedialer = "remotedialer"
-	transportReverseH2    = "reverse-h2"
+	transportReverseH2 = "reverse-h2"
 )
 
 type peer struct {
@@ -66,7 +64,6 @@ func loadConfig() (config, error) {
 	cfg := config{
 		ControlURL:    environment("MCP_REMOTEDIALER_CONTROL_URL"),
 		ServiceToken:  environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
-		WorkerListen:  environment("MCP_REMOTEDIALER_WORKER_LISTEN"),
 		DataListen:    environment("MCP_REMOTEDIALER_DATA_LISTEN"),
 		ReverseListen: environment("MCP_REMOTEDIALER_REVERSE_LISTEN"),
 		Transport:     environment("MCP_REMOTEDIALER_TRANSPORT"),
@@ -75,23 +72,16 @@ func loadConfig() (config, error) {
 	if cfg.ControlURL == "" || len(cfg.ServiceToken) < 32 {
 		return cfg, errors.New("control URL and service token are required")
 	}
-	if cfg.Transport == "" {
-		cfg.Transport = transportRemotedialer
+	if cfg.Transport != "" && cfg.Transport != transportReverseH2 {
+		return cfg, errors.New("transport must be reverse-h2")
 	}
-	if cfg.Transport != transportRemotedialer && cfg.Transport != transportReverseH2 {
-		return cfg, errors.New("transport must be remotedialer or reverse-h2")
-	}
-	if cfg.Transport == transportReverseH2 && cfg.ReverseListen == "" {
+	if cfg.ReverseListen == "" {
 		return cfg, errors.New("reverse-h2 transport requires a reverse listener address")
 	}
-	addresses := []string{cfg.WorkerListen, cfg.DataListen}
-	if cfg.Transport == transportReverseH2 {
-		addresses = append(addresses, cfg.ReverseListen)
-	}
-	for _, address := range addresses {
+	for _, address := range []string{cfg.DataListen, cfg.ReverseListen} {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil || (host != "0.0.0.0" && host != "127.0.0.1") || port == "" {
-			return cfg, errors.New("worker and data listeners must be numeric addresses")
+			return cfg, errors.New("data and reverse listeners must be numeric addresses")
 		}
 	}
 	return cfg, nil

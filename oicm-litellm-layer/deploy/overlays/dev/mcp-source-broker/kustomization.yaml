@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
   - broker.yaml
   - network-policy.yaml
-  - remotedialer-ingress.yaml
   - reverse-h2-ingress.yaml
 patches:
   - path: remotedialer-patch.yaml

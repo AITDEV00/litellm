@@ -19,13 +19,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/gorilla/websocket"
-	"github.com/rancher/remotedialer"
 )
 
 func main() {
-	remotedialer.PrintTunnelData = false
 	if len(os.Args) != 2 || (os.Args[1] != "worker" && os.Args[1] != "connector") {
 		log.Fatal("usage: mcp-source-link worker|connector")
 	}
@@ -37,15 +33,11 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	transport := environment("MCP_REMOTEDIALER_TRANSPORT")
-	if transport == "" {
-		transport = transportRemotedialer
-	}
-	if transport != transportRemotedialer && transport != transportReverseH2 {
-		return fmt.Errorf("unsupported transport %q", transport)
+	if environment("MCP_REMOTEDIALER_TRANSPORT") != "" && environment("MCP_REMOTEDIALER_TRANSPORT") != transportReverseH2 {
+		return fmt.Errorf("unsupported transport %q; reverse-h2 is the only transport", environment("MCP_REMOTEDIALER_TRANSPORT"))
 	}
 	if mode == "connector" {
-		return runConnector(ctx, environment("MCP_REMOTEDIALER_CONNECTOR_CONFIG"), transport)
+		return runConnector(ctx, environment("MCP_REMOTEDIALER_CONNECTOR_CONFIG"))
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -61,30 +53,25 @@ func run(mode string) error {
 		return err
 	}
 	runtime := newRuntime(control)
-	worker := http.NewServeMux()
-	worker.HandleFunc("GET /mcp-remotedialer-worker", runtime.worker)
 	data := http.NewServeMux()
 	data.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	data.HandleFunc("POST /v1/remotedialer/revoke", runtime.revokeHTTP)
 	data.HandleFunc("/sources/{source}/{path...}", runtime.forward)
+	reverse := reverseServer()
+	reverse.Addr = cfg.ReverseListen
+	reverseMux := http.NewServeMux()
+	reverseMux.HandleFunc("POST /mcp-remotedialer-reverse", runtime.reverseRegister)
+	reverseMux.HandleFunc("POST /mcp-remotedialer-hold", runtime.reverseHold)
+	reverseMux.HandleFunc("POST /mcp-remotedialer-dispatch", runtime.reverseDispatch)
+	reverseMux.HandleFunc("POST /mcp-remotedialer-respond", runtime.reverseRespond)
+	reverse.Handler = reverseMux
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	protocols.SetHTTP1(false)
+	reverse.Protocols = protocols
 	servers := []*http.Server{
-		{Addr: cfg.WorkerListen, Handler: worker, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10},
 		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10},
-	}
-	if cfg.Transport == transportReverseH2 {
-		reverse := reverseServer()
-		reverse.Addr = cfg.ReverseListen
-		reverseMux := http.NewServeMux()
-		reverseMux.HandleFunc("POST /mcp-remotedialer-reverse", runtime.reverseRegister)
-		reverseMux.HandleFunc("POST /mcp-remotedialer-hold", runtime.reverseHold)
-		reverseMux.HandleFunc("POST /mcp-remotedialer-dispatch", runtime.reverseDispatch)
-		reverseMux.HandleFunc("POST /mcp-remotedialer-respond", runtime.reverseRespond)
-		reverse.Handler = reverseMux
-		protocols := new(http.Protocols)
-		protocols.SetUnencryptedHTTP2(true)
-		protocols.SetHTTP1(false)
-		reverse.Protocols = protocols
-		servers = append(servers, reverse)
+		reverse,
 	}
 	for _, server := range servers {
 		listener, err := net.Listen("tcp", server.Addr)
@@ -111,17 +98,13 @@ func run(mode string) error {
 			}
 		}
 	}()
-	if cfg.Transport == transportReverseH2 {
-		log.Printf("reverse-h2 worker listening on %s; private dispatch on %s; reverse ingress on %s", cfg.WorkerListen, cfg.DataListen, cfg.ReverseListen)
-	} else {
-		log.Printf("remotedialer worker listening on %s; private dispatch on %s", cfg.WorkerListen, cfg.DataListen)
-	}
+	log.Printf("reverse-h2 worker; private dispatch on %s; reverse ingress on %s", cfg.DataListen, cfg.ReverseListen)
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	runtime.mu.Lock()
-	for _, member := range runtime.sessions {
-		member.close()
+	for _, session := range runtime.reverse {
+		session.close()
 	}
 	runtime.mu.Unlock()
 	for _, server := range servers {
@@ -130,8 +113,7 @@ func run(mode string) error {
 	return nil
 }
 
-func runConnector(ctx context.Context, path string, transport string) error {
-	remotedialer.PrintTunnelData = false
+func runConnector(ctx context.Context, path string) error {
 	cfg, err := readConnector(path)
 	if err != nil {
 		return err
@@ -150,39 +132,7 @@ func runConnector(ctx context.Context, path string, transport string) error {
 		"X-Source-Generation": {fmt.Sprint(cfg.Generation)},
 		"Authorization":       {"Bearer " + cfg.Credential},
 	}
-	if transport == transportReverseH2 {
-		return runReverseConnector(ctx, cfg, gateway, tlsConfig, headers)
-	}
-	wsGateway := "wss://" + strings.TrimPrefix(gateway, "https://")
-	dialer := &websocket.Dialer{Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsConfig, HandshakeTimeout: 8 * time.Second}
-	local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
-	allowed := func(network, address string) bool { return network == "tcp" && address == slot(cfg.SourceID) }
-	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if !allowed(network, address) {
-			return nil, errors.New("target denied by connector")
-		}
-		return local.DialContext(ctx, "tcp", cfg.Target)
-	}
-	delay := 300 * time.Millisecond
-	for ctx.Err() == nil {
-		started := time.Now()
-		err := remotedialer.ConnectToProxyWithDialer(ctx, wsGateway, headers, allowed, dialer, dial, nil)
-		if ctx.Err() != nil {
-			return nil
-		}
-		if time.Since(started) > 30*time.Second {
-			delay = 300 * time.Millisecond
-		}
-		log.Printf("connector %s disconnected: %v", cfg.WorkerID, err)
-		timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay/2))))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-		case <-timer.C:
-		}
-		delay = min(15*time.Second, delay*2)
-	}
-	return nil
+	return runReverseConnector(ctx, cfg, gateway, tlsConfig, headers)
 }
 
 func runReverseConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config, headers http.Header) error {

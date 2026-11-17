@@ -10,16 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
-	"github.com/rancher/remotedialer"
 )
 
 const (
@@ -35,7 +30,6 @@ var notSecret = fmt.Sprintf("%064d", 0)
 type fixture struct {
 	control *control
 	runtime *runtime
-	worker  *httptest.Server
 	data    *httptest.Server
 }
 
@@ -55,7 +49,6 @@ func secretDigest(value string) string {
 func setupFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{}
-	workerMux := http.NewServeMux()
 	state := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Header.Get("Authorization") != "Bearer "+serviceKey {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -92,14 +85,12 @@ func setupFixture(t *testing.T) *fixture {
 	}))
 	f.control = &control{base: state.URL, token: serviceKey, tokenDigest: secretDigest(serviceKey), client: state.Client(), workers: make(map[string]peer)}
 	f.runtime = newRuntime(f.control)
-	workerMux.HandleFunc("GET /mcp-remotedialer-worker", f.runtime.worker)
-	f.worker = httptest.NewServer(workerMux)
 	dataMux := http.NewServeMux()
 	dataMux.HandleFunc("/sources/{source}/{path...}", f.runtime.forward)
 	dataMux.HandleFunc("POST /v1/remotedialer/revoke", f.runtime.revokeHTTP)
 	f.data = httptest.NewServer(dataMux)
 	t.Cleanup(func() {
-		for _, client := range []*httptest.Server{state, f.worker, f.data} {
+		for _, client := range []*httptest.Server{state, f.data} {
 			client.CloseClientConnections()
 			client.Close()
 		}
@@ -151,31 +142,6 @@ func signedOrigin(t *testing.T, name string, signingKey ed25519.PrivateKey) (*ht
 	return server, catalog
 }
 
-func connect(ctx context.Context, f *fixture, p peer, target string) error {
-	wsURL := "ws" + strings.TrimPrefix(f.worker.URL, "http") + "/mcp-remotedialer-worker"
-	headers := http.Header{"X-Source-Member": {p.WorkerID}, "X-Source-Generation": {strconv.FormatUint(p.Generation, 10)}, "Authorization": {"Bearer " + notSecret}}
-	dialer := &websocket.Dialer{HandshakeTimeout: 2 * time.Second}
-	allowed := func(network, address string) bool { return network == "tcp" && address == slot(sourceID) }
-	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if !allowed(network, address) {
-			return nil, fmt.Errorf("denied")
-		}
-		return (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", target)
-	}
-	return remotedialer.ConnectToProxyWithDialer(ctx, wsURL, headers, allowed, dialer, dial, nil)
-}
-
-func ready(t *testing.T, f *fixture, id string) bool {
-	f.runtime.mu.Lock()
-	member := f.runtime.sessions[id]
-	f.runtime.mu.Unlock()
-	if member == nil || !f.runtime.relay.HasSession(id) || !member.ready(sourceID) {
-		return false
-	}
-	p, _ := f.control.peer(id)
-	return p.CatalogFingerprint != nil && *p.CatalogFingerprint == p.ExpectedCatalog
-}
-
 func eventually(t *testing.T, check func() bool) {
 	t.Helper()
 	until := time.Now().Add(6 * time.Second)
@@ -206,7 +172,7 @@ func read(t *testing.T, url string, method string, headers http.Header) (int, st
 }
 
 func TestSyntheticCredentials(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-remotedialer-worker", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-remotedialer-reverse", nil)
 	req.Header.Set("Authorization", "Bearer "+notSecret)
 	if !sameSecret(secretDigest(notSecret), bearer(req)) {
 		t.Fatalf("digest contract changed: supplied-length=%d", len(bearer(req)))
@@ -216,7 +182,42 @@ func TestSyntheticCredentials(t *testing.T) {
 	}
 }
 
-func TestSignedPeerReadSharingAndRevoke(t *testing.T) {
+func readyReverse(t *testing.T, f *fixture, id string) bool {
+	t.Helper()
+	f.runtime.mu.Lock()
+	session := f.runtime.reverse[id]
+	f.runtime.mu.Unlock()
+	if session == nil || !session.ready(sourceID) {
+		return false
+	}
+	p, _ := f.control.peer(id)
+	return p.CatalogFingerprint != nil && *p.CatalogFingerprint == p.ExpectedCatalog
+}
+
+func startSession(t *testing.T, f *fixture, p peer) {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /mcp-remotedialer-reverse", f.runtime.reverseRegister)
+	mux.HandleFunc("POST /mcp-remotedialer-hold", f.runtime.reverseHold)
+	mux.HandleFunc("POST /mcp-remotedialer-dispatch", f.runtime.reverseDispatch)
+	mux.HandleFunc("POST /mcp-remotedialer-respond", f.runtime.reverseRespond)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go reverseConnector(ctx, t, server, p)
+	eventually(t, func() bool {
+		f.runtime.mu.Lock()
+		defer f.runtime.mu.Unlock()
+		return f.runtime.reverse[p.WorkerID] != nil
+	})
+	f.runtime.mu.Lock()
+	session := f.runtime.reverse[p.WorkerID]
+	f.runtime.mu.Unlock()
+	go f.runtime.reverseProbeLoop(ctx, session)
+}
+
+func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	pub, signing, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -236,17 +237,11 @@ func TestSignedPeerReadSharingAndRevoke(t *testing.T) {
 	c := testPeer("44444444-4444-4444-4444-444444444444", 1, pub)
 	c.Target = strings.TrimPrefix(wrongPeer.URL, "http://")
 	c.ExpectedCatalog = catalog
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	for _, p := range []peer{a, b, c} {
 		f.setPeer(p, "")
-		go func() {
-			if err := connect(ctx, f, p, p.Target); err != nil {
-				t.Logf("connector stopped: %v", err)
-			}
-		}()
+		startSession(t, f, p)
 	}
-	eventually(t, func() bool { return ready(t, f, a.WorkerID) && ready(t, f, b.WorkerID) })
+	eventually(t, func() bool { return readyReverse(t, f, a.WorkerID) && readyReverse(t, f, b.WorkerID) })
 	got := map[string]int{}
 	requestHeaders := http.Header{"Authorization": {"Bearer " + serviceKey}, "Cookie": {"private=not-forwarded"}}
 	for range 12 {
@@ -278,7 +273,11 @@ func TestSignedPeerReadSharingAndRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	eventually(t, func() bool { return !f.runtime.relay.HasSession(workerB) })
+	eventually(t, func() bool {
+		f.runtime.mu.Lock()
+		defer f.runtime.mu.Unlock()
+		return f.runtime.reverse[workerB] == nil
+	})
 	for range 4 {
 		status, body = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
 		if status != http.StatusOK || body != "A" {
@@ -296,10 +295,8 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	p.Target = strings.TrimPrefix(origin.URL, "http://")
 	p.ExpectedCatalog = catalog
 	f.setPeer(p, "")
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = connect(ctx, f, p, p.Target) }()
-	eventually(t, func() bool { return ready(t, f, workerA) })
+	startSession(t, f, p)
+	eventually(t, func() bool { return readyReverse(t, f, workerA) })
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
 	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
@@ -311,7 +308,10 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	f.control.mu.Unlock()
 	f.runtime.reconcile()
 	eventually(t, func() bool { return f.runtime.pick(sourceID, "") == nil })
-	if !f.runtime.relay.HasSession(workerA) {
+	f.runtime.mu.Lock()
+	session := f.runtime.reverse[workerA]
+	f.runtime.mu.Unlock()
+	if session == nil {
 		t.Fatal("drain closed the live session")
 	}
 	status, _ = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
@@ -338,34 +338,37 @@ func TestRevokedConnectorCannotReconnect(t *testing.T) {
 	p.Target = strings.TrimPrefix(origin.URL, "http://")
 	p.ExpectedCatalog = catalog
 	f.setPeer(p, "")
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go func() { _ = connect(ctx, f, p, p.Target) }()
-	eventually(t, func() bool { return ready(t, f, workerA) })
+	startSession(t, f, p)
+	eventually(t, func() bool { return readyReverse(t, f, workerA) })
 	f.control.mu.Lock()
 	p.Phase = "revoked"
 	p.Generation = 2
 	p.CredentialDigest = secretDigest("stale")
 	f.control.workers[workerA] = p
 	f.control.mu.Unlock()
-	request, _ := http.NewRequest(http.MethodPost, f.data.URL+"/v1/remotedialer/revoke", nil)
-	request.Header.Set("Authorization", "Bearer "+serviceKey)
-	request.Header.Set("X-Source-Member", workerA)
-	request.Header.Set("X-Source-Id", sourceID)
-	resp, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	start := time.Now()
-	for time.Since(start) < time.Second {
-		dialer := websocket.Dialer{HandshakeTimeout: time.Second}
-		ws, _, _ := dialer.DialContext(context.Background(), "ws"+strings.TrimPrefix(f.worker.URL, "http")+"/mcp-remotedialer-worker", http.Header{"X-Source-Member": {workerA}, "X-Source-Generation": {"1"}, "Authorization": {"Bearer " + notSecret}})
-		if ws != nil {
-			_ = ws.Close()
+	f.runtime.reconcile()
+	eventually(t, func() bool {
+		f.runtime.mu.Lock()
+		defer f.runtime.mu.Unlock()
+		return f.runtime.reverse[workerA] == nil
+	})
+	_, server := reverseFixture(t)
+	probe := func(generation, credential string) int {
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/mcp-remotedialer-reverse", nil)
+		req.Header.Set("X-Source-Member", workerA)
+		req.Header.Set("X-Source-Generation", generation)
+		req.Header.Set("Authorization", "Bearer "+credential)
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer resp.Body.Close()
+		return resp.StatusCode
 	}
-	if f.runtime.relay.HasSession(workerA) {
-		t.Fatal("stale session resurrected")
+	if code := probe("2", "stale-credential"); code != http.StatusUnauthorized {
+		t.Fatalf("revoked member re-registered: %d", code)
+	}
+	if code := probe("1", notSecret); code != http.StatusUnauthorized {
+		t.Fatalf("stale generation re-registered: %d", code)
 	}
 }

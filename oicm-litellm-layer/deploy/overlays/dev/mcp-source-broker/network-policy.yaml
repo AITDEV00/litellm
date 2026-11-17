@@ -19,7 +19,6 @@ spec:
         - port: 9091
         - port: 9092
     - ports:
-        - port: 8092
         - port: 8093
   egress:
     - to:

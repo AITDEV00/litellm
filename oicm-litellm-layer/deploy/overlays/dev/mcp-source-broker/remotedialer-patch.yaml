@@ -8,7 +8,6 @@
 ##
 ## Port map inside the one pod (Service-facing names in backticks):
 ##   9091  FastAPI remotedialer control `remote-control` (the broker process)
-##   8092  Go worker ingress `rd-worker`: GET /mcp-remotedialer-worker (sidecar; WSS, deprecation pending)
 ##   9092  Go private dispatch `rd-data`: /sources/{id}/{path}, /v1/remotedialer/revoke (sidecar)
 ##   8093  Go reverse-h2 ingress `rd-reverse`: /mcp-remotedialer-{reverse,hold,dispatch,respond} (sidecar)
 ##
@@ -41,8 +40,6 @@ spec:
                 secretKeyRef:
                   name: litellm-mcp-source-broker-dev
                   key: service-token
-            - name: MCP_REMOTEDIALER_WORKER_LISTEN
-              value: "0.0.0.0:8092"
             - name: MCP_REMOTEDIALER_DATA_LISTEN
               value: "0.0.0.0:9092"
             - name: MCP_REMOTEDIALER_REVERSE_LISTEN
@@ -50,8 +47,6 @@ spec:
             - name: MCP_REMOTEDIALER_TRANSPORT
               value: "reverse-h2"
           ports:
-            - name: rd-worker
-              containerPort: 8092
             - name: rd-data
               containerPort: 9092
             - name: rd-reverse
@@ -80,9 +75,6 @@ metadata:
   namespace: adeo-litellm
 spec:
   ports:
-    - name: rd-worker
-      port: 8092
-      targetPort: 8092
     - name: data
       port: 8888
       targetPort: rd-data

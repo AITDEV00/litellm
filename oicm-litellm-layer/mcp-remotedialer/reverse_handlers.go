@@ -20,7 +20,7 @@ func (r *runtime) registerReverse(req *http.Request) (*reverseSession, error) {
 	defer r.mu.Unlock()
 	worker, ok := r.state.peer(workerID)
 	if !ok || worker.Phase != "active" || fmt.Sprint(worker.Generation) != generation ||
-		!sameSecret(worker.CredentialDigest, credential) || r.sessions[workerID] != nil {
+		!sameSecret(worker.CredentialDigest, credential) || r.reverse[workerID] != nil {
 		return nil, errors.New("connector unauthorized")
 	}
 	if r.reverse[workerID] != nil {

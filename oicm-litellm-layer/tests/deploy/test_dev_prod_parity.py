@@ -205,7 +205,6 @@ def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dic
         "Service/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-rustfs-dev-source-broker",
-        "Ingress/litellm-mcp-remotedialer-worker-dev",
         "Ingress/litellm-mcp-reverse-h2-dev",
     }
     assert set(dev) == expected | broker, (
@@ -457,7 +456,6 @@ def test_dev_label_is_declared_in_one_place(dev: dict[str, dict], prod: dict[str
         "Service/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-mcp-broker-dev",
         "NetworkPolicy/litellm-rustfs-dev-source-broker",
-        "Ingress/litellm-mcp-remotedialer-worker-dev",
         "Ingress/litellm-mcp-reverse-h2-dev",
     }
     gateway = {
