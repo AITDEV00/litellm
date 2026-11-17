@@ -8,7 +8,7 @@ generated per-host scripts. The installer is a fixed script that downloads the
 versioned pair and verifies the SHA-256 checksum of the binary before anything
 executes. The installed user systemd unit runs `source-link connector` with the
 environment sourced from `~/.config/source-agent/connector.env`
-(MCP_REMOTEDIALER_PUBLIC_URL, MCP_REMOTEDIALER_CONNECTOR_CONFIG).
+(MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG).
 
 Reuse rules: connection parameters, bucket handling and key normalization all
 come from :mod:`litellm.proxy.client_distribution.storage`. Only the
@@ -192,7 +192,7 @@ Description=ADEO MCP source connector (reverse-h2)
 [Service]
 Restart=always
 RestartSec=2s
-Environment=MCP_REMOTEDIALER_TRANSPORT=reverse-h2
+Environment=MCP_SOURCE_LINK_TRANSPORT=reverse-h2
 EnvironmentFile=-$HOME/.config/source-agent/connector.env
 ExecStart=$state/source-link connector
 NoNewPrivileges=yes
@@ -204,7 +204,7 @@ if [ "${{SOURCE_AGENT_START:-1}}" = "1" ] && [ -f "$HOME/.config/source-agent/co
   systemctl --user daemon-reload
   systemctl --user enable --now source-agent.service
 else
-  echo "source connector installed at $state/source-link (service starts after MCP_REMOTEDIALER_CONNECTOR_CONFIG is set in $state/connector.env)"
+  echo "source connector installed at $state/source-link (service starts after MCP_SOURCE_LINK_CONNECTOR_CONFIG is set in $state/connector.env)"
 fi
 """
 

@@ -21,10 +21,10 @@ func reverseFixture(t *testing.T) (*fixture, *httptest.Server) {
 	t.Helper()
 	f := setupFixture(t)
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /mcp-remotedialer-reverse", f.runtime.reverseRegister)
-	mux.HandleFunc("POST /mcp-remotedialer-hold", f.runtime.reverseHold)
-	mux.HandleFunc("POST /mcp-remotedialer-dispatch", f.runtime.reverseDispatch)
-	mux.HandleFunc("POST /mcp-remotedialer-respond", f.runtime.reverseRespond)
+	mux.HandleFunc("POST /mcp-source-link-reverse", f.runtime.reverseRegister)
+	mux.HandleFunc("POST /mcp-source-link-hold", f.runtime.reverseHold)
+	mux.HandleFunc("POST /mcp-source-link-dispatch", f.runtime.reverseDispatch)
+	mux.HandleFunc("POST /mcp-source-link-respond", f.runtime.reverseRespond)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return f, server
@@ -68,7 +68,7 @@ func TestReverseRegistrationRejectsBadCredentials(t *testing.T) {
 	base := server.URL
 	client := server.Client()
 	probe := func(member, generation, credential string) *http.Response {
-		resp, err := reverseCall(t, client, base+"/mcp-remotedialer-reverse", http.Header{
+		resp, err := reverseCall(t, client, base+"/mcp-source-link-reverse", http.Header{
 			"X-Source-Member":     {member},
 			"X-Source-Generation": {generation},
 			"Authorization":       {"Bearer " + credential},
@@ -128,7 +128,7 @@ func reverseConnector(ctx context.Context, t *testing.T, server *httptest.Server
 func reverseConnectorClient(ctx context.Context, t *testing.T, client *http.Client, base string, p peer) {
 	t.Helper()
 	headers := reverseHeaders(p, notSecret)
-	resp, err := reverseCall(t, client, base+"/mcp-remotedialer-reverse", headers, nil)
+	resp, err := reverseCall(t, client, base+"/mcp-source-link-reverse", headers, nil)
 	if err != nil {
 		t.Errorf("connector registration failed: %v", err)
 		return
@@ -142,7 +142,7 @@ func reverseConnectorClient(ctx context.Context, t *testing.T, client *http.Clie
 	holdCtx, holdCancel := context.WithCancel(ctx)
 	defer holdCancel()
 	go func() {
-		resp, err := reverseCall(t, client, base+"/mcp-remotedialer-hold", headers, nil)
+		resp, err := reverseCall(t, client, base+"/mcp-source-link-hold", headers, nil)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
@@ -164,7 +164,7 @@ func reverseConnectorClient(ctx context.Context, t *testing.T, client *http.Clie
 					return
 				default:
 				}
-				resp, err := reverseCall(t, client, base+"/mcp-remotedialer-dispatch", headers, nil)
+				resp, err := reverseCall(t, client, base+"/mcp-source-link-dispatch", headers, nil)
 				if err != nil || resp.StatusCode != http.StatusOK {
 					if resp != nil {
 						_, _ = io.Copy(io.Discard, resp.Body)
@@ -180,7 +180,7 @@ func reverseConnectorClient(ctx context.Context, t *testing.T, client *http.Clie
 					payload = dispatchResponse{ID: item.ID, Error: err.Error()}
 				}
 				encoded, _ := json.Marshal(payload)
-				done, err := reverseCall(t, client, base+"/mcp-remotedialer-respond", headers, encoded)
+				done, err := reverseCall(t, client, base+"/mcp-source-link-respond", headers, encoded)
 				if err != nil {
 					return
 				}
@@ -266,7 +266,7 @@ func TestReverseHoldGatesDispatchOnWorkerCredential(t *testing.T) {
 	f.setPeer(p, "")
 	base := server.URL
 	client := server.Client()
-	resp, err := reverseCall(t, client, base+"/mcp-remotedialer-hold", reverseHeaders(p, notSecret), nil)
+	resp, err := reverseCall(t, client, base+"/mcp-source-link-hold", reverseHeaders(p, notSecret), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestReverseHoldGatesDispatchOnWorkerCredential(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
-	resp, err = reverseCall(t, client, base+"/mcp-remotedialer-reverse", reverseHeaders(p, notSecret), nil)
+	resp, err = reverseCall(t, client, base+"/mcp-source-link-reverse", reverseHeaders(p, notSecret), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestReverseHoldGatesDispatchOnWorkerCredential(t *testing.T) {
 		t.Fatalf("registration rejected: %d", resp.StatusCode)
 	}
 	bad := reverseHeaders(p, "wrong-credential")
-	resp, err = reverseCall(t, client, base+"/mcp-remotedialer-dispatch", bad, nil)
+	resp, err = reverseCall(t, client, base+"/mcp-source-link-dispatch", bad, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

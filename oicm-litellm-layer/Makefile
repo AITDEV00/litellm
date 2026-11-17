@@ -46,7 +46,7 @@ LITELLM_LOCAL_PORT := 4000
 # base digest selected at build time, because it must carry the exact gateway
 # code it runs beside.
 MCP_SIDECAR_DIR  := mcp-source-link
-MCP_SIDECAR_IMG  := $(REGISTRY)/$(REPO_PATH)/mcp-remotedialer-worker
+MCP_SIDECAR_IMG  := $(REGISTRY)/$(REPO_PATH)/mcp-source-link-worker
 MCP_BROKER_IMG   := $(REGISTRY)/$(REPO_PATH)/litellm-mcp-broker
 MCP_SIDECAR_TAG  ?= $(LITELLM_SRC_TAG)
 MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)

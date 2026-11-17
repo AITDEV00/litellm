@@ -147,7 +147,7 @@ async def test_mount_after_prisma_initialization(monkeypatch, store: SourceStore
         mount_mcp_sources_when_enabled(app, object(), object(), store=store)
         routes = {route.path for route in app.routes}
         assert "/mcp-sources" in routes
-        assert "/mcp-remotedialer-sources/{source_id}/workers" in routes
+        assert "/mcp-source-link-sources/{source_id}/workers" in routes
         assert all("install" not in path for path in routes), "installer routes must be gone"
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
             assert (await client.post("/mcp-sources", json=source.model_dump(mode="json"))).status_code == 403

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -46,10 +48,20 @@ async def test_reenroll_changed_catalog_resets_to_pending(store: SourceStore, so
 
 
 @pytest.mark.asyncio
-async def test_selection_reports_remotedialer(store: SourceStore, source: SourceCreate) -> None:
+async def test_selection_defaults_to_reverse_h2(store: SourceStore, source: SourceCreate) -> None:
     await store.enroll(source, "alice")
     selection = await store.selection(source.source_id)
-    assert selection.transport == "remotedialer"
+    assert selection.transport == "reverse-h2"
+
+
+@pytest.mark.asyncio
+async def test_selection_maps_legacy_remotedialer_value(store: SourceStore, source: SourceCreate) -> None:
+    """Rows enrolled before the rename still store the retired literal."""
+    await store.enroll(source, "alice")
+    legacy: Final = store.db.sources[0].model_copy(update={"remote_transport": "remotedialer"})
+    store.db.sources[0] = legacy
+    selection = await store.selection(source.source_id)
+    assert selection.transport == "reverse-h2"
 
 
 @pytest.mark.asyncio
@@ -58,7 +70,7 @@ async def test_select_persists_requested_transport(store: SourceStore, source: S
 
     await store.enroll(source, "alice")
 
-    async def route(source_id: str, transport: TransportName = "remotedialer") -> None:
+    async def route(source_id: str, transport: TransportName = "reverse-h2") -> None:
         await store.route(source_id, transport)
 
     app = FastAPI()
@@ -68,7 +80,7 @@ async def test_select_persists_requested_transport(store: SourceStore, source: S
     app.include_router(create_remote_gateway_router(store, "service-token", route=route))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         selected = await client.put(
-            f"/mcp-remotedialer-sources/{source.source_id}/selection", json={"transport": "reverse-h2"}
+            f"/mcp-source-link-sources/{source.source_id}/selection", json={"transport": "reverse-h2"}
         )
         assert selected.status_code == 200
         assert (await store.selection(source.source_id)).transport == "reverse-h2"

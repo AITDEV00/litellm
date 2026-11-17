@@ -25,6 +25,8 @@ class Keys:
         return self._hmac("enrollment-token", grant_id, token)
 
     def remote_credential(self, grant_id: str, worker_id: str, generation: int) -> str:
+        # The domain string is baked into every enrolled worker's stored
+        # credential digest. Renaming it silently invalidates all of them.
         return self._hmac("remotedialer-credential", grant_id, worker_id, str(generation)).hex()
 
     def remote_digest(self, grant_id: str, worker_id: str, generation: int) -> str:

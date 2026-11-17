@@ -3,6 +3,8 @@
 ## source host listens. The GRPC backend protocol switches nginx to grpc_pass,
 ## which proxies cleartext HTTP/2 (h2c) to the sidecar's reverse listener on
 ## 8093, so HTTP/2 stream multiplexing survives the hop through the cluster.
+## The same listener also carries the grpctunnel plane at
+## /grpctunnel.v1.TunnelService/ once a connector selects MCP_SOURCE_LINK_TRANSPORT=tunnel.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,34 +22,41 @@ spec:
     - host: litellm.ecouncil.ae
       http:
         paths:
-          - path: /mcp-remotedialer-reverse
+          - path: /mcp-source-link-reverse
             pathType: Prefix
             backend:
               service:
                 name: litellm-mcp-broker-dev
                 port:
-                  name: rd-reverse
-          - path: /mcp-remotedialer-hold
+                  name: link-reverse
+          - path: /mcp-source-link-hold
             pathType: Prefix
             backend:
               service:
                 name: litellm-mcp-broker-dev
                 port:
-                  name: rd-reverse
-          - path: /mcp-remotedialer-dispatch
+                  name: link-reverse
+          - path: /mcp-source-link-dispatch
             pathType: Prefix
             backend:
               service:
                 name: litellm-mcp-broker-dev
                 port:
-                  name: rd-reverse
-          - path: /mcp-remotedialer-respond
+                  name: link-reverse
+          - path: /mcp-source-link-respond
             pathType: Prefix
             backend:
               service:
                 name: litellm-mcp-broker-dev
                 port:
-                  name: rd-reverse
+                  name: link-reverse
+          - path: /grpctunnel.v1.TunnelService/
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker-dev
+                port:
+                  name: link-reverse
   tls:
     - hosts:
         - litellm.ecouncil.ae

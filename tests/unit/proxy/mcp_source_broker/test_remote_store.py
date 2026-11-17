@@ -317,20 +317,20 @@ async def test_control_app_peers_requires_bearer_header_not_query() -> None:
     app.mount("/", create_remote_control_app(StoreWithRemote(), secret))
     transport: Final = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        denied: Final = await client.get("/v1/remotedialer/peers")
+        denied: Final = await client.get("/v1/source-link/peers")
         assert denied.status_code == 401, "missing header must be rejected"
         wrong_header: Final = await client.get(
-            "/v1/remotedialer/peers", headers={"Authorization": f"Bearer wrong-{secret}"}
+            "/v1/source-link/peers", headers={"Authorization": f"Bearer wrong-{secret}"}
         )
         assert wrong_header.status_code == 401
-        as_query: Final = await client.get("/v1/remotedialer/peers", params={"authorization": f"Bearer {secret}"})
+        as_query: Final = await client.get("/v1/source-link/peers", params={"authorization": f"Bearer {secret}"})
         assert as_query.status_code == 401, "token passed as query parameter must not authenticate"
-        ok: Final = await client.get("/v1/remotedialer/peers", headers={"Authorization": f"Bearer {secret}"})
+        ok: Final = await client.get("/v1/source-link/peers", headers={"Authorization": f"Bearer {secret}"})
         assert ok.status_code == 200
         listed: Final = ok.json()
         assert len(listed) == 1 and listed[0]["worker_id"] == created.worker_id
         reported: Final = await client.post(
-            "/v1/remotedialer/report",
+            "/v1/source-link/report",
             headers={"Authorization": f"Bearer {secret}"},
             json={"worker_id": created.worker_id, "generation": 1, "catalog_fingerprint": "f" * 64},
         )

@@ -62,12 +62,12 @@ func environment(name string) string {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		ControlURL:    environment("MCP_REMOTEDIALER_CONTROL_URL"),
+		ControlURL:    environment("MCP_SOURCE_LINK_CONTROL_URL"),
 		ServiceToken:  environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
-		DataListen:    environment("MCP_REMOTEDIALER_DATA_LISTEN"),
-		ReverseListen: environment("MCP_REMOTEDIALER_REVERSE_LISTEN"),
-		Transport:     environment("MCP_REMOTEDIALER_TRANSPORT"),
-		CAFile:        environment("MCP_REMOTEDIALER_CA_FILE"),
+		DataListen:    environment("MCP_SOURCE_LINK_DATA_LISTEN"),
+		ReverseListen: environment("MCP_SOURCE_LINK_REVERSE_LISTEN"),
+		Transport:     environment("MCP_SOURCE_LINK_TRANSPORT"),
+		CAFile:        environment("MCP_SOURCE_LINK_CA_FILE"),
 	}
 	if cfg.ControlURL == "" || len(cfg.ServiceToken) < 32 {
 		return cfg, errors.New("control URL and service token are required")

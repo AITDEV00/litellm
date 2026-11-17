@@ -41,7 +41,7 @@ spec:
           env:
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
-            - name: MCP_REMOTEDIALER_ENABLED
+            - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
             - name: LITELLM_LOCAL_MODEL_COST_MAP
               value: "true"

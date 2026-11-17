@@ -54,7 +54,7 @@ func setupFixture(t *testing.T) *fixture {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if req.URL.Path == "/v1/remotedialer/peers" {
+		if req.URL.Path == "/v1/source-link/peers" {
 			f.control.mu.RLock()
 			peers := make([]peer, 0, len(f.control.workers))
 			for _, p := range f.control.workers {
@@ -64,7 +64,7 @@ func setupFixture(t *testing.T) *fixture {
 			_ = json.NewEncoder(w).Encode(peers)
 			return
 		}
-		if req.URL.Path == "/v1/remotedialer/report" {
+		if req.URL.Path == "/v1/source-link/report" {
 			var report healthReport
 			if err := json.NewDecoder(req.Body).Decode(&report); err != nil {
 				t.Error(err)
@@ -87,7 +87,7 @@ func setupFixture(t *testing.T) *fixture {
 	f.runtime = newRuntime(f.control)
 	dataMux := http.NewServeMux()
 	dataMux.HandleFunc("/sources/{source}/{path...}", f.runtime.forward)
-	dataMux.HandleFunc("POST /v1/remotedialer/revoke", f.runtime.revokeHTTP)
+	dataMux.HandleFunc("POST /v1/source-link/revoke", f.runtime.revokeHTTP)
 	f.data = httptest.NewServer(dataMux)
 	t.Cleanup(func() {
 		for _, client := range []*httptest.Server{state, f.data} {
@@ -172,7 +172,7 @@ func read(t *testing.T, url string, method string, headers http.Header) (int, st
 }
 
 func TestSyntheticCredentials(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-remotedialer-reverse", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-source-link-reverse", nil)
 	req.Header.Set("Authorization", "Bearer "+notSecret)
 	if !sameSecret(secretDigest(notSecret), bearer(req)) {
 		t.Fatalf("digest contract changed: supplied-length=%d", len(bearer(req)))
@@ -197,10 +197,10 @@ func readyReverse(t *testing.T, f *fixture, id string) bool {
 func startSession(t *testing.T, f *fixture, p peer) {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /mcp-remotedialer-reverse", f.runtime.reverseRegister)
-	mux.HandleFunc("POST /mcp-remotedialer-hold", f.runtime.reverseHold)
-	mux.HandleFunc("POST /mcp-remotedialer-dispatch", f.runtime.reverseDispatch)
-	mux.HandleFunc("POST /mcp-remotedialer-respond", f.runtime.reverseRespond)
+	mux.HandleFunc("POST /mcp-source-link-reverse", f.runtime.reverseRegister)
+	mux.HandleFunc("POST /mcp-source-link-hold", f.runtime.reverseHold)
+	mux.HandleFunc("POST /mcp-source-link-dispatch", f.runtime.reverseDispatch)
+	mux.HandleFunc("POST /mcp-source-link-respond", f.runtime.reverseRespond)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -263,7 +263,7 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("stateful read status %d", status)
 	}
-	request, _ := http.NewRequest(http.MethodPost, f.data.URL+"/v1/remotedialer/revoke", nil)
+	request, _ := http.NewRequest(http.MethodPost, f.data.URL+"/v1/source-link/revoke", nil)
 	request.Header.Set("Authorization", "Bearer "+serviceKey)
 	request.Header.Set("X-Source-Member", workerB)
 	request.Header.Set("X-Source-Id", sourceID)
@@ -354,7 +354,7 @@ func TestRevokedConnectorCannotReconnect(t *testing.T) {
 	})
 	_, server := reverseFixture(t)
 	probe := func(generation, credential string) int {
-		req, _ := http.NewRequest(http.MethodPost, server.URL+"/mcp-remotedialer-reverse", nil)
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/mcp-source-link-reverse", nil)
 		req.Header.Set("X-Source-Member", workerA)
 		req.Header.Set("X-Source-Generation", generation)
 		req.Header.Set("Authorization", "Bearer "+credential)

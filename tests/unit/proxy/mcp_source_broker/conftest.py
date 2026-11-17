@@ -10,7 +10,7 @@ from litellm.proxy.mcp_source_broker.store import SQLRow, SourceStore
 
 
 class MemorySource(SQLRow):
-    remote_transport: str = "remotedialer"
+    remote_transport: str = "reverse-h2"
 
 
 class MemoryDatabase:

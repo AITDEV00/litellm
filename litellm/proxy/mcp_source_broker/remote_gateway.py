@@ -49,7 +49,7 @@ async def revoke_remote_worker(
         "X-Source-Id": source_id,
     }
     async with httpx.AsyncClient(base_url=control_url, transport=transport, timeout=5.0) as client:
-        result: Final = await client.post("/v1/remotedialer/revoke", headers=headers)
+        result: Final = await client.post("/v1/source-link/revoke", headers=headers)
     if result.status_code != 204:
         raise HTTPException(503, "connector revocation could not be applied immediately")
 
@@ -71,14 +71,14 @@ def create_remote_gateway_router(
 ) -> APIRouter:
     router: Final = APIRouter()
 
-    @router.get("/mcp-remotedialer-sources/{source_id}/selection", response_model=RouteSelection)
+    @router.get("/mcp-source-link-sources/{source_id}/selection", response_model=RouteSelection)
     async def selection(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         source_id: str, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
     ) -> RouteSelection:
         del user
         return await store.selection(source_id)
 
-    @router.put("/mcp-remotedialer-sources/{source_id}/selection", response_model=RouteSelection)
+    @router.put("/mcp-source-link-sources/{source_id}/selection", response_model=RouteSelection)
     async def select(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         source_id: str, selection: RouteSelection, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
     ) -> RouteSelection:
@@ -86,7 +86,7 @@ def create_remote_gateway_router(
         await route(source_id, selection.transport)
         return selection
 
-    @router.post("/mcp-remotedialer-sources/{source_id}/workers", response_model=RemotePeerResponse, status_code=201)
+    @router.post("/mcp-source-link-sources/{source_id}/workers", response_model=RemotePeerResponse, status_code=201)
     async def enroll_peer(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         source_id: str, peer: RemotePeer, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
     ) -> RemotePeerResponse:
@@ -97,7 +97,7 @@ def create_remote_gateway_router(
         return created
 
     @router.post(
-        "/mcp-remotedialer-sources/{source_id}/workers/{worker_id}/{action}",
+        "/mcp-source-link-sources/{source_id}/workers/{worker_id}/{action}",
         response_model=RemoteLifecycle,
     )
     async def lifecycle(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
@@ -128,7 +128,7 @@ async def invalidate_local_adapter(worker_id: str, source_id: str) -> None:
         raise HTTPException(400)
     async with httpx.AsyncClient(base_url="http://127.0.0.1:9092", timeout=5.0) as client:
         result: Final = await client.post(
-            "/v1/remotedialer/revoke",
+            "/v1/source-link/revoke",
             headers={
                 "Authorization": f"Bearer {os.environ['MCP_SOURCE_BROKER_SERVICE_TOKEN']}",
                 "X-Source-Member": worker_id,
@@ -150,7 +150,7 @@ def create_remote_control_app(
     async def health() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         return {"status": "ok"}
 
-    @app.post("/v1/remotedialer/revoke", status_code=204)
+    @app.post("/v1/source-link/revoke", status_code=204)
     async def revoke_local(request: Request) -> None:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         if not service_secret:
             raise HTTPException(503)
@@ -165,11 +165,11 @@ def create_remote_control_app(
 
     depends: Final = [Depends(partial(service_authenticated, service_secret))]
 
-    @app.get("/v1/remotedialer/peers", response_model=list[RemoteGoPeer], dependencies=depends)
+    @app.get("/v1/source-link/peers", response_model=list[RemoteGoPeer], dependencies=depends)
     async def peers() -> Sequence[RemoteGoPeer]:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         return await store.remote.peers()
 
-    @app.post("/v1/remotedialer/report", dependencies=depends)
+    @app.post("/v1/source-link/report", dependencies=depends)
     async def report(payload: RemoteHealthReport) -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         admitted: Final = await store.remote.report(payload.worker_id, payload.generation, payload.catalog_fingerprint)
         return {"admitted": admitted}

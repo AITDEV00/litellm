@@ -111,7 +111,7 @@ testing. The five decisions that keep the future cheap cost nothing today:
    reading Postgres. Payload routing may move; security judgment does not
 2. Keep the dispatch envelope JSON canonical (it already is)
 3. Keep the four routes plain HTTP, free of nginx-specific coupling
-4. Keep selection on config knobs (the existing `MCP_REMOTEDIALER_TRANSPORT` pattern; a mode
+4. Keep selection on config knobs (the existing `MCP_SOURCE_LINK_TRANSPORT` pattern; a mode
    knob can ride the same pattern)
 5. This document: the contract, the sharp edges, the global-ID fix, and the placement record
    are all recorded so the future change is a checklist

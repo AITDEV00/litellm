@@ -129,7 +129,11 @@ class SourceStore:
         if not rows:
             raise KeyError(source_id)
         transport: Final = rows[0]["remote_transport"]
-        if transport not in ("remotedialer", "reverse-h2"):
+        # Rows enrolled before the 2026-11-17 rename still store the retired
+        # "remotedialer" literal; every value selects the same reverse-h2 plane.
+        if transport == "remotedialer":
+            return RouteSelection(transport="reverse-h2")
+        if transport not in ("reverse-h2", "tunnel"):
             raise ValueError(f"unsupported stored transport {transport!r}")
         return RouteSelection(transport=transport)
 
@@ -141,7 +145,7 @@ class SourceStore:
             """CREATE TABLE IF NOT EXISTS "OicmMcpSource" (source_id TEXT PRIMARY KEY, tenant TEXT NOT NULL,
                key TEXT NOT NULL, alias TEXT NOT NULL, target_host TEXT NOT NULL, target_port INT NOT NULL,
                spec_path TEXT NOT NULL, expected TEXT NOT NULL, gateway_auth_ciphertext TEXT NOT NULL,
-               status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'remotedialer',
+               status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'reverse-h2',
                CONSTRAINT source_owner_alias UNIQUE (tenant,alias))""",
             """CREATE TABLE IF NOT EXISTS "OicmMcpEnrollment" (id TEXT PRIMARY KEY, source_id TEXT NOT NULL UNIQUE
                REFERENCES "OicmMcpSource"(source_id), token_hash BYTEA NOT NULL,

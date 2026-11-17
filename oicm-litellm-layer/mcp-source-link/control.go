@@ -59,7 +59,7 @@ func (c *control) report(ctx context.Context, payload healthReport) (bool, error
 		return false, err
 	}
 	body = bytes.NewReader(encoded)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/remotedialer/report", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/source-link/report", body)
 	if err != nil {
 		return false, err
 	}
@@ -84,7 +84,7 @@ func (c *control) report(ctx context.Context, payload healthReport) (bool, error
 }
 
 func (c *control) refresh(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/v1/remotedialer/peers", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/v1/source-link/peers", nil)
 	if err != nil {
 		return err
 	}

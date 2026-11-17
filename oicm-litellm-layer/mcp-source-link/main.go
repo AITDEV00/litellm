@@ -33,11 +33,11 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if environment("MCP_REMOTEDIALER_TRANSPORT") != "" && environment("MCP_REMOTEDIALER_TRANSPORT") != transportReverseH2 && environment("MCP_REMOTEDIALER_TRANSPORT") != transportTunnel {
-		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", environment("MCP_REMOTEDIALER_TRANSPORT"))
+	if environment("MCP_SOURCE_LINK_TRANSPORT") != "" && environment("MCP_SOURCE_LINK_TRANSPORT") != transportReverseH2 && environment("MCP_SOURCE_LINK_TRANSPORT") != transportTunnel {
+		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", environment("MCP_SOURCE_LINK_TRANSPORT"))
 	}
 	if mode == "connector" {
-		return runConnector(ctx, environment("MCP_REMOTEDIALER_CONNECTOR_CONFIG"))
+		return runConnector(ctx, environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"))
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -56,15 +56,15 @@ func run(mode string) error {
 	tunnels := newTunnelRuntime(runtime)
 	data := http.NewServeMux()
 	data.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	data.HandleFunc("POST /v1/remotedialer/revoke", runtime.revokeHTTP)
+	data.HandleFunc("POST /v1/source-link/revoke", runtime.revokeHTTP)
 	data.HandleFunc("/sources/{source}/{path...}", runtime.forward)
 	reverse := reverseServer()
 	reverse.Addr = cfg.ReverseListen
 	reverseMux := http.NewServeMux()
-	reverseMux.HandleFunc("POST /mcp-remotedialer-reverse", runtime.reverseRegister)
-	reverseMux.HandleFunc("POST /mcp-remotedialer-hold", runtime.reverseHold)
-	reverseMux.HandleFunc("POST /mcp-remotedialer-dispatch", runtime.reverseDispatch)
-	reverseMux.HandleFunc("POST /mcp-remotedialer-respond", runtime.reverseRespond)
+	reverseMux.HandleFunc("POST /mcp-source-link-reverse", runtime.reverseRegister)
+	reverseMux.HandleFunc("POST /mcp-source-link-hold", runtime.reverseHold)
+	reverseMux.HandleFunc("POST /mcp-source-link-dispatch", runtime.reverseDispatch)
+	reverseMux.HandleFunc("POST /mcp-source-link-respond", runtime.reverseRespond)
 	reverse.Handler = tunnelHTTPHandler(tunnels.grpcServer(), reverseMux)
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
@@ -116,8 +116,8 @@ func runConnector(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	gateway := environment("MCP_REMOTEDIALER_PUBLIC_URL")
-	ca := environment("MCP_REMOTEDIALER_CA_FILE")
+	gateway := environment("MCP_SOURCE_LINK_PUBLIC_URL")
+	ca := environment("MCP_SOURCE_LINK_CA_FILE")
 	if !strings.HasPrefix(gateway, "https://") {
 		return errors.New("worker URL must use approved HTTPS")
 	}
@@ -125,7 +125,7 @@ func runConnector(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if environment("MCP_REMOTEDIALER_TRANSPORT") == transportTunnel {
+	if environment("MCP_SOURCE_LINK_TRANSPORT") == transportTunnel {
 		return runTunnelConnector(ctx, cfg, gateway, tlsConfig)
 	}
 	headers := http.Header{
@@ -196,7 +196,7 @@ func reversePost(ctx context.Context, client *http.Client, url string, headers h
 }
 
 func reverseTunnelSession(ctx context.Context, client *http.Client, base string, headers http.Header, origin *http.Transport) error {
-	response, err := reversePost(ctx, client, base+"/mcp-remotedialer-reverse", headers, nil)
+	response, err := reversePost(ctx, client, base+"/mcp-source-link-reverse", headers, nil)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func reverseTunnelSession(ctx context.Context, client *http.Client, base string,
 	holdCtx, holdCancel := context.WithCancel(ctx)
 	defer holdCancel()
 	go func() {
-		resp, err := reversePost(holdCtx, client, base+"/mcp-remotedialer-hold", headers, nil)
+		resp, err := reversePost(holdCtx, client, base+"/mcp-source-link-hold", headers, nil)
 		if err == nil {
 			_ = resp.Body.Close()
 		}
@@ -229,7 +229,7 @@ func reverseTunnelSession(ctx context.Context, client *http.Client, base string,
 					return
 				default:
 				}
-				resp, err := reversePost(holdCtx, client, base+"/mcp-remotedialer-dispatch", headers, nil)
+				resp, err := reversePost(holdCtx, client, base+"/mcp-source-link-dispatch", headers, nil)
 				if err != nil || resp.StatusCode != http.StatusOK {
 					if resp != nil {
 						_ = resp.Body.Close()
@@ -254,7 +254,7 @@ func reverseTunnelSession(ctx context.Context, client *http.Client, base string,
 				if err != nil {
 					continue
 				}
-				done, err := reversePost(holdCtx, client, base+"/mcp-remotedialer-respond", headers, encoded)
+				done, err := reversePost(holdCtx, client, base+"/mcp-source-link-respond", headers, encoded)
 				if err != nil {
 					select {
 					case lost <- struct{}{}:

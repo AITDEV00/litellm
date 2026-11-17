@@ -5,4 +5,4 @@ resources:
   - network-policy.yaml
   - reverse-h2-ingress.yaml
 patches:
-  - path: remotedialer-patch.yaml
+  - path: source-link-patch.yaml

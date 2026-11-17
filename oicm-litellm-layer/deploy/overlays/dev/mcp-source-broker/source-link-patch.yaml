@@ -1,4 +1,4 @@
-## Dev-only remotedialer data plane for the MCP source broker.
+## Dev-only source-link data plane for the MCP source broker.
 ##
 ## Adds a Go worker sidecar to the dev broker Deployment. The sidecar
 ## shares the pod network namespace with the Python control app, which is a
@@ -7,13 +7,13 @@
 ## to reach it on 127.0.0.1.
 ##
 ## Port map inside the one pod (Service-facing names in backticks):
-##   9091  FastAPI remotedialer control `remote-control` (the broker process)
-##   9092  Go private dispatch `rd-data`: /sources/{id}/{path}, /v1/remotedialer/revoke (sidecar)
-##   8093  Go reverse-h2 ingress `rd-reverse`: /mcp-remotedialer-{reverse,hold,dispatch,respond} (sidecar)
+##   9091  FastAPI source-link control `remote-control` (the broker process)
+##   9092  Go private dispatch `link-data`: /sources/{id}/{path}, /v1/source-link/revoke (sidecar)
+##   8093  Go reverse-h2 and tunnel ingress `link-reverse`: /mcp-source-link-{reverse,hold,dispatch,respond} and /grpctunnel.v1.TunnelService/* (sidecar)
 ##
 ## The Service below publishes these on the litellm-mcp-broker-dev Service.
 ## The gateway-facing data plane is the STANDARD Service port 8888, which
-## targets the sidecar's rd-data listener; the gateway's pool URL always
+## targets the sidecar's link-data listener; the gateway's pool URL always
 ## points at 8888, never at a container port.
 apiVersion: apps/v1
 kind: Deployment
@@ -26,35 +26,35 @@ spec:
       containers:
         - name: broker
           env:
-            - name: MCP_REMOTEDIALER_ENABLED
+            - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
-        - name: remotedialer
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-remotedialer-worker:jya0-v1.108.5
+        - name: source-link
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5
           imagePullPolicy: Always
           command: ["/source-link", "worker"]
           env:
-            - name: MCP_REMOTEDIALER_CONTROL_URL
+            - name: MCP_SOURCE_LINK_CONTROL_URL
               value: http://127.0.0.1:9091
             - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: litellm-mcp-source-broker-dev
                   key: service-token
-            - name: MCP_REMOTEDIALER_DATA_LISTEN
+            - name: MCP_SOURCE_LINK_DATA_LISTEN
               value: "0.0.0.0:9092"
-            - name: MCP_REMOTEDIALER_REVERSE_LISTEN
+            - name: MCP_SOURCE_LINK_REVERSE_LISTEN
               value: "0.0.0.0:8093"
-            - name: MCP_REMOTEDIALER_TRANSPORT
+            - name: MCP_SOURCE_LINK_TRANSPORT
               value: "reverse-h2"
           ports:
-            - name: rd-data
+            - name: link-data
               containerPort: 9092
-            - name: rd-reverse
+            - name: link-reverse
               containerPort: 8093
           readinessProbe:
             httpGet:
               path: /readyz
-              port: rd-data
+              port: link-data
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
@@ -77,8 +77,8 @@ spec:
   ports:
     - name: data
       port: 8888
-      targetPort: rd-data
-    - name: rd-reverse
+      targetPort: link-data
+    - name: link-reverse
       port: 8093
       targetPort: 8093
     - name: remote-control
