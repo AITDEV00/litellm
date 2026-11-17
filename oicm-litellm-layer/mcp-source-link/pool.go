@@ -46,7 +46,7 @@ func (r *runtime) pick(sourceID string, exclude string) member {
 	var chosen member
 	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
-		if !ok || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
+		if session.fenced(worker, ok) || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
 			(worker.CatalogFingerprint == nil || *worker.CatalogFingerprint != worker.ExpectedCatalog) ||
 			!session.ready(sourceID) || !session.capable("execute") || (dispatchInFlightCap > 0 && r.inFlight[id] >= dispatchInFlightCap) {
 			continue
@@ -75,7 +75,7 @@ func (r *runtime) hasActive(sourceID string) bool {
 	defer r.mu.Unlock()
 	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
-		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
+		if ok && !session.fenced(worker, ok) && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
 			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) && session.capable("execute") {
 			return true
 		}
@@ -162,7 +162,7 @@ func (r *runtime) eligibleMembers(sourceID string) []member {
 	members := make([]member, 0, len(r.sessions))
 	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
-		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
+		if ok && !session.fenced(worker, ok) && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
 			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) && session.capable("execute") {
 			members = append(members, session)
 		}

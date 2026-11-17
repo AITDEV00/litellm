@@ -36,7 +36,8 @@ const (
 	tunnelResponseDeadline = 90 * time.Second
 	// tunnelMaxCatalog caps the catalog bytes a Probe response may carry,
 	// matching the reverse-h2 probe read limit.
-	tunnelMaxCatalog = 600000
+	tunnelMaxCatalog        = 600000
+	tunnelHealthGracePeriod = 2 * reverseProbeInterval
 )
 
 // tunnelMember is one live connector tunnel: a grpctunnel channel plus the
@@ -69,7 +70,7 @@ func (m *tunnelMember) ready(sourceID string) bool {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return !m.lastProbe.IsZero() && time.Since(m.lastProbe) < 2*reverseProbeInterval && m.sourceID == sourceID
+	return !m.lastProbe.IsZero() && time.Since(m.lastProbe) < tunnelHealthGracePeriod && m.sourceID == sourceID
 }
 
 func (m *tunnelMember) capable(rpc string) bool {
@@ -310,21 +311,30 @@ func (tr *tunnelRuntime) probeLoop(m *tunnelMember) {
 			continue
 		}
 		fingerprint, err := m.probe(worker)
-		if err != nil || fingerprint != worker.ExpectedCatalog {
-			fingerprint = ""
+		if err != nil {
+			log.Printf("tunnel probe failed worker=%s: %v; retaining last verified catalog for %s", m.id(), err, tunnelHealthGracePeriod)
+			continue
 		}
 		report := healthReport{WorkerID: m.id(), Generation: m.generation}
-		if fingerprint != "" {
+		if fingerprint == worker.ExpectedCatalog {
 			report.CatalogFingerprint = &fingerprint
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		admitted, err := tr.runtime.state.report(ctx, report)
 		cancel()
-		if err == nil && admitted && fingerprint != "" {
-			m.mu.Lock()
-			m.lastProbe = time.Now()
-			m.mu.Unlock()
+		if err != nil {
+			log.Printf("tunnel health report failed worker=%s: %v; retaining last verified catalog for %s", m.id(), err, tunnelHealthGracePeriod)
+			continue
 		}
+		if !admitted {
+			m.mu.Lock()
+			m.lastProbe = time.Time{}
+			m.mu.Unlock()
+			continue
+		}
+		m.mu.Lock()
+		m.lastProbe = time.Now()
+		m.mu.Unlock()
 	}
 }
 
