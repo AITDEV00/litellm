@@ -1290,33 +1290,62 @@ Key points:
 - Add any extra body fields (like `chat_template_kwargs`) directly in `litellm_params`
 - After creation, verify persistence by checking `/model/info` shows `db_model: true` and `oicm_uuid: NONE`, and confirm the model survives a PATCH to `/model/{model_id}/update`
 
-#### Using `create_model_entry.sh`
+#### Why an unmanaged entry survives, and the two mechanisms are different
 
-`scripts/models/create_model_entry.sh` wraps this recipe. It copies `model`,
-`api_base`, and pricing from an existing deployment, merges your extra
-`litellm_params`, always sends `model_info: {"db_model": true}` with no
-`oicm_*` keys, and then verifies the row came back controller-safe.
+The two mechanisms above are independent and neither substitutes for the
+other. A row needs both properties, and each is controlled by a different
+field:
+
+| Property | Field | Protects against |
+|----------|-------|------------------|
+| Controller immunity | `model_info.oicm_uuid` absent | Discovery-controller deletion and duplicate reconciliation |
+| Router persistence | `model_info.db_model: true` | The proxy's 30-second `add_deployment` eviction |
+
+`db_model` has **no** effect on the controller. `_oicm_managed()` in
+`controller/reconciler.py` returns `bool(model_info.get("oicm_uuid"))`, so
+`db_model: true` alone still gets a row deleted once OICM stops listing its
+load. Conversely, `oicm_uuid` absent alone leaves the row invisible to the
+controller but still vulnerable to router eviction unless the DB lists it.
+
+Verified 2026-11-17 on an unmanaged Qwen row: `db_model: true` with
+`oicm_uuid: NONE` survived repeated controller syncs with no `Deleted` line,
+and stayed routable.
+
+The controller's `Full sync complete: N models registered` count reports only
+its own managed keys, so it stays the same before and after an unmanaged row
+is added. Do not use that count to confirm or deny the row's existence; read
+`/v2/model/info` and check `db_model` and `oicm_uuid` per row instead.
+
+#### Creating one by hand (used 2026-11-17)
+
+There is no script for this. Use `POST /model/new`
+with the payload shape above, taking `model`, `api_base`, and pricing from the
+deployment you are duplicating and adding only the parameters you mean to
+change:
 
 ```bash
-export PROXY_BASE_URL="https://litellm.ecouncil.ae"
-export LITELLM_API_KEY="{{ master_key }}"
-
-# Preview the payload
-./scripts/models/create_model_entry.sh Qwen/Qwen3-Next-80B-A3B-Instruct-temp \
-  --from Qwen/Qwen3.8-Flash-Next-FP8 --param reasoning_effort=none
-
-# Write it
-./scripts/models/create_model_entry.sh Qwen/Qwen3-Next-80B-A3B-Instruct-temp \
-  --from Qwen/Qwen3.8-Flash-Next-FP8 --param reasoning_effort=none --apply
+curl -sk -X POST "$PROXY_BASE_URL/model/new" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model_name": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "litellm_params": {
+      "model": "hosted_vllm/Qwen/Qwen3.8-Flash-Next-FP8",
+      "api_base": "http://s-b3784f33-e53f-4dfb-b8ae-4f588f44f926.adeo.svc.cluster.local:8080/v1",
+      "api_key": "",
+      "drop_params": true,
+      "input_cost_per_token": 1.5e-07,
+      "output_cost_per_token": 4.7e-07,
+      "reasoning_effort": "none"
+    },
+    "model_info": {"db_model": true}
+  }'
 ```
 
-`--from` accepts a `model_name` or `model_info.id` and refuses an ambiguous
-match. `--param KEY=VALUE` is repeatable and parses `VALUE` as JSON when it
-looks like JSON. `--params '{"k": v}'` takes a whole object instead.
-`--api-base` overrides the copied endpoint. Routing and credential fields
-(`model`, `api_base`, `api_key`, `custom_llm_provider`, `weight`, and the
-rest of `PROTECTED_PARAMS`) are refused in `--params`, because those change
-what the entry points at rather than how it behaves.
+Inherit `drop_params` and the source's pricing rather than inventing values:
+the inherited `drop_params: true` is what lets a caller's unsupported parameter
+be dropped instead of failing the request, and copying pricing keeps billing on
+the real upstream's rate. Add no sampling parameters you were not asked for.
 
 This is not a global alias. It is a separate deployment with its own
 `model_info.id`, so it carries its own health state, cooldown, and RPM/TPM
@@ -1324,12 +1353,18 @@ counters, and it books its own `model_group` bucket in usage even though it
 prices against the same upstream. Use an alias when both names should share
 one deployment; use this when one name must send different parameters.
 
-Verified 2026-11-17: `Qwen/Qwen3-Next-80B-A3B-Instruct-temp` created against
-the Flash backend returns `content: "OK"` with `reasoning_content: null` and no
-`reasoning_tokens`, while the Flash name itself returns `reasoning_tokens: 17`
-on the same prompt. Both share
-`api_base http://s-b3784f33-....svc.cluster.local:8080/v1` but have distinct
-model ids.
+#### Reusing a public name that is still served
+
+Creating an unmanaged row under a name that an OICM deployment still serves
+does **not** take the name over. The router load-balances both rows, observed
+on 2026-11-17 as a 58/42 split between the real deployment and the unmanaged
+row, so the same model id returned reasoning content on some requests and none
+on others. `POST /model/new` does not reject the duplicate name; only the
+`db_model` payload above and `/v2/model/info` make the collision visible.
+
+Rename or delete the unmanaged row, or retake the name after the original
+workload is undeployed and the controller has removed its row. Do not leave a
+shared name split across two deployments that behave differently.
 
 ### POST `/model/update` ; Full Update (Legacy)
 
