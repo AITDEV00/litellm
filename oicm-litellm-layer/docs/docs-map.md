@@ -34,6 +34,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Question-by-question answers | `docs/oicm-status/FEASIBILITY-ANSWERS.md` |
 | Implementation checklist | `docs/oicm-status/IMPLEMENTATION-CHECKLIST.md` |
 | Status persistence design | `docs/oicm-status/DESIGN-STATUS-PERSISTENCE.md` |
+| Proposed manual routing override | `docs/oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md` |
 | Progress & open work register | `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md` |
 | Health-table change report | `docs/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md` |
 | Health-table logic map | `docs/oicm-status/LOGIC-MAP-2026-10-07-health-table.md` |
