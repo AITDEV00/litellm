@@ -1,16 +1,14 @@
-"""Source connector signed-release distribution over RustFS.
+"""Source connector release distribution over RustFS.
 
 Extends the client-distribution slice for the MCP source broker's reverse-h2
 connector (the Go `source-link` binary): the broker operator publishes a
-signed release triple (binary, release.json, detached Ed25519 signature)
-through the admin API, and source hosts install through
-``/install/source-agent`` with no secrets in any URL and no generated
-per-host scripts. The installer is a fixed script that downloads the
-versioned triple, verifies the SHA-256 checksum and the release signature
-against the pinned public key before anything executes. The installed user
-systemd unit runs `source-link connector` with the environment sourced from
-`~/.config/source-agent/connector.env` (MCP_REMOTEDIALER_PUBLIC_URL,
-MCP_REMOTEDIALER_CONNECTOR_CONFIG).
+release pair (binary, release.json) through the admin API, and source hosts
+install through ``/install/source-agent`` with no secrets in any URL and no
+generated per-host scripts. The installer is a fixed script that downloads the
+versioned pair and verifies the SHA-256 checksum of the binary before anything
+executes. The installed user systemd unit runs `source-link connector` with the
+environment sourced from `~/.config/source-agent/connector.env`
+(MCP_REMOTEDIALER_PUBLIC_URL, MCP_REMOTEDIALER_CONNECTOR_CONFIG).
 
 Reuse rules: connection parameters, bucket handling and key normalization all
 come from :mod:`litellm.proxy.client_distribution.storage`. Only the
@@ -42,45 +40,11 @@ if TYPE_CHECKING:
 
     from litellm.proxy.client_distribution.storage import RustFSConfig
 
-_TRUSTED_KEY_B64: Final = os.environ.get("SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64", "")
-
-
-def _load_trusted_key(raw_b64: str) -> bytes:
-    if not raw_b64:
-        return b""
-    try:
-        key: Final = base64.b64decode(raw_b64, validate=True)
-        if len(key) != 32:
-            raise ValueError("not 32 bytes")
-    except Exception as exc:
-        raise RuntimeError("SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64 must be a base64 Ed25519 public key") from exc
-    return key
-
-
-_TRUSTED_KEY: Final = _load_trusted_key(_TRUSTED_KEY_B64)
-
 router: Final = APIRouter(tags=["install"])
 
 _AGENT_PREFIX: Final = "source-agent"
 _MANIFEST_KEY: Final = f"{_AGENT_PREFIX}/manifest.json"
 _MAX_RELEASE_BYTES: Final = 64 * 1024 * 1024
-
-
-def _verify_release_signature(manifest_body: bytes, signature_b64: str) -> bool:
-    if len(_TRUSTED_KEY) != 32:
-        return False
-    try:
-        signature: Final = base64.b64decode(signature_b64, validate=True)
-    except (ValueError, TypeError):
-        return False
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-    try:
-        Ed25519PublicKey.from_public_bytes(_TRUSTED_KEY).verify(signature, manifest_body)
-    except InvalidSignature:
-        return False
-    return True
 
 
 def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -96,7 +60,6 @@ class _ReleasePayload(BaseModel):
 
     version: str
     sha256: str
-    release_sig_b64: str
     binary_b64: str
     release_json_b64: str
 
@@ -112,13 +75,6 @@ class _ReleasePayload(BaseModel):
     def hex_digest(cls, value: str) -> str:
         if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             raise ValueError("sha256 must be a hex SHA-256 digest")
-        return value
-
-    @field_validator("release_sig_b64")
-    @classmethod
-    def signature(cls, value: str) -> str:
-        if len(base64.b64decode(value, validate=True)) != 64:
-            raise ValueError("release_sig_b64 must be an Ed25519 signature")
         return value
 
 
@@ -143,19 +99,16 @@ async def admin_publish_release(
     request: Request,
     user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
 ) -> dict[str, object]:
-    """Publish a signed release: binary + release.json + detached signature.
+    """Publish a release: binary + release.json.
 
-    The client uploads the three files as one JSON body carrying base64
-    fields; the gateway validates the signature against the pinned release
-    key, verifies the binary digest matches release.json, then writes each
-    immutable, versioned asset plus the current-release pointer, manifest last.
+    The client uploads the two files as one JSON body carrying base64 fields;
+    the gateway verifies the binary digest matches release.json, then writes
+    each immutable, versioned asset plus the current-release pointer, manifest
+    last. The route is admin-only; there is no separate signature on top of
+    that, because the checksum the installer enforces is derived from what the
+    gateway itself published.
     """
     _require_admin(user_api_key_dict)
-    if not _TRUSTED_KEY:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="source-agent release verification key is not configured",
-        )
     raw: Final = await request.body()
     if len(raw) > _MAX_RELEASE_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="release payload too large")
@@ -183,10 +136,6 @@ async def admin_publish_release(
         )
     if hashlib.sha256(binary).hexdigest() != data.sha256:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="binary digest does not match release.json sha256")
-    if not _verify_release_signature(manifest_body, data.release_sig_b64):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail="release signature failed verification against the pinned key"
-        )
 
     import asyncio
 
@@ -206,7 +155,6 @@ async def admin_publish_release(
     for key, body, content_type in (
         (binary_key, binary, "application/octet-stream"),
         (f"{_AGENT_PREFIX}/{version}/release.json", manifest_body, "application/json"),
-        (f"{_AGENT_PREFIX}/{version}/release.sig.b64", data.release_sig_b64.encode(), "text/plain"),
         (_MANIFEST_KEY, manifest_body, "application/json"),
     ):
         await asyncio.to_thread(
@@ -229,7 +177,7 @@ chmod 700 "$state" "$HOME/.config/systemd/user"
 base="{base_url}"
 version="{version}"
 expected="{sha256}"
-for asset in source-link release.json release.sig.b64; do
+for asset in source-link release.json; do
   curl --fail --location --silent --show-error \\
     --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
   mv -f "$state/$asset.new" "$state/$asset"
@@ -295,7 +243,7 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
     """Proxy one release asset read from RustFS. Versioned paths only."""
     import asyncio
 
-    if asset not in {"source-link", "release.json", "release.sig.b64"} or "/" in version or version.startswith("."):
+    if asset not in {"source-link", "release.json"} or "/" in version or version.startswith("."):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     key: Final = f"{_AGENT_PREFIX}/{version}/{asset}"
@@ -306,13 +254,7 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
         if code in ("NoSuchKey", "404", "NotFound"):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="release asset not found") from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    content_type: Final = (
-        "application/octet-stream"
-        if asset == "source-link"
-        else "application/json"
-        if asset == "release.json"
-        else "text/plain"
-    )
+    content_type: Final = "application/octet-stream" if asset == "source-link" else "application/json"
     return StreamingResponse(
         content=response["Body"],  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
         media_type=content_type,

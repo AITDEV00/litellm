@@ -140,13 +140,6 @@ spec:
                 secretKeyRef:
                   name: litellm-mcp-source-broker-dev
                   key: service-token
-            # Ed25519 public key (base64) that verifies signed source-agent
-            # releases before the gateway writes them to the install mirror.
-            - name: SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64
-              valueFrom:
-                secretKeyRef:
-                  name: litellm-mcp-source-broker-dev
-                  key: release-public-key-b64
             - name: HAMSA_API_KEY
               valueFrom:
                 secretKeyRef:

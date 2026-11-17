@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -47,10 +46,6 @@ class _FakeS3Client:
         self._store[Key] = Body
 
 
-def _sign_manifest(key: Ed25519PrivateKey, body: bytes) -> str:
-    return base64.b64encode(key.sign(body)).decode()
-
-
 def _manifest_body(version: str, sha256: str, os_name: str = "linux", arch: str = "amd64") -> bytes:
     return json.dumps(
         {"arch": arch, "os": os_name, "sha256": sha256, "version": version},
@@ -60,15 +55,7 @@ def _manifest_body(version: str, sha256: str, os_name: str = "linux", arch: str 
 
 
 @pytest.fixture()
-def release_key(monkeypatch: pytest.MonkeyPatch) -> Ed25519PrivateKey:
-    key: Final = Ed25519PrivateKey.generate()
-    monkeypatch.setattr(dist_mod, "_TRUSTED_KEY", key.public_key().public_bytes_raw())
-    monkeypatch.setattr(dist_mod, "_TRUSTED_KEY_B64", base64.b64encode(key.public_key().public_bytes_raw()).decode())
-    return key
-
-
-@pytest.fixture()
-def app(release_key: Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     from litellm.proxy.client_distribution.storage import RustFSConfig
 
     s3: Final = _FakeS3Client()
@@ -86,54 +73,37 @@ def app(release_key: Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch) -> Fast
     return application
 
 
-def _publish(
-    client: TestClient, key: Ed25519PrivateKey, binary: bytes, version: str = "0.1.0"
-) -> tuple[object, bytes, str]:
+def _payload(binary: bytes, version: str = "0.1.0") -> dict[str, str]:
     sha256: Final = hashlib.sha256(binary).hexdigest()
-    manifest_body: Final = _manifest_body(version, sha256)
-    signature: Final = _sign_manifest(key, manifest_body)
-    payload: Final = {
+    return {
         "version": version,
         "sha256": sha256,
-        "release_sig_b64": signature,
         "binary_b64": base64.b64encode(binary).decode(),
-        "release_json_b64": base64.b64encode(manifest_body).decode(),
+        "release_json_b64": base64.b64encode(_manifest_body(version, sha256)).decode(),
     }
+
+
+def _publish(client: TestClient, binary: bytes, version: str = "0.1.0") -> tuple[object, bytes]:
+    manifest_body: Final = _manifest_body(version, hashlib.sha256(binary).hexdigest())
     return (
-        client.put("/install/admin/v1/source-agent/release", json=payload),
+        client.put("/install/admin/v1/source-agent/release", json=_payload(binary, version)),
         manifest_body,
-        signature,
     )
 
 
-def test_admin_publish_rejects_bad_signature(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
+def test_admin_publish_rejects_digest_mismatch(app: FastAPI) -> None:
     client: Final = TestClient(app)
-    wrong_key: Final = Ed25519PrivateKey.generate()
-    response, _, _ = _publish(client, wrong_key, b"fake-binary")
-    assert response.status_code == 409
-    assert "signature" in response.json()["detail"]
-
-
-def test_admin_publish_rejects_digest_mismatch(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
-    client: Final = TestClient(app)
-    binary: Final = b"fake-binary"
-    manifest_body: Final = _manifest_body("0.1.0", "0" * 64)
-    payload: Final = {
-        "version": "0.1.0",
-        "sha256": "0" * 64,
-        "release_sig_b64": _sign_manifest(release_key, manifest_body),
-        "binary_b64": base64.b64encode(binary).decode(),
-        "release_json_b64": base64.b64encode(manifest_body).decode(),
-    }
+    payload: Final = {**_payload(b"fake-binary"), "sha256": "0" * 64}
+    payload["release_json_b64"] = base64.b64encode(_manifest_body("0.1.0", "0" * 64)).decode()
     response: Final = client.put("/install/admin/v1/source-agent/release", json=payload)
     assert response.status_code == 409
     assert "digest" in response.json()["detail"]
 
 
-def test_publish_then_install_script_and_assets(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
+def test_publish_then_install_script_and_assets(app: FastAPI) -> None:
     client: Final = TestClient(app)
     binary: Final = b"fake-source-agent-binary"
-    response, manifest_body, signature = _publish(client, release_key, binary)
+    response, manifest_body = _publish(client, binary)
     assert response.status_code == 200
     assert response.json()["version"] == "0.1.0"
 
@@ -150,16 +120,15 @@ def test_publish_then_install_script_and_assets(app: FastAPI, release_key: Ed255
     assert asset.status_code == 200 and asset.content == binary
     manifest: Final = client.get("/install/source-agent/0.1.0/release.json")
     assert manifest.status_code == 200 and manifest.content == manifest_body
-    sig_asset: Final = client.get("/install/source-agent/0.1.0/release.sig.b64")
-    assert sig_asset.status_code == 200 and sig_asset.text == signature
+    assert client.get("/install/source-agent/0.1.0/release.sig.b64").status_code == 404
     assert asset.headers["Content-Type"].startswith("application/octet-stream")
     assert "SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64" not in text
     assert "openssl" not in text
 
 
-def test_install_script_rejects_checksum_mismatch(app: FastAPI, release_key: Ed25519PrivateKey, tmp_path: Path) -> None:
+def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) -> None:
     client: Final = TestClient(app)
-    _publish(client, release_key, b"connector-binary")
+    _publish(client, b"connector-binary")
     script: Final = client.get("/install/source-agent").text
     tools: Final = tmp_path / "tools"
     tools.mkdir()
@@ -187,7 +156,6 @@ def test_install_script_rejects_checksum_mismatch(app: FastAPI, release_key: Ed2
     served.mkdir()
     (served / "source-link").write_bytes(b"connector-binary")
     (served / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(b"connector-binary").hexdigest()))
-    (served / "release.sig.b64").write_text(_sign_manifest(release_key, (served / "release.json").read_bytes()))
     trusted: Final = tmp_path / "trusted.sh"
     trusted.write_text(script)
 
@@ -221,20 +189,19 @@ def test_install_script_404_when_no_release(app: FastAPI) -> None:
     assert response.status_code == 404
 
 
-def test_published_version_cannot_be_overwritten(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
+def test_published_version_cannot_be_overwritten(app: FastAPI) -> None:
     client: Final = TestClient(app)
-    first, manifest, signature = _publish(client, release_key, b"original")
+    first, manifest = _publish(client, b"original")
     assert first.status_code == 200
-    second, _, _ = _publish(client, release_key, b"replacement")
+    second, _ = _publish(client, b"replacement")
     assert second.status_code == 409
     assert client.get("/install/source-agent/0.1.0/source-link").content == b"original"
     assert client.get("/install/source-agent/0.1.0/release.json").content == manifest
-    assert client.get("/install/source-agent/0.1.0/release.sig.b64").text == signature
 
 
-def test_unknown_asset_rejected(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
+def test_unknown_asset_rejected(app: FastAPI) -> None:
     client: Final = TestClient(app)
-    _publish(client, release_key, b"bin")
+    _publish(client, b"bin")
     response: Final = client.get("/install/source-agent/0.1.0/unknown.asset")
     assert response.status_code == 404
     response: Final = client.get("/install/source-agent/0.1.0/release.json%2f..%2fetc")
@@ -247,7 +214,6 @@ def test_publish_requires_admin(app: FastAPI) -> None:
     payload: Final = {
         "version": "0.1.0",
         "sha256": "0" * 64,
-        "release_sig_b64": "A" * 88,
         "binary_b64": "",
         "release_json_b64": "",
     }
@@ -255,14 +221,13 @@ def test_publish_requires_admin(app: FastAPI) -> None:
     assert response.status_code == 403
 
 
-def test_publish_rejects_path_traversal_version(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
+def test_publish_rejects_path_traversal_version(app: FastAPI) -> None:
     client: Final = TestClient(app)
     binary: Final = b"bin"
     manifest_body: Final = _manifest_body("../evil", hashlib.sha256(binary).hexdigest())
     payload: Final = {
         "version": "../evil",
         "sha256": hashlib.sha256(binary).hexdigest(),
-        "release_sig_b64": _sign_manifest(release_key, manifest_body),
         "binary_b64": base64.b64encode(binary).decode(),
         "release_json_b64": base64.b64encode(manifest_body).decode(),
     }
