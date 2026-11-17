@@ -222,6 +222,7 @@ than hand-edit; each file states its generation date.
 |-----|----------|
 | Integration-layer implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` |
 | Secondary gateway (edge mirror) design exploration | `docs/architecture/EDGE-MIRROR-DESIGN.md` |
+| Agent platform fit assessment: the director's one-layer vision mapped to the implemented layer, with gaps and build order | `docs/architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md` |
 | MCP source broker: persistent enrollment, private-source pooling, and noninteractive client MCP setup (proposed) | `docs/mcp-source-broker/README.md` |
 | Dev MCP source broker: implemented private OpenAPI enrollment and dev verification | `docs/mcp-source-broker/dev-implementation.md` |
 | MCP source lifecycle and pooling research questions | `docs/mcp-source-broker/research-questions.md` |
