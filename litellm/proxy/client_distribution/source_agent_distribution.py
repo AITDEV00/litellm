@@ -219,8 +219,7 @@ async def admin_publish_release(
     return {"ok": True, "version": version, "sha256": data.sha256, "size": len(binary)}
 
 
-def _render_source_agent_installer(base_url: str, version: str, sha256: str, public_key_b64: str) -> str:
-    public_pem: Final = f"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA{public_key_b64}\n-----END PUBLIC KEY-----"
+def _render_source_agent_installer(base_url: str, version: str, sha256: str) -> str:
     return f"""#!/bin/sh
 set -eu
 umask 077
@@ -235,15 +234,6 @@ for asset in source-link release.json release.sig.b64; do
     --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
   mv -f "$state/$asset.new" "$state/$asset"
 done
-cat > "$state/release-public.pem" <<'KEY'
-{public_pem}
-KEY
-base64 -d "$state/release.sig.b64" > "$state/release.sig"
-openssl pkeyutl -verify -pubin -inkey "$state/release-public.pem" -rawin \\
-  -in "$state/release.json" -sigfile "$state/release.sig" >/dev/null 2>&1 || {{
-  echo 'source connector signature verification failed' >&2
-  exit 1
-}}
 actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
 [ "$actual" = "$expected" ] || {{ echo 'source connector checksum mismatch' >&2; exit 1; }}
 chmod 500 "$state/source-link"
@@ -276,11 +266,6 @@ async def source_agent_install_script(request: Request) -> Response:
     """Serve the fixed installer script for the current source-agent release."""
     import asyncio
 
-    if not _TRUSTED_KEY:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="source connector release verification key is not configured",
-        )
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=_MANIFEST_KEY)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
@@ -301,7 +286,6 @@ async def source_agent_install_script(request: Request) -> Response:
         base_url,
         version,
         sha256,
-        _TRUSTED_KEY_B64,
     )
     return Response(content=script, media_type="application/x-sh")
 

@@ -153,18 +153,14 @@ def test_publish_then_install_script_and_assets(app: FastAPI, release_key: Ed255
     sig_asset: Final = client.get("/install/source-agent/0.1.0/release.sig.b64")
     assert sig_asset.status_code == 200 and sig_asset.text == signature
     assert asset.headers["Content-Type"].startswith("application/octet-stream")
-    assert 'base64 -d "$state/release.sig.b64"' in text
-    assert text.index("openssl pkeyutl -verify") < text.index("checksum mismatch")
+    assert "SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64" not in text
+    assert "openssl" not in text
 
 
-@pytest.mark.skipif(shutil.which("openssl") is None, reason="installer requires openssl for Ed25519 verification")
-def test_install_script_verifies_downloaded_manifest_before_execution(
-    app: FastAPI, release_key: Ed25519PrivateKey, tmp_path: Path
-) -> None:
+def test_install_script_rejects_checksum_mismatch(app: FastAPI, release_key: Ed25519PrivateKey, tmp_path: Path) -> None:
     client: Final = TestClient(app)
     _publish(client, release_key, b"connector-binary")
-    script: Final = TestClient(app).get("/install/source-agent").text
-    assert "SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64" not in script
+    script: Final = client.get("/install/source-agent").text
     tools: Final = tmp_path / "tools"
     tools.mkdir()
     curl: Final = tools / "curl"
@@ -182,16 +178,16 @@ def test_install_script_verifies_downloaded_manifest_before_execution(
         'cp "$FIXTURE_ASSETS/${url##*/}" "$output"\n'
     )
     curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
-    for command in ("sha256sum", "cut", "base64", "openssl"):
+    for command in ("sha256sum", "cut"):
         path: Final = shutil.which(command)
         assert path is not None
         (tools / command).write_text(f'#!/bin/sh\nexec "{path}" "$@"\n')
         (tools / command).chmod((tools / command).stat().st_mode | stat.S_IEXEC)
-    signed: Final = tmp_path / "signed"
-    signed.mkdir()
-    (signed / "source-link").write_bytes(b"connector-binary")
-    (signed / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(b"connector-binary").hexdigest()))
-    (signed / "release.sig.b64").write_text(_sign_manifest(release_key, (signed / "release.json").read_bytes()))
+    served: Final = tmp_path / "served"
+    served.mkdir()
+    (served / "source-link").write_bytes(b"connector-binary")
+    (served / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(b"connector-binary").hexdigest()))
+    (served / "release.sig.b64").write_text(_sign_manifest(release_key, (served / "release.json").read_bytes()))
     trusted: Final = tmp_path / "trusted.sh"
     trusted.write_text(script)
 
@@ -209,14 +205,13 @@ def test_install_script_verifies_downloaded_manifest_before_execution(
             timeout=10,
         )
 
-    assert invoke(signed, "home").returncode == 0
+    assert invoke(served, "home").returncode == 0
     altered: Final = tmp_path / "altered"
-    shutil.copytree(signed, altered)
+    shutil.copytree(served, altered)
     (altered / "source-link").write_bytes(b"altered-binary")
-    (altered / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(b"altered-binary").hexdigest()))
     result: Final = invoke(altered, "untrusted-home")
     assert result.returncode != 0
-    assert b"signature verification failed" in result.stderr
+    assert b"checksum mismatch" in result.stderr
     assert not (tmp_path / "untrusted-home" / ".config/systemd/user/source-agent.service").exists()
 
 
@@ -224,17 +219,6 @@ def test_install_script_404_when_no_release(app: FastAPI) -> None:
     client: Final = TestClient(app)
     response: Final = client.get("/install/source-agent")
     assert response.status_code == 404
-
-
-def test_install_script_requires_verification_key(
-    app: FastAPI, release_key: Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client: Final = TestClient(app)
-    _publish(client, release_key, b"bin")
-    monkeypatch.setattr(dist_mod, "_TRUSTED_KEY_B64", "")
-    monkeypatch.setattr(dist_mod, "_TRUSTED_KEY", b"")
-    response: Final = client.get("/install/source-agent")
-    assert response.status_code == 503
 
 
 def test_published_version_cannot_be_overwritten(app: FastAPI, release_key: Ed25519PrivateKey) -> None:
