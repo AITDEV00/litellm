@@ -1290,6 +1290,47 @@ Key points:
 - Add any extra body fields (like `chat_template_kwargs`) directly in `litellm_params`
 - After creation, verify persistence by checking `/model/info` shows `db_model: true` and `oicm_uuid: NONE`, and confirm the model survives a PATCH to `/model/{model_id}/update`
 
+#### Using `create_model_entry.sh`
+
+`scripts/models/create_model_entry.sh` wraps this recipe. It copies `model`,
+`api_base`, and pricing from an existing deployment, merges your extra
+`litellm_params`, always sends `model_info: {"db_model": true}` with no
+`oicm_*` keys, and then verifies the row came back controller-safe.
+
+```bash
+export PROXY_BASE_URL="https://litellm.ecouncil.ae"
+export LITELLM_API_KEY="{{ master_key }}"
+
+# Preview the payload
+./scripts/models/create_model_entry.sh Qwen/Qwen3-Next-80B-A3B-Instruct-temp \
+  --from Qwen/Qwen3.8-Flash-Next-FP8 --param reasoning_effort=none
+
+# Write it
+./scripts/models/create_model_entry.sh Qwen/Qwen3-Next-80B-A3B-Instruct-temp \
+  --from Qwen/Qwen3.8-Flash-Next-FP8 --param reasoning_effort=none --apply
+```
+
+`--from` accepts a `model_name` or `model_info.id` and refuses an ambiguous
+match. `--param KEY=VALUE` is repeatable and parses `VALUE` as JSON when it
+looks like JSON. `--params '{"k": v}'` takes a whole object instead.
+`--api-base` overrides the copied endpoint. Routing and credential fields
+(`model`, `api_base`, `api_key`, `custom_llm_provider`, `weight`, and the
+rest of `PROTECTED_PARAMS`) are refused in `--params`, because those change
+what the entry points at rather than how it behaves.
+
+This is not a global alias. It is a separate deployment with its own
+`model_info.id`, so it carries its own health state, cooldown, and RPM/TPM
+counters, and it books its own `model_group` bucket in usage even though it
+prices against the same upstream. Use an alias when both names should share
+one deployment; use this when one name must send different parameters.
+
+Verified 2026-11-17: `Qwen/Qwen3-Next-80B-A3B-Instruct-temp` created against
+the Flash backend returns `content: "OK"` with `reasoning_content: null` and no
+`reasoning_tokens`, while the Flash name itself returns `reasoning_tokens: 17`
+on the same prompt. Both share
+`api_base http://s-b3784f33-....svc.cluster.local:8080/v1` but have distinct
+model ids.
+
 ### POST `/model/update` ; Full Update (Legacy)
 
 **Request body:** `ModelUpdateRequest`
@@ -1692,6 +1733,18 @@ needed by the helper for collision checks.
   }
 }
 ```
+
+In the Admin UI, the alias editor is the **Model Group Alias** tab on the
+**Models + Endpoints** page. The panel is read-only when `model_group_alias`
+is owned by `config.yaml`.
+
+An alias carries no parameters of its own. It is a name-to-name pointer, so
+both names reach one deployment with one parameter set. When a public name
+needs different request parameters on the same upstream, create a separate
+unmanaged entry instead (see "Creating a persistent duplicate"). Usage
+attribution splits either way: spend logs key on the requested `model_group`,
+so an alias and its target already record two usage buckets while sharing one
+`model_id`.
 
 Value objects may use `{"model": "Qwen/Qwen3.6-35B-A3B-FP8", "hidden": true}`
 when the alias should be omitted from normal model listings.
