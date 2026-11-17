@@ -97,8 +97,8 @@ func TestReverseRegistrationRejectsBadCredentials(t *testing.T) {
 		t.Fatalf("registration body missing worker id: %s", body)
 	}
 	resp = probe(workerA, "1", notSecret)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("duplicate session accepted: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate session reported %d, want 409 so a live session is not misreported as a bad credential", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 	f.runtime.mu.Lock()
@@ -434,5 +434,44 @@ func TestCloseAllSessionsReleasesRuntimeLock(t *testing.T) {
 	case <-session.closed:
 	default:
 		t.Fatal("session was not closed")
+	}
+}
+
+func TestReverseDuplicateRegistrationIsConflictNotUnauthorized(t *testing.T) {
+	_, signing, _ := ed25519.GenerateKey(rand.Reader)
+	pub := signing.Public().(ed25519.PublicKey)
+	origin, catalog := signedOrigin(t, "A", signing)
+	f, server := reverseFixture(t)
+	p := testPeer(workerA, 1, pub)
+	p.Target = strings.TrimPrefix(origin.URL, "http://")
+	p.ExpectedCatalog = catalog
+	f.setPeer(p, "")
+	client := server.Client()
+	first, err := reverseCall(t, client, server.URL+"/mcp-source-link-reverse", reverseHeaders(p, notSecret), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, first.Body)
+	_ = first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first registration failed: %d", first.StatusCode)
+	}
+	second, err := reverseCall(t, client, server.URL+"/mcp-source-link-reverse", reverseHeaders(p, notSecret), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, second.Body)
+	_ = second.Body.Close()
+	if second.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate registration reported %d, want 409 so a live session is not misreported as a bad credential", second.StatusCode)
+	}
+	bad, err := reverseCall(t, client, server.URL+"/mcp-source-link-reverse", reverseHeaders(p, "wrong-credential"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, bad.Body)
+	_ = bad.Body.Close()
+	if bad.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad credential reported %d, want 401", bad.StatusCode)
 	}
 }

@@ -15,6 +15,11 @@ import (
 
 var errReverseClosed = errors.New("reverse session closed")
 
+// errReverseSessionExists reports a duplicate registration for a worker whose
+// session is still live, distinct from a credential failure so the operator
+// sees the real cause instead of a misleading 401.
+var errReverseSessionExists = errors.New("reverse session exists")
+
 const (
 	reverseStreamWindow     = 64 << 10
 	reverseStreamLimit      = 1 << 17

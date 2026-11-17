@@ -20,11 +20,11 @@ func (r *runtime) registerReverse(req *http.Request) (*reverseSession, error) {
 	defer r.mu.Unlock()
 	worker, ok := r.state.peer(workerID)
 	if !ok || worker.Phase != "active" || fmt.Sprint(worker.Generation) != generation ||
-		!sameSecret(worker.CredentialDigest, credential) || r.sessions[workerID] != nil {
+		!sameSecret(worker.CredentialDigest, credential) {
 		return nil, errors.New("connector unauthorized")
 	}
 	if r.sessions[workerID] != nil {
-		return nil, errors.New("reverse session exists")
+		return nil, errReverseSessionExists
 	}
 	session := &reverseSession{
 		workerID: worker.WorkerID, sourceID: worker.SourceID, generation: worker.Generation, deadline: reverseResponseDeadline,
@@ -45,6 +45,10 @@ func (r *runtime) removeReverse(session *reverseSession) {
 
 func (r *runtime) reverseRegister(w http.ResponseWriter, req *http.Request) {
 	session, err := r.registerReverse(req)
+	if errors.Is(err, errReverseSessionExists) {
+		http.Error(w, "reverse session already exists for this connector", http.StatusConflict)
+		return
+	}
 	if err != nil {
 		http.Error(w, "reverse connector unauthorized", http.StatusUnauthorized)
 		return
