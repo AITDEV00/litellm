@@ -77,7 +77,7 @@ def create_gateway_router(
     catalog: CatalogConfig,
     service_secret: str,
     *,
-    data_plane_url: str = "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9092",
+    data_plane_url: str = "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888",
     artifacts: ArtifactStore | None = None,
 ) -> APIRouter:
     if not service_secret:
@@ -129,6 +129,10 @@ def create_gateway_router(
     return router
 
 
+def broker_data_plane_url() -> str:
+    return os.environ.get("MCP_SOURCE_BROKER_DATA_PLANE_URL", "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888")
+
+
 def mount_mcp_sources(
     app: MountableApp,
     prisma: PrismaClient,
@@ -156,13 +160,13 @@ def mount_mcp_sources(
             prisma,
             UpdateMCPServerRequest(
                 server_id=source_id,
-                url=f"http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9092/sources/{source_id}",
+                url=f"{broker_data_plane_url()}/sources/{source_id}",
             ),
             touched_by=found.mcp_info.get("owner", "mcp-source-broker") if found.mcp_info else "mcp-source-broker",
         )
         await manager.reload_servers_from_database()
 
-    app.include_router(create_gateway_router(source_store, create, _catalog_config(), token))
+    app.include_router(create_gateway_router(source_store, create, _catalog_config(), token, data_plane_url=broker_data_plane_url()))
     app.include_router(
         create_remote_gateway_router(
             source_store,

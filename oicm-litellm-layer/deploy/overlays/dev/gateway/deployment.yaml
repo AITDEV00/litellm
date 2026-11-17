@@ -127,6 +127,9 @@ spec:
               value: "http://localhost:14001"
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
+            # Standard data-plane Service port for the MCP source broker.
+            - name: MCP_SOURCE_BROKER_DATA_PLANE_URL
+              value: "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888"
             - name: MCP_SOURCE_BROKER_PEPPER
               valueFrom:
                 secretKeyRef:

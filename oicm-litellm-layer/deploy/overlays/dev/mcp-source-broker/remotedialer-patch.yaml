@@ -6,14 +6,16 @@
 ## callers only, so the FastAPI remote control app (port 9091) must be able
 ## to reach it on 127.0.0.1.
 ##
-## Port map inside the one pod:
-##   9091  FastAPI remotedialer control (the broker process)
-##   8092  Go worker ingress: GET /mcp-remotedialer-worker (sidecar)
-##   9092  Go private dispatch: /sources/{id}/{path}, /v1/remotedialer/revoke (sidecar)
-##   8093  Go reverse-h2 ingress: /mcp-remotedialer-{reverse,hold,dispatch,respond} (sidecar)
+## Port map inside the one pod (Service-facing names in backticks):
+##   9091  FastAPI remotedialer control `remote-control` (the broker process)
+##   8092  Go worker ingress `rd-worker`: GET /mcp-remotedialer-worker (sidecar; WSS, deprecation pending)
+##   9092  Go private dispatch `rd-data`: /sources/{id}/{path}, /v1/remotedialer/revoke (sidecar)
+##   8093  Go reverse-h2 ingress `rd-reverse`: /mcp-remotedialer-{reverse,hold,dispatch,respond} (sidecar)
 ##
-## The Service below adds 8092, 9092, and 8093 to the litellm-mcp-broker-dev
-## Service so the proxy and the gateway management routes can reach them.
+## The Service below publishes these on the litellm-mcp-broker-dev Service.
+## The gateway-facing data plane is the STANDARD Service port 8888, which
+## targets the sidecar's rd-data listener; the gateway's pool URL always
+## points at 8888, never at a container port.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -81,9 +83,9 @@ spec:
     - name: rd-worker
       port: 8092
       targetPort: 8092
-    - name: rd-data
-      port: 9092
-      targetPort: 9092
+    - name: data
+      port: 8888
+      targetPort: rd-data
     - name: rd-reverse
       port: 8093
       targetPort: 8093

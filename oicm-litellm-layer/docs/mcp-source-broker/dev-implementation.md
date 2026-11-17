@@ -17,9 +17,9 @@ The reverse data plane was verified end to end on the dev cluster with a scratch
 - Data plane: `GET /sources/{id}/source.json` and `POST /sources/{id}/echo.json?channel=...` through the private dispatch port returned origin data with `credentials_seen=false` and `cookies_seen=false`
 - Concurrency: 8 parallel reads through one reverse session all returned 200 in under 0.62s wall
 - Fencing and lifecycle: `revoke` locked the connector out immediately (re-register 401, dispatch 503 with `Retry-After: 1`); `drain` stopped dispatch; `recover` minted a new generation and the connector rejoined with a freshly derived generation-matching credential; duplicate registration for a worker with a live session was rejected with 401 while the original session kept serving
-- User path: a virtual key scoped to the source's `mcp_access_groups` called `read_source` and `echo_source` through `POST /mcp-rest/tools/call` on the dev gateway and received origin data (`isError: false`), exercising gateway auth, MCP tool dispatch, the 9092 pool URL, the reverse long-poll, and the origin round trip
+- User path: a virtual key scoped to the source's `mcp_access_groups` called `read_source` and `echo_source` through `POST /mcp-rest/tools/call` on the dev gateway and received origin data (`isError: false`), exercising gateway auth, MCP tool dispatch, the data-plane pool URL, the reverse long-poll, and the origin round trip
 
-Two latent defects surfaced and were fixed during the live run. The worker-enrollment INSERT bound its `expires_at` parameter without a `::timestamptz` cast, so Prisma sent text and PostgreSQL rejected the insert (the enrollment route 500ed); both worker and enrollment inserts now cast explicitly. A pre-existing source row also carried the retired `chisel` value in `remote_transport`, which `selection()` correctly rejected; re-pointing the source with `PUT /mcp-remotedialer-sources/{id}/selection` `{"transport":"remotedialer"}` refreshed both the stored transport and the registered pool URL (9090 to 9092)
+Two latent defects surfaced and were fixed during the live run. The worker-enrollment INSERT bound its `expires_at` parameter without a `::timestamptz` cast, so Prisma sent text and PostgreSQL rejected the insert (the enrollment route 500ed); both worker and enrollment inserts now cast explicitly. A pre-existing source row also carried the retired `chisel` value in `remote_transport`, which `selection()` correctly rejected; re-pointing the source with `PUT /mcp-remotedialer-sources/{id}/selection` `{"transport":"remotedialer"}` refreshed both the stored transport and the registered pool URL to the data-plane Service port
 
 A follow-up review pass tightened the reverse-h2 protocol itself. A forwarded request now carries a 90-second response deadline, so a lost respond can no longer leave the caller hanging until the session dies. Oversize dispatch payloads fail fast with 502 instead of being silently truncated, and origin bodies are capped at 760 KiB so the base64-inflated respond envelope always fits the 1 MiB wire limit; before that cap, a just-under-1-MiB echo wedged the connector dispatcher permanently because the relay refused the oversized respond without draining it (the handler now drains rejected uploads). Framing headers (`Content-Length`, `Transfer-Encoding`, hop-by-hop fields) are stripped from relayed responses so truncated bodies can never corrupt response framing, and the connector treats a non-204 respond as a lost session. All of this was re-verified live after redeployment: 8/8 concurrent reads in 0.5s, POST with `credentials_seen=false cookies_seen=false`, 401 auth negatives, near-limit and over-limit echoes failing fast (502 in under 1s) with the connector surviving and the session still serving, revoke lockout, and the gateway MCP user path (`read_source`, `echo_source`) returning origin data through a scoped virtual key
 
@@ -78,6 +78,19 @@ curl -fsS http://127.0.0.1:14003/mcp-rest/tools/call \
 The returned `CallToolResult.content[0].text` contains JSON from the source's `/source.json` endpoint. For an echo tool, use `{"channel":"dev-tool","body":{"text":"round-trip-through-chisel"}}` as `arguments`. Validate the actual source marker and that its `credentials_seen` and `cookies_seen` booleans are false
 
 
+## Port map (canonical)
+
+The broker Service `litellm-mcp-broker-dev` is the only gateway-facing address. Its named ports and the container listeners behind them:
+
+| Service port | Service name | Container port | Listener | Who calls it |
+|---|---|---|---|---|
+| 8888 | `data` | 9092 (`rd-data`) | Go sidecar private dispatch: `/sources/{id}/{path}`, `/v1/remotedialer/revoke` | The gateway's MCP pool URL, `MCP_SOURCE_BROKER_DATA_PLANE_URL` |
+| 8092 | `rd-worker` | 8092 | Go sidecar worker ingress `GET /mcp-remotedialer-worker` (WSS; deprecation pending) | Source connector, WebSocket transport |
+| 8093 | `rd-reverse` | 8093 | Go sidecar reverse-h2 ingress `/mcp-remotedialer-{reverse,hold,dispatch,respond}` | Source connector, reverse-h2 transport |
+| 9091 | `remote-control` | 9091 | FastAPI broker process (remote control) | Administrator via port-forward |
+
+8888 is the standard gateway-facing data-plane port: the gateway's registered pool URL is always `http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888/sources/{id}`, from the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var. The connector routes ride the shared 443 ingress, unchanged. The NetworkPolicy matches pod ports after Service DNAT, so it keeps listing the container ports
+
 ## Verification
 
 
@@ -121,12 +134,14 @@ Multi-source host failover, native MCP catalog membership, authorization across 
 
 ## Next steps
 
-The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did:
+The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did. Revised 2026-11-17 after the service-topology review:
 
-1. Multi-host failover. Enroll a second source host with its own origin and proof key, run both connectors concurrently, and verify request distribution and failover when one host stops. The pool already prefers least-in-flight members, but no test has exercised two live reverse sessions from different hosts
-2. Load profile. The Pass 3 feasibility control held 100k SSE streams on one h2c connection at 610 MiB with a raw prototype; the shipped long-poll design has not been loaded past tens of concurrent requests. Run the Pass 3 harness against the dev deployment and record streams, memory per connector, and p95 dispatch latency, so the architecture claim is measured on the real protocol
-3. Session and connector ownership. The dispatch long-poll ties a session to one pod; a multi-replica broker needs one ingress per session or a shared dispatch queue. Decide before any replica increase
-4. Recovery tooling. After `revoke`, a worker is terminal and a new label must be enrolled by hand. Decide whether an admin-facing replace flow should mint the next label and a fresh connector config in one step, or whether terminal revoke stays manual by design
-5. Production overlay. Only when 1-3 land: mirror the 8093 listener, the reverse ingress, and the network-policy port into the prod overlay, and re-run the parity suite, which will require declaring the new objects in both
+1. Service and port standardization. Both broker Services keep named ports, but the public data-plane entry is renumbered to the standard 8888 on the Service (gateway-facing dispatch), so no code or registration carries a magic number anymore: the gateway's pool URL moves into an overlay env var, the owning doc gets one canonical port map, and the parallel source-agent research relay is decommissioned once the broker path is proven (it has zero gateway references and doubles the review surface). The connector routes stay on the shared 443 ingress, unchanged. Status: the 8888 Service port, the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var, and the canonical port map above are done; the research relay decommission is still pending
+2. Multi-host failover. Enroll a second source host with its own origin and proof key, run both connectors concurrently, and verify request distribution and failover when one host stops. The pool already prefers least-in-flight members, but no test has exercised two live reverse sessions from different hosts
+3. Load profile. The Pass 3 feasibility control held 100k SSE streams on one h2c connection at 610 MiB with a raw prototype; the shipped long-poll design has not been loaded past tens of concurrent requests. Run the Pass 3 harness against the dev deployment and record streams, memory per connector, and p95 dispatch latency, so the architecture claim is measured on the real protocol
+4. Session and connector ownership. The dispatch long-poll ties a session to one pod; a multi-replica broker needs pinned placement plus fan-out or a shared queue. The debate, positions, and resume conditions live in `MULTI-REPLICA-DESIGN-DEBATE.md`; do not redesign here, and decide only when a replica increase is actually demanded
+5. Recovery tooling. After `revoke`, a worker is terminal and a new label must be enrolled by hand. Decide whether an admin-facing replace flow should mint the next label and a fresh connector config in one step, or whether terminal revoke stays manual by design
+6. WSS transport deprecation. Flip the sidecar to reverse-h2 only, soak, then delete the remotedialer code path, the 8092 WSS listener, its ingress route, and the rancher dependency tree. The comparison between the transports is complete; keeping both is a live security surface and a confusing dual path
+7. Production overlay. Only when 2-3 land: mirror the 8888 data-plane Service port, the reverse ingress, and the network-policy port into the prod overlay, and re-run the parity suite, which will require declaring the new objects in both
 
-The Pass 2 delta and Pass 3 handover archives next to this document hold the prototype source, benchmark evidence, and profile data that steps 2-3 build on. `LiteLLM-1.108.5-Source-Agent-Reference.zip` remains the received research reference for the parallel source-agent staging relay
+The Pass 2 delta and Pass 3 handover archives next to this document hold the prototype source, benchmark evidence, and profile data that steps 3-4 build on. `LiteLLM-1.108.5-Source-Agent-Reference.zip` remains the received research reference for the parallel source-agent staging relay until step 1 decommissions it
