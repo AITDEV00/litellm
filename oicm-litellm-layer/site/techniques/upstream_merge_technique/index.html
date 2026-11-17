@@ -1447,7 +1447,11 @@
         
       
         
+      
+        
           
+        
+      
         
       
         
@@ -1657,6 +1661,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/AGENT-PLATFORM-FIT-ASSESSMENT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Platform Fit Assessment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
         
   
@@ -1723,6 +1755,34 @@
     
   
     MCP Source Lifecycle Research Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp-source-broker/MULTI-REPLICA-DESIGN-DEBATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Replica Broker Scaling Debate
   
 
     
@@ -5850,6 +5910,8 @@
       
         
       
+        
+      
     
     
     
@@ -5994,6 +6056,34 @@
     
   
     Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manual Routing Override Proposal
   
 
     
@@ -6647,6 +6737,11 @@ from the custom branch before resolving anything.</p>
 <td>Step 4: <code>test_oicm_drop_detection.py</code></td>
 </tr>
 <tr>
+<td><strong>Dashboard slice deleted by an upstream UI refactor</strong></td>
+<td>v1.108.5 removed the whole Model Performance component dir, its hook, the <code>LineChart</code> hover/click options and the <code>networking.tsx</code> re-export, and the Usage tab trigger with them; every Python test still passed</td>
+<td>Step 4: <code>npm run test:drop-detection</code></td>
+</tr>
+<tr>
 <td>Upstream deletes a file the branch still carries</td>
 <td>Upstream's <code>test: drop static cost-map value assertions</code> removed 13 test/source paths; any merge (even correctly directioned) deletes them without a conflict</td>
 <td>Step 5: deletion audit</td>
@@ -6937,16 +7032,30 @@ typing.</p>
 </span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>
 </span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="c1"># Slice wiring intact (the merge-specific safety net)</span>
 </span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/unit/proxy/test_oicm_drop_detection.py<span class="w"> </span>-q
+</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>
+</span><span id="__span-12-19"><a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="c1"># Dashboard slice wiring intact (the UI safety net)</span>
+</span><span id="__span-12-20"><a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a><span class="nb">cd</span><span class="w"> </span>ui/litellm-dashboard<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>test:drop-detection
 </span></code></pre></div>
 <blockquote>
 <p><strong>Safety-net caveat:</strong> drop-detection covers the <em>wired</em> slices (voice
 routes mount, HTB callback registration, provider dispatch, team-cache
 invalidation, prometheus ledger). It does not cover hamsa's <code>api_surface</code>
-passthrough kwargs, the OCR <code>_RUST_OCR_PROVIDERS</code> gate, or the UI Model
-Performance mounts — the v1.102.0 merge clobbered all three without failing
-a single test. Wiring that lives outside <code>test_oicm_drop_detection.py</code> is
-unprotected; check the merge diff for it manually, and add a drop-detection
-case when you add a slice.</p>
+passthrough kwargs or the OCR <code>_RUST_OCR_PROVIDERS</code> gate — the v1.102.0
+merge clobbered those without failing a single test. Wiring that lives
+outside <code>test_oicm_drop_detection.py</code> is unprotected; check the merge diff
+for it manually, and add a drop-detection case when you add a slice.</p>
+<p><strong>The UI Model Performance mounts are now covered, after being lost twice.</strong>
+The v1.102.0 merge dropped them, <code>1b75323dcf</code> restored them, and the v1.108.5
+merge dropped them again: upstream deleted the whole
+<code>components/UsagePage/components/ModelPerformance/</code> slice along with its hook,
+the <code>LineChart</code> <code>highlightOnHover</code>/<code>onPointClick</code> options, the
+<code>ChartLegendContent</code> hover callbacks, and the <code>networking.tsx</code> re-export. The
+same merge also deleted the Usage page's tab trigger. Only the global Usage
+page was re-covered at first (<code>f83299fc97e</code>), then the entity drill-down
+mount was restored the same day. <code>npm run test:drop-detection</code> in
+<code>ui/litellm-dashboard</code> now asserts every one of those wiring points, and both
+<code>UsagePageView.test.tsx</code> and <code>EntityUsage.test.tsx</code> assert their page renders
+the tab, so neither mount can be dropped silently again.</p>
 <p><strong>Lost-indentation trap:</strong> multi-line edit tools often trim the leading spaces
 off the first line of the replaced block, producing a silent <code>IndentationError</code>.
 This bit ~10 files in v1.97.0 (<code>dual_cache.py</code>, <code>prometheus.py</code> x2,
@@ -7202,7 +7311,8 @@ a regression you introduced before hunting it:</p>
 <li><strong>Drop-detection tests are your safety net — with limits.</strong> The OICM slice
   refactors are covered by <code>tests/unit/proxy/test_oicm_drop_detection.py</code>;
   a future merge that drops a mount/re-export/callback fails a test instead of
-  production. But it only covers the wired slices; kwargs lists and UI mounts
+  of production. The dashboard slice wiring has its own counterpart,
+  <code>npm run test:drop-detection</code> in <code>ui/litellm-dashboard</code>. Kwargs lists still
   have no drop-detection coverage and must be checked in the diff.</li>
 <li><strong>Production stays on the last known-good tag.</strong> Merge and validate the debug
   gateway on the new image; never deploy the merged image to production.</li>
@@ -7484,7 +7594,7 @@ they come first.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 15:01:30 UTC">November 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 10:56:01 UTC">November 17, 2026</span>
   </span>
 
     

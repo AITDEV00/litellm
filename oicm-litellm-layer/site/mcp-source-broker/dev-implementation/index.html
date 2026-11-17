@@ -1449,7 +1449,11 @@
         
       
         
+      
+        
           
+        
+      
         
       
         
@@ -1662,6 +1666,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/AGENT-PLATFORM-FIT-ASSESSMENT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Platform Fit Assessment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
         
   
@@ -1752,6 +1784,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#reverse-h2-transport-second-data-plane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reverse-h2 transport (second data plane)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-reverse-h2-verification-2026-11-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live reverse-h2 verification (2026-11-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#enrollment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1774,10 +1828,32 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#port-map-canonical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port map (canonical)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#verification" class="md-nav__link">
     <span class="md-ellipsis">
       
         Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
       
     </span>
   </a>
@@ -1808,6 +1884,34 @@
     
   
     MCP Source Lifecycle Research Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MULTI-REPLICA-DESIGN-DEBATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Replica Broker Scaling Debate
   
 
     
@@ -5607,6 +5711,8 @@
       
         
       
+        
+      
     
     
     
@@ -5751,6 +5857,34 @@
     
   
     Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manual Routing Override Proposal
   
 
     
@@ -5993,6 +6127,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#reverse-h2-transport-second-data-plane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reverse-h2 transport (second data plane)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-reverse-h2-verification-2026-11-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live reverse-h2 verification (2026-11-16)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#enrollment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6015,10 +6171,32 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#port-map-canonical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port map (canonical)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#verification" class="md-nav__link">
     <span class="md-ellipsis">
       
         Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
       
     </span>
   </a>
@@ -6043,8 +6221,22 @@
 
 
 <h1 id="dev-source-broker">Dev source broker<a class="headerlink" href="#dev-source-broker" title="Permanent link">&para;</a></h1>
-<p>This dev slice exposes one approved OpenAPI service on a source host through the existing MCP gateway. The source host makes an outbound Chisel TLS WebSocket to the broker relay. LiteLLM authenticates and authorizes the normal MCP tool request before the private broker dispatches it to a healthy member</p>
+<p>This dev slice exposes one approved OpenAPI service on a source host through the existing MCP gateway. The source host makes an outbound TLS WebSocket to the broker relay. LiteLLM authenticates and authorizes the normal MCP tool request before the private broker dispatches it to a healthy member</p>
 <p>The dev overlay is <code>deploy/overlays/dev/mcp-source-broker</code>. It creates one auxiliary Pod with broker and relay containers. The gateway contains no relay and starts no connector. Production is not enabled by this slice</p>
+<h2 id="reverse-h2-transport-second-data-plane">Reverse-h2 transport (second data plane)<a class="headerlink" href="#reverse-h2-transport-second-data-plane" title="Permanent link">&para;</a></h2>
+<p>The same Go worker binary now carries a <code>reverse-h2</code> transport alongside the WebSocket remotedialer, selected by <code>MCP_REMOTEDIALER_TRANSPORT=reverse-h2</code> (default remains <code>remotedialer</code>). The connector dials one outbound TLS HTTP/2 session to the public gateway and keeps it alive; every forwarded request is an HTTP/2 stream on that session, so a held request costs stream state on the channel instead of a origin TCP socket per request. The protocol is a dispatch long-poll: the connector registers (<code>POST /mcp-remotedialer-reverse</code>), holds (<code>POST /mcp-remotedialer-hold</code>, the stream that carries liveness and generation fencing), polls for work (<code>POST /mcp-remotedialer-dispatch</code>, the relay answers one pending poll per forwarded request), and posts each origin response back (<code>POST /mcp-remotedialer-respond</code>). All four routes ride the reverse listener on port 8093 and are published through the same public host with the nginx <code>GRPC</code> backend protocol, which proxies cleartext HTTP/2 to the sidecar so stream multiplexing survives the ingress hop. Per-worker enrollment, catalog-fingerprint gating, generation fencing, revocation, and header stripping are identical across both transports; the dispatch queue is bounded and slow connectors shed to HTTP 503 rather than buffering unboundedly</p>
+<h2 id="live-reverse-h2-verification-2026-11-16">Live reverse-h2 verification (2026-11-16)<a class="headerlink" href="#live-reverse-h2-verification-2026-11-16" title="Permanent link">&para;</a></h2>
+<p>The reverse data plane was verified end to end on the dev cluster with a scratch origin fixture on the source host (fresh Ed25519 proof key, port 18084) and two enrolled workers (<code>reverse-h2</code>, <code>reverse-h2-b</code>) for source <code>f804e8c9-a9c7-5824-a90a-837262788be8</code>. All of the following were observed live, each through the public ingress <code>https://litellm.ecouncil.ae/mcp-remotedialer-*</code> (nginx to h2c <code>grpc_pass</code> to sidecar 8093):</p>
+<ul>
+<li>Registration and liveness: the connector registered, held its session, and the probe loop admitted it with <code>catalog_fingerprint</code> equal to the enrollment's expected fingerprint; the broker's peers view showed the worker <code>healthy</code></li>
+<li>Auth gating: no-credential and wrong-credential calls to all four reverse routes returned 401, through the ingress and directly on 8093 (<code>curl --http2-prior-knowledge</code>, since the listener is h2c-only and correctly gives HTTP/1.1 an empty reply)</li>
+<li>Data plane: <code>GET /sources/{id}/source.json</code> and <code>POST /sources/{id}/echo.json?channel=...</code> through the private dispatch port returned origin data with <code>credentials_seen=false</code> and <code>cookies_seen=false</code></li>
+<li>Concurrency: 8 parallel reads through one reverse session all returned 200 in under 0.62s wall</li>
+<li>Fencing and lifecycle: <code>revoke</code> locked the connector out immediately (re-register 401, dispatch 503 with <code>Retry-After: 1</code>); <code>drain</code> stopped dispatch; <code>recover</code> minted a new generation and the connector rejoined with a freshly derived generation-matching credential; duplicate registration for a worker with a live session was rejected with 401 while the original session kept serving</li>
+<li>User path: a virtual key scoped to the source's <code>mcp_access_groups</code> called <code>read_source</code> and <code>echo_source</code> through <code>POST /mcp-rest/tools/call</code> on the dev gateway and received origin data (<code>isError: false</code>), exercising gateway auth, MCP tool dispatch, the data-plane pool URL, the reverse long-poll, and the origin round trip</li>
+</ul>
+<p>Two latent defects surfaced and were fixed during the live run. The worker-enrollment INSERT bound its <code>expires_at</code> parameter without a <code>::timestamptz</code> cast, so Prisma sent text and PostgreSQL rejected the insert (the enrollment route 500ed); both worker and enrollment inserts now cast explicitly. A pre-existing source row also carried the retired <code>chisel</code> value in <code>remote_transport</code>, which <code>selection()</code> correctly rejected; re-pointing the source with <code>PUT /mcp-remotedialer-sources/{id}/selection</code> <code>{"transport":"remotedialer"}</code> refreshed both the stored transport and the registered pool URL to the data-plane Service port</p>
+<p>A follow-up review pass tightened the reverse-h2 protocol itself. A forwarded request now carries a 90-second response deadline, so a lost respond can no longer leave the caller hanging until the session dies. Oversize dispatch payloads fail fast with 502 instead of being silently truncated, and origin bodies are capped at 760 KiB so the base64-inflated respond envelope always fits the 1 MiB wire limit; before that cap, a just-under-1-MiB echo wedged the connector dispatcher permanently because the relay refused the oversized respond without draining it (the handler now drains rejected uploads). Framing headers (<code>Content-Length</code>, <code>Transfer-Encoding</code>, hop-by-hop fields) are stripped from relayed responses so truncated bodies can never corrupt response framing, and the connector treats a non-204 respond as a lost session. All of this was re-verified live after redeployment: 8/8 concurrent reads in 0.5s, POST with <code>credentials_seen=false cookies_seen=false</code>, 401 auth negatives, near-limit and over-limit echoes failing fast (502 in under 1s) with the connector surviving and the session still serving, revoke lockout, and the gateway MCP user path (<code>read_source</code>, <code>echo_source</code>) returning origin data through a scoped virtual key</p>
 <h2 id="enrollment">Enrollment<a class="headerlink" href="#enrollment" title="Permanent link">&para;</a></h2>
 <p>A proxy administrator posts a <code>SourceCreate</code> to <code>POST /mcp-sources</code>:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
@@ -6074,6 +6266,43 @@
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"server_id":"f804e8c9-a9c7-5824-a90a-837262788be8","name":"read_source","arguments":{}}'</span>
 </span></code></pre></div>
 <p>The returned <code>CallToolResult.content[0].text</code> contains JSON from the source's <code>/source.json</code> endpoint. For an echo tool, use <code>{"channel":"dev-tool","body":{"text":"round-trip-through-chisel"}}</code> as <code>arguments</code>. Validate the actual source marker and that its <code>credentials_seen</code> and <code>cookies_seen</code> booleans are false</p>
+<h2 id="port-map-canonical">Port map (canonical)<a class="headerlink" href="#port-map-canonical" title="Permanent link">&para;</a></h2>
+<p>The broker Service <code>litellm-mcp-broker-dev</code> is the only gateway-facing address. Its named ports and the container listeners behind them:</p>
+<table>
+<thead>
+<tr>
+<th>Service port</th>
+<th>Service name</th>
+<th>Container port</th>
+<th>Listener</th>
+<th>Who calls it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8888</td>
+<td><code>data</code></td>
+<td>9092 (<code>rd-data</code>)</td>
+<td>Go sidecar private dispatch: <code>/sources/{id}/{path}</code>, <code>/v1/remotedialer/revoke</code></td>
+<td>The gateway's MCP pool URL, <code>MCP_SOURCE_BROKER_DATA_PLANE_URL</code></td>
+</tr>
+<tr>
+<td>8093</td>
+<td><code>rd-reverse</code></td>
+<td>8093</td>
+<td>Go sidecar reverse-h2 ingress <code>/mcp-remotedialer-{reverse,hold,dispatch,respond}</code></td>
+<td>Source connector, reverse-h2 transport (the only transport)</td>
+</tr>
+<tr>
+<td>9091</td>
+<td><code>remote-control</code></td>
+<td>9091</td>
+<td>FastAPI broker process (remote control)</td>
+<td>Administrator via port-forward</td>
+</tr>
+</tbody>
+</table>
+<p>8888 is the standard gateway-facing data-plane port: the gateway's registered pool URL is always <code>http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888/sources/{id}</code>, from the <code>MCP_SOURCE_BROKER_DATA_PLANE_URL</code> env var. The connector routes ride the shared 443 ingress, unchanged. The NetworkPolicy matches pod ports after Service DNAT, so it keeps listing the container ports. The 8092 WSS listener and its <code>rd-worker</code> Service port and Ingress were removed on 2026-11-17; reverse-h2 is the only transport</p>
 <h2 id="verification">Verification<a class="headerlink" href="#verification" title="Permanent link">&para;</a></h2>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>tests/unit/proxy/mcp_source_broker
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>oicm-litellm-layer/tests/deploy/test_dev_prod_parity.py
@@ -6097,8 +6326,20 @@
 <p>A virtual key restricted to this source's MCP access group listed exactly <code>read_source</code> and <code>echo_source</code>. <code>read_source</code> returned hostname <code>aitdev00</code> and the persisted source marker. <code>echo_source</code> returned <code>round-trip-through-chisel</code> on channel <code>dev-tool</code>, with <code>credentials_seen=false</code> and <code>cookies_seen=false</code>. The same key received HTTP 403 for the other source and a non-admin key could not retrieve an installer. Direct dispatch without the service credential returned HTTP 401. An already-redeemed token was rejected, including the complete claim-rejection test in the unit suite</p>
 <p>Local connector, dev auxiliary, and dev gateway restarts each recovered with the same source ID, connector ID, listener, and correct MCP responses. Control port 8089 and dispatch port 9090 were unreachable on the public host. Production workloads were not modified</p>
 <p>The real-PostgreSQL store suite passed nine tests, including catalog-mismatch quarantine, owner recovery, and valid-fingerprint reactivation. Its temporary <code>postgres-regression</code> tenant rows were removed. For that opt-in developer test, forward only <code>svc/adeo-litellm-postgres-dev-rw</code> to local port 15432, build its <code>LITELLM_TEST_POSTGRES</code> URL from the existing dev credential in a protected temporary file, and unset the variable afterward. Run the store tests with <code>--confcutdir=tests/unit/proxy/mcp_source_broker</code> so ambient environment stripping does not select unrelated host fixtures. The normal test command keeps this database test skipped</p>
-<p>Focused broker tests, deploy parity tests, strict Ruff, and basedpyright passed. The complete repository gates were attempted but did not pass: dependency resolution was blocked by the GitHub codeload DNS sinkhole, format checks reported inherited files, and default-branch discipline comparisons reported inherited findings. The strict Ruff worktree gate also lacked its expected configuration. These are not claimed as successful repository-wide checks</p>
-<p>Multi-source host failover, native MCP catalog membership, authorization across source replicas, root/system connector installation, and multi-replica session ownership are not implemented or claimed by this dev slice. The README next to this document remains the earlier design proposal, not a release claim</p>
+<p>Focused broker tests, deploy parity tests, strict Ruff, and basedpyright passed. The complete repository gates were attempted but did not pass: dependency resolution was blocked by the GitHub codeload DNS sinkhole, format checks reported inherited files, and default-branch discipline comparisons reported inherited findings. The strict Ruff worktree gate also lacked its expected configuration. These are not claimed as successful repository-wide checks. Re-attempted 2026-11-17 after the WSS removal and smell pass: the sinkhole blocker is gone (<code>uv sync --inexact --frozen</code> resolves fully from the wheel cache in 65ms), and every ratchet gate passes against this slice's pre-work base <code>d042e605866</code> (ruff strict, type discipline, test quality, basedpyright ceilings with 111,189 errors all within budget, and the OpenAPI docs gate). The only genuine slice finding was ruff-format drift in <code>gateway.py</code> and <code>store.py</code> introduced by the 8888 standardization, now formatted. Against <code>origin/main</code> the gates still report overage (the branch is 1,100 commits past the merge base and carries findings inherited from the whole internal line, e.g. openrouter_compat and voice_routes), which is a branch-versus-main reconciliation for whoever next rebases or merges, not a property of this slice</p>
+<p>Multi-source host failover is implemented and verified live (see step 2 below): two hosts held concurrent reverse sessions, reads distributed 6/6, origin-loss failover moved all traffic to the survivor with zero failures, and the probe cycle excluded and re-admitted the failed host. Native MCP catalog membership, authorization across source replicas, root/system connector installation, and multi-replica session ownership remain unimplemented and unclaimed by this dev slice. The README next to this document remains the earlier design proposal, not a release claim</p>
+<h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<p>The reverse-h2 transport is verified on dev as a single-replica data plane. Work is ordered by risk, and each step should carry its own live verification the same way this slice did. Revised 2026-11-17 after the service-topology review:</p>
+<ol>
+<li>Service and port standardization. Both broker Services keep named ports, but the public data-plane entry is renumbered to the standard 8888 on the Service (gateway-facing dispatch), so no code or registration carries a magic number anymore: the gateway's pool URL moves into an overlay env var, the owning doc gets one canonical port map, and the parallel source-agent research relay is decommissioned once the broker path is proven (it has zero gateway references and doubles the review surface). The connector routes stay on the shared 443 ingress, unchanged. Status: DONE. The 8888 Service port, the <code>MCP_SOURCE_BROKER_DATA_PLANE_URL</code> env var, and the canonical port map above landed and were re-verified live; the research relay's Deployment, Service, Ingress, NetworkPolicy, secret, and overlay directory were all deleted on 2026-11-17 after the 8888 round trip passed (the install mirror still serves the signed source-agent release script, which is client-distribution surface, not relay surface)</li>
+<li>Multi-host failover. Enroll a second source host with its own origin and proof key, run both connectors concurrently, and verify request distribution and failover when one host stops. The pool already prefers least-in-flight members, but no test has exercised two live reverse sessions from different hosts. Status: DONE (2026-11-17). Two workers (<code>failover-host-a</code> on origin port 18084, <code>failover-host-b</code> on 18085, each with its own Ed25519 proof key and dataset) held concurrent reverse sessions; 12 dispatch calls split exactly 6/6 across markers; killing host A's origin moved all 12 subsequent calls to host B with zero failures while A's connector kept its session (the origin refused, dispatch shed, no poisoning); after one probe cycle the broker marked A <code>healthy_at=NULL</code> and excluded it from dispatch (8/8 to B); restarting A's origin re-admitted it within one probe cycle and distribution rebalanced 5/5 over 10 calls</li>
+<li>Load profile. The Pass 3 feasibility control held 100k SSE streams on one h2c connection at 610 MiB with a raw prototype; the shipped long-poll design has not been loaded past tens of concurrent requests. Run the Pass 3 harness against the dev deployment and record streams, memory per connector, and p95 dispatch latency, so the architecture claim is measured on the real protocol. Status: DONE (2026-11-17). Measured on the dev deployment through Service port 8888 with one reverse-h2 connector (<code>load-host</code>, uvicorn origin fixture on the source host) and a driver inside the broker pod, 10s runs, GET <code>/source.json</code>: 50 RPS 500/500 p50 77 ms p95 269 ms; 100 RPS 1000/1000 p50 553 p95 849; 250 RPS 2500/2500 p50 563 p95 855; 500 RPS 5000/5000 p50 538 p95 798; 1000 RPS 9998/10000 (two 502 origin timeouts) p50 546 p95 802 p99 951. The Python-thread driver saturated at 2000 RPS offered, so the true per-connector ceiling above 1000/s is not established (same driver caveat as Pass 3). Held streams: 32 and 64 concurrent 3s-held calls all 200; 128 concurrency sheds exactly at the designed 64 in-flight cap (64 x 200 + 64 x 503 with <code>Retry-After</code>), and memory was flat across the sweep within sampling noise: connector RSS 19.0-19.2 MiB, sidecar RSS 8-13 MiB (metrics-server), sidecar CPU 70-73 milli-cores at 500 RPS. Sustained overload wedges the single-process origin fixture, not the data plane: dispatch sheds 503 with zero memory growth and no session loss, drain is bounded by the 8 concurrent origin round trips per connector, and full recovery was verified after rest (200 RPS 1600/1600). The architecture claim is measured on the shipped protocol: a held request costs pending-queue entry plus h2 stream state, not a socket or buffer growth. In passing, two connector processes sharing one config re-confirmed duplicate-session rejection: the winner serves, the loser gets 401 with capped backoff</li>
+<li>Session and connector ownership. The dispatch long-poll ties a session to one pod; a multi-replica broker needs pinned placement plus fan-out or a shared queue. The debate, positions, and resume conditions live in <code>MULTI-REPLICA-DESIGN-DEBATE.md</code>; do not redesign here, and decide only when a replica increase is actually demanded</li>
+<li>Recovery tooling. After <code>revoke</code>, a worker is terminal and a new label must be enrolled by hand. Decide whether an admin-facing replace flow should mint the next label and a fresh connector config in one step, or whether terminal revoke stays manual by design. Status: DECIDED (2026-11-17), terminal revoke stays manual by design. Rationale: <code>revoke</code> is an emergency action and coupling it to automated credential minting widens the security surface at exactly the wrong moment; enrolling a replacement is one existing admin call plus the documented credential derivation, so the manual path costs seconds; no incident or demand has shown it too slow; and a replace flow would prejudge the parked multi-replica ownership design. Revisit only when a real recovery exercise shows the manual path exceeding an operator's incident budget</li>
+<li>WSS transport deprecation. Flip the sidecar to reverse-h2 only, soak, then delete the remotedialer code path, the 8092 WSS listener, its ingress route, and the rancher dependency tree. The comparison between the transports is complete; keeping both is a live security surface and a confusing dual path. Status: DONE (2026-11-17). The Go binary now rejects any transport env except empty or <code>reverse-h2</code> ("reverse-h2 is the only transport"); the worker mux and 8092 listener, the gorilla/websocket and rancher/remotedialer dependency tree, the worker session/relay/probe-loop machinery, and the <code>MCP_REMOTEDIALER_WORKER_LISTEN</code> env contract are all deleted (go.mod dropped gorilla + rancher; module tidy clean). The full regression suite was rebuilt for the reverse path (<code>transport_test.go</code>: synthetic credential digests, three-peer read sharing with revoke, drain-excludes-dispatch, revoked/stale-generation reconnect rejection) and passes under <code>go test -race</code> (1.3s), gofmt/vet/tidy clean. Dev overlay: <code>rd-worker</code> Service port, container port 8092, and the <code>litellm-mcp-remotedialer-worker-dev</code> Ingress deleted; network policy dropped 8092 (8093 stays); parity suite updated to no longer declare the WSS ingress. Live soak on the redeployed sidecar (image config digest <code>sha256:9b6ceef...</code>, registry manifest <code>sha256:1c64e047...</code>, pod re-pulled): port-forward to 8092 inside the pod gets <code>connection refused</code> (listener gone), Service ports are <code>data rd-reverse remote-control</code>, readyz 204 on rd-data; a fresh worker <code>wss-removal-soak</code> (fresh Ed25519 proof key, origin 18085) enrolled, connected via <code>https://litellm.ecouncil.ae/mcp-remotedialer-*</code> with <code>MCP_REMOTEDIALER_TRANSPORT=reverse-h2</code>, admitted healthy within one probe cycle, GET and POST round-tripped 200 through the data plane with credential stripping intact, 20-concurrency burst 20/20 and a 60s 5-RPS run 300/300 with zero failures; revoke flipped it to generation 2, the connector's re-registration 401s with capped backoff, and post-revoke reads shed 503 as designed. Python side deliberately unchanged: <code>TransportName</code> ("remotedialer"/"reverse-h2") names the stored DB route value in <code>OicmMcpSource.remote_transport</code>, which is the data-plane route name, not the Go connector transport; both literals remain valid stored values. Code smell pass (the 4-layer technique) after the removal found six leftovers of the surgery, all fixed: <code>address()</code> and the generic <code>control.request()</code> helper orphaned by the listener/mux deletion, <code>dispatchMember.ready</code>/<code>.close</code> wrapper methods with no callers, <code>reverseSession.noteProbe</code> (the probe loop writes <code>lastProbe</code> under <code>session.mu</code> directly), the write-only <code>runtime.drained</code> map (drain eligibility is re-derived from <code>worker.Phase</code> per request, so the cache was dead state), and an unreachable second body-cap check in <code>executeDispatch</code> (<code>len(body) &gt; reverseMaxBody</code> can never fire behind the tighter <code>reverseMaxOriginBody</code> check ahead of it); staticcheck (U1000) confirmed all symbol removals and runs clean, the removal cascaded one dead <code>fmt</code> import caught by the recheck loop. Sidecar rebuilt and redeployed on the smell-fixed binary (image config digest <code>sha256:5fd7fd4e...</code>, registry manifest <code>sha256:4f1ceb07...</code>, pod re-pulled) and every step-6 claim re-verified live on it: <code>MCP_REMOTEDIALER_TRANSPORT=remotedialer</code> rejected at startup with the exact message, 8092 <code>connection refused</code> inside the pod, readyz 204, Service ports <code>data rd-reverse remote-control</code>, WSS ingress absent; a fresh worker (<code>smell-review-soak</code>) enrolled, connected, and admitted healthy; GET and POST round-tripped with <code>credentials_seen=false cookies_seen=false</code>; stateful read 400, unauthorized read 401; 20-concurrency burst 20/20 and 60s 5-RPS 300/300 zero failures; revoke to generation 2, connector re-registration 401s, post-revoke reads 503. The full user path was also re-run end to end through a second worker: a virtual key minted against the prefixed access group <code>mcp-source-{id}</code> dispatched <code>read_source</code> and <code>echo_source</code> through the gateway and the 8888 data plane to the origin and back. The test keys were deleted and both workers revoked after the run</li>
+<li>Production overlay. Only when 2-3 land: mirror the 8888 data-plane Service port, the reverse ingress, and the network-policy port into the prod overlay, and re-run the parity suite, which will require declaring the new objects in both. Status: PARKED BY DESIGN (2026-11-17). The parity suite deliberately asserts that prod does not declare or enable the broker, and that contract stays: a prod broker needs prod secrets (the dev pepper and service token were created out of band on 2026-11-12 and no prod counterparts exist), prod database tables and gateway config wiring that have never been provisioned, and a demand the burn-in has not produced. Mirroring only the network shape while the dev broker stays the sole instance would make the parity suite lie about which environment owns the object. Trigger to reopen: an actual production consumer of an MCP source. In passing, the 2026-11-17 WSS removal surfaced three orphaned Ingresses applied out of band on 2026-11-12 that no manifest declared: <code>litellm-mcp-worker-dev</code> (WSS-era <code>/mcp-worker</code> route whose Service port name no longer existed, returning 503), <code>litellm-mcp-enrollment-dev</code> (<code>POST /mcp-sources</code>), and <code>litellm-mcp-public-mirror-dev</code> (the public install mirror). All three were deleted after deciding step 7 is parked: the worker route was dead surface, and the enrollment and mirror routes pointed at <code>litellm-proxy-dev</code>, meaning the public host was exposing dev-burn-in enrollment and install surfaces that prod itself does not serve (prod returns 404 in-pod for <code>/install/source-agent</code>; it has no <code>MCP_SOURCE_BROKER_ENABLED</code> and no source-agent env). Enrollment and install retrieval remain reachable through the dev gateway port-forward, which is the documented operator path</li>
+</ol>
+<p>The Pass 2 delta and Pass 3 handover archives next to this document hold the prototype source, benchmark evidence, and profile data that steps 3-4 build on. <code>LiteLLM-1.108.5-Source-Agent-Reference.zip</code> remains the received research reference; the staging relay built from it was decommissioned on 2026-11-17</p>
 
 
 
@@ -6121,7 +6362,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 15:01:33 UTC">November 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 10:56:00 UTC">November 17, 2026</span>
   </span>
 
     

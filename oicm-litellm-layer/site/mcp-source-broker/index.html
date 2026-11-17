@@ -1449,7 +1449,11 @@
         
       
         
+      
+        
           
+        
+      
         
       
         
@@ -1662,6 +1666,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../architecture/AGENT-PLATFORM-FIT-ASSESSMENT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Platform Fit Assessment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
         
   
@@ -1728,6 +1760,34 @@
     
   
     MCP Source Lifecycle Research Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="MULTI-REPLICA-DESIGN-DEBATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Replica Broker Scaling Debate
   
 
     
@@ -5527,6 +5587,8 @@
       
         
       
+        
+      
     
     
     
@@ -5671,6 +5733,34 @@
     
   
     Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manual Routing Override Proposal
   
 
     
@@ -6357,7 +6447,7 @@
 
 
 <h1 id="mcp-source-broker-design-logic-map-and-implementation-plan">MCP Source Broker: design logic map and implementation plan<a class="headerlink" href="#mcp-source-broker-design-logic-map-and-implementation-plan" title="Permanent link">&para;</a></h1>
-<p>Status: proposed, no implementation or release gate has run
+<p>Status: superseded as a proposal; the shipped design is recorded in <a href="dev-implementation/">dev-implementation.md</a>. This document is the original design plan, kept for its logic map and decision history. Three of its mechanisms were retired during implementation: the Chisel transport was replaced by the reverse-h2 dispatch long-poll (the WSS/Chisel paths are deleted), the pod-hosted Chisel relay became the Go sidecar's reverse listener, and the client installer now provisions the reverse-h2 connector instead of a Chisel client. The enrollment, pooling, catalog-fingerprint gating, and access-group model shipped as designed
 Baseline: upstream LiteLLM <strong>v1.108.5 LTS</strong>, release commit <code>2a61f21</code>
 Pattern: <strong>modular vertical slice</strong>, as required by <a href="../oicm-slices/">the OICM slice pattern</a>
 Method: <a href="../techniques/logic_mapping_technique/">Trace-Through-Before-You-Build</a>
@@ -7161,7 +7251,7 @@ Source flow: the Nginx reverse-tunnel pilot <code>LiteLLM-Reverse-Tunnel-Nginx-P
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 15:01:33 UTC">November 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 10:56:00 UTC">November 17, 2026</span>
   </span>
 
     

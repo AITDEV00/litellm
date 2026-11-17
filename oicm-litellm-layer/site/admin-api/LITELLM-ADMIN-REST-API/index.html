@@ -1447,7 +1447,11 @@
         
       
         
+      
+        
           
+        
+      
         
       
         
@@ -1657,6 +1661,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../architecture/AGENT-PLATFORM-FIT-ASSESSMENT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Platform Fit Assessment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../session-identity/IMPLEMENTATION-PLAN/" class="md-nav__link">
         
   
@@ -1723,6 +1755,34 @@
     
   
     MCP Source Lifecycle Research Questions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp-source-broker/MULTI-REPLICA-DESIGN-DEBATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Replica Broker Scaling Debate
   
 
     
@@ -6718,6 +6778,8 @@
       
         
       
+        
+      
     
     
     
@@ -6862,6 +6924,34 @@
     
   
     Design Status Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manual Routing Override Proposal
   
 
     
@@ -11033,6 +11123,84 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 <li>Add any extra body fields (like <code>chat_template_kwargs</code>) directly in <code>litellm_params</code></li>
 <li>After creation, verify persistence by checking <code>/model/info</code> shows <code>db_model: true</code> and <code>oicm_uuid: NONE</code>, and confirm the model survives a PATCH to <code>/model/{model_id}/update</code></li>
 </ul>
+<h4 id="why-an-unmanaged-entry-survives-and-the-two-mechanisms-are-different">Why an unmanaged entry survives, and the two mechanisms are different<a class="headerlink" href="#why-an-unmanaged-entry-survives-and-the-two-mechanisms-are-different" title="Permanent link">&para;</a></h4>
+<p>The two mechanisms above are independent and neither substitutes for the
+other. A row needs both properties, and each is controlled by a different
+field:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Field</th>
+<th>Protects against</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Controller immunity</td>
+<td><code>model_info.oicm_uuid</code> absent</td>
+<td>Discovery-controller deletion and duplicate reconciliation</td>
+</tr>
+<tr>
+<td>Router persistence</td>
+<td><code>model_info.db_model: true</code></td>
+<td>The proxy's 30-second <code>add_deployment</code> eviction</td>
+</tr>
+</tbody>
+</table>
+<p><code>db_model</code> has <strong>no</strong> effect on the controller. <code>_oicm_managed()</code> in
+<code>controller/reconciler.py</code> returns <code>bool(model_info.get("oicm_uuid"))</code>, so
+<code>db_model: true</code> alone still gets a row deleted once OICM stops listing its
+load. Conversely, <code>oicm_uuid</code> absent alone leaves the row invisible to the
+controller but still vulnerable to router eviction unless the DB lists it.</p>
+<p>Verified 2026-11-17 on an unmanaged Qwen row: <code>db_model: true</code> with
+<code>oicm_uuid: NONE</code> survived repeated controller syncs with no <code>Deleted</code> line,
+and stayed routable.</p>
+<p>The controller's <code>Full sync complete: N models registered</code> count reports only
+its own managed keys, so it stays the same before and after an unmanaged row
+is added. Do not use that count to confirm or deny the row's existence; read
+<code>/v2/model/info</code> and check <code>db_model</code> and <code>oicm_uuid</code> per row instead.</p>
+<h4 id="creating-one-by-hand-used-2026-11-17">Creating one by hand (used 2026-11-17)<a class="headerlink" href="#creating-one-by-hand-used-2026-11-17" title="Permanent link">&para;</a></h4>
+<p>There is no script for this. Use <code>POST /model/new</code>
+with the payload shape above, taking <code>model</code>, <code>api_base</code>, and pricing from the
+deployment you are duplicating and adding only the parameters you mean to
+change:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/new"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-39-2"><a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-39-3"><a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-39-4"><a id="__codelineno-39-4" name="__codelineno-39-4" href="#__codelineno-39-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-39-5"><a id="__codelineno-39-5" name="__codelineno-39-5" href="#__codelineno-39-5"></a><span class="s1">    "model_name": "Qwen/Qwen3-Next-80B-A3B-Instruct",</span>
+</span><span id="__span-39-6"><a id="__codelineno-39-6" name="__codelineno-39-6" href="#__codelineno-39-6"></a><span class="s1">    "litellm_params": {</span>
+</span><span id="__span-39-7"><a id="__codelineno-39-7" name="__codelineno-39-7" href="#__codelineno-39-7"></a><span class="s1">      "model": "hosted_vllm/Qwen/Qwen3.8-Flash-Next-FP8",</span>
+</span><span id="__span-39-8"><a id="__codelineno-39-8" name="__codelineno-39-8" href="#__codelineno-39-8"></a><span class="s1">      "api_base": "http://s-b3784f33-e53f-4dfb-b8ae-4f588f44f926.adeo.svc.cluster.local:8080/v1",</span>
+</span><span id="__span-39-9"><a id="__codelineno-39-9" name="__codelineno-39-9" href="#__codelineno-39-9"></a><span class="s1">      "api_key": "",</span>
+</span><span id="__span-39-10"><a id="__codelineno-39-10" name="__codelineno-39-10" href="#__codelineno-39-10"></a><span class="s1">      "drop_params": true,</span>
+</span><span id="__span-39-11"><a id="__codelineno-39-11" name="__codelineno-39-11" href="#__codelineno-39-11"></a><span class="s1">      "input_cost_per_token": 1.5e-07,</span>
+</span><span id="__span-39-12"><a id="__codelineno-39-12" name="__codelineno-39-12" href="#__codelineno-39-12"></a><span class="s1">      "output_cost_per_token": 4.7e-07,</span>
+</span><span id="__span-39-13"><a id="__codelineno-39-13" name="__codelineno-39-13" href="#__codelineno-39-13"></a><span class="s1">      "reasoning_effort": "none"</span>
+</span><span id="__span-39-14"><a id="__codelineno-39-14" name="__codelineno-39-14" href="#__codelineno-39-14"></a><span class="s1">    },</span>
+</span><span id="__span-39-15"><a id="__codelineno-39-15" name="__codelineno-39-15" href="#__codelineno-39-15"></a><span class="s1">    "model_info": {"db_model": true}</span>
+</span><span id="__span-39-16"><a id="__codelineno-39-16" name="__codelineno-39-16" href="#__codelineno-39-16"></a><span class="s1">  }'</span>
+</span></code></pre></div>
+<p>Inherit <code>drop_params</code> and the source's pricing rather than inventing values:
+the inherited <code>drop_params: true</code> is what lets a caller's unsupported parameter
+be dropped instead of failing the request, and copying pricing keeps billing on
+the real upstream's rate. Add no sampling parameters you were not asked for.</p>
+<p>This is not a global alias. It is a separate deployment with its own
+<code>model_info.id</code>, so it carries its own health state, cooldown, and RPM/TPM
+counters, and it books its own <code>model_group</code> bucket in usage even though it
+prices against the same upstream. Use an alias when both names should share
+one deployment; use this when one name must send different parameters.</p>
+<h4 id="reusing-a-public-name-that-is-still-served">Reusing a public name that is still served<a class="headerlink" href="#reusing-a-public-name-that-is-still-served" title="Permanent link">&para;</a></h4>
+<p>Creating an unmanaged row under a name that an OICM deployment still serves
+does <strong>not</strong> take the name over. The router load-balances both rows, observed
+on 2026-11-17 as a 58/42 split between the real deployment and the unmanaged
+row, so the same model id returned reasoning content on some requests and none
+on others. <code>POST /model/new</code> does not reject the duplicate name; only the
+<code>db_model</code> payload above and <code>/v2/model/info</code> make the collision visible.</p>
+<p>Rename or delete the unmanaged row, or retake the name after the original
+workload is undeployed and the controller has removed its row. Do not leave a
+shared name split across two deployments that behave differently.</p>
 <h3 id="post-modelupdate-full-update-legacy">POST <code>/model/update</code> ; Full Update (Legacy)<a class="headerlink" href="#post-modelupdate-full-update-legacy" title="Permanent link">&para;</a></h3>
 <p><strong>Request body:</strong> <code>ModelUpdateRequest</code></p>
 <table>
@@ -11063,43 +11231,43 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 <p><strong>Path param:</strong> <code>model_id</code> ; the LiteLLM model UUID (not the model name). Obtain it from <code>GET /model/info</code>.</p>
 <p><strong>Request body:</strong> Partial <code>Deployment</code> fields. Only the fields you want to change. Supports two top-level keys: <code>litellm_params</code> (provider connection settings, rate limits) and <code>model_info</code> (metadata, mode, custom IDs).</p>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>PATCH<span class="w"> </span><span class="s1">'http://localhost:4000/model/7916282c-35b8-4242-85a3-dbfee75d54f5/update'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-39-2"><a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-39-3"><a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-39-4"><a id="__codelineno-39-4" name="__codelineno-39-4" href="#__codelineno-39-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-39-5"><a id="__codelineno-39-5" name="__codelineno-39-5" href="#__codelineno-39-5"></a><span class="s1">    "litellm_params": {</span>
-</span><span id="__span-39-6"><a id="__codelineno-39-6" name="__codelineno-39-6" href="#__codelineno-39-6"></a><span class="s1">      "api_key": "new-api-key"</span>
-</span><span id="__span-39-7"><a id="__codelineno-39-7" name="__codelineno-39-7" href="#__codelineno-39-7"></a><span class="s1">    }</span>
-</span><span id="__span-39-8"><a id="__codelineno-39-8" name="__codelineno-39-8" href="#__codelineno-39-8"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>PATCH<span class="w"> </span><span class="s1">'http://localhost:4000/model/7916282c-35b8-4242-85a3-dbfee75d54f5/update'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-40-2"><a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-40-3"><a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-40-4"><a id="__codelineno-40-4" name="__codelineno-40-4" href="#__codelineno-40-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-40-5"><a id="__codelineno-40-5" name="__codelineno-40-5" href="#__codelineno-40-5"></a><span class="s1">    "litellm_params": {</span>
+</span><span id="__span-40-6"><a id="__codelineno-40-6" name="__codelineno-40-6" href="#__codelineno-40-6"></a><span class="s1">      "api_key": "new-api-key"</span>
+</span><span id="__span-40-7"><a id="__codelineno-40-7" name="__codelineno-40-7" href="#__codelineno-40-7"></a><span class="s1">    }</span>
+</span><span id="__span-40-8"><a id="__codelineno-40-8" name="__codelineno-40-8" href="#__codelineno-40-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="model-rpmtpm-rate-limits">Model RPM/TPM Rate Limits<a class="headerlink" href="#model-rpmtpm-rate-limits" title="Permanent link">&para;</a></h3>
 <p>Per-deployment RPM and TPM limits control how many requests or tokens per minute a single model deployment will accept. The router enforces these as pre-call checks before routing a request to the deployment.</p>
 <p><strong>Setting RPM/TPM via PATCH <code>/model/{model_id}/update</code>:</strong></p>
 <p>The rate limit must be set inside <code>litellm_params</code>, not <code>model_info</code>. The UI (<code>model_info_view.tsx</code>) reads <code>litellm_params.rpm</code> and <code>litellm_params.tpm</code> to display the values. Setting <code>model_info.rpm</code> alone stores the value but it will not appear in the UI.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>PATCH<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/{model_id}/update"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-40-2"><a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-40-3"><a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-40-4"><a id="__codelineno-40-4" name="__codelineno-40-4" href="#__codelineno-40-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-40-5"><a id="__codelineno-40-5" name="__codelineno-40-5" href="#__codelineno-40-5"></a><span class="s1">    "litellm_params": {</span>
-</span><span id="__span-40-6"><a id="__codelineno-40-6" name="__codelineno-40-6" href="#__codelineno-40-6"></a><span class="s1">      "rpm": 100,</span>
-</span><span id="__span-40-7"><a id="__codelineno-40-7" name="__codelineno-40-7" href="#__codelineno-40-7"></a><span class="s1">      "tpm": 100000</span>
-</span><span id="__span-40-8"><a id="__codelineno-40-8" name="__codelineno-40-8" href="#__codelineno-40-8"></a><span class="s1">    }</span>
-</span><span id="__span-40-9"><a id="__codelineno-40-9" name="__codelineno-40-9" href="#__codelineno-40-9"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>PATCH<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/{model_id}/update"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-41-2"><a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-41-3"><a id="__codelineno-41-3" name="__codelineno-41-3" href="#__codelineno-41-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-41-4"><a id="__codelineno-41-4" name="__codelineno-41-4" href="#__codelineno-41-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-41-5"><a id="__codelineno-41-5" name="__codelineno-41-5" href="#__codelineno-41-5"></a><span class="s1">    "litellm_params": {</span>
+</span><span id="__span-41-6"><a id="__codelineno-41-6" name="__codelineno-41-6" href="#__codelineno-41-6"></a><span class="s1">      "rpm": 100,</span>
+</span><span id="__span-41-7"><a id="__codelineno-41-7" name="__codelineno-41-7" href="#__codelineno-41-7"></a><span class="s1">      "tpm": 100000</span>
+</span><span id="__span-41-8"><a id="__codelineno-41-8" name="__codelineno-41-8" href="#__codelineno-41-8"></a><span class="s1">    }</span>
+</span><span id="__span-41-9"><a id="__codelineno-41-9" name="__codelineno-41-9" href="#__codelineno-41-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p><strong>Finding the <code>model_id</code>:</strong></p>
 <p>The <code>model_id</code> is a LiteLLM-generated UUID, not the model name. Fetch it from <code>GET /model/info</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/info"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-41-2"><a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-41-3"><a id="__codelineno-41-3" name="__codelineno-41-3" href="#__codelineno-41-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
-</span><span id="__span-41-4"><a id="__codelineno-41-4" name="__codelineno-41-4" href="#__codelineno-41-4"></a><span class="s2">import json, sys</span>
-</span><span id="__span-41-5"><a id="__codelineno-41-5" name="__codelineno-41-5" href="#__codelineno-41-5"></a><span class="s2">data = json.load(sys.stdin)</span>
-</span><span id="__span-41-6"><a id="__codelineno-41-6" name="__codelineno-41-6" href="#__codelineno-41-6"></a><span class="s2">for m in data.get('data', []):</span>
-</span><span id="__span-41-7"><a id="__codelineno-41-7" name="__codelineno-41-7" href="#__codelineno-41-7"></a><span class="s2">    name = m.get('model_name', '')</span>
-</span><span id="__span-41-8"><a id="__codelineno-41-8" name="__codelineno-41-8" href="#__codelineno-41-8"></a><span class="s2">    model_id = m.get('model_info', {}).get('id', 'NO ID')</span>
-</span><span id="__span-41-9"><a id="__codelineno-41-9" name="__codelineno-41-9" href="#__codelineno-41-9"></a><span class="s2">    rpm = m.get('litellm_params', {}).get('rpm', 'NOT SET')</span>
-</span><span id="__span-41-10"><a id="__codelineno-41-10" name="__codelineno-41-10" href="#__codelineno-41-10"></a><span class="s2">    tpm = m.get('litellm_params', {}).get('tpm', 'NOT SET')</span>
-</span><span id="__span-41-11"><a id="__codelineno-41-11" name="__codelineno-41-11" href="#__codelineno-41-11"></a><span class="s2">    print(f'{name}: model_id={model_id}  rpm={rpm}  tpm={tpm}')</span>
-</span><span id="__span-41-12"><a id="__codelineno-41-12" name="__codelineno-41-12" href="#__codelineno-41-12"></a><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/info"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-2"><a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-42-3"><a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
+</span><span id="__span-42-4"><a id="__codelineno-42-4" name="__codelineno-42-4" href="#__codelineno-42-4"></a><span class="s2">import json, sys</span>
+</span><span id="__span-42-5"><a id="__codelineno-42-5" name="__codelineno-42-5" href="#__codelineno-42-5"></a><span class="s2">data = json.load(sys.stdin)</span>
+</span><span id="__span-42-6"><a id="__codelineno-42-6" name="__codelineno-42-6" href="#__codelineno-42-6"></a><span class="s2">for m in data.get('data', []):</span>
+</span><span id="__span-42-7"><a id="__codelineno-42-7" name="__codelineno-42-7" href="#__codelineno-42-7"></a><span class="s2">    name = m.get('model_name', '')</span>
+</span><span id="__span-42-8"><a id="__codelineno-42-8" name="__codelineno-42-8" href="#__codelineno-42-8"></a><span class="s2">    model_id = m.get('model_info', {}).get('id', 'NO ID')</span>
+</span><span id="__span-42-9"><a id="__codelineno-42-9" name="__codelineno-42-9" href="#__codelineno-42-9"></a><span class="s2">    rpm = m.get('litellm_params', {}).get('rpm', 'NOT SET')</span>
+</span><span id="__span-42-10"><a id="__codelineno-42-10" name="__codelineno-42-10" href="#__codelineno-42-10"></a><span class="s2">    tpm = m.get('litellm_params', {}).get('tpm', 'NOT SET')</span>
+</span><span id="__span-42-11"><a id="__codelineno-42-11" name="__codelineno-42-11" href="#__codelineno-42-11"></a><span class="s2">    print(f'{name}: model_id={model_id}  rpm={rpm}  tpm={tpm}')</span>
+</span><span id="__span-42-12"><a id="__codelineno-42-12" name="__codelineno-42-12" href="#__codelineno-42-12"></a><span class="s2">"</span>
 </span></code></pre></div>
 <p><strong>Field mapping:</strong></p>
 <table>
@@ -11140,16 +11308,16 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 </table>
 <p>To set RPM that is both enforced by the router and visible in the UI, use <code>litellm_params.rpm</code>. The <code>model_info.rpm</code> payload sets <code>rpm_limit</code> (which the router also enforces) but the UI does not display <code>rpm_limit</code>; it only displays <code>rpm</code>.</p>
 <p><strong>Verifying after setting:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/info"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-42-2"><a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-42-3"><a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
-</span><span id="__span-42-4"><a id="__codelineno-42-4" name="__codelineno-42-4" href="#__codelineno-42-4"></a><span class="s2">import json, sys</span>
-</span><span id="__span-42-5"><a id="__codelineno-42-5" name="__codelineno-42-5" href="#__codelineno-42-5"></a><span class="s2">data = json.load(sys.stdin)</span>
-</span><span id="__span-42-6"><a id="__codelineno-42-6" name="__codelineno-42-6" href="#__codelineno-42-6"></a><span class="s2">for m in data.get('data', []):</span>
-</span><span id="__span-42-7"><a id="__codelineno-42-7" name="__codelineno-42-7" href="#__codelineno-42-7"></a><span class="s2">    name = m.get('model_name', '')</span>
-</span><span id="__span-42-8"><a id="__codelineno-42-8" name="__codelineno-42-8" href="#__codelineno-42-8"></a><span class="s2">    lp = m.get('litellm_params', {})</span>
-</span><span id="__span-42-9"><a id="__codelineno-42-9" name="__codelineno-42-9" href="#__codelineno-42-9"></a><span class="s2">    print(f'{name}: rpm={lp.get("</span>rpm<span class="s2">", "</span>NOT<span class="w"> </span>SET<span class="s2">")}  tpm={lp.get("</span>tpm<span class="s2">", "</span>NOT<span class="w"> </span>SET<span class="s2">")}')</span>
-</span><span id="__span-42-10"><a id="__codelineno-42-10" name="__codelineno-42-10" href="#__codelineno-42-10"></a><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/model/info"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-43-2"><a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-43-3"><a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
+</span><span id="__span-43-4"><a id="__codelineno-43-4" name="__codelineno-43-4" href="#__codelineno-43-4"></a><span class="s2">import json, sys</span>
+</span><span id="__span-43-5"><a id="__codelineno-43-5" name="__codelineno-43-5" href="#__codelineno-43-5"></a><span class="s2">data = json.load(sys.stdin)</span>
+</span><span id="__span-43-6"><a id="__codelineno-43-6" name="__codelineno-43-6" href="#__codelineno-43-6"></a><span class="s2">for m in data.get('data', []):</span>
+</span><span id="__span-43-7"><a id="__codelineno-43-7" name="__codelineno-43-7" href="#__codelineno-43-7"></a><span class="s2">    name = m.get('model_name', '')</span>
+</span><span id="__span-43-8"><a id="__codelineno-43-8" name="__codelineno-43-8" href="#__codelineno-43-8"></a><span class="s2">    lp = m.get('litellm_params', {})</span>
+</span><span id="__span-43-9"><a id="__codelineno-43-9" name="__codelineno-43-9" href="#__codelineno-43-9"></a><span class="s2">    print(f'{name}: rpm={lp.get("</span>rpm<span class="s2">", "</span>NOT<span class="w"> </span>SET<span class="s2">")}  tpm={lp.get("</span>tpm<span class="s2">", "</span>NOT<span class="w"> </span>SET<span class="s2">")}')</span>
+</span><span id="__span-43-10"><a id="__codelineno-43-10" name="__codelineno-43-10" href="#__codelineno-43-10"></a><span class="s2">"</span>
 </span></code></pre></div>
 <p><strong>How the router enforces RPM/TPM:</strong></p>
 <p>At request time, the router performs a pre-call check on the selected deployment. It reads the deployment's <code>rpm</code>/<code>tpm</code> (or <code>rpm_limit</code>/<code>tpm_limit</code>) from <code>litellm_params</code>, checks the current rolling-window counter, and raises a <code>RateLimitError</code> if the limit would be exceeded. The deployment is then skipped (or the request fails if no other deployment is available). This is separate from key-level and team-level <code>rpm_limit</code>/<code>tpm_limit</code>, which are enforced by the <code>DynamicRateLimitHandler</code>.</p>
@@ -11195,14 +11363,14 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/model/info'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-43-2"><a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/model/info'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-44-2"><a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
 </span></code></pre></div>
 <h3 id="get-model_groupinfo-model-group-info">GET <code>/model_group/info</code> ; Model Group Info<a class="headerlink" href="#get-model_groupinfo-model-group-info" title="Permanent link">&para;</a></h3>
 <p>Returns pricing, mode, and capabilities per model group (model_name).</p>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/model_group/info'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-44-2"><a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/model_group/info'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-45-2"><a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
 </span></code></pre></div>
 <h3 id="model-pricing-cost-map">Model Pricing / Cost Map<a class="headerlink" href="#model-pricing-cost-map" title="Permanent link">&para;</a></h3>
 <p>LiteLLM maintains a built-in cost map (<code>model_prices_and_context_window.json</code>) with pricing for all known models. Custom pricing can be set per-deployment via <code>input_cost_per_token</code> / <code>output_cost_per_token</code> on the <code>Deployment</code> model.</p>
@@ -11282,39 +11450,39 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 <p><strong>Not affected:</strong> <code>POST /fallback</code> (body-based), and GET/DELETE for model names without slashes (e.g. <code>gpt-4o</code>).</p>
 <h3 id="correct-approach-for-setting-fallbacks">Correct Approach for Setting Fallbacks<a class="headerlink" href="#correct-approach-for-setting-fallbacks" title="Permanent link">&para;</a></h3>
 <p>Always use <code>POST /fallback</code> to create or update fallbacks. It accepts the model name in the JSON body, so slashes are not an issue.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-45-2"><a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-45-3"><a id="__codelineno-45-3" name="__codelineno-45-3" href="#__codelineno-45-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-45-4"><a id="__codelineno-45-4" name="__codelineno-45-4" href="#__codelineno-45-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-45-5"><a id="__codelineno-45-5" name="__codelineno-45-5" href="#__codelineno-45-5"></a><span class="s1">    "model": "zai-org/GLM-5.2-FP8",</span>
-</span><span id="__span-45-6"><a id="__codelineno-45-6" name="__codelineno-45-6" href="#__codelineno-45-6"></a><span class="s1">    "fallback_models": ["zai-org/GLM-5.1-FP8", "MiniMaxAI/MiniMax-M3-MXFP8"],</span>
-</span><span id="__span-45-7"><a id="__codelineno-45-7" name="__codelineno-45-7" href="#__codelineno-45-7"></a><span class="s1">    "fallback_type": "general"</span>
-</span><span id="__span-45-8"><a id="__codelineno-45-8" name="__codelineno-45-8" href="#__codelineno-45-8"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-46-2"><a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-46-3"><a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-46-4"><a id="__codelineno-46-4" name="__codelineno-46-4" href="#__codelineno-46-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-46-5"><a id="__codelineno-46-5" name="__codelineno-46-5" href="#__codelineno-46-5"></a><span class="s1">    "model": "zai-org/GLM-5.2-FP8",</span>
+</span><span id="__span-46-6"><a id="__codelineno-46-6" name="__codelineno-46-6" href="#__codelineno-46-6"></a><span class="s1">    "fallback_models": ["zai-org/GLM-5.1-FP8", "MiniMaxAI/MiniMax-M3-MXFP8"],</span>
+</span><span id="__span-46-7"><a id="__codelineno-46-7" name="__codelineno-46-7" href="#__codelineno-46-7"></a><span class="s1">    "fallback_type": "general"</span>
+</span><span id="__span-46-8"><a id="__codelineno-46-8" name="__codelineno-46-8" href="#__codelineno-46-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="correct-approach-for-verifying-fallbacks">Correct Approach for Verifying Fallbacks<a class="headerlink" href="#correct-approach-for-verifying-fallbacks" title="Permanent link">&para;</a></h3>
 <p>Since <code>GET /fallback/{model}</code> may return 404 for model names with slashes, use these endpoints instead to verify that fallbacks are applied:</p>
 <p><strong>1. <code>GET /router/settings</code> ; returns <code>current_values.fallbacks</code>:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/router/settings"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-46-2"><a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-46-3"><a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
-</span><span id="__span-46-4"><a id="__codelineno-46-4" name="__codelineno-46-4" href="#__codelineno-46-4"></a><span class="s2">import json, sys</span>
-</span><span id="__span-46-5"><a id="__codelineno-46-5" name="__codelineno-46-5" href="#__codelineno-46-5"></a><span class="s2">data = json.load(sys.stdin)</span>
-</span><span id="__span-46-6"><a id="__codelineno-46-6" name="__codelineno-46-6" href="#__codelineno-46-6"></a><span class="s2">for field in data.get('fields', []):</span>
-</span><span id="__span-46-7"><a id="__codelineno-46-7" name="__codelineno-46-7" href="#__codelineno-46-7"></a><span class="s2">    if field['field_name'] == 'fallbacks':</span>
-</span><span id="__span-46-8"><a id="__codelineno-46-8" name="__codelineno-46-8" href="#__codelineno-46-8"></a><span class="s2">        print(json.dumps(field['field_value'], indent=2))</span>
-</span><span id="__span-46-9"><a id="__codelineno-46-9" name="__codelineno-46-9" href="#__codelineno-46-9"></a><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/router/settings"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-47-2"><a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-47-3"><a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
+</span><span id="__span-47-4"><a id="__codelineno-47-4" name="__codelineno-47-4" href="#__codelineno-47-4"></a><span class="s2">import json, sys</span>
+</span><span id="__span-47-5"><a id="__codelineno-47-5" name="__codelineno-47-5" href="#__codelineno-47-5"></a><span class="s2">data = json.load(sys.stdin)</span>
+</span><span id="__span-47-6"><a id="__codelineno-47-6" name="__codelineno-47-6" href="#__codelineno-47-6"></a><span class="s2">for field in data.get('fields', []):</span>
+</span><span id="__span-47-7"><a id="__codelineno-47-7" name="__codelineno-47-7" href="#__codelineno-47-7"></a><span class="s2">    if field['field_name'] == 'fallbacks':</span>
+</span><span id="__span-47-8"><a id="__codelineno-47-8" name="__codelineno-47-8" href="#__codelineno-47-8"></a><span class="s2">        print(json.dumps(field['field_value'], indent=2))</span>
+</span><span id="__span-47-9"><a id="__codelineno-47-9" name="__codelineno-47-9" href="#__codelineno-47-9"></a><span class="s2">"</span>
 </span></code></pre></div>
 <p>This returns the live fallback configuration from the in-memory router instance, e.g.:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="p">[{</span><span class="nt">"zai-org/GLM-5.2-FP8"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"zai-org/GLM-5.1-FP8"</span><span class="p">,</span><span class="w"> </span><span class="s2">"MiniMaxAI/MiniMax-M3-MXFP8"</span><span class="p">]}]</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="p">[{</span><span class="nt">"zai-org/GLM-5.2-FP8"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"zai-org/GLM-5.1-FP8"</span><span class="p">,</span><span class="w"> </span><span class="s2">"MiniMaxAI/MiniMax-M3-MXFP8"</span><span class="p">]}]</span>
 </span></code></pre></div>
 <p><strong>2. <code>GET /get/config/callbacks</code> ; returns <code>router_settings.fallbacks</code>:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/get/config/callbacks"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-48-2"><a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-48-3"><a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
-</span><span id="__span-48-4"><a id="__codelineno-48-4" name="__codelineno-48-4" href="#__codelineno-48-4"></a><span class="s2">import json, sys</span>
-</span><span id="__span-48-5"><a id="__codelineno-48-5" name="__codelineno-48-5" href="#__codelineno-48-5"></a><span class="s2">data = json.load(sys.stdin)</span>
-</span><span id="__span-48-6"><a id="__codelineno-48-6" name="__codelineno-48-6" href="#__codelineno-48-6"></a><span class="s2">print(json.dumps(data.get('router_settings', {}).get('fallbacks', []), indent=2))</span>
-</span><span id="__span-48-7"><a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/get/config/callbacks"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-49-3"><a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
+</span><span id="__span-49-4"><a id="__codelineno-49-4" name="__codelineno-49-4" href="#__codelineno-49-4"></a><span class="s2">import json, sys</span>
+</span><span id="__span-49-5"><a id="__codelineno-49-5" name="__codelineno-49-5" href="#__codelineno-49-5"></a><span class="s2">data = json.load(sys.stdin)</span>
+</span><span id="__span-49-6"><a id="__codelineno-49-6" name="__codelineno-49-6" href="#__codelineno-49-6"></a><span class="s2">print(json.dumps(data.get('router_settings', {}).get('fallbacks', []), indent=2))</span>
+</span><span id="__span-49-7"><a id="__codelineno-49-7" name="__codelineno-49-7" href="#__codelineno-49-7"></a><span class="s2">"</span>
 </span></code></pre></div>
 <p><strong>3. UI:</strong> Global fallbacks are visible in the Admin UI under <strong>Models</strong> page &gt; <strong>Fallbacks</strong> tab. They are NOT visible in the per-team Router Settings panel, because global fallbacks are stored in the <code>litellm_config</code> DB table and the in-memory router, not in the team's <code>router_settings</code> field. Per-team fallbacks (set via <code>router_settings</code> on <code>/team/new</code> or <code>/team/update</code>) would appear in the team detail page.</p>
 <h3 id="post-fallback-create-or-update-fallbacks">POST <code>/fallback</code> ; Create or Update Fallbacks<a class="headerlink" href="#post-fallback-create-or-update-fallbacks" title="Permanent link">&para;</a></h3>
@@ -11395,14 +11563,14 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-49-3"><a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-49-4"><a id="__codelineno-49-4" name="__codelineno-49-4" href="#__codelineno-49-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-49-5"><a id="__codelineno-49-5" name="__codelineno-49-5" href="#__codelineno-49-5"></a><span class="s1">    "model": "gpt-4o",</span>
-</span><span id="__span-49-6"><a id="__codelineno-49-6" name="__codelineno-49-6" href="#__codelineno-49-6"></a><span class="s1">    "fallback_models": ["claude-3-5-sonnet", "gpt-4o-mini"],</span>
-</span><span id="__span-49-7"><a id="__codelineno-49-7" name="__codelineno-49-7" href="#__codelineno-49-7"></a><span class="s1">    "fallback_type": "general"</span>
-</span><span id="__span-49-8"><a id="__codelineno-49-8" name="__codelineno-49-8" href="#__codelineno-49-8"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-50-2"><a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-50-3"><a id="__codelineno-50-3" name="__codelineno-50-3" href="#__codelineno-50-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-50-4"><a id="__codelineno-50-4" name="__codelineno-50-4" href="#__codelineno-50-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-50-5"><a id="__codelineno-50-5" name="__codelineno-50-5" href="#__codelineno-50-5"></a><span class="s1">    "model": "gpt-4o",</span>
+</span><span id="__span-50-6"><a id="__codelineno-50-6" name="__codelineno-50-6" href="#__codelineno-50-6"></a><span class="s1">    "fallback_models": ["claude-3-5-sonnet", "gpt-4o-mini"],</span>
+</span><span id="__span-50-7"><a id="__codelineno-50-7" name="__codelineno-50-7" href="#__codelineno-50-7"></a><span class="s1">    "fallback_type": "general"</span>
+</span><span id="__span-50-8"><a id="__codelineno-50-8" name="__codelineno-50-8" href="#__codelineno-50-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="get-fallbackmodel-get-fallbacks">GET <code>/fallback/{model}</code> ; Get Fallbacks<a class="headerlink" href="#get-fallbackmodel-get-fallbacks" title="Permanent link">&para;</a></h3>
 <p><strong>Path param:</strong> <code>model</code></p>
@@ -11430,8 +11598,8 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 </table>
 <p>Reads from the in-memory router via <code>get_all_fallbacks()</code> -&gt; <code>getattr(llm_router, "fallbacks", [])</code> -&gt; <code>get_fallback_model_group()</code>. Returns <code>404</code> if no fallbacks configured for the model.</p>
 <p><strong>Example (works for model names without slashes):</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback/gpt-4o?fallback_type=general"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-50-2"><a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback/gpt-4o?fallback_type=general"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-51-2"><a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span>
 </span></code></pre></div>
 <h3 id="delete-fallbackmodel-delete-fallbacks">DELETE <code>/fallback/{model}</code> ; Delete Fallbacks<a class="headerlink" href="#delete-fallbackmodel-delete-fallbacks" title="Permanent link">&para;</a></h3>
 <p><strong>Path param:</strong> <code>model</code></p>
@@ -11441,8 +11609,8 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 <p><strong>Query params:</strong> Same as GET.</p>
 <p>Removes the fallback config from DB and updates the in-memory router. Returns <code>404</code> if not found.</p>
 <p><strong>Example (works for model names without slashes):</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback/gpt-4o?fallback_type=general"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-51-2"><a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/fallback/gpt-4o?fallback_type=general"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-52-2"><a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span>
 </span></code></pre></div>
 <h3 id="how-fallbacks-work-at-request-time">How Fallbacks Work at Request Time<a class="headerlink" href="#how-fallbacks-work-at-request-time" title="Permanent link">&para;</a></h3>
 <p>When a request to the primary model fails (e.g. timeout, rate limit, 500 error), the router checks the <code>fallbacks</code> list for a matching entry. The lookup uses <code>get_fallback_model_group()</code> which checks: (1) exact model name match, (2) stripped model name match, (3) generic wildcard <code>*</code> fallback. If a match is found, the router tries each fallback model in order until one succeeds or all are exhausted (<code>max_fallbacks</code> controls the cap, default 5).</p>
@@ -11511,8 +11679,8 @@ unmanaged <code>/model/new</code> row as the long-term solution.</p>
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/router/settings'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-52-2"><a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/router/settings'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-53-2"><a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
 </span></code></pre></div>
 <h3 id="post-configupdate-update-router-settings">POST <code>/config/update</code> ; Update Router Settings<a class="headerlink" href="#post-configupdate-update-router-settings" title="Permanent link">&para;</a></h3>
 <p><strong>Auth:</strong> <code>PROXY_ADMIN</code> only. Requires DB connected.</p>
@@ -11651,14 +11819,24 @@ target and alias-only names are not separate deployment groups in <code>/v1/mode
 controller treats those as repeated views of one deployment, not independently
 deletable backends. <code>/v2/model/info?size=1000</code> returns the registered deployments
 needed by the helper for collision checks.</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="p">{</span>
-</span><span id="__span-53-2"><a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a><span class="w">  </span><span class="nt">"router_settings"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-53-3"><a id="__codelineno-53-3" name="__codelineno-53-3" href="#__codelineno-53-3"></a><span class="w">    </span><span class="nt">"model_group_alias"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-53-4"><a id="__codelineno-53-4" name="__codelineno-53-4" href="#__codelineno-53-4"></a><span class="w">      </span><span class="nt">"Qwen3.6-35B-A3B-FP8"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Qwen/Qwen3.6-35B-A3B-FP8"</span>
-</span><span id="__span-53-5"><a id="__codelineno-53-5" name="__codelineno-53-5" href="#__codelineno-53-5"></a><span class="w">    </span><span class="p">}</span>
-</span><span id="__span-53-6"><a id="__codelineno-53-6" name="__codelineno-53-6" href="#__codelineno-53-6"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-53-7"><a id="__codelineno-53-7" name="__codelineno-53-7" href="#__codelineno-53-7"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="p">{</span>
+</span><span id="__span-54-2"><a id="__codelineno-54-2" name="__codelineno-54-2" href="#__codelineno-54-2"></a><span class="w">  </span><span class="nt">"router_settings"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-54-3"><a id="__codelineno-54-3" name="__codelineno-54-3" href="#__codelineno-54-3"></a><span class="w">    </span><span class="nt">"model_group_alias"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-54-4"><a id="__codelineno-54-4" name="__codelineno-54-4" href="#__codelineno-54-4"></a><span class="w">      </span><span class="nt">"Qwen3.6-35B-A3B-FP8"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Qwen/Qwen3.6-35B-A3B-FP8"</span>
+</span><span id="__span-54-5"><a id="__codelineno-54-5" name="__codelineno-54-5" href="#__codelineno-54-5"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-54-6"><a id="__codelineno-54-6" name="__codelineno-54-6" href="#__codelineno-54-6"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-54-7"><a id="__codelineno-54-7" name="__codelineno-54-7" href="#__codelineno-54-7"></a><span class="p">}</span>
 </span></code></pre></div>
+<p>In the Admin UI, the alias editor is the <strong>Model Group Alias</strong> tab on the
+<strong>Models + Endpoints</strong> page. The panel is read-only when <code>model_group_alias</code>
+is owned by <code>config.yaml</code>.</p>
+<p>An alias carries no parameters of its own. It is a name-to-name pointer, so
+both names reach one deployment with one parameter set. When a public name
+needs different request parameters on the same upstream, create a separate
+unmanaged entry instead (see "Creating a persistent duplicate"). Usage
+attribution splits either way: spend logs key on the requested <code>model_group</code>,
+so an alias and its target already record two usage buckets while sharing one
+<code>model_id</code>.</p>
 <p>Value objects may use <code>{"model": "Qwen/Qwen3.6-35B-A3B-FP8", "hidden": true}</code>
 when the alias should be omitted from normal model listings.</p>
 <p>The helper <a href="../../scripts/models/model_aliases.sh">model_aliases.sh</a> validates
@@ -11668,12 +11846,12 @@ initially appear to be no-ops, are retried against the exact map before success
 is reported. If a subsequent read reveals necessary work, the helper performs
 that write rather than discarding it. It requires Bash, curl, and jq.
 Add/remove are dry-run by default:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PROXY_BASE_URL</span><span class="o">=</span><span class="s2">"https://litellm.ecouncil.ae"</span>
-</span><span id="__span-54-2"><a id="__codelineno-54-2" name="__codelineno-54-2" href="#__codelineno-54-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LITELLM_API_KEY</span><span class="o">=</span><span class="s2">"sk-05132025"</span>
-</span><span id="__span-54-3"><a id="__codelineno-54-3" name="__codelineno-54-3" href="#__codelineno-54-3"></a>./scripts/models/model_aliases.sh<span class="w"> </span>list
-</span><span id="__span-54-4"><a id="__codelineno-54-4" name="__codelineno-54-4" href="#__codelineno-54-4"></a>./scripts/models/model_aliases.sh<span class="w"> </span>add<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>Qwen/Qwen3.6-35B-A3B-FP8
-</span><span id="__span-54-5"><a id="__codelineno-54-5" name="__codelineno-54-5" href="#__codelineno-54-5"></a>./scripts/models/model_aliases.sh<span class="w"> </span>add<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>Qwen/Qwen3.6-35B-A3B-FP8<span class="w"> </span>--apply
-</span><span id="__span-54-6"><a id="__codelineno-54-6" name="__codelineno-54-6" href="#__codelineno-54-6"></a>./scripts/models/model_aliases.sh<span class="w"> </span>remove<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>--apply
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PROXY_BASE_URL</span><span class="o">=</span><span class="s2">"https://litellm.ecouncil.ae"</span>
+</span><span id="__span-55-2"><a id="__codelineno-55-2" name="__codelineno-55-2" href="#__codelineno-55-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LITELLM_API_KEY</span><span class="o">=</span><span class="s2">"sk-05132025"</span>
+</span><span id="__span-55-3"><a id="__codelineno-55-3" name="__codelineno-55-3" href="#__codelineno-55-3"></a>./scripts/models/model_aliases.sh<span class="w"> </span>list
+</span><span id="__span-55-4"><a id="__codelineno-55-4" name="__codelineno-55-4" href="#__codelineno-55-4"></a>./scripts/models/model_aliases.sh<span class="w"> </span>add<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>Qwen/Qwen3.6-35B-A3B-FP8
+</span><span id="__span-55-5"><a id="__codelineno-55-5" name="__codelineno-55-5" href="#__codelineno-55-5"></a>./scripts/models/model_aliases.sh<span class="w"> </span>add<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>Qwen/Qwen3.6-35B-A3B-FP8<span class="w"> </span>--apply
+</span><span id="__span-55-6"><a id="__codelineno-55-6" name="__codelineno-55-6" href="#__codelineno-55-6"></a>./scripts/models/model_aliases.sh<span class="w"> </span>remove<span class="w"> </span>Qwen3.6-35B-A3B-FP8<span class="w"> </span>--apply
 </span></code></pre></div>
 <p>The script has no effect on any key's <code>models</code> access allowlist. Do not run
 alias and router settings writers concurrently: a read/merge/write by two
@@ -11682,18 +11860,18 @@ opt in to <code>GATEWAY_INSECURE_TLS=1</code> only for a self-signed endpoint th
 deliberately trust. <code>NO_PROXY</code>/<code>no_proxy</code> are honored for trusted private
 gateways that must bypass a corporate proxy.</p>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/config/update'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-55-2"><a id="__codelineno-55-2" name="__codelineno-55-2" href="#__codelineno-55-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-55-3"><a id="__codelineno-55-3" name="__codelineno-55-3" href="#__codelineno-55-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-55-4"><a id="__codelineno-55-4" name="__codelineno-55-4" href="#__codelineno-55-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-55-5"><a id="__codelineno-55-5" name="__codelineno-55-5" href="#__codelineno-55-5"></a><span class="s1">    "router_settings": {</span>
-</span><span id="__span-55-6"><a id="__codelineno-55-6" name="__codelineno-55-6" href="#__codelineno-55-6"></a><span class="s1">      "num_retries": 5,</span>
-</span><span id="__span-55-7"><a id="__codelineno-55-7" name="__codelineno-55-7" href="#__codelineno-55-7"></a><span class="s1">      "timeout": 30,</span>
-</span><span id="__span-55-8"><a id="__codelineno-55-8" name="__codelineno-55-8" href="#__codelineno-55-8"></a><span class="s1">      "allowed_fails": 3,</span>
-</span><span id="__span-55-9"><a id="__codelineno-55-9" name="__codelineno-55-9" href="#__codelineno-55-9"></a><span class="s1">      "cooldown_time": 60,</span>
-</span><span id="__span-55-10"><a id="__codelineno-55-10" name="__codelineno-55-10" href="#__codelineno-55-10"></a><span class="s1">      "routing_strategy": "latency-based-routing"</span>
-</span><span id="__span-55-11"><a id="__codelineno-55-11" name="__codelineno-55-11" href="#__codelineno-55-11"></a><span class="s1">    }</span>
-</span><span id="__span-55-12"><a id="__codelineno-55-12" name="__codelineno-55-12" href="#__codelineno-55-12"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/config/update'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-56-2"><a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-56-3"><a id="__codelineno-56-3" name="__codelineno-56-3" href="#__codelineno-56-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-56-4"><a id="__codelineno-56-4" name="__codelineno-56-4" href="#__codelineno-56-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-56-5"><a id="__codelineno-56-5" name="__codelineno-56-5" href="#__codelineno-56-5"></a><span class="s1">    "router_settings": {</span>
+</span><span id="__span-56-6"><a id="__codelineno-56-6" name="__codelineno-56-6" href="#__codelineno-56-6"></a><span class="s1">      "num_retries": 5,</span>
+</span><span id="__span-56-7"><a id="__codelineno-56-7" name="__codelineno-56-7" href="#__codelineno-56-7"></a><span class="s1">      "timeout": 30,</span>
+</span><span id="__span-56-8"><a id="__codelineno-56-8" name="__codelineno-56-8" href="#__codelineno-56-8"></a><span class="s1">      "allowed_fails": 3,</span>
+</span><span id="__span-56-9"><a id="__codelineno-56-9" name="__codelineno-56-9" href="#__codelineno-56-9"></a><span class="s1">      "cooldown_time": 60,</span>
+</span><span id="__span-56-10"><a id="__codelineno-56-10" name="__codelineno-56-10" href="#__codelineno-56-10"></a><span class="s1">      "routing_strategy": "latency-based-routing"</span>
+</span><span id="__span-56-11"><a id="__codelineno-56-11" name="__codelineno-56-11" href="#__codelineno-56-11"></a><span class="s1">    }</span>
+</span><span id="__span-56-12"><a id="__codelineno-56-12" name="__codelineno-56-12" href="#__codelineno-56-12"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="router-settings-field-reference">Router Settings Field Reference<a class="headerlink" href="#router-settings-field-reference" title="Permanent link">&para;</a></h3>
 <p>Full list of fields exposed by <code>GET /router/settings</code>, defined in <code>ROUTER_SETTINGS_FIELDS</code>:</p>
@@ -12048,17 +12226,17 @@ gateways that must bypass a corporate proxy.</p>
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/user/new'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-56-2"><a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-56-3"><a id="__codelineno-56-3" name="__codelineno-56-3" href="#__codelineno-56-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-56-4"><a id="__codelineno-56-4" name="__codelineno-56-4" href="#__codelineno-56-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-56-5"><a id="__codelineno-56-5" name="__codelineno-56-5" href="#__codelineno-56-5"></a><span class="s1">    "user_alias": "Jane Developer",</span>
-</span><span id="__span-56-6"><a id="__codelineno-56-6" name="__codelineno-56-6" href="#__codelineno-56-6"></a><span class="s1">    "user_email": "jane@acme.com",</span>
-</span><span id="__span-56-7"><a id="__codelineno-56-7" name="__codelineno-56-7" href="#__codelineno-56-7"></a><span class="s1">    "user_role": "internal_user",</span>
-</span><span id="__span-56-8"><a id="__codelineno-56-8" name="__codelineno-56-8" href="#__codelineno-56-8"></a><span class="s1">    "teams": ["team-123"],</span>
-</span><span id="__span-56-9"><a id="__codelineno-56-9" name="__codelineno-56-9" href="#__codelineno-56-9"></a><span class="s1">    "max_budget": 200.0,</span>
-</span><span id="__span-56-10"><a id="__codelineno-56-10" name="__codelineno-56-10" href="#__codelineno-56-10"></a><span class="s1">    "budget_duration": "30d"</span>
-</span><span id="__span-56-11"><a id="__codelineno-56-11" name="__codelineno-56-11" href="#__codelineno-56-11"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/user/new'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-57-2"><a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-57-3"><a id="__codelineno-57-3" name="__codelineno-57-3" href="#__codelineno-57-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-57-4"><a id="__codelineno-57-4" name="__codelineno-57-4" href="#__codelineno-57-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-57-5"><a id="__codelineno-57-5" name="__codelineno-57-5" href="#__codelineno-57-5"></a><span class="s1">    "user_alias": "Jane Developer",</span>
+</span><span id="__span-57-6"><a id="__codelineno-57-6" name="__codelineno-57-6" href="#__codelineno-57-6"></a><span class="s1">    "user_email": "jane@acme.com",</span>
+</span><span id="__span-57-7"><a id="__codelineno-57-7" name="__codelineno-57-7" href="#__codelineno-57-7"></a><span class="s1">    "user_role": "internal_user",</span>
+</span><span id="__span-57-8"><a id="__codelineno-57-8" name="__codelineno-57-8" href="#__codelineno-57-8"></a><span class="s1">    "teams": ["team-123"],</span>
+</span><span id="__span-57-9"><a id="__codelineno-57-9" name="__codelineno-57-9" href="#__codelineno-57-9"></a><span class="s1">    "max_budget": 200.0,</span>
+</span><span id="__span-57-10"><a id="__codelineno-57-10" name="__codelineno-57-10" href="#__codelineno-57-10"></a><span class="s1">    "budget_duration": "30d"</span>
+</span><span id="__span-57-11"><a id="__codelineno-57-11" name="__codelineno-57-11" href="#__codelineno-57-11"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h4 id="strategy-how-to-create-a-new-user">Strategy: How to Create a New User<a class="headerlink" href="#strategy-how-to-create-a-new-user" title="Permanent link">&para;</a></h4>
 <p>Use <code>POST /user/new</code> to provision a person who needs to log into the Admin UI
@@ -12126,24 +12304,24 @@ priority. Team metadata priority overrides key-level priority.</p>
 the stable identifier for all subsequent <code>/user/update</code> and spend lookups.</p>
 <p><strong>Working example (ADEO gateway):</strong></p>
 <p>Create the user (role <code>internal_user</code>, auto-created key):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/user/new"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-57-2"><a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-57-3"><a id="__codelineno-57-3" name="__codelineno-57-3" href="#__codelineno-57-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-57-4"><a id="__codelineno-57-4" name="__codelineno-57-4" href="#__codelineno-57-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-57-5"><a id="__codelineno-57-5" name="__codelineno-57-5" href="#__codelineno-57-5"></a><span class="s1">    "user_email": "adeogpt@ecouncil.ae",</span>
-</span><span id="__span-57-6"><a id="__codelineno-57-6" name="__codelineno-57-6" href="#__codelineno-57-6"></a><span class="s1">    "user_alias": "ADEOGPT",</span>
-</span><span id="__span-57-7"><a id="__codelineno-57-7" name="__codelineno-57-7" href="#__codelineno-57-7"></a><span class="s1">    "user_role": "internal_user",</span>
-</span><span id="__span-57-8"><a id="__codelineno-57-8" name="__codelineno-57-8" href="#__codelineno-57-8"></a><span class="s1">    "auto_create_key": true</span>
-</span><span id="__span-57-9"><a id="__codelineno-57-9" name="__codelineno-57-9" href="#__codelineno-57-9"></a><span class="s1">  }'</span>
-</span></code></pre></div>
-<p>Then set a password so the account can actually log in to the Admin UI:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/user/update"</span><span class="w"> </span><span class="se">\</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/user/new"</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-58-2"><a id="__codelineno-58-2" name="__codelineno-58-2" href="#__codelineno-58-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-58-3"><a id="__codelineno-58-3" name="__codelineno-58-3" href="#__codelineno-58-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-58-4"><a id="__codelineno-58-4" name="__codelineno-58-4" href="#__codelineno-58-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-58-5"><a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a><span class="s1">    "user_id": "&lt;user_id_from_response&gt;",</span>
-</span><span id="__span-58-6"><a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a><span class="s1">    "password": "REPLACE_WITH_A_STRONG_PASSWORD"</span>
-</span><span id="__span-58-7"><a id="__codelineno-58-7" name="__codelineno-58-7" href="#__codelineno-58-7"></a><span class="s1">  }'</span>
+</span><span id="__span-58-5"><a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a><span class="s1">    "user_email": "adeogpt@ecouncil.ae",</span>
+</span><span id="__span-58-6"><a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a><span class="s1">    "user_alias": "ADEOGPT",</span>
+</span><span id="__span-58-7"><a id="__codelineno-58-7" name="__codelineno-58-7" href="#__codelineno-58-7"></a><span class="s1">    "user_role": "internal_user",</span>
+</span><span id="__span-58-8"><a id="__codelineno-58-8" name="__codelineno-58-8" href="#__codelineno-58-8"></a><span class="s1">    "auto_create_key": true</span>
+</span><span id="__span-58-9"><a id="__codelineno-58-9" name="__codelineno-58-9" href="#__codelineno-58-9"></a><span class="s1">  }'</span>
+</span></code></pre></div>
+<p>Then set a password so the account can actually log in to the Admin UI:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a>curl<span class="w"> </span>-sk<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$PROXY_BASE_URL</span><span class="s2">/user/update"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-59-2"><a id="__codelineno-59-2" name="__codelineno-59-2" href="#__codelineno-59-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$LITELLM_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-59-3"><a id="__codelineno-59-3" name="__codelineno-59-3" href="#__codelineno-59-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-59-4"><a id="__codelineno-59-4" name="__codelineno-59-4" href="#__codelineno-59-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-59-5"><a id="__codelineno-59-5" name="__codelineno-59-5" href="#__codelineno-59-5"></a><span class="s1">    "user_id": "&lt;user_id_from_response&gt;",</span>
+</span><span id="__span-59-6"><a id="__codelineno-59-6" name="__codelineno-59-6" href="#__codelineno-59-6"></a><span class="s1">    "password": "REPLACE_WITH_A_STRONG_PASSWORD"</span>
+</span><span id="__span-59-7"><a id="__codelineno-59-7" name="__codelineno-59-7" href="#__codelineno-59-7"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <p>The <code>/user/new</code> response returns <code>user_id</code>, <code>user_role</code>, <code>user_alias</code>,
 <code>user_email</code>, and an auto-created <code>key</code>. Save the <code>user_id</code>; it is the handle
@@ -12356,15 +12534,15 @@ with <code>/key/regenerate</code> or <code>/key/update</code> if it was exposed.
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/budget/new'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-59-2"><a id="__codelineno-59-2" name="__codelineno-59-2" href="#__codelineno-59-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-59-3"><a id="__codelineno-59-3" name="__codelineno-59-3" href="#__codelineno-59-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-59-4"><a id="__codelineno-59-4" name="__codelineno-59-4" href="#__codelineno-59-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-59-5"><a id="__codelineno-59-5" name="__codelineno-59-5" href="#__codelineno-59-5"></a><span class="s1">    "max_budget": 5000.0,</span>
-</span><span id="__span-59-6"><a id="__codelineno-59-6" name="__codelineno-59-6" href="#__codelineno-59-6"></a><span class="s1">    "tpm_limit": 1000000,</span>
-</span><span id="__span-59-7"><a id="__codelineno-59-7" name="__codelineno-59-7" href="#__codelineno-59-7"></a><span class="s1">    "rpm_limit": 10000,</span>
-</span><span id="__span-59-8"><a id="__codelineno-59-8" name="__codelineno-59-8" href="#__codelineno-59-8"></a><span class="s1">    "budget_duration": "30d"</span>
-</span><span id="__span-59-9"><a id="__codelineno-59-9" name="__codelineno-59-9" href="#__codelineno-59-9"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/budget/new'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-60-2"><a id="__codelineno-60-2" name="__codelineno-60-2" href="#__codelineno-60-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-60-3"><a id="__codelineno-60-3" name="__codelineno-60-3" href="#__codelineno-60-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-60-4"><a id="__codelineno-60-4" name="__codelineno-60-4" href="#__codelineno-60-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-60-5"><a id="__codelineno-60-5" name="__codelineno-60-5" href="#__codelineno-60-5"></a><span class="s1">    "max_budget": 5000.0,</span>
+</span><span id="__span-60-6"><a id="__codelineno-60-6" name="__codelineno-60-6" href="#__codelineno-60-6"></a><span class="s1">    "tpm_limit": 1000000,</span>
+</span><span id="__span-60-7"><a id="__codelineno-60-7" name="__codelineno-60-7" href="#__codelineno-60-7"></a><span class="s1">    "rpm_limit": 10000,</span>
+</span><span id="__span-60-8"><a id="__codelineno-60-8" name="__codelineno-60-8" href="#__codelineno-60-8"></a><span class="s1">    "budget_duration": "30d"</span>
+</span><span id="__span-60-9"><a id="__codelineno-60-9" name="__codelineno-60-9" href="#__codelineno-60-9"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="post-budgetupdate-update-a-budget">POST <code>/budget/update</code> ; Update a Budget<a class="headerlink" href="#post-budgetupdate-update-a-budget" title="Permanent link">&para;</a></h3>
 <p>Same fields as <code>/budget/new</code> plus <code>budget_id</code> (required).</p>
@@ -12645,8 +12823,8 @@ with <code>/key/regenerate</code> or <code>/key/update</code> if it was exposed.
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/spend/logs/v2?start_date=2026-07-01&amp;end_date=2026-07-10&amp;page=1&amp;size=20'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-60-2"><a id="__codelineno-60-2" name="__codelineno-60-2" href="#__codelineno-60-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/spend/logs/v2?start_date=2026-07-01&amp;end_date=2026-07-10&amp;page=1&amp;size=20'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-61-2"><a id="__codelineno-61-2" name="__codelineno-61-2" href="#__codelineno-61-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
 </span></code></pre></div>
 <h3 id="post-spendcalculate-calculate-spend">POST <code>/spend/calculate</code> ; Calculate Spend<a class="headerlink" href="#post-spendcalculate-calculate-spend" title="Permanent link">&para;</a></h3>
 <p><strong>Request body:</strong></p>
@@ -12707,8 +12885,8 @@ with <code>/key/regenerate</code> or <code>/key/update</code> if it was exposed.
 </tbody>
 </table>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/global/spend?start_date=2026-07-01&amp;end_date=2026-07-10'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-61-2"><a id="__codelineno-61-2" name="__codelineno-61-2" href="#__codelineno-61-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>GET<span class="w"> </span><span class="s1">'http://localhost:4000/global/spend?start_date=2026-07-01&amp;end_date=2026-07-10'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-62-2"><a id="__codelineno-62-2" name="__codelineno-62-2" href="#__codelineno-62-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span>
 </span></code></pre></div>
 <h3 id="get-globalspendmodels-spend-by-model">GET <code>/global/spend/models</code> ; Spend by Model<a class="headerlink" href="#get-globalspendmodels-spend-by-model" title="Permanent link">&para;</a></h3>
 <p><strong>Query params:</strong></p>
@@ -12817,14 +12995,14 @@ with <code>/key/regenerate</code> or <code>/key/update</code> if it was exposed.
 <h3 id="per-key-router-settings">Per-Key Router Settings<a class="headerlink" href="#per-key-router-settings" title="Permanent link">&para;</a></h3>
 <p>Stored on the key object. Set via <code>router_settings</code> field on <code>/key/generate</code> and <code>/key/update</code>.</p>
 <p><strong>Example:</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/key/generate'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-62-2"><a id="__codelineno-62-2" name="__codelineno-62-2" href="#__codelineno-62-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-62-3"><a id="__codelineno-62-3" name="__codelineno-62-3" href="#__codelineno-62-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-62-4"><a id="__codelineno-62-4" name="__codelineno-62-4" href="#__codelineno-62-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
-</span><span id="__span-62-5"><a id="__codelineno-62-5" name="__codelineno-62-5" href="#__codelineno-62-5"></a><span class="s1">    "router_settings": {</span>
-</span><span id="__span-62-6"><a id="__codelineno-62-6" name="__codelineno-62-6" href="#__codelineno-62-6"></a><span class="s1">      "model_group_retry_policy": {"max_retries": 5}</span>
-</span><span id="__span-62-7"><a id="__codelineno-62-7" name="__codelineno-62-7" href="#__codelineno-62-7"></a><span class="s1">    }</span>
-</span><span id="__span-62-8"><a id="__codelineno-62-8" name="__codelineno-62-8" href="#__codelineno-62-8"></a><span class="s1">  }'</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s1">'http://localhost:4000/key/generate'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-63-2"><a id="__codelineno-63-2" name="__codelineno-63-2" href="#__codelineno-63-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Authorization: Bearer sk-05132025'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-63-3"><a id="__codelineno-63-3" name="__codelineno-63-3" href="#__codelineno-63-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-63-4"><a id="__codelineno-63-4" name="__codelineno-63-4" href="#__codelineno-63-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+</span><span id="__span-63-5"><a id="__codelineno-63-5" name="__codelineno-63-5" href="#__codelineno-63-5"></a><span class="s1">    "router_settings": {</span>
+</span><span id="__span-63-6"><a id="__codelineno-63-6" name="__codelineno-63-6" href="#__codelineno-63-6"></a><span class="s1">      "model_group_retry_policy": {"max_retries": 5}</span>
+</span><span id="__span-63-7"><a id="__codelineno-63-7" name="__codelineno-63-7" href="#__codelineno-63-7"></a><span class="s1">    }</span>
+</span><span id="__span-63-8"><a id="__codelineno-63-8" name="__codelineno-63-8" href="#__codelineno-63-8"></a><span class="s1">  }'</span>
 </span></code></pre></div>
 <h3 id="per-team-router-settings">Per-Team Router Settings<a class="headerlink" href="#per-team-router-settings" title="Permanent link">&para;</a></h3>
 <p>Stored on the team object. Set via <code>router_settings</code> field on <code>/team/new</code> and <code>/team/update</code>.</p>
@@ -12857,7 +13035,7 @@ with <code>/key/regenerate</code> or <code>/key/update</code> if it was exposed.
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 15:01:31 UTC">November 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 10:55:59 UTC">November 17, 2026</span>
   </span>
 
     
