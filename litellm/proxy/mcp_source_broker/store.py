@@ -169,9 +169,7 @@ class SourceStore:
         sid: Final = value.source_id_for(owner, value.alias)
         grant: Final = self.keyring.enrollment_id(sid)
         async with self.db.tx(timeout=10000) as tx:
-            await tx.execute_raw(
-                "SELECT pg_advisory_xact_lock(hashtext($1))", f"owner:{owner}:{value.alias}"
-            )
+            await tx.execute_raw("SELECT pg_advisory_xact_lock(hashtext($1))", f"owner:{owner}:{value.alias}")
             existing: Final = await tx.query_raw(
                 "SELECT " + SOURCE_COLUMNS + ' FROM "OicmMcpSource" WHERE source_id=$1 FOR UPDATE', sid
             )
@@ -195,8 +193,7 @@ class SourceStore:
             )
             if found:
                 await tx.execute_raw(
-                    'UPDATE "OicmMcpSource" SET target_host=$2,target_port=$3,expected=$4,status=$5 '
-                    "WHERE source_id=$1",
+                    'UPDATE "OicmMcpSource" SET target_host=$2,target_port=$3,expected=$4,status=$5 WHERE source_id=$1',
                     row.source_id,
                     row.target_host,
                     row.target_port,

@@ -130,7 +130,9 @@ def create_gateway_router(
 
 
 def broker_data_plane_url() -> str:
-    return os.environ.get("MCP_SOURCE_BROKER_DATA_PLANE_URL", "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888")
+    return os.environ.get(
+        "MCP_SOURCE_BROKER_DATA_PLANE_URL", "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888"
+    )
 
 
 def mount_mcp_sources(
@@ -166,7 +168,9 @@ def mount_mcp_sources(
         )
         await manager.reload_servers_from_database()
 
-    app.include_router(create_gateway_router(source_store, create, _catalog_config(), token, data_plane_url=broker_data_plane_url()))
+    app.include_router(
+        create_gateway_router(source_store, create, _catalog_config(), token, data_plane_url=broker_data_plane_url())
+    )
     app.include_router(
         create_remote_gateway_router(
             source_store,

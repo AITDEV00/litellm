@@ -1,6 +1,6 @@
 # MCP Source Broker: design logic map and implementation plan
 
-Status: proposed, no implementation or release gate has run
+Status: superseded as a proposal; the shipped design is recorded in [dev-implementation.md](dev-implementation.md). This document is the original design plan, kept for its logic map and decision history. Three of its mechanisms were retired during implementation: the Chisel transport was replaced by the reverse-h2 dispatch long-poll (the WSS/Chisel paths are deleted), the pod-hosted Chisel relay became the Go sidecar's reverse listener, and the client installer now provisions the reverse-h2 connector instead of a Chisel client. The enrollment, pooling, catalog-fingerprint gating, and access-group model shipped as designed
 Baseline: upstream LiteLLM **v1.108.5 LTS**, release commit `2a61f21`
 Pattern: **modular vertical slice**, as required by [the OICM slice pattern](../oicm-slices.md)
 Method: [Trace-Through-Before-You-Build](../techniques/logic_mapping_technique.md)
