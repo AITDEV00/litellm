@@ -33,8 +33,8 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if environment("MCP_REMOTEDIALER_TRANSPORT") != "" && environment("MCP_REMOTEDIALER_TRANSPORT") != transportReverseH2 {
-		return fmt.Errorf("unsupported transport %q; reverse-h2 is the only transport", environment("MCP_REMOTEDIALER_TRANSPORT"))
+	if environment("MCP_REMOTEDIALER_TRANSPORT") != "" && environment("MCP_REMOTEDIALER_TRANSPORT") != transportReverseH2 && environment("MCP_REMOTEDIALER_TRANSPORT") != transportTunnel {
+		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", environment("MCP_REMOTEDIALER_TRANSPORT"))
 	}
 	if mode == "connector" {
 		return runConnector(ctx, environment("MCP_REMOTEDIALER_CONNECTOR_CONFIG"))
@@ -53,6 +53,7 @@ func run(mode string) error {
 		return err
 	}
 	runtime := newRuntime(control)
+	tunnels := newTunnelRuntime(runtime)
 	data := http.NewServeMux()
 	data.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	data.HandleFunc("POST /v1/remotedialer/revoke", runtime.revokeHTTP)
@@ -64,7 +65,7 @@ func run(mode string) error {
 	reverseMux.HandleFunc("POST /mcp-remotedialer-hold", runtime.reverseHold)
 	reverseMux.HandleFunc("POST /mcp-remotedialer-dispatch", runtime.reverseDispatch)
 	reverseMux.HandleFunc("POST /mcp-remotedialer-respond", runtime.reverseRespond)
-	reverse.Handler = reverseMux
+	reverse.Handler = tunnelHTTPHandler(tunnels.grpcServer(), reverseMux)
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
 	protocols.SetHTTP1(false)
@@ -103,6 +104,7 @@ func run(mode string) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	runtime.closeAllSessions()
+	tunnels.closeAll()
 	for _, server := range servers {
 		_ = server.Shutdown(shutdown)
 	}
@@ -122,6 +124,9 @@ func runConnector(ctx context.Context, path string) error {
 	tlsConfig, err := httpTLS(ca)
 	if err != nil {
 		return err
+	}
+	if environment("MCP_REMOTEDIALER_TRANSPORT") == transportTunnel {
+		return runTunnelConnector(ctx, cfg, gateway, tlsConfig)
 	}
 	headers := http.Header{
 		"X-Source-Member":     {cfg.WorkerID},

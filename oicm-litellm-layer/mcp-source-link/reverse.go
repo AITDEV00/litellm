@@ -104,6 +104,14 @@ type reverseSession struct {
 	lastProbe  time.Time
 }
 
+func (s *reverseSession) id() string            { return s.workerID }
+func (s *reverseSession) source() string        { return s.sourceID }
+func (s *reverseSession) capable(_ string) bool { return true }
+
+func (s *reverseSession) fenced(worker peer, exists bool) bool {
+	return !exists || worker.Generation != s.generation || worker.Phase == "revoked"
+}
+
 var reverseSerial atomic.Uint64
 
 func (s *reverseSession) close() {

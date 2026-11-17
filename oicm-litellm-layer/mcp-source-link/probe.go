@@ -57,6 +57,14 @@ func probeCatalog(ctx context.Context, transport http.RoundTripper, worker peer)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return "", errors.New("source catalog probe failed")
 	}
+	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
+	if err != nil {
+		return "", errors.New("missing origin proof signature")
+	}
+	return verifyCatalog(worker, nonceText, contents, signature)
+}
+
+func verifyCatalog(worker peer, nonceText string, contents []byte, signature []byte) (string, error) {
 	actual, err := canonicalCatalog(contents)
 	if err != nil {
 		return "", err
@@ -64,10 +72,6 @@ func probeCatalog(ctx context.Context, transport http.RoundTripper, worker peer)
 	key, err := base64.StdEncoding.DecodeString(worker.ProofKey)
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return "", errors.New("invalid origin proof key")
-	}
-	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
-	if err != nil {
-		return "", errors.New("missing origin proof signature")
 	}
 	message := nonceText + "\n" + worker.SourceID + "\n" + worker.DatasetID + "\n" + actual
 	if !ed25519.Verify(ed25519.PublicKey(key), []byte(message), signature) {

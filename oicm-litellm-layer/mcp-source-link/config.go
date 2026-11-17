@@ -25,6 +25,7 @@ type config struct {
 
 const (
 	transportReverseH2 = "reverse-h2"
+	transportTunnel    = "tunnel"
 )
 
 type peer struct {

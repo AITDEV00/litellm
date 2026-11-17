@@ -8,68 +8,67 @@ import (
 	"sync"
 )
 
-type dispatchMember struct {
-	reverse *reverseSession
-}
-
-func (d dispatchMember) workerID() string {
-	return d.reverse.workerID
-}
-
-func (d dispatchMember) roundTrip(req *http.Request) (*http.Response, error) {
-	return d.reverse.roundTrip(req)
+// member is one live connector session, whichever transport plane owns it.
+type member interface {
+	id() string
+	source() string
+	ready(sourceID string) bool
+	capable(rpc string) bool
+	fenced(worker peer, exists bool) bool
+	roundTrip(req *http.Request) (*http.Response, error)
+	close()
 }
 
 type runtime struct {
 	state    *control
 	mu       sync.Mutex
-	reverse  map[string]*reverseSession
+	sessions map[string]member
 	serial   uint64
 	last     map[string]uint64
 	inFlight map[string]int
 }
 
 func newRuntime(state *control) *runtime {
-	return &runtime{state: state, reverse: make(map[string]*reverseSession), last: make(map[string]uint64), inFlight: make(map[string]int)}
+	return &runtime{state: state, sessions: make(map[string]member), last: make(map[string]uint64), inFlight: make(map[string]int)}
 }
 
-func (r *runtime) pick(sourceID string, exclude string) *dispatchMember {
+func (r *runtime) pick(sourceID string, exclude string) member {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var chosen *dispatchMember
-	for id, session := range r.reverse {
+	var chosen member
+	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
 		if !ok || worker.SourceID != sourceID || worker.Phase != "active" || worker.WorkerID == exclude ||
 			(worker.CatalogFingerprint == nil || *worker.CatalogFingerprint != worker.ExpectedCatalog) ||
-			!session.ready(sourceID) || r.inFlight[id] >= 64 {
+			!session.ready(sourceID) || !session.capable("execute") || r.inFlight[id] >= 64 {
 			continue
 		}
-		if chosen == nil || r.inFlight[id] < r.inFlight[chosen.workerID()] ||
-			(r.inFlight[id] == r.inFlight[chosen.workerID()] && r.last[id] < r.last[chosen.workerID()]) {
-			chosen = &dispatchMember{reverse: session}
+		if chosen == nil || r.inFlight[id] < r.inFlight[chosen.id()] ||
+			(r.inFlight[id] == r.inFlight[chosen.id()] && r.last[id] < r.last[chosen.id()]) {
+			chosen = session
 		}
 	}
 	if chosen != nil {
 		r.serial++
-		r.last[chosen.workerID()] = r.serial
-		r.inFlight[chosen.workerID()]++
+		r.last[chosen.id()] = r.serial
+		r.inFlight[chosen.id()]++
 	}
 	return chosen
 }
 
-func (r *runtime) release(member *dispatchMember) {
+func (r *runtime) release(m member) {
 	r.mu.Lock()
-	r.inFlight[member.workerID()]--
+	r.inFlight[m.id()]--
 	r.mu.Unlock()
 }
 
 func (r *runtime) hasActive(sourceID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for id, session := range r.reverse {
+	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
 		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
-			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) {
+			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) && session.capable("execute") {
 			return true
 		}
 	}
@@ -108,11 +107,11 @@ func (r *runtime) forward(w http.ResponseWriter, req *http.Request) {
 	r.forwardOnce(w, req, sourceID, path, member)
 }
 
-func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID, path string, member *dispatchMember) {
+func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID, path string, m member) {
 	released := false
 	release := func() {
 		if !released {
-			r.release(member)
+			r.release(m)
 			released = true
 		}
 	}
@@ -135,7 +134,7 @@ func (r *runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID
 			resp.Header.Del("Set-Cookie")
 			return nil
 		},
-		Transport: roundTripFunc(member.roundTrip),
+		Transport: roundTripFunc(m.roundTrip),
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			http.Error(w, "source upstream unavailable", http.StatusBadGateway)
 		},
@@ -149,15 +148,15 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-func (r *runtime) eligibleMembers(sourceID string) []dispatchMember {
+func (r *runtime) eligibleMembers(sourceID string) []member {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	members := make([]dispatchMember, 0, len(r.reverse))
-	for id, session := range r.reverse {
+	members := make([]member, 0, len(r.sessions))
+	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
 		if ok && worker.SourceID == sourceID && worker.Phase == "active" && worker.CatalogFingerprint != nil &&
-			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) {
-			members = append(members, dispatchMember{reverse: session})
+			*worker.CatalogFingerprint == worker.ExpectedCatalog && session.ready(sourceID) && session.capable("execute") {
+			members = append(members, session)
 		}
 	}
 	return members

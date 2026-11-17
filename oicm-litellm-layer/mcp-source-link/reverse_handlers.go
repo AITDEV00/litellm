@@ -20,25 +20,25 @@ func (r *runtime) registerReverse(req *http.Request) (*reverseSession, error) {
 	defer r.mu.Unlock()
 	worker, ok := r.state.peer(workerID)
 	if !ok || worker.Phase != "active" || fmt.Sprint(worker.Generation) != generation ||
-		!sameSecret(worker.CredentialDigest, credential) || r.reverse[workerID] != nil {
+		!sameSecret(worker.CredentialDigest, credential) || r.sessions[workerID] != nil {
 		return nil, errors.New("connector unauthorized")
 	}
-	if r.reverse[workerID] != nil {
+	if r.sessions[workerID] != nil {
 		return nil, errors.New("reverse session exists")
 	}
 	session := &reverseSession{
 		workerID: worker.WorkerID, sourceID: worker.SourceID, generation: worker.Generation, deadline: reverseResponseDeadline,
 		closed: make(chan struct{}), pending: make(chan dispatchRequest, 128), inflight: make(map[string]chan dispatchResponse),
 	}
-	session.onClose = func() { r.removeReverse(session) }
-	r.reverse[workerID] = session
+	session.onClose = func() { r.removeSession(session) }
+	r.sessions[workerID] = session
 	return session, nil
 }
 
 func (r *runtime) removeReverse(session *reverseSession) {
 	r.mu.Lock()
-	if r.reverse[session.workerID] == session {
-		delete(r.reverse, session.workerID)
+	if r.sessions[session.workerID] == session {
+		delete(r.sessions, session.workerID)
 	}
 	r.mu.Unlock()
 }
@@ -58,9 +58,10 @@ func (r *runtime) reverseRegister(w http.ResponseWriter, req *http.Request) {
 // of the session that owns this connector's streams.
 func (r *runtime) reverseDispatchAuth(req *http.Request) *reverseSession {
 	r.mu.Lock()
-	session := r.reverse[req.Header.Get("X-Source-Member")]
+	m := r.sessions[req.Header.Get("X-Source-Member")]
 	r.mu.Unlock()
-	if session == nil {
+	session, ok := m.(*reverseSession)
+	if !ok {
 		return nil
 	}
 	select {

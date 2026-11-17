@@ -77,7 +77,7 @@ The expensive decisions are already right. Credential validation, generation fen
 admission, health, drain, and revoke semantics are all DB-backed and pod-independent today; a
 second pod already agrees on all of it. The ONLY pod-local state is one pair inside each
 session: the `pending` dispatch channel and the `inflight` correlation map
-(`oicm-litellm-layer/mcp-remotedialer/reverse.go`). Multi-replica is therefore "move or route
+(`oicm-litellm-layer/mcp-source-link/reverse.go`). Multi-replica is therefore "move or route
 around one channel and one map", not a rewrite.
 
 Three stackable modes, selected by configuration, connector protocol unchanged in all:

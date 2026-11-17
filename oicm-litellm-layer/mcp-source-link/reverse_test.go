@@ -102,7 +102,7 @@ func TestReverseRegistrationRejectsBadCredentials(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[workerA]
+	session := f.runtime.sessions[workerA]
 	f.runtime.mu.Unlock()
 	if session == nil {
 		t.Fatal("session not stored")
@@ -119,8 +119,14 @@ func TestReverseRegistrationRejectsBadCredentials(t *testing.T) {
 // against the fixture server with a real origin behind it.
 func reverseConnector(ctx context.Context, t *testing.T, server *httptest.Server, p peer) {
 	t.Helper()
-	client := server.Client()
-	base := server.URL
+	reverseConnectorClient(ctx, t, server.Client(), server.URL, p)
+}
+
+// reverseConnectorClient connects a reverse-h2 connector using an explicit
+// client and base URL, so a caller that owns the fixture server can pass it
+// through without the httptest.Server wrapper.
+func reverseConnectorClient(ctx context.Context, t *testing.T, client *http.Client, base string, p peer) {
+	t.Helper()
 	headers := reverseHeaders(p, notSecret)
 	resp, err := reverseCall(t, client, base+"/mcp-remotedialer-reverse", headers, nil)
 	if err != nil {
@@ -232,10 +238,10 @@ func TestReverseForwardingAndRevoke(t *testing.T) {
 	eventually(t, func() bool {
 		f.runtime.mu.Lock()
 		defer f.runtime.mu.Unlock()
-		return f.runtime.reverse[workerA] != nil
+		return f.runtime.sessions[workerA] != nil
 	})
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[workerA]
+	session := f.runtime.sessions[workerA].(*reverseSession)
 	f.runtime.mu.Unlock()
 	go func() { f.runtime.reverseProbeLoop(ctx, session) }()
 	eventually(t, func() bool { return f.runtime.hasActive(sourceID) })
@@ -289,7 +295,7 @@ func TestReverseHoldGatesDispatchOnWorkerCredential(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[workerA]
+	session := f.runtime.sessions[workerA]
 	f.runtime.mu.Unlock()
 	session.close()
 }
@@ -416,10 +422,10 @@ func TestCloseAllSessionsReleasesRuntimeLock(t *testing.T) {
 	session := &reverseSession{workerID: workerA, sourceID: sourceID,
 		closed: make(chan struct{}), pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse)}
 	session.onClose = func() { f.runtime.removeReverse(session) }
-	f.runtime.reverse[workerA] = session
+	f.runtime.sessions[workerA] = session
 	f.runtime.closeAllSessions()
 	f.runtime.mu.Lock()
-	remaining := len(f.runtime.reverse)
+	remaining := len(f.runtime.sessions)
 	f.runtime.mu.Unlock()
 	if remaining != 0 {
 		t.Fatalf("session remained registered after shutdown: %d", remaining)

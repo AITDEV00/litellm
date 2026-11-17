@@ -185,7 +185,7 @@ func TestSyntheticCredentials(t *testing.T) {
 func readyReverse(t *testing.T, f *fixture, id string) bool {
 	t.Helper()
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[id]
+	session := f.runtime.sessions[id]
 	f.runtime.mu.Unlock()
 	if session == nil || !session.ready(sourceID) {
 		return false
@@ -209,10 +209,10 @@ func startSession(t *testing.T, f *fixture, p peer) {
 	eventually(t, func() bool {
 		f.runtime.mu.Lock()
 		defer f.runtime.mu.Unlock()
-		return f.runtime.reverse[p.WorkerID] != nil
+		return f.runtime.sessions[p.WorkerID] != nil
 	})
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[p.WorkerID]
+	session := f.runtime.sessions[p.WorkerID].(*reverseSession)
 	f.runtime.mu.Unlock()
 	go f.runtime.reverseProbeLoop(ctx, session)
 }
@@ -276,7 +276,7 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	eventually(t, func() bool {
 		f.runtime.mu.Lock()
 		defer f.runtime.mu.Unlock()
-		return f.runtime.reverse[workerB] == nil
+		return f.runtime.sessions[workerB] == nil
 	})
 	for range 4 {
 		status, body = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
@@ -309,7 +309,7 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	f.runtime.reconcile()
 	eventually(t, func() bool { return f.runtime.pick(sourceID, "") == nil })
 	f.runtime.mu.Lock()
-	session := f.runtime.reverse[workerA]
+	session := f.runtime.sessions[workerA]
 	f.runtime.mu.Unlock()
 	if session == nil {
 		t.Fatal("drain closed the live session")
@@ -350,7 +350,7 @@ func TestRevokedConnectorCannotReconnect(t *testing.T) {
 	eventually(t, func() bool {
 		f.runtime.mu.Lock()
 		defer f.runtime.mu.Unlock()
-		return f.runtime.reverse[workerA] == nil
+		return f.runtime.sessions[workerA] == nil
 	})
 	_, server := reverseFixture(t)
 	probe := func(generation, credential string) int {

@@ -5,6 +5,20 @@ import (
 	"net/http"
 )
 
+func (r *runtime) addSession(m member) {
+	r.mu.Lock()
+	r.sessions[m.id()] = m
+	r.mu.Unlock()
+}
+
+func (r *runtime) removeSession(m member) {
+	r.mu.Lock()
+	if r.sessions[m.id()] == m {
+		delete(r.sessions, m.id())
+	}
+	r.mu.Unlock()
+}
+
 func (r *runtime) revokeHTTP(w http.ResponseWriter, req *http.Request) {
 	if !sameSecret(r.state.tokenDigest, bearer(req)) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -31,14 +45,14 @@ func (r *runtime) revokeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *runtime) reconcile() {
 	r.mu.Lock()
-	closed := make([]*reverseSession, 0, len(r.reverse))
-	for id, session := range r.reverse {
+	closed := make([]member, 0, len(r.sessions))
+	for id, session := range r.sessions {
 		worker, ok := r.state.peer(id)
 		if !ok {
 			closed = append(closed, session)
 			continue
 		}
-		if worker.Generation != session.generation || worker.Phase == "revoked" {
+		if session.fenced(worker, ok) {
 			closed = append(closed, session)
 		}
 	}
@@ -50,17 +64,17 @@ func (r *runtime) reconcile() {
 
 func (r *runtime) revoke(sourceID, workerID string) {
 	r.mu.Lock()
-	session := r.reverse[workerID]
+	session := r.sessions[workerID]
 	r.mu.Unlock()
-	if session != nil && session.sourceID == sourceID {
+	if session != nil && session.source() == sourceID {
 		session.close()
 	}
 }
 
 func (r *runtime) closeAllSessions() {
 	r.mu.Lock()
-	sessions := make([]*reverseSession, 0, len(r.reverse))
-	for _, session := range r.reverse {
+	sessions := make([]member, 0, len(r.sessions))
+	for _, session := range r.sessions {
 		sessions = append(sessions, session)
 	}
 	r.mu.Unlock()
