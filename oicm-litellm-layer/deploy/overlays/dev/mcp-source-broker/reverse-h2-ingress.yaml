@@ -5,6 +5,13 @@
 ## 8093, so HTTP/2 stream multiplexing survives the hop through the cluster.
 ## The same listener also carries the grpctunnel plane at
 ## /grpctunnel.v1.TunnelService/ once a connector selects MCP_SOURCE_LINK_TRANSPORT=tunnel.
+##
+## proxy-body-size must stay unlimited: the reverse tunnel is ONE long-lived
+## client-streaming POST whose body accumulates every pushed RPC request,
+## unbounded over the tunnel's lifetime. nginx's default client_max_body_size
+## (1m) kills the tunnel with "too large chunked body" once the cumulative
+## request bytes pass 1MB, which under load happens within tens of seconds and
+## drops every in-flight dispatch as a 502.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -16,6 +23,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
 spec:
   ingressClassName: nginx
   rules:
