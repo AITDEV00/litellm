@@ -138,7 +138,10 @@ func signedOrigin(t *testing.T, name string, signingKey ed25519.PrivateKey) (*ht
 		_, _ = w.Write([]byte(name))
 	})
 	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.CloseClientConnections()
+		server.Close()
+	})
 	return server, catalog
 }
 
@@ -202,7 +205,10 @@ func startSession(t *testing.T, f *fixture, p peer) {
 	mux.HandleFunc("POST /mcp-source-link-dispatch", f.runtime.reverseDispatch)
 	mux.HandleFunc("POST /mcp-source-link-respond", f.runtime.reverseRespond)
 	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.CloseClientConnections()
+		server.Close()
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go reverseConnector(ctx, t, server, p)

@@ -26,7 +26,10 @@ func reverseFixture(t *testing.T) (*fixture, *httptest.Server) {
 	mux.HandleFunc("POST /mcp-source-link-dispatch", f.runtime.reverseDispatch)
 	mux.HandleFunc("POST /mcp-source-link-respond", f.runtime.reverseRespond)
 	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+	t.Cleanup(func() {
+		server.CloseClientConnections()
+		server.Close()
+	})
 	return f, server
 }
 
