@@ -174,7 +174,7 @@ class SourceStore:
                 "SELECT " + SOURCE_COLUMNS + ' FROM "OicmMcpSource" WHERE source_id=$1 FOR UPDATE', sid
             )
             found: Final = tuple(row.value() for row in SOURCES.validate_python(existing))
-            if found and found[0].expected == value.fingerprint():
+            if found and found[0].expected == value.fingerprint() and found[0].target == value.target:
                 return found[0]
             if found and found[0].tenant != owner:
                 return NotOwnerConflict(id=sid)

@@ -18,6 +18,7 @@ from litellm.proxy.mcp_source_broker.models import (
     RemotePeer,
     RemotePeerResponse,
     RouteSelection,
+    TransportName,
 )
 from litellm.proxy.mcp_source_broker.store import SourceStore
 
@@ -64,7 +65,7 @@ def create_remote_gateway_router(
     store: SourceStore,
     service_secret: str,
     *,
-    route: Callable[[str], Awaitable[None]],
+    route: Callable[[str, TransportName], Awaitable[None]],
     control_url: str = "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:9091",
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> APIRouter:
@@ -82,7 +83,7 @@ def create_remote_gateway_router(
         source_id: str, selection: RouteSelection, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
     ) -> RouteSelection:
         del user
-        await route(source_id)
+        await route(source_id, selection.transport)
         return selection
 
     @router.post("/mcp-remotedialer-sources/{source_id}/workers", response_model=RemotePeerResponse, status_code=201)

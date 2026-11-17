@@ -6,7 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -365,5 +365,68 @@ func TestReverseRoundTripHonorsDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("deadline not honored: %s", elapsed)
+	}
+}
+
+func TestReverseRoundTripHonorsCallerCancellation(t *testing.T) {
+	session := &reverseSession{
+		deadline: time.Minute, closed: make(chan struct{}),
+		pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse),
+	}
+	session.pending <- dispatchRequest{ID: "block-admission"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://relay.invalid/sources/x/y", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := session.roundTrip(req); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled caller was dispatched: %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("caller cancellation blocked until the dispatch deadline")
+	}
+}
+
+func TestReverseRoundTripCallerCancelAfterAdmission(t *testing.T) {
+	session := &reverseSession{
+		deadline: time.Minute, closed: make(chan struct{}),
+		pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://relay.invalid/sources/x/y", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := session.roundTrip(req); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled call did not stop waiting: %v", err)
+	}
+	session.mu.Lock()
+	count := len(session.inflight)
+	session.mu.Unlock()
+	if count != 0 {
+		t.Fatalf("cancelled call left a pending waiter: %d", count)
+	}
+}
+
+func TestCloseAllSessionsReleasesRuntimeLock(t *testing.T) {
+	f := setupFixture(t)
+	session := &reverseSession{workerID: workerA, sourceID: sourceID,
+		closed: make(chan struct{}), pending: make(chan dispatchRequest, 1), inflight: make(map[string]chan dispatchResponse)}
+	session.onClose = func() { f.runtime.removeReverse(session) }
+	f.runtime.reverse[workerA] = session
+	f.runtime.closeAllSessions()
+	f.runtime.mu.Lock()
+	remaining := len(f.runtime.reverse)
+	f.runtime.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("session remained registered after shutdown: %d", remaining)
+	}
+	select {
+	case <-session.closed:
+	default:
+		t.Fatal("session was not closed")
 	}
 }

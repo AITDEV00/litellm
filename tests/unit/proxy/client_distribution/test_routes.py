@@ -9,12 +9,12 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from typing import Any, Generator
-from unittest.mock import MagicMock, patch
-
-from botocore.exceptions import ClientError
+from collections.abc import Generator
+from typing import Any
+from unittest.mock import patch
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -168,9 +168,7 @@ class TestInstallScript:
             {
                 "schema": 5,
                 "cc_switch_version": "5.11.1",
-                "cc_switch_artifacts": {
-                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
-                },
+                "cc_switch_artifacts": {"linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}},
                 "platforms": [{"target": "linux-x64-musl", "archive_ext": "tar.gz"}],
             }
         ).encode()
@@ -180,26 +178,20 @@ class TestInstallScript:
         assert "application/x-sh" in response.headers["content-type"]
         assert 'CC_SWITCH_VERSION="5.11.1"' in response.text
 
-    def test_500_when_manifest_missing_field(
-        self, app: FastAPI, s3: _FakeS3Client
-    ) -> None:
+    def test_500_when_manifest_missing_field(self, app: FastAPI, s3: _FakeS3Client) -> None:
         """A manifest that fails to parse surfaces as a render/fetch error."""
         s3._store["manifest.json"] = json.dumps({"schema": 3}).encode()
         client: TestClient = TestClient(app, raise_server_exceptions=False)
         response = client.get("/install")
         assert response.status_code == 502
 
-    def test_store_template_overrides_baked(
-        self, app: FastAPI, s3: _FakeS3Client
-    ) -> None:
+    def test_store_template_overrides_baked(self, app: FastAPI, s3: _FakeS3Client) -> None:
         """An admin-synced template in the store takes precedence over the baked one."""
         s3._store["manifest.json"] = json.dumps(
             {
                 "schema": 5,
                 "cc_switch_version": "5.11.1",
-                "cc_switch_artifacts": {
-                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
-                },
+                "cc_switch_artifacts": {"linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}},
             }
         ).encode()
         s3._store["templates/install.sh.tmpl"] = b"# custom admin template\nBASE={{ base_url }}\n"
@@ -208,17 +200,13 @@ class TestInstallScript:
         assert response.status_code == 200
         assert "# custom admin template" in response.text
 
-    def test_store_template_render_failure_falls_back_to_baked(
-        self, app: FastAPI, s3: _FakeS3Client
-    ) -> None:
+    def test_store_template_render_failure_falls_back_to_baked(self, app: FastAPI, s3: _FakeS3Client) -> None:
         """A store template referencing an unknown variable fails loudly, not silently."""
         s3._store["manifest.json"] = json.dumps(
             {
                 "schema": 5,
                 "cc_switch_version": "5.11.1",
-                "cc_switch_artifacts": {
-                    "linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}
-                },
+                "cc_switch_artifacts": {"linux-x64-musl": {"file": "f.tgz", "sha256": "a" * 64}},
             }
         ).encode()
         s3._store["templates/install.sh.tmpl"] = b"gateway={{ not_a_real_var }}"
@@ -303,9 +291,7 @@ class TestGetArtifact:
         artifact_content: bytes = b"PK\x03\x04fake-archive-bytes"
         s3._store["cc-switch/5.11.1/cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz"] = artifact_content
         client: TestClient = TestClient(app)
-        response = client.get(
-            "/install/cc-switch/5.11.1/cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz"
-        )
+        response = client.get("/install/cc-switch/5.11.1/cc-switch-cli-v5.11.1-linux-x64-musl.tar.gz")
         assert response.status_code == 200
         assert response.content == artifact_content
 
@@ -353,10 +339,7 @@ class TestAdminPutArtifact:
         assert response2.status_code == 200
         assert response2.json()["unchanged"] is True
 
-
-    def test_oversized_chunked_upload_is_rejected_without_content_length(
-        self, admin_app: FastAPI, monkeypatch
-    ) -> None:
+    def test_oversized_chunked_upload_is_rejected_without_content_length(self, admin_app: FastAPI, monkeypatch) -> None:
         """The size cap must hold for chunked uploads, not just honest headers.
 
         The old check read only the Content-Length header, which chunked

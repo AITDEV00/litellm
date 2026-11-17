@@ -138,9 +138,7 @@ async def test_registration_inner_factory_registers(source: SourceCreate, monkey
 
 
 @pytest.mark.asyncio
-async def test_mount_after_prisma_initialization(
-    monkeypatch, store: SourceStore, source: SourceCreate
-) -> None:
+async def test_mount_after_prisma_initialization(monkeypatch, store: SourceStore, source: SourceCreate) -> None:
     async def test_enabled_mount():
         monkeypatch.setenv("MCP_SOURCE_BROKER_ENABLED", "true")
         monkeypatch.setenv("MCP_SOURCE_BROKER_PEPPER", "test-only-pepper-at-least-32-characters-long")

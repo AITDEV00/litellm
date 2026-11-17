@@ -25,6 +25,7 @@ import hashlib
 import os
 from typing import TYPE_CHECKING, Annotated, Final
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -146,9 +147,8 @@ async def admin_publish_release(
 
     The client uploads the three files as one JSON body carrying base64
     fields; the gateway validates the signature against the pinned release
-    key, verifies the binary digest matches release.json, then writes all
-    three objects plus the version manifest atomically from the gateway's
-    perspective (manifest last).
+    key, verifies the binary digest matches release.json, then writes each
+    immutable, versioned asset plus the current-release pointer, manifest last.
     """
     _require_admin(user_api_key_dict)
     if not _TRUSTED_KEY:
@@ -191,8 +191,20 @@ async def admin_publish_release(
     import asyncio
 
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+    binary_key: Final = f"{_AGENT_PREFIX}/{version}/source-link"
+    try:
+        await asyncio.to_thread(
+            s3.head_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+            Bucket=config.bucket,
+            Key=binary_key,
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code", "") not in {"NoSuchKey", "404", "NotFound"}:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+    else:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="release version is already published and immutable")
     for key, body, content_type in (
-        (f"{_AGENT_PREFIX}/{version}/source-link", binary, "application/octet-stream"),
+        (binary_key, binary, "application/octet-stream"),
         (f"{_AGENT_PREFIX}/{version}/release.json", manifest_body, "application/json"),
         (f"{_AGENT_PREFIX}/{version}/release.sig.b64", data.release_sig_b64.encode(), "text/plain"),
         (_MANIFEST_KEY, manifest_body, "application/json"),
@@ -207,7 +219,8 @@ async def admin_publish_release(
     return {"ok": True, "version": version, "sha256": data.sha256, "size": len(binary)}
 
 
-def _render_source_agent_installer(base_url: str, version: str, sha256: str, sig_b64: str) -> str:
+def _render_source_agent_installer(base_url: str, version: str, sha256: str, public_key_b64: str) -> str:
+    public_pem: Final = f"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA{public_key_b64}\n-----END PUBLIC KEY-----"
     return f"""#!/bin/sh
 set -eu
 umask 077
@@ -217,16 +230,23 @@ chmod 700 "$state" "$HOME/.config/systemd/user"
 base="{base_url}"
 version="{version}"
 expected="{sha256}"
-sig="{sig_b64}"
 for asset in source-link release.json release.sig.b64; do
   curl --fail --location --silent --show-error \\
     --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
   mv -f "$state/$asset.new" "$state/$asset"
 done
+cat > "$state/release-public.pem" <<'KEY'
+{public_pem}
+KEY
+base64 -d "$state/release.sig.b64" > "$state/release.sig"
+openssl pkeyutl -verify -pubin -inkey "$state/release-public.pem" -rawin \\
+  -in "$state/release.json" -sigfile "$state/release.sig" >/dev/null 2>&1 || {{
+  echo 'source connector signature verification failed' >&2
+  exit 1
+}}
 actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
 [ "$actual" = "$expected" ] || {{ echo 'source connector checksum mismatch' >&2; exit 1; }}
 chmod 500 "$state/source-link"
-printf '%s\\n' "$sig" > "$state/release.sig.b64"
 cat > "$HOME/.config/systemd/user/source-agent.service" <<'UNIT'
 [Unit]
 Description=ADEO MCP source connector (reverse-h2)
@@ -256,8 +276,11 @@ async def source_agent_install_script(request: Request) -> Response:
     """Serve the fixed installer script for the current source-agent release."""
     import asyncio
 
-    from botocore.exceptions import ClientError
-
+    if not _TRUSTED_KEY:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="source connector release verification key is not configured",
+        )
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=_MANIFEST_KEY)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
@@ -271,12 +294,6 @@ async def source_agent_install_script(request: Request) -> Response:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt release manifest: {exc}") from exc
     version: Final = manifest.version
     sha256: Final = manifest.sha256
-    sig_object = await asyncio.to_thread(  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-        s3.get_object,
-        Bucket=config.bucket,
-        Key=f"{_AGENT_PREFIX}/{version}/release.sig.b64",  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
-    )
-    sig_b64: Final = sig_object["Body"].read().decode().strip()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
     base_url: Final = os.environ.get("LITELLM_PUBLIC_BASE_URL") or (
         f"{request.headers.get('x-forwarded-proto', 'https')}://{request.headers.get('host', 'localhost')}"
     )  # pyright: ignore[reportUnknownArgumentType]  # header get returns Unknown in this stubless venv
@@ -284,7 +301,7 @@ async def source_agent_install_script(request: Request) -> Response:
         base_url,
         version,
         sha256,
-        sig_b64,  # pyright: ignore[reportUnknownArgumentType]  # sig_b64 carries the stubless-S3 Unknown through
+        _TRUSTED_KEY_B64,
     )
     return Response(content=script, media_type="application/x-sh")
 
@@ -293,8 +310,6 @@ async def source_agent_install_script(request: Request) -> Response:
 async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
     """Proxy one release asset read from RustFS. Versioned paths only."""
     import asyncio
-
-    from botocore.exceptions import ClientError
 
     if asset not in {"source-link", "release.json", "release.sig.b64"} or "/" in version or version.startswith("."):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
@@ -309,7 +324,7 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
     content_type: Final = (
         "application/octet-stream"
-        if asset == "source-agent"
+        if asset == "source-link"
         else "application/json"
         if asset == "release.json"
         else "text/plain"

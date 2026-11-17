@@ -27,7 +27,7 @@ from litellm.proxy.client_distribution.storage import (
     load_config_from_env,
 )
 from litellm.proxy.mcp_source_broker.keys import Keys
-from litellm.proxy.mcp_source_broker.models import SourceCreate
+from litellm.proxy.mcp_source_broker.models import SourceCreate, TransportName
 from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_gateway_router
 from litellm.proxy.mcp_source_broker.store import Database, NotOwnerConflict, SourceStore
 from litellm.proxy.utils import PrismaClient
@@ -58,9 +58,6 @@ class MCPUpdate(Protocol):
         data: UpdateMCPServerRequest,
         touched_by: str,
     ) -> LiteLLM_MCPServerTable | McpIdentifierConflict | None: ...
-
-
-RouteSource: TypeAlias = Callable[[str], Awaitable[None]]
 
 
 class ArtifactStore(Protocol):
@@ -153,11 +150,11 @@ def mount_mcp_sources(
     async def create(request: NewMCPServerRequest) -> None:
         await default_registration(prisma, manager, request)
 
-    async def route_source(source_id: str) -> None:
+    async def route_source(source_id: str, transport: TransportName = "remotedialer") -> None:
         found: Final = await get_mcp_server(prisma, source_id)
         if found is None:
             raise ValueError("source registration is missing")
-        await source_store.route(source_id, "remotedialer")
+        await source_store.route(source_id, transport)
         await update_mcp_server(
             prisma,
             UpdateMCPServerRequest(

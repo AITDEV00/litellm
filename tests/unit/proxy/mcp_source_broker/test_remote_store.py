@@ -78,11 +78,7 @@ class RemoteMemoryDatabase:
                 rows.append({"worker": worker.model_dump(), "expected": source.expected})
             return rows
         if "SELECT worker_id FROM" in sql:
-            return [
-                {"worker_id": w.worker_id}
-                for w in self.workers
-                if w.source_id == args[0] and w.label == args[1]
-            ]
+            return [{"worker_id": w.worker_id} for w in self.workers if w.source_id == args[0] and w.label == args[1]]
         raise AssertionError(sql[:120])
 
     async def execute_raw(self, sql: str, *args: object) -> int:
@@ -130,7 +126,7 @@ class RemoteMemoryDatabase:
                 )
                 return 1
             return 0
-        if 'UPDATE "OicmMcpSource" SET status=\'active\'' in sql:
+        if "UPDATE \"OicmMcpSource\" SET status='active'" in sql:
             for index, row in enumerate(self.sources):
                 if row.source_id == str(args[0]) and row.status in {"pending", "quarantined"}:
                     self.sources[index] = row.model_copy(update={"status": "active"})
@@ -138,7 +134,9 @@ class RemoteMemoryDatabase:
         if 'INSERT INTO "OicmMcpRemoteWorker"' in sql:
             expires_inserted = args[8]
             assert isinstance(expires_inserted, datetime)
-            assert "$9::timestamptz" in sql, "expires_at must be cast for timestamptz; text binding is rejected by PostgreSQL"
+            assert "$9::timestamptz" in sql, (
+                "expires_at must be cast for timestamptz; text binding is rejected by PostgreSQL"
+            )
             assert "NOW()" in sql and "'active'" in sql, "membership must be born redeemed and active"
             self.workers.append(
                 RemoteWorkerRow(
@@ -325,9 +323,7 @@ async def test_control_app_peers_requires_bearer_header_not_query() -> None:
             "/v1/remotedialer/peers", headers={"Authorization": f"Bearer wrong-{secret}"}
         )
         assert wrong_header.status_code == 401
-        as_query: Final = await client.get(
-            "/v1/remotedialer/peers", params={"authorization": f"Bearer {secret}"}
-        )
+        as_query: Final = await client.get("/v1/remotedialer/peers", params={"authorization": f"Bearer {secret}"})
         assert as_query.status_code == 401, "token passed as query parameter must not authenticate"
         ok: Final = await client.get("/v1/remotedialer/peers", headers={"Authorization": f"Bearer {secret}"})
         assert ok.status_code == 200

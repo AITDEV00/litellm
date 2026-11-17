@@ -56,3 +56,15 @@ func (r *runtime) revoke(sourceID, workerID string) {
 		session.close()
 	}
 }
+
+func (r *runtime) closeAllSessions() {
+	r.mu.Lock()
+	sessions := make([]*reverseSession, 0, len(r.reverse))
+	for _, session := range r.reverse {
+		sessions = append(sessions, session)
+	}
+	r.mu.Unlock()
+	for _, session := range sessions {
+		session.close()
+	}
+}

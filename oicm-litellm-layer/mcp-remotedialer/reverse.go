@@ -175,6 +175,8 @@ func (s *reverseSession) roundTrip(req *http.Request) (*http.Response, error) {
 	select {
 	case <-s.closed:
 		return nil, errReverseClosed
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
 	case s.pending <- item:
 	default:
 		return nil, errors.New("reverse dispatch queue saturated")
@@ -182,6 +184,8 @@ func (s *reverseSession) roundTrip(req *http.Request) (*http.Response, error) {
 	select {
 	case <-s.closed:
 		return nil, errReverseClosed
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
 	case resp := <-waiter:
 		return resp.httpResponse()
 	case <-time.After(s.deadline):
