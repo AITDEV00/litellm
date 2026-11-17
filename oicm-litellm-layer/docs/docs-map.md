@@ -226,6 +226,7 @@ than hand-edit; each file states its generation date.
 | MCP source broker: persistent enrollment, private-source pooling, and noninteractive client MCP setup (proposed) | `docs/mcp-source-broker/README.md` |
 | Dev MCP source broker: implemented private OpenAPI enrollment and dev verification | `docs/mcp-source-broker/dev-implementation.md` |
 | MCP source lifecycle and pooling research questions | `docs/mcp-source-broker/research-questions.md` |
+| Multi-replica broker scaling: UNFINALIZED debate record with positions, corrections, extension seam, and resume conditions | `docs/mcp-source-broker/MULTI-REPLICA-DESIGN-DEBATE.md` |
 | Nginx reverse-tunnel pilot: the lab flow that preceded the broker | `docs/mcp-source-broker/LiteLLM-Reverse-Tunnel-Nginx-Pilot.md` |
 | Unified MCP implementation guide: gateway-owned tool namespace and harness flow | `docs/mcp-source-broker/LiteLLM-v1.108.5-Unified-MCP-Implementation-Guide.md` |
 | MCP ingress research archive: the evaluated Go stack with evidence logs and the reference `gateway.go` digest contract | `docs/mcp-source-broker/LiteLLM-1.108.5-MCP-Ingress-Pilot.zip` |
