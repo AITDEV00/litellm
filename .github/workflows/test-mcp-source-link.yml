@@ -1,0 +1,101 @@
+name: MCP Source Link
+
+on:
+  push:
+    paths:
+      - "oicm-litellm-layer/mcp-source-link/**"
+      - "oicm-litellm-layer/Makefile"
+      - ".github/workflows/test-mcp-source-link.yml"
+  pull_request:
+    branches:
+      - main
+      - "litellm_**"
+    paths:
+      - "oicm-litellm-layer/mcp-source-link/**"
+      - "oicm-litellm-layer/Makefile"
+      - ".github/workflows/test-mcp-source-link.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # libprotoc 36.2 is a system binary, not a Go module, so it is pinned here and
+  # in the module README. protobuf publishes no .sha256 sidecar for its release
+  # zips, so this digest was computed from the v36.2 linux-x86_64 asset on
+  # 2026-11-18 and is verified before extraction. The protoc-gen-go versions are
+  # NOT pinned here: go.mod's `tool` block already pins them and `go install`
+  # without a version reads that block.
+  PROTOC_VERSION: "36.2"
+  PROTOC_SHA256: "121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278"
+
+jobs:
+  go-checks:
+    name: gofmt, vet, staticcheck, race tests, proto drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: oicm-litellm-layer/mcp-source-link
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: oicm-litellm-layer/mcp-source-link/go.mod
+          cache: true
+          cache-dependency-path: oicm-litellm-layer/mcp-source-link/go.sum
+
+      - name: Install staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          echo "${HOME}/go/bin" >> "$GITHUB_PATH"
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "${unformatted}" ]; then
+            echo "::error::gofmt required for: ${unformatted}"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: staticcheck ./...
+
+      - name: go build
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: go test -race
+        run: CGO_ENABLED=1 go test -race ./...
+
+      - name: Install protoc and the pinned protoc-gen-go plugins
+        run: |
+          curl -sSfL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          echo "${PROTOC_SHA256}  /tmp/protoc.zip" | sha256sum --check --strict
+          unzip -qo /tmp/protoc.zip -d /tmp/protoc
+          echo "/tmp/protoc/bin" >> "$GITHUB_PATH"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+      - name: Proto stubs match the committed files
+        run: |
+          cp dispatchpb/dispatch.pb.go dispatchpb/dispatch_grpc.pb.go /tmp/
+          go generate ./dispatchpb
+          stale=0
+          cmp -s /tmp/dispatch.pb.go dispatchpb/dispatch.pb.go || stale=1
+          cmp -s /tmp/dispatch_grpc.pb.go dispatchpb/dispatch_grpc.pb.go || stale=1
+          if [ "$stale" -eq 1 ]; then
+            echo "::error::dispatchpb is stale; run go generate ./dispatchpb and commit the result"
+            diff -u /tmp/dispatch.pb.go dispatchpb/dispatch.pb.go || true
+            diff -u /tmp/dispatch_grpc.pb.go dispatchpb/dispatch_grpc.pb.go || true
+            exit 1
+          fi

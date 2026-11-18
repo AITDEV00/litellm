@@ -2,6 +2,8 @@
 
 **This is the owning implementation record for the MCP source broker.** It describes what is built and running, and it is the file to update when behavior changes. `../history/superseded-design-proposal.md` is a superseded design proposal kept for decision history; `../decisions/approaches/lifecycle-and-pooling-questions.md` holds undecided questions; `../measurements/` holds measurements. Code wins over every document here, including this one
 
+Build, test, lint, and proto-regeneration instructions for the Go sidecar live in `mcp-source-link/README.md` at the repository root of this layer, not here
+
 The dev overlay is `deploy/overlays/dev/mcp-source-broker`. It creates one auxiliary Pod with broker and sidecar containers. LiteLLM authenticates and authorizes the normal MCP tool request before the private worker dispatches it to a healthy member
 
 ## Status register

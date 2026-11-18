@@ -56,6 +56,10 @@ MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)
 # `make mcp-sidecar-build GO_BIN=go` on a machine with a system toolchain.
 GO_BIN       ?= /tmp/sa-build/bin/go
 GO_ENV       = PATH="$$(dirname $(GO_BIN)):$$PATH" GOPATH=/tmp/rd-gopath GOMODCACHE=/tmp/rd-gopath/pkg/mod GOFLAGS=-mod=mod CGO_ENABLED=0
+# staticcheck is not shipped with Go and lives outside dirname($(GO_BIN)), so it
+# gets its own variable. Install with:
+#   $(GO_BIN) install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+STATICCHECK  ?= /tmp/rd-gopath/bin/staticcheck
 BROKER_DEPLOYMENT_DEV := litellm-mcp-broker-dev
 LITELLM_UI_DIR    := $(LITELLM_SRC_DIR)/ui/litellm-dashboard
 
@@ -226,6 +230,10 @@ push-litellm:
 ## ---------------------------------------------------------------------------
 ## MCP source broker images.
 ##
+## mcp-sidecar-check     gofmt + go vet + staticcheck + race tests + proto regen
+##                        drift. Runs on the host toolchain, no podman, no cluster.
+##                        Wired into `make check` via scripts/pre_commit_lint.sh.
+##
 ## mcp-sidecar-build      compile the reverse-h2 sidecar (CGO_ENABLED=0, static)
 ##                        and bake it into a FROM-scratch image at $(MCP_SIDECAR_TAG)
 ## mcp-sidecar-push       push the sidecar image to Harbor
@@ -238,6 +246,22 @@ push-litellm:
 ## mcp-broker-push       push it to Harbor
 ## mcp-broker-release-dev build + push + roll the dev broker Deployment
 ## ---------------------------------------------------------------------------
+mcp-sidecar-check:
+	@cd $(MCP_SIDECAR_DIR) && unformatted=$$(env $(GO_ENV) $(GO_BIN) fmt ./... | sed -n 's/^\(.*\.go\)$$/\1/p'); \
+	    if [ -n "$$unformatted" ]; then \
+	        echo "gofmt rewrote these files; re-stage them:"; echo "$$unformatted"; exit 1; \
+	    fi
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) vet ./...
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(STATICCHECK) ./...
+	@cd $(MCP_SIDECAR_DIR) && scratch=$$(mktemp -d) && trap 'rm -rf "$$scratch"' EXIT; \
+	    cp dispatchpb/*.pb.go dispatchpb/dispatch.proto "$$scratch"/; \
+	    env $(GO_ENV) $(GO_BIN) generate ./dispatchpb; \
+	    for f in dispatch.pb.go dispatch_grpc.pb.go; do \
+	        cmp -s "$$scratch/$$f" "dispatchpb/$$f" \
+	            || { cp "$$scratch/$$f" "dispatchpb/$$f"; echo "dispatchpb/$$f was stale; regenerated it. Commit the result."; exit 1; }; \
+	    done
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) CGO_ENABLED=1 $(GO_BIN) test -race ./...
+
 mcp-sidecar-build:
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
 	file $(MCP_SIDECAR_DIR)/source-link | grep -q "statically linked" || { echo "sidecar binary is not static; CGO_ENABLED=0 is mandatory"; exit 1; }

@@ -17,6 +17,9 @@
 #     scripts/test_quality_gate.py
 #                      -> ruff over ruff-tests.toml + `make lint-test-quality` (test-linting.yml's
 #                         test-tree ruff and test-quality gate steps)
+#   - mcp-source-link (Go)
+#                      -> `make -C oicm-litellm-layer mcp-sidecar-check` (gofmt, vet,
+#                         staticcheck, proto regen drift, race tests)
 #   - dashboard        -> prettier + eslint + lint budgets (test-linting.yml's ui job)
 #   - spec_pattern     -> regenerate the lazy OpenAPI snapshot and dashboard API types, fail on drift
 #                         (test-linting.yml's ui-api-types job)
@@ -102,6 +105,7 @@ test_tree_pattern='^(tests/.*\.py|ruff-tests\.toml|scripts/(check_test_quality|t
 spec_pattern='^(litellm/.*|enterprise/.*|pyproject\.toml|uv\.lock|ui/litellm-dashboard/(scripts/gen-api-types\.mjs|package\.json|package-lock\.json|src/lib/http/schema\.d\.ts))$'
 ui_prettier_pattern='^ui/litellm-dashboard/.*\.(js|jsx|ts|tsx|mjs|cjs|json|css|scss|md|mdx|yml|yaml|html)$'
 ui_eslint_pattern='^ui/litellm-dashboard/.*\.(js|jsx|ts|tsx|mjs|cjs)$'
+go_sidecar_pattern='^oicm-litellm-layer/mcp-source-link/.*(\.go|\.proto|go\.mod|go\.sum)$'
 
 litellm_py_files=$(scope_match "$litellm_py_pattern")
 if [ -n "$(scope_match '^(litellm/proxy/_experimental/mcp_server/|scripts/check_mcp_operation_boundary\.py)')" ]; then
@@ -116,6 +120,7 @@ spec_files=$(scope_match "$spec_pattern")
 # split so this flags exactly what the job would.
 ui_prettier_changed=$(scope_match "$ui_prettier_pattern")
 ui_eslint_changed=$(scope_match "$ui_eslint_pattern")
+go_sidecar_files=$(scope_match "$go_sidecar_pattern")
 ui_prettier_files=$(printf '%s\n' "$ui_prettier_changed" | existing_files)
 ui_eslint_files=$(printf '%s\n' "$ui_eslint_changed" | existing_files)
 
@@ -147,6 +152,7 @@ if [ -n "$staged" ]; then
     warn_skipped "tests/e2e checks (basedpyright + raw HTTP client ban)" "$e2e_py_pattern" "$e2e_py_files"
     warn_skipped "test-tree lint (ruff-tests.toml + test-quality gate)" "$test_tree_pattern" "$test_tree_files"
     warn_skipped "dashboard lint (prettier + eslint + lint budgets)" "$ui_prettier_pattern" "$ui_prettier_changed"
+    warn_skipped "mcp-source-link Go checks (make mcp-sidecar-check)" "$go_sidecar_pattern" "$go_sidecar_files"
     warn_skipped "dashboard API-type sync (npm run gen:api)" "$spec_pattern" "$spec_files"
 fi
 
@@ -298,6 +304,12 @@ if [ -n "$spec_files" ]; then
     set +m
 fi
 
+if [ -n "$go_sidecar_files" ]; then
+    echo "check: checking the mcp-source-link Go module (make mcp-sidecar-check)"
+    make -C oicm-litellm-layer mcp-sidecar-check \
+        || { echo "✗ mcp-source-link checks failed. Fix the errors above, then re-run make check." >&2; status=1; }
+fi
+
 if [ -n "$test_tree_files" ] && [ -z "$litellm_py_files" ]; then
     echo "check: linting the test tree (ruff check --config ruff-tests.toml tests)"
     uv run --no-sync ruff check --config ruff-tests.toml tests \
@@ -336,8 +348,9 @@ summary_item "test-tree lint (ruff-tests.toml + test-quality gate)" "$test_tree_
     "no tests/ Python files or test-tree lint inputs in scope"
 summary_item "dashboard lint (prettier + eslint + lint budgets)" "$ui_prettier_changed$ui_eslint_changed" "no dashboard files in scope"
 summary_item "dashboard API-type sync (npm run gen:api)" "$spec_files" "no litellm/, enterprise/, dependency, or generator files in scope"
+summary_item "mcp-source-link Go checks (make mcp-sidecar-check)" "$go_sidecar_files" "no mcp-source-link Go files in scope"
 
-if [ -z "$litellm_py_files$e2e_py_files$test_tree_files$ui_prettier_changed$ui_eslint_changed$spec_files" ]; then
+if [ -z "$litellm_py_files$e2e_py_files$test_tree_files$ui_prettier_changed$ui_eslint_changed$spec_files$go_sidecar_files" ]; then
     echo "check: NOTE - no gating lint check matches the files in scope, so nothing ran:" >&2
     printf '%s\n' "$scope" | sed 's/^/    /' >&2
     echo "  A pass here is a no-op, not a lint verdict." >&2
