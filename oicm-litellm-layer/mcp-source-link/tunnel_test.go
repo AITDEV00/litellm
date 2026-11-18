@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -227,6 +228,87 @@ func TestTunnelProbeFencesRevokedGeneration(t *testing.T) {
 	f.runtime.mu.Unlock()
 	if remaining != 0 {
 		t.Fatalf("fenced tunnel remained registered: %d", remaining)
+	}
+}
+
+func TestTunnelCloseCancelsInFlightOriginRequests(t *testing.T) {
+	_, signing, _ := ed25519.GenerateKey(rand.Reader)
+	f, tr, target := tunnelFixture(t)
+	p := testPeer(workerA, 1, signing.Public().(ed25519.PublicKey))
+	origin, catalog := signedOrigin(t, "A", signing)
+	p.ExpectedCatalog = catalog
+	f.setPeer(p, "")
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	originStarted := make(chan struct{})
+	originCanceled := make(chan error, 1)
+	handler := &stalledProbeDispatch{origin: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", strings.TrimPrefix(origin.URL, "http://"))
+		},
+	}, execute: func(ctx context.Context, _ *dispatchpb.DispatchRequest) (*dispatchpb.DispatchResponse, error) {
+		close(originStarted)
+		<-ctx.Done()
+		originCanceled <- ctx.Err()
+		return nil, ctx.Err()
+	}}
+	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
+	dispatchpb.RegisterDispatchServiceServer(tunnelServer, handler)
+	sessionCtx := metadata.AppendToOutgoingContext(context.Background(),
+		"x-source-member", p.WorkerID,
+		"x-source-generation", fmt.Sprint(p.Generation),
+		"authorization", notSecret,
+	)
+	go func() { _, _ = tunnelServer.Serve(sessionCtx) }()
+	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
+	tr.mu.Lock()
+	member := tr.members[workerA]
+	tr.mu.Unlock()
+	request, err := http.NewRequest(http.MethodGet, "http://target.source.invalid/read", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := member.roundTrip(request)
+		result <- err
+	}()
+	select {
+	case <-originStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("origin request did not arrive")
+	}
+	member.close()
+	if err := <-result; !errors.Is(err, context.Canceled) && status.Code(err) != codes.Canceled {
+		t.Fatalf("closing member did not cancel in-flight request: %v", err)
+	}
+	if err := <-originCanceled; !errors.Is(err, context.Canceled) {
+		t.Fatalf("origin did not receive cancellation: %v", err)
+	}
+}
+
+type originRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f originRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestDispatchCancellationReachesOriginTransport(t *testing.T) {
+	var calls int
+	server := &dispatchServer{origin: originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		return nil, req.Context().Err()
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := server.Execute(ctx, &dispatchpb.DispatchRequest{Method: http.MethodGet, Path: "/read"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("origin cancellation not propagated: %v", err)
+	}
+	if calls != 1 || server.roundTripErrors.Load() != 1 {
+		t.Fatalf("unexpected cancellation counts: calls=%d errors=%d", calls, server.roundTripErrors.Load())
 	}
 }
 

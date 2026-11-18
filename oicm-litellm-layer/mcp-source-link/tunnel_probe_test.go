@@ -23,9 +23,10 @@ import (
 
 type stalledProbeDispatch struct {
 	dispatchpb.UnimplementedDispatchServiceServer
-	origin *http.Transport
-	stall  atomic.Bool
-	calls  atomic.Int64
+	origin  *http.Transport
+	stall   atomic.Bool
+	calls   atomic.Int64
+	execute func(context.Context, *dispatchpb.DispatchRequest) (*dispatchpb.DispatchResponse, error)
 }
 
 func (d *stalledProbeDispatch) Admit(context.Context, *dispatchpb.AdmitRequest) (*dispatchpb.AdmitResponse, error) {
@@ -42,6 +43,9 @@ func (d *stalledProbeDispatch) Probe(ctx context.Context, req *dispatchpb.ProbeR
 }
 
 func (d *stalledProbeDispatch) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (*dispatchpb.DispatchResponse, error) {
+	if d.execute != nil {
+		return d.execute(ctx, req)
+	}
 	return (&dispatchServer{origin: d.origin}).Execute(ctx, req)
 }
 

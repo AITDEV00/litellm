@@ -126,7 +126,15 @@ func runConnector(ctx context.Context, path string) error {
 		return err
 	}
 	if environment("MCP_SOURCE_LINK_TRANSPORT") == transportTunnel {
-		return runTunnelConnector(ctx, cfg, gateway, tlsConfig)
+		local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
+		origin := &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return local.DialContext(ctx, "tcp", cfg.Target)
+			},
+			IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
+		}
+		defer origin.CloseIdleConnections()
+		return runTunnelConnector(ctx, cfg, gateway, tlsConfig, origin)
 	}
 	headers := http.Header{
 		"X-Source-Member":     {cfg.WorkerID},

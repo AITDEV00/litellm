@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -51,6 +52,7 @@ type tunnelMember struct {
 	capabilities map[string]struct{}
 	closeOnce    sync.Once
 	closed       chan struct{}
+	errorCount   atomic.Uint64
 	mu           sync.Mutex
 	lastProbe    time.Time
 }
@@ -126,6 +128,10 @@ func (m *tunnelMember) roundTrip(req *http.Request) (*http.Response, error) {
 	defer cancel()
 	resp, err := m.stub.Execute(ctx, request)
 	if err != nil {
+		count := m.errorCount.Add(1)
+		if count <= 3 || count%1000 == 0 {
+			log.Printf("tunnel execute failure worker=%s count=%d: %v", m.id(), count, err)
+		}
 		return nil, err
 	}
 	header := make(http.Header)
@@ -176,8 +182,13 @@ type tunnelRuntime struct {
 func newTunnelRuntime(r *runtime) *tunnelRuntime {
 	tr := &tunnelRuntime{runtime: r, members: map[string]*tunnelMember{}}
 	tr.handler = grpctunnel.NewTunnelServiceHandler(grpctunnel.TunnelServiceHandlerOptions{
-		OnReverseTunnelOpen:  func(ch grpctunnel.TunnelChannel) { tr.onOpen(ch) },
-		OnReverseTunnelClose: func(ch grpctunnel.TunnelChannel) { tr.forget(ch) },
+		OnReverseTunnelOpen: func(ch grpctunnel.TunnelChannel) { tr.onOpen(ch) },
+		OnReverseTunnelClose: func(ch grpctunnel.TunnelChannel) {
+			if err := ch.Err(); err != nil {
+				log.Printf("reverse tunnel closed with error: %v", err)
+			}
+			tr.forget(ch)
+		},
 	})
 	return tr
 }

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -51,12 +52,21 @@ func grpcDialTarget(gateway string) (string, error) {
 // implements. The broker gates each pushed RPC on this list.
 var connectorCapabilities = []string{"execute", "probe"}
 
+func logConnectorError(kind string, count *atomic.Uint64, err error) {
+	n := count.Add(1)
+	if n <= 3 || n%1000 == 0 {
+		log.Printf("%s count=%d: %v", kind, n, err)
+	}
+}
+
 // dispatchServer implements DispatchService on the connector: it answers
 // the broker's pushed RPCs by round-tripping the connector's loopback
 // origin.
 type dispatchServer struct {
 	dispatchpb.UnimplementedDispatchServiceServer
-	origin *http.Transport
+	origin          http.RoundTripper
+	roundTripErrors atomic.Uint64
+	readErrors      atomic.Uint64
 }
 
 func (d *dispatchServer) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatchpb.AdmitResponse, error) {
@@ -106,11 +116,13 @@ func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRe
 	}
 	resp, err := d.origin.RoundTrip(httpReq)
 	if err != nil {
+		logConnectorError("connector origin execute failure", &d.roundTripErrors, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, reverseMaxOriginBody+1))
 	if err != nil {
+		logConnectorError("connector origin response read failure", &d.readErrors, err)
 		return nil, err
 	}
 	if len(body) > reverseMaxOriginBody {
@@ -127,20 +139,12 @@ func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRe
 
 // runTunnelConnector is the tunnel transport's reconnect loop: dial the
 // broker with TLS, attach identity metadata, and serve the reverse tunnel.
-func runTunnelConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config) error {
+func runTunnelConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config, origin http.RoundTripper) error {
 	dialTarget, err := grpcDialTarget(gateway)
 	if err != nil {
 		return err
 	}
 	creds := credentials.NewTLS(tlsConfig)
-	local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
-	origin := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return local.DialContext(ctx, "tcp", cfg.Target)
-		},
-		IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
-	}
-	defer origin.CloseIdleConnections()
 	server := &dispatchServer{origin: origin}
 	delay := 300 * time.Millisecond
 	for ctx.Err() == nil {
@@ -186,6 +190,7 @@ func tunnelSession(ctx context.Context, cfg connectorConfig, target string, cred
 		"authorization", cfg.Credential,
 	)
 	started, err := tunnelServer.Serve(sessionCtx)
+	log.Printf("tunnel session finished worker=%s started=%v error=%v", cfg.WorkerID, started, err)
 	if !started && err != nil {
 		return err
 	}
