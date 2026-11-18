@@ -66,6 +66,11 @@ REMOTE_COLUMNS: Final = (
     "redeemed_at,healthy_at,catalog_fingerprint,status,generation,enrollment_id,delivered_at"
 )
 
+INSERT_COLUMNS: Final = (
+    "worker_id,source_id,label,target_host,target_port,dataset_id,proof_key,token_hash,expires_at,"
+    "redeemed_at,healthy_at,catalog_fingerprint,status,generation,enrollment_id"
+)
+
 
 class RemoteStore:
     def __init__(self, sources: RemoteSources) -> None:
@@ -110,7 +115,7 @@ class RemoteStore:
             generation: Final = 1
             expires: Final = datetime.now(timezone.utc) + timedelta(minutes=10)
             await tx.execute_raw(
-                'INSERT INTO "OicmMcpRemoteWorker" (' + REMOTE_COLUMNS + ") "
+                'INSERT INTO "OicmMcpRemoteWorker" (' + INSERT_COLUMNS + ") "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::bytea,$9::timestamptz,NOW(),NULL,NULL,'active',$11,$10)",
                 worker_id,
                 source_id,
@@ -153,10 +158,17 @@ class RemoteStore:
         registration than the one on record. A mismatch is therefore "nothing to
         resume", not "reissue the old one".
 
+        Resume is also bounded to a *proven-lost* bootstrap response. Once
+        ``delivered_at`` is set, a report with the matching catalog fingerprint has
+        shown the worker actually received and used this credential, so a later
+        request for it is a replay, not recovery. Re-issuing then would hand out the
+        same live HMAC indefinitely to whoever asks. A delivered worker therefore
+        resolves through revocation plus a fresh registration instead.
+
         Returns None when there is nothing safe to resume: no worker for the
-        label, any fingerprint field differing, or a worker that is revoked or
-        draining. Those are the operator-action-needed terminal states, not
-        retryable ones.
+        label, any fingerprint field differing, a worker that is revoked or
+        draining, or one whose credential was already delivered. Those are the
+        operator-action-needed terminal states, not retryable ones.
         """
         source: Final = await self.sources.source(source_id)
         if source is None or source.status == "revoked":
@@ -186,6 +198,8 @@ class RemoteStore:
             ):
                 return None
             if found.status not in {"pending", "active"}:
+                return None
+            if found.delivered_at is not None:
                 return None
             return RemotePeerResponse(
                 worker_id=found.worker_id,

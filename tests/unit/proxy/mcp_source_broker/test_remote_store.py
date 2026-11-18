@@ -16,8 +16,8 @@ from litellm.proxy.mcp_source_broker.models import (
     SourceRecord,
     Target,
 )
-from litellm.proxy.mcp_source_broker.remote_store import RemoteStore, RemoteWorkerRow
-from litellm.proxy.mcp_source_broker.store import Database
+from litellm.proxy.mcp_source_broker.remote_store import REMOTE_COLUMNS, RemoteStore, RemoteWorkerRow
+from litellm.proxy.mcp_source_broker.store import Database, postgres_json_row
 
 PEPPER: Final = "p" * 32
 
@@ -59,6 +59,26 @@ class RemoteMemoryDatabase:
     def _int(value: object) -> int:
         assert isinstance(value, int)
         return value
+
+    @staticmethod
+    def _insert_columns(sql: str) -> int:
+        columns: Final = sql.split("(", 1)[1].split(")", 1)[0]
+        return len([column for column in columns.split(",") if column.strip()])
+
+    @staticmethod
+    def _insert_value_count(sql: str) -> int:
+        values: Final = sql.rsplit("VALUES", 1)[1]
+        body: Final = values[values.index("(") + 1 : values.rindex(")")]
+        depth: Final = 0
+        count: Final = 1
+        for char in body:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            elif char == "," and depth == 0:
+                count += 1
+        return count if body.strip() else 0
 
     def _worker_by_id(self, worker_id: str) -> RemoteWorkerRow | None:
         return next((w for w in self.workers if w.worker_id == worker_id), None)
@@ -146,6 +166,12 @@ class RemoteMemoryDatabase:
                 "expires_at must be cast for timestamptz; text binding is rejected by PostgreSQL"
             )
             assert "NOW()" in sql and "'active'" in sql, "membership must be born redeemed and active"
+            columns = self._insert_columns(sql)
+            values = self._insert_value_count(sql)
+            assert columns == values, (
+                "the worker INSERT lists %d columns but binds %d values; PostgreSQL rejects that with "
+                "'INSERT has more target columns than expressions'" % (columns, values)
+            )
             self.workers.append(
                 RemoteWorkerRow(
                     worker_id=str(args[0]),
@@ -392,6 +418,30 @@ async def test_resume_peer_rederives_only_for_an_exactly_identical_registration(
 
 
 @pytest.mark.asyncio
+async def test_resume_peer_refuses_once_the_credential_was_proven_delivered() -> None:
+    """A delivered credential must not be exportable again on request.
+
+    ``delivered_at`` is the evidence that the worker received and used the
+    credential (a report with the matching catalog fingerprint). Before this bound,
+    any owner could replay the identical registration and re-derive the same live
+    HMAC forever, which is a standing export of a secret, not recovery from a lost
+    response. Recovery after delivery is revocation plus a fresh registration.
+    """
+    broker: Final = make_broker()
+    registered: Final = peer()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered)
+    assert created is not None
+    assert broker.worker.delivered_at is None
+
+    assert await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered) is not None
+
+    assert await broker.store.report(created.worker_id, 1, "f" * 64)
+    reissued: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
+
+    assert reissued is None, "a delivered credential must not be handed out again on replay"
+
+
+@pytest.mark.asyncio
 async def test_resume_peer_refuses_a_revoked_worker_so_replacement_needs_a_new_label() -> None:
     """Revocation is terminal by decision, so resume must decline rather than
     resurrect the revoked credential. The supported replacement is a fresh label,
@@ -493,3 +543,23 @@ async def test_delivery_acknowledgement_is_recorded_once_and_is_not_reset_by_a_l
     await broker.store.report(created.worker_id, 1, "f" * 64)
 
     assert broker.worker.delivered_at == first
+
+
+def test_postgres_json_row_converts_every_timestamp_column_the_peers_query_selects() -> None:
+    """`row_to_json` hands back ISO strings, while Prisma's native query returns
+    datetimes. The conversion helper must cover every timestamp column
+    `REMOTE_COLUMNS` selects, or a newly added one (like `delivered_at`) reaches the
+    projection validator as a string and rejects the row. Derive the check from that
+    column tuple so adding a column without updating the conversion fails here.
+    """
+    timestamp_columns: Final = tuple(
+        column for column in REMOTE_COLUMNS.split(",") if column == "delivered_at" or column.endswith("_at")
+    )
+    assert "delivered_at" in timestamp_columns
+
+    row: Final = postgres_json_row(
+        {column: "2026-11-19T00:00:00+00:00" for column in timestamp_columns} | {"worker_id": "w"}
+    )
+
+    for column in timestamp_columns:
+        assert isinstance(row[column], datetime), f"{column} must convert to a datetime, not stay a string"

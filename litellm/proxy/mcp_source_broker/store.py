@@ -113,7 +113,7 @@ def postgres_json_row(value: Mapping[str, object]) -> Mapping[str, object]:
         | {
             field: datetime.fromisoformat(item)
             for field, item in value.items()
-            if isinstance(item, str) and field in {"expires_at", "redeemed_at", "healthy_at"}
+            if isinstance(item, str) and field in {"expires_at", "redeemed_at", "healthy_at", "delivered_at"}
         }
     )
 
