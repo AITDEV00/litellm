@@ -106,6 +106,13 @@ class RemoteMemoryDatabase:
     async def execute_raw(self, sql: str, *args: object) -> int:
         if "CREATE TABLE" in sql or "ADD COLUMN" in sql or "pg_advisory_xact_lock" in sql:
             return 0
+        if 'SET healthy_at=NULL,catalog_fingerprint=NULL' in sql and "$2::bytea" not in sql:
+            for worker in self.workers:
+                self._replace(
+                    worker,
+                    worker.model_copy(update={"healthy_at": None, "catalog_fingerprint": None}),
+                )
+            return len(self.workers)
         if "SET delivered_at=COALESCE(delivered_at, NOW())" in sql:
             worker = self._worker_by_id(str(args[0]))
             if worker is not None and worker.generation == self._int(args[1]):
@@ -712,3 +719,28 @@ async def test_peers_isolate_a_malformed_row_instead_of_failing_all() -> None:
     broker.db.workers.append(bad)
     peers: Final = await broker.store.peers()
     assert [p.worker_id for p in peers] == [good.worker_id], "the healthy peer must survive a malformed sibling"
+
+
+@pytest.mark.asyncio
+async def test_reset_health_clears_content_proof_and_liveness_at_startup() -> None:
+    """Broker restart must clear the persisted fingerprint, not only healthy_at.
+
+    A stored catalog fingerprint describes the last catalog a worker proved. If it
+    survived restart it could stand in for a fresh probe, so a source would look
+    content-proven before any connector reconnected. Both columns are cleared so
+    nothing is healthy until a new connector proves its origin again.
+    """
+    broker: Final = make_broker()
+    created: Final = await broker.store.create_peer(
+        "11111111-1111-1111-1111-111111111111", _plain_peer(Target(host="127.0.0.1", port=18080))
+    )
+    assert created is not None
+    worker: Final = broker.db.workers[0]
+    broker.db._replace(worker, worker.model_copy(update={"healthy_at": broker.db.now, "catalog_fingerprint": "f" * 64}))
+    assert broker.db.workers[0].catalog_fingerprint == "f" * 64
+
+    await broker.store.reset_health()
+
+    after: Final = broker.db.workers[0]
+    assert after.healthy_at is None, "healthy_at must be cleared at startup"
+    assert after.catalog_fingerprint is None, "catalog_fingerprint must be cleared at startup, not just healthy_at"

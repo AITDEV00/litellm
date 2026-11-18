@@ -27,7 +27,7 @@ async def serve() -> None:
         Keys(os.environ["MCP_SOURCE_BROKER_PEPPER"]),
     )
     await store.ensure()
-    await db.execute_raw('UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL')
+    await store.remote.reset_health()
     if os.environ.get("MCP_SOURCE_LINK_ENABLED") != "true":
         raise RuntimeError("a source-link transport must be enabled")
     from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_control_app

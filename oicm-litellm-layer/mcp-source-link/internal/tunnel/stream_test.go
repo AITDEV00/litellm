@@ -22,10 +22,12 @@ type streamingOrigin struct {
 
 func (o *streamingOrigin) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Path != "/events" {
+		// The probe path answers a valid MCP initialize so the source goes ready;
+		// anything that is not the streaming endpoint is treated as that handshake.
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{},
-			Body:       io.NopCloser(strings.NewReader("ok")),
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":"source-link-probe","result":{}}`)),
 		}, nil
 	}
 	reader, writer := io.Pipe()

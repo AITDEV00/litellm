@@ -155,6 +155,19 @@ class RemoteStore:
         )
         return records[0] if records else None
 
+    async def reset_health(self) -> None:
+        """Clear all persisted worker health at broker startup.
+
+        Content proof (``catalog_fingerprint``) and channel liveness
+        (``healthy_at``) are different facts. A fingerprint persisted from a
+        previous boot describes the last catalog the worker proved, not whether a
+        connector is connected now, and leaving it in place lets a stale record
+        stand in for a fresh probe. Both are cleared on startup, so nothing is
+        healthy until a new connector connects and proves its origin again; the
+        next successful report() re-establishes the fingerprint.
+        """
+        await self.db.execute_raw('UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL,catalog_fingerprint=NULL')
+
     async def create_peer(self, source_id: str, peer: RemotePeer) -> RemotePeerResponse | None:
         source: Final = await self.sources.source(source_id)
         if source is None or source.status == "revoked":

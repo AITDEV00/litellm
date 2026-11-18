@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -107,23 +109,20 @@ func (d *Server) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatch
 // signature is no longer an error: an unsigned catalog is the norm for a local
 // source. The broker records the catalog digest as the fingerprint either way.
 func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*dispatchpb.ProbeResponse, error) {
+	if d.kind == "mcp" {
+		return d.mcpProbe(ctx)
+	}
 	target := url.URL{Scheme: "http", Host: d.authority, Path: d.probePath()}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("X-Source-Nonce", req.Nonce)
-	if d.kind == "mcp" {
-		httpReq.Header.Set("Accept", "application/json, text/event-stream")
-	}
 	resp, err := d.origin.RoundTrip(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if d.kind == "mcp" {
-		return d.mcpProbe(resp)
-	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("origin catalog probe failed: %d", resp.StatusCode)
 	}
@@ -149,14 +148,85 @@ func (d *Server) probePath() string {
 	return "/openapi.json"
 }
 
-// mcpProbe treats any answer below 500 as reachable: an MCP server may reject a
-// plain GET with 400/405 and still be healthy, since it only speaks JSON-RPC.
-// A 5xx or a transport error means the origin is not serving.
-func (d *Server) mcpProbe(resp *http.Response) (*dispatchpb.ProbeResponse, error) {
-	if resp.StatusCode >= http.StatusInternalServerError {
-		return nil, fmt.Errorf("origin mcp probe failed: %d", resp.StatusCode)
+// mcpProbe performs a bounded MCP `initialize` handshake and accepts only a
+// valid JSON-RPC result as proof the origin speaks MCP.
+//
+// The previous probe treated any HTTP status below 500 as reachable, so a 401,
+// 403, a redirect, or an unrelated service answering HTML with 200 all counted
+// as a healthy MCP backend, even though none of them can serve a tool call. A
+// real initialize is the smallest request that proves the endpoint is the MCP
+// server it claims to be and that it authorizes this connector.
+//
+// The response may be a single JSON body or a text/event-stream whose message
+// event carries the JSON-RPC reply; both are the Streamable HTTP transport's
+// documented shapes. A 3xx is refused rather than followed: d.origin is a bare
+// RoundTripper, so following a redirect would dial a host the operator never
+// approved, exactly the private-to-public hop the target policy forbids.
+func (d *Server) mcpProbe(ctx context.Context) (*dispatchpb.ProbeResponse, error) {
+	request := []byte(
+		`{"jsonrpc":"2.0","id":"source-link-probe","method":"initialize",` +
+			`"params":{"protocolVersion":"2025-06-18","capabilities":{},` +
+			`"clientInfo":{"name":"source-link-probe","version":"1"}}}`,
+	)
+	target := url.URL{Scheme: "http", Host: d.authority, Path: d.probePath()}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(request))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := d.origin.RoundTrip(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
+		return nil, fmt.Errorf("origin mcp probe refused a redirect: %d", resp.StatusCode)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("origin mcp initialize failed: %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, tunnel.MaxCatalog+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > tunnel.MaxCatalog {
+		return nil, errors.New("origin mcp initialize response exceeds the probe limit")
+	}
+	if !mcpInitializeSucceeded(resp.Header.Get("Content-Type"), body) {
+		return nil, errors.New("origin mcp probe did not receive a JSON-RPC initialize result")
 	}
 	return &dispatchpb.ProbeResponse{}, nil
+}
+
+// mcpInitializeSucceeded reports whether the response body carries a JSON-RPC
+// initialize result. It accepts a plain JSON body or an SSE body whose data
+// lines form the JSON-RPC reply, and rejects HTML or any body without a result.
+func mcpInitializeSucceeded(contentType string, body []byte) bool {
+	payload := body
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "text/event-stream") {
+		payload = sseData(body)
+	}
+	var reply struct {
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &reply); err != nil {
+		return false
+	}
+	return len(reply.Result) > 0 && len(reply.Error) == 0
+}
+
+// sseData concatenates the data lines of a server-sent-events body into the
+// JSON payload MCP wraps its JSON-RPC message in.
+func sseData(body []byte) []byte {
+	var payload []byte
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, "data:") {
+			payload = append(payload, strings.TrimPrefix(line, "data:")...)
+		}
+	}
+	return payload
 }
 
 // Execute runs one dispatched request against the origin.

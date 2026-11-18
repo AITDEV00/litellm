@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,16 +70,22 @@ func TestProbeFetchesOpenAPICatalog(t *testing.T) {
 	}
 }
 
-// An MCP source must never fetch /openapi.json: it serves JSON-RPC at its path,
-// so probing the OpenAPI document 404s and the source can never go healthy.
-func TestProbeMCPHitsMCPPathAndReturnsNoCatalog(t *testing.T) {
-	var seenPath string
+// An MCP source must never fetch /openapi.json: it serves JSON-RPC at its path.
+// The probe sends a real initialize to the configured path and accepts the
+// JSON-RPC result, returning no catalog for the broker to fingerprint.
+func TestProbeMCPInitializesAtMCPPathAndReturnsNoCatalog(t *testing.T) {
+	var seenMethod, seenPath string
+	var seenBody []byte
 	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seenMethod = req.Method
 		seenPath = req.URL.Path
+		seenBody, _ = io.ReadAll(req.Body)
 		return &http.Response{
-			StatusCode: http.StatusMethodNotAllowed,
-			Header:     http.Header{},
-			Body:       io.NopCloser(bytes.NewReader(nil)),
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"jsonrpc":"2.0","id":"source-link-probe","result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"mock"}}}`,
+			)),
 		}, nil
 	}), "127.0.0.1", "mcp", "")
 	resp, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"})
@@ -91,23 +98,63 @@ func TestProbeMCPHitsMCPPathAndReturnsNoCatalog(t *testing.T) {
 	if seenPath != "/mcp" {
 		t.Fatalf("probed %q, want /mcp", seenPath)
 	}
+	if seenMethod != http.MethodPost {
+		t.Fatalf("probe used %s, want a JSON-RPC POST", seenMethod)
+	}
+	if !strings.Contains(string(seenBody), `"initialize"`) {
+		t.Fatalf("probe body %q does not carry an initialize", seenBody)
+	}
 	if len(resp.CatalogJson) != 0 {
 		t.Fatalf("MCP probe returned a catalog (%q), want none", resp.CatalogJson)
 	}
 }
 
-// An MCP origin that answers 5xx is down, so the probe must fail rather than
-// mark the source healthy.
-func TestProbeMCPFailsOnServerError(t *testing.T) {
+// An SSE-framed initialize result is the Streamable HTTP transport's other
+// documented shape and must also count as healthy.
+func TestProbeMCPAcceptsSSEInitializeResult(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"source-link-probe\",\"result\":{}}\n\n"
 		return &http.Response{
-			StatusCode: http.StatusBadGateway,
-			Header:     http.Header{},
-			Body:       io.NopCloser(bytes.NewReader(nil)),
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	}), "127.0.0.1", "mcp", "")
-	if _, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"}); err == nil {
-		t.Fatal("5xx origin was reported healthy")
+	if _, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"}); err != nil {
+		t.Fatalf("a valid SSE initialize was rejected: %v", err)
+	}
+}
+
+// A backend that answers, but not with an MCP initialize result, must not go
+// healthy. Otherwise a 401/403/redirect/HTML 200 from an unrelated service would
+// be dispatchable as if it spoke MCP.
+func TestProbeMCPRejectsNonMCPResponses(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		status      int
+		contentType string
+		body        string
+	}{
+		{"unauthorized", http.StatusUnauthorized, "application/json", `{"error":"no"}`},
+		{"forbidden", http.StatusForbidden, "application/json", `{"error":"no"}`},
+		{"redirect", http.StatusMovedPermanently, "text/html", `<a href="http://elsewhere">moved</a>`},
+		{"html-200", http.StatusOK, "text/html", `<html><body>hello</body></html>`},
+		{"jsonrpc-error", http.StatusOK, "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}`},
+		{"empty-200", http.StatusOK, "application/json", ``},
+		{"server-error", http.StatusBadGateway, "text/plain", `down`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: testCase.status,
+					Header:     http.Header{"Content-Type": {testCase.contentType}},
+					Body:       io.NopCloser(strings.NewReader(testCase.body)),
+				}, nil
+			}), "127.0.0.1", "mcp", "")
+			if _, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"}); err == nil {
+				t.Fatalf("%s response was accepted as a healthy MCP backend", testCase.name)
+			}
+		})
 	}
 }
 
