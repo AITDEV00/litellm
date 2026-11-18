@@ -1,4 +1,4 @@
-package main
+package harness
 
 import (
 	"context"
@@ -22,27 +22,27 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
-// tunnelFixture stands up the tunnel plane exactly as production wires it: one
+// TunnelServer stands up the tunnel plane exactly as production wires it: one
 // h2c listener multiplexing the tunnel gRPC service beside the long-poll mux.
-func tunnelFixture(t *testing.T) (*fixture, *tunnel.Runtime, string) {
+// It returns the listener address.
+func (f *Fixture) TunnelServer(t *testing.T) string {
 	t.Helper()
-	f := setupFixture(t)
 	server := reverseh2.Server()
-	server.Handler = tunnel.HTTPHandler(f.tunnels.GRPCServer(), http.NewServeMux())
+	server.Handler = tunnel.HTTPHandler(f.Tunnels.GRPCServer(), http.NewServeMux())
 	server.Protocols = reverseh2.H2CProtocols()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Close() })
-	t.Cleanup(f.tunnels.CloseAll)
+	t.Cleanup(f.Tunnels.CloseAll)
 	go func() { _ = server.Serve(listener) }()
-	return f, f.tunnels, listener.Addr().String()
+	return listener.Addr().String()
 }
 
-// runTunnelConnector connects one connector and serves pushed RPCs until the
+// RunTunnelConnector connects one connector and serves pushed RPCs until the
 // context ends, mirroring the shipped reconnect loop.
-func runTunnelConnector(ctx context.Context, t *testing.T, target string, p config.Peer, origin *http.Transport) {
+func RunTunnelConnector(ctx context.Context, t *testing.T, target string, p config.Peer, origin *http.Transport) {
 	t.Helper()
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -65,7 +65,7 @@ func runTunnelConnector(ctx context.Context, t *testing.T, target string, p conf
 	sessionCtx := metadata.AppendToOutgoingContext(ctx,
 		"x-source-member", p.WorkerID,
 		"x-source-generation", fmt.Sprint(p.Generation),
-		"authorization", notSecret,
+		"authorization", NotSecret,
 	)
 	for ctx.Err() == nil {
 		_, _ = tunnelServer.Serve(sessionCtx)
@@ -81,7 +81,8 @@ func runTunnelConnector(ctx context.Context, t *testing.T, target string, p conf
 	}
 }
 
-func readyTunnel(t *testing.T, f *fixture, id string) bool {
+// ReadyTunnel is the tunnel equivalent of ReadyReverse.
+func (f *Fixture) ReadyTunnel(t *testing.T, id string) bool {
 	t.Helper()
-	return readyReverse(t, f, id)
+	return f.ReadyReverse(t, id)
 }

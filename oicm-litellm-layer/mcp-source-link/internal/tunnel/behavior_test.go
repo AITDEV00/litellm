@@ -1,4 +1,4 @@
-package main
+package tunnel_test
 
 import (
 	"context"
@@ -17,49 +17,51 @@ import (
 
 	"oicm-litellm-layer/mcp-source-link/dispatchpb"
 	"oicm-litellm-layer/mcp-source-link/internal/connector"
+	"oicm-litellm-layer/mcp-source-link/internal/harness"
 )
 
 func TestTunnelForwardingAndRevoke(t *testing.T) {
-	pub, signing := generateKey(t)
-	origin, digest := signedOrigin(t, "A", signing)
-	f, tunnels, target := tunnelFixture(t)
-	p := testPeer(workerA, 1, pub)
+	pub, signing := harness.Key(t)
+	origin, digest := harness.SignedOrigin(t, "A", signing)
+	f := harness.New(t)
+	target := f.TunnelServer(t)
+	p := harness.Peer(harness.WorkerA, 1, pub)
 	p.Target = strings.TrimPrefix(origin.URL, "http://")
 	p.ExpectedCatalog = digest
-	f.setPeer(p, "")
+	f.SetPeer(p, "")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go runTunnelConnector(ctx, t, target, p, nil)
-	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
+	go harness.RunTunnelConnector(ctx, t, target, p, nil)
+	harness.Eventually(t, func() bool { return f.ReadyTunnel(t, harness.WorkerA) })
 
-	headers := http.Header{"Authorization": {"Bearer " + serviceKey}, "Cookie": {"private=not-forwarded"}}
-	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	headers := http.Header{"Authorization": {"Bearer " + harness.ServiceKey}, "Cookie": {"private=not-forwarded"}}
+	status, body := harness.Read(t, f.DataURL+"/sources/"+harness.SourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
 		t.Fatalf("tunnel read got %d %s", status, body)
 	}
 
-	f.revokePeer(workerA)
-	f.runtime.Reconcile()
-	eventually(t, func() bool {
-		return f.runtime.Existing(workerA) == nil
-	})
-	tunnels.CloseAll()
+	f.RevokePeer(harness.WorkerA)
+	f.Runtime.Reconcile()
+	harness.Eventually(t, func() bool { return f.Runtime.Existing(harness.WorkerA) == nil })
 }
 
 func TestTunnelRejectsBadCredentials(t *testing.T) {
-	pub, _ := generateKey(t)
-	f, _, target := tunnelFixture(t)
-	p := testPeer(workerA, 1, pub)
-	f.setPeer(p, "")
+	pub, _ := harness.Key(t)
+	f := harness.New(t)
+	target := f.TunnelServer(t)
+	p := harness.Peer(harness.WorkerA, 1, pub)
+	f.SetPeer(p, "")
+
 	for _, testCase := range []struct {
 		name       string
 		member     string
 		generation string
 		credential string
 	}{
-		{"wrong credential", workerA, "1", "wrong-credential"},
-		{"unknown member", "unknown", "1", notSecret},
-		{"stale generation", workerA, "2", notSecret},
+		{"wrong credential", harness.WorkerA, "1", "wrong-credential"},
+		{"unknown member", "unknown", "1", harness.NotSecret},
+		{"stale generation", harness.WorkerA, "2", harness.NotSecret},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -80,27 +82,28 @@ func TestTunnelRejectsBadCredentials(t *testing.T) {
 			}
 		})
 	}
-	if sessions := f.runtime.Sessions(); len(sessions) != 0 {
+	if sessions := f.Runtime.Sessions(); len(sessions) != 0 {
 		t.Fatalf("unauthorized tunnel registered a session: %d", len(sessions))
 	}
 }
 
+// One connector cannot hold two tunnels, so a leaked or duplicated connector
+// process cannot silently own the same identity.
 func TestTunnelDuplicateRegistrationRejected(t *testing.T) {
-	pub, signing := generateKey(t)
-	origin, digest := signedOrigin(t, "A", signing)
-	f, _, target := tunnelFixture(t)
-	p := testPeer(workerA, 1, pub)
+	pub, signing := harness.Key(t)
+	origin, digest := harness.SignedOrigin(t, "A", signing)
+	f := harness.New(t)
+	target := f.TunnelServer(t)
+	p := harness.Peer(harness.WorkerA, 1, pub)
 	p.Target = strings.TrimPrefix(origin.URL, "http://")
 	p.ExpectedCatalog = digest
-	f.setPeer(p, "")
+	f.SetPeer(p, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go runTunnelConnector(ctx, t, target, p, nil)
-	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
+	go harness.RunTunnelConnector(ctx, t, target, p, nil)
+	harness.Eventually(t, func() bool { return f.ReadyTunnel(t, harness.WorkerA) })
 
-	// A second tunnel for the same worker must be refused, so one connector
-	// cannot silently own two members.
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
@@ -109,34 +112,36 @@ func TestTunnelDuplicateRegistrationRejected(t *testing.T) {
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
 	dispatchpb.RegisterDispatchServiceServer(tunnelServer, connector.NewServer(http.DefaultTransport))
 	dupCtx := metadata.AppendToOutgoingContext(context.Background(),
-		"x-source-member", workerA,
+		"x-source-member", harness.WorkerA,
 		"x-source-generation", "1",
-		"authorization", notSecret,
+		"authorization", harness.NotSecret,
 	)
 	started, err := tunnelServer.Serve(dupCtx)
 	if err == nil && started {
 		t.Fatal("a duplicate tunnel was admitted for the same worker")
 	}
-	if sessions := f.runtime.Sessions(); len(sessions) > 1 {
+	if sessions := f.Runtime.Sessions(); len(sessions) > 1 {
 		t.Fatalf("duplicate registration produced %d sessions", len(sessions))
 	}
 }
 
-// A revoked generation must fence the live tunnel even if the session is
-// otherwise healthy, which is what makes revoke immediate.
+// A revoked generation must fence the live tunnel even if it is otherwise
+// healthy, which is what makes revoke immediate.
 func TestTunnelProbeFencesRevokedGeneration(t *testing.T) {
-	pub, signing := generateKey(t)
-	origin, digest := signedOrigin(t, "A", signing)
-	f, _, target := tunnelFixture(t)
-	p := testPeer(workerA, 1, pub)
+	pub, signing := harness.Key(t)
+	origin, digest := harness.SignedOrigin(t, "A", signing)
+	f := harness.New(t)
+	target := f.TunnelServer(t)
+	p := harness.Peer(harness.WorkerA, 1, pub)
 	p.Target = strings.TrimPrefix(origin.URL, "http://")
 	p.ExpectedCatalog = digest
-	f.setPeer(p, "")
+	f.SetPeer(p, "")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go runTunnelConnector(ctx, t, target, p, nil)
-	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
+	go harness.RunTunnelConnector(ctx, t, target, p, nil)
+	harness.Eventually(t, func() bool { return f.ReadyTunnel(t, harness.WorkerA) })
 
-	f.revokePeer(workerA)
-	eventually(t, func() bool { return f.runtime.Existing(workerA) == nil })
+	f.RevokePeer(harness.WorkerA)
+	harness.Eventually(t, func() bool { return f.Runtime.Existing(harness.WorkerA) == nil })
 }

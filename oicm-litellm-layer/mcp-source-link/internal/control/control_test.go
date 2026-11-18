@@ -2,6 +2,7 @@ package control
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
@@ -75,5 +76,22 @@ func TestNewForTestIndexesPeersByWorkerID(t *testing.T) {
 	}
 	if _, ok := client.Peer("absent"); ok {
 		t.Fatal("absent peer reported present")
+	}
+}
+
+// The digest comparison every plane authenticates through must reject near
+// misses, and must not be fooled by a prefix or an empty value.
+func TestSameSecretRejectsPrefixAndEmpty(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-source-link-reverse", nil)
+	req.Header.Set("Authorization", "Bearer "+strings.Repeat("0", 64))
+	if !SameSecret(DigestValue(strings.Repeat("0", 64)), Bearer(req)) {
+		t.Fatalf("digest contract changed: supplied-length=%d", len(Bearer(req)))
+	}
+	expected := DigestValue(strings.Repeat("0", 64))
+	if SameSecret(expected, "wrong"+strings.Repeat("0", 64)) {
+		t.Fatal("digest comparison accepted a different credential")
+	}
+	if SameSecret(expected, "") {
+		t.Fatal("digest comparison accepted an empty credential")
 	}
 }
