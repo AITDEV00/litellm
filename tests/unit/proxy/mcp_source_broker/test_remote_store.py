@@ -79,6 +79,8 @@ class RemoteMemoryDatabase:
             return rows
         if "SELECT worker_id FROM" in sql:
             return [{"worker_id": w.worker_id} for w in self.workers if w.source_id == args[0] and w.label == args[1]]
+        if "WHERE source_id=$1 AND label=$2" in sql:
+            return [w.model_dump() for w in self.workers if w.source_id == args[0] and w.label == args[1]]
         raise AssertionError(sql[:120])
 
     async def execute_raw(self, sql: str, *args: object) -> int:
@@ -295,6 +297,67 @@ async def test_create_peer_rejects_duplicate_label_and_revoked_source() -> None:
     assert duplicate is None
     missing: Final = await broker.store.create_peer("missing-source", peer())
     assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_rederives_the_same_credential_without_new_state() -> None:
+    """A lost worker response must be recoverable from what was already stored.
+
+    Resume is only worth having if it hands back the very credential the first
+    call issued, at the same generation, without adding a row: anything else would
+    either break the fencing the duplicate-label rule protects or quietly mint a
+    second identity for one label.
+    """
+    broker: Final = make_broker()
+    issued: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert issued is not None
+    rows_before: Final = len(broker.db.workers)
+
+    resumed: Final = await broker.store.resume_peer(
+        "11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18080
+    )
+
+    assert resumed is not None
+    assert resumed.worker_id == issued.worker_id
+    assert resumed.generation == issued.generation
+    assert resumed.credential == issued.credential, "the re-derived credential must be identical to the issued one"
+    assert len(broker.db.workers) == rows_before, "resume must not insert a worker row"
+    assert broker.worker.generation == 1, "resume must not advance the generation"
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_refuses_a_target_that_no_longer_matches() -> None:
+    """A changed loopback target is a different origin, so it must not inherit the
+    stored worker's credential."""
+    broker: Final = make_broker()
+    assert await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer()) is not None
+    moved: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18081)
+    assert moved is None
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_refuses_a_revoked_worker_so_replacement_needs_a_new_label() -> None:
+    """Revocation is terminal by decision, so resume must decline rather than
+    resurrect the revoked credential. The supported replacement is a fresh label,
+    and the revoked generation stays fenced."""
+    broker: Final = make_broker()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+    revoked: Final = await broker.store.lifecycle(created.worker_id, "revoke", 1)
+    assert revoked is not None and revoked.phase == "revoked"
+
+    resumed: Final = await broker.store.resume_peer(
+        "11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18080
+    )
+    assert resumed is None, "a revoked worker must never resume"
+
+    replacement_peer: Final = peer().model_copy(update={"label": "worker-b"})
+    replacement: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", replacement_peer)
+    assert replacement is not None and replacement.generation == 1, "a fresh label starts a new membership"
+    assert replacement.worker_id != created.worker_id
+
+    keep_out: Final = await broker.store.report(created.worker_id, revoked.generation, "f" * 64)
+    assert not keep_out, "the revoked generation must not be admissible even after a replacement exists"
 
 
 @pytest.mark.asyncio

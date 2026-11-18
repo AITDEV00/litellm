@@ -107,9 +107,14 @@ def create_remote_gateway_router(
     ) -> RemotePeerResponse:
         await owner_or_administrator(store, source_id, user)
         created: Final = await store.remote.create_peer(source_id, peer)
-        if created is None:
+        if created is not None:
+            return created
+        resumed: Final = await store.remote.resume_peer(
+            source_id, peer.label, peer.target.host, peer.target.port
+        )
+        if resumed is None:
             raise HTTPException(409, "source or worker label is unavailable")
-        return created
+        return resumed
 
     @router.post(
         "/mcp-source-link-sources/{source_id}/workers/{worker_id}/{action}",

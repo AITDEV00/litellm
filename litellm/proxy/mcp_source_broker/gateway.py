@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Final, Protocol, TypeAlias
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from litellm.proxy._experimental.mcp_server.db import (
     McpIdentifierConflict,
@@ -83,6 +84,16 @@ class CatalogConfig(Protocol):
     def catalog_url(self, path: str) -> str: ...
 
 
+class ResumeSource(Protocol):
+    """Whether a repeat enroll may resume the still-pending row it collided with.
+
+    Returned as a dependency so the router stays free of Prisma wiring and a test
+    can drive the resume and hard-conflict paths with a plain function.
+    """
+
+    async def __call__(self, *, source_id: str, owner: str) -> bool: ...
+
+
 def create_gateway_router(
     store: SourceStore,
     register: SubmitServer,
@@ -91,6 +102,7 @@ def create_gateway_router(
     *,
     data_plane_url: str = "http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888",
     artifacts: ArtifactStore | None = None,
+    resume: ResumeSource | None = None,
 ) -> APIRouter:
     if not service_secret:
         raise ValueError("MCP_SOURCE_BROKER_SERVICE_TOKEN is required")
@@ -136,7 +148,9 @@ def create_gateway_router(
         try:
             await register(registration, owner)
         except EnrollmentConflict as conflict:
-            raise HTTPException(409, "source identifier is already registered; delete or re-name it") from conflict
+            resumable: Final = resume is not None and await resume(source_id=result.source_id, owner=owner)
+            if not resumable:
+                raise HTTPException(409, "source identifier is already registered; delete or re-name it") from conflict
         return SourceEnrolled(source_id=result.source_id, owner=owner, status=APPROVAL_PENDING)
 
     return router
@@ -182,7 +196,14 @@ def mount_mcp_sources(
         await manager.reload_servers_from_database()
 
     app.include_router(
-        create_gateway_router(source_store, create, _catalog_config(), token, data_plane_url=broker_data_plane_url())
+        create_gateway_router(
+            source_store,
+            create,
+            _catalog_config(),
+            token,
+            data_plane_url=broker_data_plane_url(),
+            resume=pending_source_resume(prisma),
+        )
     )
     app.include_router(
         create_remote_gateway_router(
@@ -201,6 +222,33 @@ class EnvCatalogConfig:
 
 def _catalog_config() -> CatalogConfig:
     return EnvCatalogConfig()
+
+
+class _ReviewStamp(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+    owner: str = ""
+    approval_status: str = ""
+
+
+def pending_source_resume(prisma: PrismaClient) -> ResumeSource:
+    """Bind the resume check to a Prisma client.
+
+    ``submit_for_review`` is intentionally create-only so a content change
+    re-enters review instead of silently rewriting an approved row. That makes a
+    retry after a *successful* first enroll collide too, which strands an install
+    that lost the earlier response. A retry is only resumable when the row is
+    still the same owner's and still awaiting review, so an approved, rejected, or
+    foreign row stays a hard 409 and nothing is moved out of review.
+    """
+
+    async def resumable(*, source_id: str, owner: str) -> bool:
+        found: Final = await get_mcp_server(prisma, source_id)
+        if found is None or found.mcp_info is None:
+            return False
+        stamp: Final = _ReviewStamp.model_validate(found.mcp_info)
+        return stamp.owner == owner and stamp.approval_status == MCPApprovalStatus.pending_review.value
+
+    return resumable
 
 
 async def submit_for_review(

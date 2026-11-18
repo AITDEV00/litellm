@@ -26,7 +26,7 @@ class Catalog:
         return f"http://127.0.0.1:4000/install/{path}"
 
 
-def _app(store: SourceStore, register, user: UserAPIKeyAuth, artifacts) -> FastAPI:
+def _app(store: SourceStore, register, user: UserAPIKeyAuth, artifacts, resume=None) -> FastAPI:
     app = FastAPI()
     app.dependency_overrides[user_api_key_auth] = lambda: user
     app.include_router(
@@ -37,6 +37,7 @@ def _app(store: SourceStore, register, user: UserAPIKeyAuth, artifacts) -> FastA
             "service-token",
             data_plane_url="http://127.0.0.1:9092",
             artifacts=artifacts,
+            resume=resume,
         )
     )
     return app
@@ -122,6 +123,82 @@ async def test_conflicting_registration_is_a_409(store: SourceStore, source: Sou
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_repeat_enroll_resumes_its_own_pending_row(store: SourceStore, source: SourceCreate) -> None:
+    """A retry after a lost response must not strand the install.
+
+    The first enroll succeeded gateway-side, so the retry collides. When the row is
+    the same owner's and still awaiting review there is nothing to protect, so the
+    retry reports the same pending enrollment instead of a 409.
+    """
+    seen: list[tuple[str, str]] = []
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        raise EnrollmentConflict("taken")
+
+    async def resume(*, source_id: str, owner: str) -> bool:
+        seen.append((source_id, owner))
+        return True
+
+    async def artifact(key: str, body: bytes) -> None:
+        pass
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact, resume)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+
+    assert response.status_code == 201
+    assert response.json() == {"source_id": source.source_id, "owner": "alice", "status": APPROVAL_PENDING}
+    assert seen == [(source.source_id, "alice")], "resume must be asked about exactly this source and owner"
+
+
+@pytest.mark.asyncio
+async def test_repeat_enroll_on_an_unresumable_row_still_conflicts(store: SourceStore, source: SourceCreate) -> None:
+    """Resume is not a general retry: an approved, rejected, or foreign row must
+    stay a hard 409 so nothing is moved out of review."""
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        raise EnrollmentConflict("taken")
+
+    async def resume(*, source_id: str, owner: str) -> bool:
+        del source_id, owner
+        return False
+
+    async def artifact(key: str, body: bytes) -> None:
+        pass
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact, resume)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_pending_source_resume_rejects_any_row_not_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Prisma-backed resume check is the security boundary, so pin it directly:
+    only the same owner's pending_review row is resumable."""
+    import litellm.proxy.mcp_source_broker.gateway as gateway_module
+
+    def row(owner: str, approval: str) -> object:
+        return type("Server", (), {"mcp_info": {"owner": owner, "approval_status": approval}})()
+
+    async def decision(found: object | None) -> bool:
+        async def lookup(_prisma: object, _source_id: str) -> object | None:
+            return found
+
+        monkeypatch.setattr(gateway_module, "get_mcp_server", lookup)
+        resume = gateway_module.pending_source_resume(object())  # pyright: ignore[reportArgumentType]  # prisma unused
+        return await resume(source_id="sid-1", owner="alice")
+
+    assert await decision(row("alice", "pending_review")) is True
+    assert await decision(row("alice", "active")) is False
+    assert await decision(row("alice", "rejected")) is False
+    assert await decision(row("mallory", "pending_review")) is False
+    assert await decision(None) is False
+
 
 
 @pytest.mark.asyncio

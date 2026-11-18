@@ -33,8 +33,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import os
-from typing import TYPE_CHECKING, Annotated, Final
+from typing import TYPE_CHECKING, Annotated, Final, cast
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -75,6 +74,10 @@ class _ReleasePayload(BaseModel):
     sha256: str
     binary_b64: str
     release_json_b64: str
+    # The installer is a stored release asset, so updating it needs no gateway
+    # rebuild. It is optional only so an older client can republish a binary; a
+    # release without it cannot be installed from, and the install route says so.
+    install_script_b64: str = ""
 
     @field_validator("version")
     @classmethod
@@ -102,6 +105,46 @@ def _s3() -> tuple[RustFSConfig, S3Client]:  # pyright: ignore[reportUnknownPara
     config: Final = load_config_from_env()
     client: Final = create_s3_client(config)  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     return config, client  # pyright: ignore[reportUnknownVariableType]  # tuple element carries the stubless-S3 Unknown
+
+
+def _validated_install_script(encoded: str) -> bytes:
+    """Decode and check the stored install script, or return empty bytes.
+
+    A release may omit the script (an older client republishing a binary); the
+    install route then reports that the release cannot be installed from. A
+    present script must be a real installer that drives `init`.
+    """
+    if not encoded:
+        return b""
+    import binascii
+
+    try:
+        script: Final = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="install script is not valid base64") from exc
+    if len(script) > _MAX_RELEASE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="install script too large")
+    if b" init" not in script:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="install script must invoke 'source-link init' so a new user is prompted",
+        )
+    return script
+
+
+async def _load_manifest(config: RustFSConfig, s3: S3Client) -> _StoredManifest:  # pyright: ignore[reportUnknownParameterType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+    import asyncio
+
+    try:
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=_MANIFEST_KEY)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+        return _StoredManifest.model_validate_json(response["Body"].read())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+    except ClientError as exc:
+        code: Final = exc.response.get("Error", {}).get("Code", "")
+        if code in {"NoSuchKey", "404", "NotFound"}:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no source-agent release published") from exc
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt release manifest: {exc}") from exc
 
 
 @router.put(
@@ -165,11 +208,14 @@ async def admin_publish_release(
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
     else:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="release version is already published and immutable")
-    for key, body, content_type in (
+    install_script: Final = _validated_install_script(data.install_script_b64)
+    assets: Final = [
         (binary_key, binary, "application/octet-stream"),
         (f"{_AGENT_PREFIX}/{version}/release.json", manifest_body, "application/json"),
-        (_MANIFEST_KEY, manifest_body, "application/json"),
-    ):
+    ]
+    if install_script:
+        assets.append((f"{_AGENT_PREFIX}/{version}/install.sh", install_script, "application/x-sh"))
+    for key, body, content_type in assets:
         await asyncio.to_thread(
             s3.put_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
             Bucket=config.bucket,
@@ -177,77 +223,45 @@ async def admin_publish_release(
             Body=body,
             ContentType=content_type,
         )
+    # The pointer moves last, after every referenced asset is durable, so an
+    # interrupted publish never activates a half-written release.
+    await asyncio.to_thread(
+        s3.put_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+        Bucket=config.bucket,
+        Key=_MANIFEST_KEY,
+        Body=manifest_body,
+        ContentType="application/json",
+    )
     return {"ok": True, "version": version, "sha256": data.sha256, "size": len(binary)}
-
-
-def _render_source_agent_installer(base_url: str, version: str, sha256: str) -> str:
-    return f"""#!/bin/sh
-set -eu
-umask 077
-state="${{SOURCE_AGENT_STATE:-$HOME/.config/source-agent}}"
-mkdir -p "$state" "$HOME/.config/systemd/user"
-chmod 700 "$state" "$HOME/.config/systemd/user"
-base="{base_url}"
-version="{version}"
-expected="{sha256}"
-for asset in source-link release.json; do
-  curl --fail --location --silent --show-error \\
-    --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
-  mv -f "$state/$asset.new" "$state/$asset"
-done
-actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
-[ "$actual" = "$expected" ] || {{ echo 'source connector checksum mismatch' >&2; exit 1; }}
-chmod 500 "$state/source-link"
-cat > "$HOME/.config/systemd/user/source-agent.service" <<'UNIT'
-[Unit]
-Description=ADEO MCP source connector (tunnel)
-
-[Service]
-Restart=always
-RestartSec=2s
-EnvironmentFile=-$HOME/.config/source-agent/connector.env
-ExecStart=$state/source-link connector
-NoNewPrivileges=yes
-
-[Install]
-WantedBy=default.target
-UNIT
-if [ "${{SOURCE_AGENT_START:-1}}" = "1" ] && [ -f "$HOME/.config/source-agent/connector.env" ]; then
-  systemctl --user daemon-reload
-  systemctl --user enable --now source-agent.service
-else
-  echo "source connector installed at $state/source-link (service starts after MCP_SOURCE_LINK_CONNECTOR_CONFIG is set in $state/connector.env)"
-fi
-"""
 
 
 @router.get("/install/source-agent")
 async def source_agent_install_script(request: Request) -> Response:
-    """Serve the fixed installer script for the current source-agent release."""
+    """Serve the current source-agent release's install script.
+
+    The script is a stored, validated release object, not Python-rendered per
+    request, so changing it needs only a new upload: the gateway image and pod
+    stay untouched. An older release that predates stored scripts has no
+    ``install.sh`` object; that case is a clear 409 telling the operator to
+    republish with a script, never a silent fallback to generated content.
+    """
     import asyncio
 
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+    manifest = await _load_manifest(config, s3)  # pyright: ignore[reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+    script_key: Final = f"{_AGENT_PREFIX}/{manifest.version}/install.sh"
     try:
-        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=_MANIFEST_KEY)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-        manifest: Final = _StoredManifest.model_validate_json(response["Body"].read())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=script_key)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+        script_bytes: Final = cast(bytes, response["Body"].read())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
     except ClientError as exc:
         code: Final = exc.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no source-agent release published") from exc
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="the active release has no stored install script; republish it with install.sh",
+            ) from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    except ValidationError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt release manifest: {exc}") from exc
-    version: Final = manifest.version
-    sha256: Final = manifest.sha256
-    base_url: Final = os.environ.get("LITELLM_PUBLIC_BASE_URL") or (
-        f"{request.headers.get('x-forwarded-proto', 'https')}://{request.headers.get('host', 'localhost')}"
-    )  # pyright: ignore[reportUnknownArgumentType]  # header get returns Unknown in this stubless venv
-    script: Final = _render_source_agent_installer(
-        base_url,
-        version,
-        sha256,
-    )
-    return Response(content=script, media_type="application/x-sh")
+    return Response(content=script_bytes, media_type="application/x-sh")
 
 
 @router.get("/install/source-agent/{version}/{asset}")
@@ -255,7 +269,7 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
     """Proxy one release asset read from RustFS. Versioned paths only."""
     import asyncio
 
-    if asset not in {"source-link", "release.json"} or "/" in version or version.startswith("."):
+    if asset not in {"source-link", "release.json", "install.sh"} or "/" in version or version.startswith("."):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
     config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
     key: Final = f"{_AGENT_PREFIX}/{version}/{asset}"
@@ -266,7 +280,10 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
         if code in ("NoSuchKey", "404", "NotFound"):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="release asset not found") from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    content_type: Final = "application/octet-stream" if asset == "source-link" else "application/json"
+    content_type: Final = {
+        "source-link": "application/octet-stream",
+        "install.sh": "application/x-sh",
+    }.get(asset, "application/json")
     return StreamingResponse(
         content=response["Body"],  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
         media_type=content_type,

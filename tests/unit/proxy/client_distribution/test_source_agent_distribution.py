@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import shutil
 import stat
 import subprocess  # noqa: TID251  # execute-ok: regression runs the installer with a fake curl
@@ -73,6 +74,28 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     return application
 
 
+_INSTALLER_SOURCE: Final = (
+    pathlib.Path(__file__).resolve().parents[4] / "oicm-litellm-layer" / "mcp-source-link" / "install.sh"
+)
+
+
+def _installer(binary: bytes, version: str) -> bytes:
+    """Render the checked-in installer exactly as the publisher does.
+
+    Testing the real shipped script, not a copy, is the point: a regression in it
+    would otherwise pass here and fail for a user.
+    """
+    sha256: Final = hashlib.sha256(binary).hexdigest()
+    return (
+        _INSTALLER_SOURCE.read_text()
+        .replace("__BASE__", "https://gateway.example")
+        .replace("__VERSION__", version)
+        .replace("__SHA__", sha256)
+        .replace("__STATE__", "$HOME/.config/source-agent")
+        .encode()
+    )
+
+
 def _payload(binary: bytes, version: str = "0.1.0") -> dict[str, str]:
     sha256: Final = hashlib.sha256(binary).hexdigest()
     return {
@@ -80,7 +103,10 @@ def _payload(binary: bytes, version: str = "0.1.0") -> dict[str, str]:
         "sha256": sha256,
         "binary_b64": base64.b64encode(binary).decode(),
         "release_json_b64": base64.b64encode(_manifest_body(version, sha256)).decode(),
+        "install_script_b64": base64.b64encode(_installer(binary, version)).decode(),
     }
+
+
 
 
 def _publish(client: TestClient, binary: bytes, version: str = "0.1.0") -> tuple[object, bytes]:
@@ -127,8 +153,9 @@ def test_publish_then_install_script_and_assets(app: FastAPI) -> None:
 
 
 def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) -> None:
+    stub_binary: Final = b"#!/bin/sh\nexit 0\n"
     client: Final = TestClient(app)
-    _publish(client, b"connector-binary")
+    _publish(client, stub_binary)
     script: Final = client.get("/install/source-agent").text
     tools: Final = tmp_path / "tools"
     tools.mkdir()
@@ -152,10 +179,14 @@ def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) 
         assert path is not None
         (tools / command).write_text(f'#!/bin/sh\nexec "{path}" "$@"\n')
         (tools / command).chmod((tools / command).stat().st_mode | stat.S_IEXEC)
+    # There is no user systemd bus in the test sandbox; stub it so the script's
+    # install step is what runs, not the host's service manager.
+    (tools / "systemctl").write_text("#!/bin/sh\nexit 0\n")
+    (tools / "systemctl").chmod((tools / "systemctl").stat().st_mode | stat.S_IEXEC)
     served: Final = tmp_path / "served"
     served.mkdir()
-    (served / "source-link").write_bytes(b"connector-binary")
-    (served / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(b"connector-binary").hexdigest()))
+    (served / "source-link").write_bytes(stub_binary)
+    (served / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(stub_binary).hexdigest()))
     trusted: Final = tmp_path / "trusted.sh"
     trusted.write_text(script)
 
@@ -176,7 +207,7 @@ def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) 
     assert invoke(served, "home").returncode == 0
     altered: Final = tmp_path / "altered"
     shutil.copytree(served, altered)
-    (altered / "source-link").write_bytes(b"altered-binary")
+    (altered / "source-link").write_bytes(b"#!/bin/sh\nexit 0\n# altered\n")
     result: Final = invoke(altered, "untrusted-home")
     assert result.returncode != 0
     assert b"checksum mismatch" in result.stderr
@@ -193,7 +224,7 @@ def test_installed_unit_has_no_transport_variable(app: FastAPI, tmp_path: Path) 
     unit: Final = script.split("<<'UNIT'\n", 1)[1].split("\nUNIT\n", 1)[0]
     assert "MCP_SOURCE_LINK_TRANSPORT" not in unit
     assert "reverse-h2" not in unit
-    assert "ExecStart=$state/source-link connector" in unit
+    assert "source-link connector" in unit and "ExecStart=" in unit
 
 
 def test_install_script_404_when_no_release(app: FastAPI) -> None:

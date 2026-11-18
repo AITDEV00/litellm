@@ -134,6 +134,56 @@ class RemoteStore:
                 dataset_id=peer.dataset_id,
             )
 
+    async def resume_peer(self, source_id: str, label: str, target_host: str, target_port: int) -> RemotePeerResponse | None:
+        """Re-derive the credential for an already-issued worker at its live generation.
+
+        A first bootstrap can enroll the source, create the worker row, and then
+        lose the response or fail to persist the identity. The label is
+        deterministic, so the same operator asking again is asking for the same
+        worker, not a new one. This reissues that worker's credential without
+        inserting a row, advancing the generation, or changing status, which keeps
+        the "duplicate label is a 409" rule intact for a *different* caller while
+        giving the lost-credential path a defined recovery.
+
+        Returns None when there is nothing safe to resume: no worker for the
+        label, a mismatched target, or a worker that is revoked or draining. Those
+        cases are the operator-action-needed terminal states, not retryable ones.
+        """
+        source: Final = await self.sources.source(source_id)
+        if source is None or source.status == "revoked":
+            return None
+        async with self.db.tx(timeout=10000) as tx:
+            await tx.execute_raw("SELECT pg_advisory_xact_lock(hashtext($1))", source_id)
+            rows: Final = REMOTE_WORKERS.validate_python(
+                tuple(
+                    postgres_json_row(row)
+                    for row in self._rows(
+                        await tx.query_raw(
+                            "SELECT " + REMOTE_COLUMNS + ' FROM "OicmMcpRemoteWorker" WHERE source_id=$1 AND label=$2',
+                            source_id,
+                            label,
+                        )
+                    )
+                )
+            )
+            found: Final = rows[0] if rows else None
+            if found is None:
+                return None
+            if found.target_host != target_host or found.target_port != target_port:
+                return None
+            if found.status not in {"pending", "active"}:
+                return None
+            return RemotePeerResponse(
+                worker_id=found.worker_id,
+                source_id=source_id,
+                target=f"{found.target_host}:{found.target_port}",
+                generation=found.generation,
+                credential=self.keys.remote_credential(found.enrollment_id, found.worker_id, found.generation),
+                expires_at=found.expires_at,
+                label=found.label,
+                dataset_id=found.dataset_id,
+            )
+
     async def lifecycle(
         self,
         worker_id: str,

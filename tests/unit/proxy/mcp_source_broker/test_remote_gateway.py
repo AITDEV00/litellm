@@ -24,6 +24,8 @@ class IssueRemote:
     def __init__(self) -> None:
         self.labels: Final[dict[str, str]] = {}
         self.calls: Final[list[tuple[str, RemotePeer]]] = []
+        self.resumes: Final[list[tuple[str, str, str, int]]] = []
+        self.resumable: bool = False
 
     async def create_peer(self, source_id: str, peer: RemotePeer) -> RemotePeerResponse | None:
         self.calls.append((source_id, peer))
@@ -40,6 +42,23 @@ class IssueRemote:
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
             label=peer.label,
             dataset_id=peer.dataset_id,
+        )
+
+    async def resume_peer(
+        self, source_id: str, label: str, target_host: str, target_port: int
+    ) -> RemotePeerResponse | None:
+        self.resumes.append((source_id, label, target_host, target_port))
+        if not self.resumable:
+            return None
+        return RemotePeerResponse(
+            worker_id=f"worker-{label}",
+            source_id=source_id,
+            target=f"{target_host}:{target_port}",
+            generation=1,
+            credential="ab" * 32,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            label=label,
+            dataset_id="dataset-1",
         )
 
 
@@ -200,3 +219,55 @@ async def test_duplicate_label_is_a_conflict(store: SourceStore, source) -> None
         second = await client.post("/mcp-source-link-sources/sid-1/workers", json=_peer().model_dump())
     assert first.status_code == 201
     assert second.status_code == 409, "a duplicate label must not silently reissue the active identity"
+
+
+@pytest.mark.asyncio
+async def test_lost_response_resumes_the_same_worker_identity(store: SourceStore, source) -> None:
+    """A duplicate label is only a conflict when there is nothing safe to resume.
+
+    The B1 case: the first bootstrap created the worker row but the response was
+    lost, so the connector has no credential. The same owner asking again must get
+    that same worker's credential at the same generation, not a 409 and not a new
+    row.
+    """
+    store.db.sources.append(
+        type(
+            "Row",
+            (),
+            {
+                "source_id": "sid-1",
+                "tenant": "alice",
+                "status": "active",
+                "remote_transport": "tunnel",
+                "model_dump": lambda self: {
+                    "source_id": "sid-1",
+                    "tenant": "alice",
+                    "key": "k",
+                    "alias": "pets_api",
+                    "target_host": "127.0.0.1",
+                    "target_port": 18080,
+                    "spec_path": "p",
+                    "expected": "e",
+                    "gateway_auth_ciphertext": "c",
+                    "status": "active",
+                    "revision": 1,
+                    "remote_transport": "tunnel",
+                },
+            },
+        )()
+    )
+    remote: Final = IssueRemote()
+    remote.resumable = True
+    app = _app(store, remote, UserAPIKeyAuth(user_id="alice"))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as client:
+        first = await client.post("/mcp-source-link-sources/sid-1/workers", json=_peer().model_dump())
+        resumed = await client.post("/mcp-source-link-sources/sid-1/workers", json=_peer().model_dump())
+
+    assert first.status_code == 201
+    assert resumed.status_code == 201, "a lost response must be recoverable by the same owner"
+    first_body: Final = first.json()
+    resumed_body: Final = resumed.json()
+    assert resumed_body["worker_id"] == first_body["worker_id"], "resume must return the existing worker, not a new one"
+    assert resumed_body["generation"] == first_body["generation"], "resume must not advance the generation"
+    assert resumed_body["credential"] == first_body["credential"], "the re-derived credential must be the same one"
+    assert remote.resumes == [("sid-1", "conn-a", "127.0.0.1", 18080)]

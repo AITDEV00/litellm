@@ -107,6 +107,17 @@ class SourceRecord(Frozen):
 
 TransportName = Literal["tunnel"]
 
+# The only routes a connector's ordinary user key may call. This is the source
+# self-service surface: enroll a source, register its worker, and read the
+# connector identity it was issued. The private control plane
+# (/v1/source-link/{peers,report,revoke}) is deliberately absent, and so is every
+# admin route. A key minted for a connector carries exactly this list, so a
+# leaked source-host credential cannot administer the gateway.
+CONNECTOR_SELF_SERVICE_ROUTES: Final = (
+    "/mcp-sources",
+    "/mcp-source-link-sources/*",
+)
+
 
 class RouteSelection(Frozen):
     transport: TransportName = "tunnel"

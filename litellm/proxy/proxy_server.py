@@ -18164,6 +18164,105 @@ async def login_v3(request: Request):
             )
 
 
+@router.post("/sso/cli/password", include_in_schema=False)  # hidden: connector install helper
+async def cli_password_login(request: Request):
+    """Exchange an ordinary user's username and password for a durable, scoped key.
+
+    This is the credential path for `source-link init`. It reuses
+    ``authenticate_user`` for password verification and throttling, then mints a
+    real DB-backed virtual key rather than returning the UI session JWT. The
+    session JWT is deliberately not used: it is a dashboard cookie with a short
+    lifetime, and a connector daemon needs a credential that survives restarts.
+
+    The issued key is the ordinary user's own and is restricted to the source
+    self-service routes, so it can enroll a source and register its connector
+    worker under that user, and nothing administrative. Ownership is derived by
+    the gateway from this authenticated user, never from the request body.
+
+    Only ordinary user accounts are issuable here. An admin login would hand a
+    long-lived admin credential to a source host, so it is refused and the caller
+    is told to use a user account created by an administrator.
+    """
+    global premium_user, general_settings, master_key
+    from litellm.proxy.auth.login_utils import authenticate_user
+    from litellm.proxy.mcp_source_broker.models import CONNECTOR_SELF_SERVICE_ROUTES
+    from litellm.proxy.management_endpoints.key_management_endpoints import (
+        generate_key_helper_fn,
+    )
+
+    try:
+        body: Final = _LOGIN_REQUEST_BODY.validate_python(await request.json())
+        username: Final = str(body.get("username"))
+        password: Final = str(body.get("password"))
+        login_result: Final = await authenticate_user(
+            username=username,
+            password=password,
+            master_key=master_key,
+            prisma_client=prisma_client,
+            throttle=LoginThrottle.from_request(request, general_settings, redis_usage_cache),
+            general_settings=general_settings,
+        )
+        if login_result.password_reset_required:
+            raise ProxyException(
+                message="password reset required before this account can be used for a connector",
+                type=ProxyErrorTypes.auth_error,
+                param="password",
+                code=status.HTTP_403_FORBIDDEN,
+            )
+        if login_result.user_role == LitellmUserRoles.PROXY_ADMIN.value:
+            raise ProxyException(
+                message=(
+                    "a connection must use an ordinary user account, not an admin. Ask your "
+                    "gateway administrator to create a user account for you"
+                ),
+                type=ProxyErrorTypes.auth_error,
+                param="username",
+                code=status.HTTP_403_FORBIDDEN,
+            )
+        minted: Final = await generate_key_helper_fn(
+            request_type="key",
+            user_id=login_result.user_id,
+            user_role=login_result.user_role,
+            key_alias=f"source-connector-{login_result.user_id}",
+            allowed_routes=list(CONNECTOR_SELF_SERVICE_ROUTES),
+            duration=None,
+            llm_router=llm_router,
+        )
+        issued_key: Final = minted.get("key") or minted.get("token")
+        if not isinstance(issued_key, str) or not issued_key:
+            raise ProxyException(
+                message="key issuance did not return a credential",
+                type=ProxyErrorTypes.auth_error,
+                param="None",
+                code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return JSONResponse(
+            content={
+                "key": issued_key,
+                "user_id": login_result.user_id,
+                "expires_at": minted.get("expires"),
+            },
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception as e:
+        if isinstance(e, ProxyException):
+            raise e
+        if isinstance(e, HTTPException):
+            raise ProxyException(
+                message=getattr(e, "detail", str(e)),
+                type=ProxyErrorTypes.auth_error,
+                param=getattr(e, "param", "None"),
+                code=getattr(e, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR),
+            )
+        verbose_proxy_logger.exception("litellm.proxy.proxy_server.cli_password_login(): Exception occurred")
+        raise ProxyException(
+            message=f"{e}",
+            type=ProxyErrorTypes.auth_error,
+            param="None",
+            code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
 @router.post("/v3/login/exchange", include_in_schema=False)  # exchange single-use opaque code for JWT
 async def login_v3_exchange(request: Request):
     from litellm.proxy.management_endpoints.ui_sso import set_session_token_cookie
