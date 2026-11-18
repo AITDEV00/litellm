@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,13 +47,30 @@ func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if mode == "connector" {
-		cfg, err := config.ReadConnector(config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"))
-		if err != nil {
-			return err
-		}
-		return connector.Run(ctx, cfg)
+		return runConnector(ctx)
 	}
 	return runWorker(ctx, stop)
+}
+
+// runConnector bootstraps the connector identity on first use, then hands the
+// resolved identity to the existing tunnel loop. A valid persisted identity is
+// reused as-is, so restarts never re-register.
+func runConnector(ctx context.Context) error {
+	gateway := config.Environment("MCP_SOURCE_LINK_PUBLIC_URL")
+	if !strings.HasPrefix(gateway, "https://") {
+		return errors.New("worker URL must use approved HTTPS")
+	}
+	tlsConfig, err := config.TLS(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
+	if err != nil {
+		return err
+	}
+	httpClient := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
+	defer httpClient.CloseIdleConnections()
+	identity, err := connector.LoadIdentity(ctx, gateway, httpClient)
+	if err != nil {
+		return err
+	}
+	return connector.Run(ctx, identity)
 }
 
 func runWorker(ctx context.Context, stop context.CancelFunc) error {

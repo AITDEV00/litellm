@@ -36,6 +36,21 @@ async def service_authenticated(
         raise HTTPException(401, "service authentication required")
 
 
+async def owner_or_administrator(store: SourceStore, source_id: str, user: UserAPIKeyAuth) -> None:
+    """Authorize worker bootstrap: Proxy Admin, or the authenticated owner of this source.
+
+    Ownership is read from the stored source row, never from a request body or a
+    caller-supplied id. Employee keys without PROXY_ADMIN may act only on a source whose
+    ``tenant`` is their own ``user_id``. This is the same predicate a person using that
+    user's key passes, so there is no process-identity fiction.
+    """
+    if user.user_role == LitellmUserRoles.PROXY_ADMIN:
+        return
+    found: Final = await store.source(source_id)
+    if found is None or not user.user_id or found.tenant != user.user_id:
+        raise HTTPException(403, "source owner authorization required")
+
+
 async def revoke_remote_worker(
     service_secret: str,
     worker_id: str,
@@ -88,9 +103,9 @@ def create_remote_gateway_router(
 
     @router.post("/mcp-source-link-sources/{source_id}/workers", response_model=RemotePeerResponse, status_code=201)
     async def enroll_peer(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
-        source_id: str, peer: RemotePeer, user: Annotated[UserAPIKeyAuth, Depends(administrator)]
+        source_id: str, peer: RemotePeer, user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]
     ) -> RemotePeerResponse:
-        del user
+        await owner_or_administrator(store, source_id, user)
         created: Final = await store.remote.create_peer(source_id, peer)
         if created is None:
             raise HTTPException(409, "source or worker label is unavailable")

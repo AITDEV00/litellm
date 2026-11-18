@@ -49,9 +49,11 @@ class SourceCreate(Frozen):
     """A self-service enrollment request.
 
     ``owner``, ``key`` and ``expires_at`` are server-derived: the connector
-    authenticates as its own user with a team-scoped virtual key, so there is no
-    per-source claim token to present. They remain accepted-but-ignored so an
-    older connector that still sends them is not rejected outright.
+    must authenticate as its own gateway user without a team-membership
+    precondition. Owner identity is verified from the gateway account, never
+    decoded from an opaque key. These request fields remain accepted-but-ignored
+    on this self-service path; see ``connector-owned-enrollment.md`` for the
+    owner-facing bootstrap contract.
     """
 
     alias: str = Field(pattern=r"^[a-z][a-z0-9_.]{2,127}$")
@@ -125,11 +127,34 @@ class RemotePeer(Frozen):
 
 
 class RemotePeerResponse(Frozen):
+    """The connector runtime identity issued at worker creation.
+
+    ``credential`` is the plaintext per-worker tunnel HMAC and ``generation`` is the
+    fencing counter the tunnel presents. Both leave the gateway exactly once, over TLS,
+    to the connector that registered the worker. Neither the pepper, the service token,
+    the stored credential digest, nor any peer or digest projection is included.
+    """
+
     worker_id: str
     source_id: str
+    target: str
+    generation: int
+    credential: str
     expires_at: datetime
     label: str
     dataset_id: str
+
+
+class SourceEnrolled(Frozen):
+    """The response to ``POST /mcp-sources``.
+
+    ``owner`` is the gateway-authenticated user id. The connector cannot derive it:
+    a virtual key is opaque. ``source_id`` is the deterministic server-side uuid5.
+    """
+
+    source_id: str
+    owner: str
+    status: str
 
 
 class RemoteGoPeer(Frozen):

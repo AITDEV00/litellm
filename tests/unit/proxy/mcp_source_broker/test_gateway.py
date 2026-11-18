@@ -43,15 +43,15 @@ def _app(store: SourceStore, register, user: UserAPIKeyAuth, artifacts) -> FastA
 
 
 @pytest.mark.asyncio
-async def test_team_member_enrolls_without_admin(
+async def test_ordinary_user_without_team_enrolls(
     store: SourceStore,
     source: SourceCreate,
     respx_mock: MockRouter,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Self-service is the point: a team-scoped key enrolls its own source and
-    the owner is the authenticated user, not a claim. The old admin-only gate
-    would make this a 403."""
+    """Self-service is the point: a key for an admin-created ordinary account with no
+    team enrolls its own source, and the owner is the authenticated user. A team gate
+    would make this a 400, which is the defect this test pins."""
     monkeypatch.setenv("DISABLE_AIOHTTP_TRANSPORT", "True")
     submissions: list[tuple[NewMCPServerRequest, str]] = []
     uploads: dict[str, bytes] = {}
@@ -62,12 +62,12 @@ async def test_team_member_enrolls_without_admin(
     async def artifact(key: str, body: bytes) -> None:
         uploads[key] = body
 
-    app = _app(store, register, UserAPIKeyAuth(user_id="alice", team_id="team-a"), artifact)
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         response: Final = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
 
     assert response.status_code == 201
-    assert response.json() == {"server_id": source.source_id, "status": APPROVAL_PENDING}
+    assert response.json() == {"source_id": source.source_id, "owner": "alice", "status": APPROVAL_PENDING}
     request, owner = submissions[0]
     assert owner == "alice"
     assert request.server_id == source.source_id
@@ -89,18 +89,22 @@ async def test_team_member_enrolls_without_admin(
 
 
 @pytest.mark.asyncio
-async def test_enroll_requires_a_user_and_a_team(store: SourceStore, source: SourceCreate) -> None:
+async def test_enroll_requires_a_user(store: SourceStore, source: SourceCreate) -> None:
     async def register(request: NewMCPServerRequest, owner: str) -> None:
         pass
 
     async def artifact(key: str, body: bytes) -> None:
         pass
 
-    for user in (UserAPIKeyAuth(), UserAPIKeyAuth(user_id="alice")):
-        app = _app(store, register, user, artifact)
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-            response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
-        assert response.status_code == 400, user
+    app = _app(store, register, UserAPIKeyAuth(), artifact)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+    assert response.status_code == 400, "an unauthenticated caller must not enroll"
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        accepted = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+    assert accepted.status_code == 201, "a user without a team must be accepted"
 
 
 @pytest.mark.asyncio
@@ -114,7 +118,7 @@ async def test_conflicting_registration_is_a_409(store: SourceStore, source: Sou
     async def artifact(key: str, body: bytes) -> None:
         pass
 
-    app = _app(store, register, UserAPIKeyAuth(user_id="alice", team_id="team-a"), artifact)
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
     assert response.status_code == 409

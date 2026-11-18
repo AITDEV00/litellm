@@ -10,9 +10,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +49,12 @@ type HealthReport struct {
 	WorkerID           string  `json:"worker_id"`
 	Generation         uint64  `json:"generation"`
 	CatalogFingerprint *string `json:"catalog_fingerprint"`
+}
+
+// ConnectorTarget is the validated numeric loopback origin a connector serves.
+type ConnectorTarget struct {
+	Host string
+	Port int
 }
 
 // ConnectorConfig is the connector's on-disk identity file.
@@ -149,4 +157,95 @@ func ReadConnector(path string) (ConnectorConfig, error) {
 // Slot is the synthetic host that identifies one source to the proxy.
 func Slot(sourceID string) string {
 	return sourceID + ".source.invalid:1"
+}
+
+// BootstrapInput is the operator-supplied, first-use registration description.
+// It is written once by the installer (mode 0600) and never contains identity.
+type BootstrapInput struct {
+	Alias     string `json:"alias"`
+	DatasetID string `json:"dataset_id"`
+	ProofKey  string `json:"proof_key"`
+	Target    string `json:"target"`
+	Spec      string `json:"spec"`
+}
+
+// ReadBootstrapInput loads the enrollment description and validates the loopback
+// target. A non-owner-only file is a fatal, actionable error, not a warning.
+func ReadBootstrapInput(path string) (BootstrapInput, ConnectorTarget, error) {
+	var input BootstrapInput
+	var target ConnectorTarget
+	if err := checkOwnerOnly(path); err != nil {
+		return input, target, err
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return input, target, err
+	}
+	if err := json.Unmarshal(contents, &input); err != nil {
+		return input, target, err
+	}
+	if input.Alias == "" || input.DatasetID == "" || input.ProofKey == "" || input.Spec == "" {
+		return input, target, errors.New("bootstrap input needs alias, dataset_id, proof_key and spec")
+	}
+	target, err = ParseTarget(input.Target)
+	if err != nil {
+		return input, target, err
+	}
+	return input, target, nil
+}
+
+// ParseTarget validates that a target is an explicit numeric loopback address.
+func ParseTarget(value string) (ConnectorTarget, error) {
+	var target ConnectorTarget
+	host, port, err := net.SplitHostPort(value)
+	number, portErr := strconv.ParseUint(port, 10, 16)
+	if err != nil || portErr != nil || number == 0 || !net.ParseIP(host).IsLoopback() {
+		return target, errors.New("connector target must be an explicit numeric loopback address")
+	}
+	return ConnectorTarget{Host: host, Port: int(number)}, nil
+}
+
+func checkOwnerOnly(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("%s must be a regular owner-only file (mode 0600)", path)
+	}
+	return nil
+}
+
+// WriteConnectorIdentity persists an issued identity atomically at an owner-only
+// path. It writes to a sibling temporary file, fsyncs, then renames, so a crash
+// can never leave a truncated identity behind.
+func WriteConnectorIdentity(path string, identity ConnectorConfig) error {
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(path)
+	temp, err := os.CreateTemp(directory, ".connector-identity-*")
+	if err != nil {
+		return err
+	}
+	name := temp.Name()
+	// Remove on any failure path; a successful rename makes this a no-op.
+	defer func() { _ = os.Remove(name) }()
+	if err := temp.Chmod(0o600); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if _, err := temp.Write(encoded); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }

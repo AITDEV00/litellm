@@ -127,3 +127,48 @@ func hexCredential() string {
 func nonHexCredential() string {
 	return "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 }
+
+func TestWriteConnectorIdentityIsAtomicAndOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "identity.json")
+	identity := ConnectorConfig{
+		WorkerID: "w", SourceID: "s", Target: "127.0.0.1:18080", Generation: 1,
+		Credential: "abababababababababababababababababababababababababababababababab",
+	}
+	if err := WriteConnectorIdentity(path, identity); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("identity must be mode 0600, got %o", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("a temporary file was left behind: %v", entries)
+	}
+	read, err := ReadConnector(path)
+	if err != nil {
+		t.Fatalf("roundtrip: %v", err)
+	}
+	if read != identity {
+		t.Fatalf("roundtrip mismatch: %+v vs %+v", read, identity)
+	}
+}
+
+func TestReadBootstrapInputRejectsNonLoopbackTarget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bootstrap.json")
+	contents := `{"alias":"a1","dataset_id":"d","proof_key":"pk","spec":"{}","target":"10.0.0.1:80"}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadBootstrapInput(path); err == nil {
+		t.Fatal("a non-loopback target must be rejected")
+	}
+}

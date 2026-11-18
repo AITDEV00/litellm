@@ -31,7 +31,7 @@ from litellm.proxy.client_distribution.storage import (
     load_config_from_env,
 )
 from litellm.proxy.mcp_source_broker.keys import Keys
-from litellm.proxy.mcp_source_broker.models import SourceCreate, TransportName
+from litellm.proxy.mcp_source_broker.models import SourceCreate, SourceEnrolled, TransportName
 from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_gateway_router
 from litellm.proxy.mcp_source_broker.store import Database, NotOwnerConflict, SourceStore
 from litellm.proxy.utils import PrismaClient
@@ -109,14 +109,12 @@ def create_gateway_router(
             lambda: client.put_object(Bucket=config.bucket, Key=key, Body=body, ContentType="application/json")
         )
 
-    @router.post("/mcp-sources", status_code=201)
+    @router.post("/mcp-sources", response_model=SourceEnrolled, status_code=201)
     async def enroll(  # pyright: ignore[reportUnusedFunction]  # registered FastAPI route
         payload: SourceCreate, user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]
-    ) -> dict[str, str]:
+    ) -> SourceEnrolled:
         if not user.user_id:
             raise HTTPException(400, "enrollment requires an authenticated user")
-        if not user.team_id:
-            raise HTTPException(400, "enrollment requires a team-scoped key")
         owner: Final = user.user_id
         request: Final = payload.with_owner(owner)
         await store.ensure()
@@ -139,7 +137,7 @@ def create_gateway_router(
             await register(registration, owner)
         except EnrollmentConflict as conflict:
             raise HTTPException(409, "source identifier is already registered; delete or re-name it") from conflict
-        return {"server_id": result.source_id, "status": APPROVAL_PENDING}
+        return SourceEnrolled(source_id=result.source_id, owner=owner, status=APPROVAL_PENDING)
 
     return router
 
@@ -168,7 +166,7 @@ def mount_mcp_sources(
     async def create(request: NewMCPServerRequest, owner: str) -> None:
         await submit_for_review(prisma, manager, request, owner)
 
-    async def route_source(source_id: str, transport: TransportName = "reverse-h2") -> None:
+    async def route_source(source_id: str, transport: TransportName = "tunnel") -> None:
         found: Final = await get_mcp_server(prisma, source_id)
         if found is None:
             raise ValueError("source registration is missing")

@@ -374,6 +374,12 @@ class RouteChecks:
             # handler, which derives the owner from the authenticated user id; requiring
             # proxy admin here would defeat the point of self-service.
             pass  # authN/authZ handled by api itself
+        elif route.startswith("/mcp-source-link-sources/") and route.endswith("/workers"):
+            # Connector worker bootstrap. The handler authorizes Proxy Admin or the real
+            # owner of this source (tenant == user_id read from the stored row), so an
+            # ordinary user key may register its own connector. Every other
+            # /mcp-source-link-sources route (selection, lifecycle) stays admin-only.
+            pass  # authN/authZ handled by api itself
         elif RouteChecks.check_passthrough_route_access(route=route, user_api_key_dict=valid_token) or (
             valid_token.is_team_service_account
             and RouteChecks.check_route_access(
