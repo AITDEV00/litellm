@@ -112,6 +112,75 @@ func runConnector(t *testing.T, binary, gateway, caPath string, peer config.Peer
 	})
 }
 
+// runCurrentConnector starts THIS checkout's connector against the fixture gateway
+// using an isolated multi-account state directory, so the control run serves only
+// the fixture source and never reads the developer's ambient ~/.config/source-agent.
+//
+// The current binary reads accounts.json/sources.json (the multi-account model),
+// not MCP_SOURCE_LINK_CONNECTOR_CONFIG, so without an isolated state dir it would
+// pick up whatever sources the developer registered locally and dial their
+// gateways. The seeded source carries exactly the fixture peer's worker identity,
+// target and kind, so the tunnel admits as the same member.
+func runCurrentConnector(t *testing.T, binary, gateway, caPath string, peer config.Peer) {
+	t.Helper()
+	stateDir := t.TempDir()
+	seedCurrentState(t, stateDir, gateway, peer)
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, binary, "connector")
+	cmd.Env = append(os.Environ(),
+		"MCP_SOURCE_LINK_STATE_DIR="+stateDir,
+		"MCP_SOURCE_LINK_TUNNEL_URL="+gateway,
+		"MCP_SOURCE_LINK_CA_FILE="+caPath,
+		"MCP_SOURCE_LINK_TRANSPORT=tunnel",
+	)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start current connector: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = cmd.Wait()
+	})
+}
+
+// seedCurrentState writes the current multi-account state layout for one source:
+// accounts.json, the owner-only account key, and sources.json with a registered
+// source whose identity matches peer.
+func seedCurrentState(t *testing.T, stateDir, gateway string, peer config.Peer) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(stateDir, "accounts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	accounts := map[string]any{
+		"accounts": []map[string]any{{"alias": "alpha", "gateway_url": gateway, "username": "owner@example.invalid"}},
+	}
+	writeJSON(t, filepath.Join(stateDir, "accounts.json"), accounts)
+	if err := os.WriteFile(filepath.Join(stateDir, "accounts", "alpha.key"), []byte(harness.NotSecret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := map[string]any{
+		"sources": []map[string]any{{
+			"name": "alpha.fixture", "account": "alpha", "target": peer.Target,
+			"kind": peer.Kind, "path": "/mcp", "worker_id": peer.WorkerID,
+			"source_id": peer.SourceID, "generation": peer.Generation,
+			"credential": harness.NotSecret, "enabled": true,
+		}},
+	}
+	writeJSON(t, filepath.Join(stateDir, "sources.json"), source)
+}
+
+func writeJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestPreviousConnectorServesCurrentBroker is the forward-compatibility proof: a
 // connector built before the transition still admits, probes, and serves a real
 // source read against this checkout's broker.
@@ -161,7 +230,7 @@ func TestCurrentConnectorServesCurrentBroker(t *testing.T) {
 	peer.ExpectedCatalog = digest
 	f.SetPeer(peer, "")
 
-	runConnector(t, binary, gateway, caPath, peer, peer.Target)
+	runCurrentConnector(t, binary, gateway, caPath, peer)
 	harness.Eventually(t, func() bool { return f.ReadyTunnel(t, harness.WorkerA) })
 
 	headers := http.Header{"Authorization": {"Bearer " + harness.ServiceKey}}
