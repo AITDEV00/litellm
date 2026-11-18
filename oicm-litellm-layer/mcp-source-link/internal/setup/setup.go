@@ -173,9 +173,10 @@ func AddAccount(
 
 // AddSourceInput carries everything AddSource needs that is not prompted.
 //
-// Kind is "openapi" (default) or "mcp". An openapi source needs a SpecPath; an
-// mcp source needs neither a spec nor a spec file, only an optional Path for its
-// MCP endpoint (default /mcp).
+// Kind is "openapi" (default) or "mcp". An mcp source needs neither a spec nor a
+// spec file, only an optional Path for its MCP endpoint (default /mcp). An openapi
+// source uses SpecPath when given, else Fetcher pulls the origin's own
+// /openapi.json, so a local file is optional rather than required.
 type AddSourceInput struct {
 	Account   string
 	Name      string
@@ -184,6 +185,7 @@ type AddSourceInput struct {
 	Path      string
 	Target    string
 	SpecPath  string
+	Fetcher   SpecFetcher
 }
 
 // AlreadyExists reports that the requested source is already registered under the
@@ -260,16 +262,15 @@ func addSource(
 		mcpPath = "/mcp"
 	}
 	var spec []byte
+	specSource := ""
 	if kind == KindOpenAPI {
-		if specPath == "" {
-			specPath, err = prompt.Line("Path to the origin's OpenAPI document: ")
-			if err != nil {
-				return state.Source{}, err
-			}
+		fetcher := input.Fetcher
+		if fetcher == nil {
+			fetcher = defaultSpecFetcher()
 		}
-		spec, err = os.ReadFile(specPath)
+		spec, specSource, err = resolveOpenAPIDocument(ctx, origin, specPath, fetcher)
 		if err != nil {
-			return state.Source{}, fmt.Errorf("read OpenAPI document %q: %w", specPath, err)
+			return state.Source{}, err
 		}
 	}
 
@@ -310,7 +311,7 @@ func addSource(
 		Generation: identity.Generation,
 		Credential: identity.Credential,
 		Enabled:    true,
-		SpecPath:   specPath,
+		SpecPath:   specSource,
 	}
 	if err := store.PutSource(source); err != nil {
 		return state.Source{}, err

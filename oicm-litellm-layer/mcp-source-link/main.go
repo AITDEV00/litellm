@@ -59,8 +59,9 @@ account commands:
 source commands:
   source add                   register a source under the selected account
   source add --account <alias> register a source under a specific account
-  source add --kind openapi --spec <path> --target <host:port>
-                               register an HTTP service from its OpenAPI document
+  source add --kind openapi --target <host:port> [--spec <path>]
+                               register an HTTP service; the origin's own
+                               /openapi.json is fetched unless --spec pins a file
   source add --kind mcp --target <host:port> [--path /mcp]
                                register a standard MCP server (no OpenAPI doc)
   source list                  list registered sources

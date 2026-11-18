@@ -145,23 +145,25 @@ Success: the assistant confirms each answers. The two REST services serve
 `/openapi.json`; the two MCP services answer `initialize` then `tools/list` on
 `/mcp`.
 
-A source has a kind. The REST services are `openapi` sources and need their
-`/openapi.json` document. The MCP services are `mcp` sources and need no catalog:
-the source points straight at the MCP path and the broker talks MCP to it. So
-nothing needs to be written for the MCP pair.
+A source has a kind. The REST services are `openapi` sources; the connector
+fetches each origin's own `/openapi.json` when you do not pass `--spec`, so no
+document has to be prepared by hand. The MCP services are `mcp` sources and need
+no catalog: the source points straight at the MCP path and the broker talks MCP
+to it. So nothing needs to be written for either pair.
 
 ## Phase 4: register the four sources
 
-You run these. The REST sources pass `--kind openapi` with their real OpenAPI
-document; the MCP sources pass `--kind mcp` and the MCP path (`/mcp` by default,
-so `--path` is only needed for a different path). Two sources go under `alpha`,
-two under `beta`, so a later phase can compare them. No command here re-prompts
-for a password: each reuses the selected account's stored key.
+You run these. The REST sources pass `--kind openapi` and let the connector fetch
+`/openapi.json`; add `--spec <path>` only to pin a specific reviewed document.
+The MCP sources pass `--kind mcp` and the MCP path (`/mcp` by default, so `--path`
+is only needed for a different path). Two sources go under `alpha`, two under
+`beta`, so a later phase can compare them. No command here re-prompts for a
+password: each reuses the selected account's stored key.
 
 ```
-adma source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
+adma source add --account alpha --target 127.0.0.1:18201 --kind openapi
 adma source add --account alpha --target 127.0.0.1:18203 --kind mcp
-adma source add --account beta  --target 127.0.0.1:18202 --kind openapi --spec /tmp/test/spec-18202.json
+adma source add --account beta  --target 127.0.0.1:18202 --kind openapi
 adma source add --account beta  --target 127.0.0.1:18204 --kind mcp
 ```
 
@@ -182,7 +184,7 @@ two MCP rows carrying `kind=mcp` and `mcp_path=/mcp`, and no duplicate. Also
 re-run one registration verbatim to show it is idempotent:
 
 ```
-adma source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
+adma source add --account alpha --target 127.0.0.1:18201 --kind openapi
 # MCP source already exists as alpha.127.0.0.1.18201; nothing new was created.
 ```
 

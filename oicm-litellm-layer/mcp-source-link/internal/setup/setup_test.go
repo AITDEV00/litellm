@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"oicm-litellm-layer/mcp-source-link/internal/bootstrap"
 	"oicm-litellm-layer/mcp-source-link/internal/state"
+	"oicm-litellm-layer/mcp-source-link/internal/target"
 )
 
 // scripted is a Prompter that replays canned answers, so a test drives the real
@@ -319,18 +321,59 @@ func TestAddSourceMcpKindNeedsNoSpec(t *testing.T) {
 	}
 }
 
-// An openapi-kind source still requires a spec, so a missing one is an error.
-func TestAddSourceOpenApiKindRequiresSpec(t *testing.T) {
+// An openapi-kind source with no --spec pulls the origin's own /openapi.json, so
+// a local document is optional. The fetch is injected, and the bytes it returns
+// are what the gateway is asked to catalog.
+func TestAddSourceOpenApiKindFetchesDocumentWhenNoSpec(t *testing.T) {
 	store := newStore(t)
 	if _, err := AddAccount(context.Background(), store, &scripted{
 		lines: []string{"https://gw.example", "alice"}, secrets: []string{"pw"},
 	}, &fakeLogin{}, "alpha"); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
-	// The scripted prompter returns an empty spec path, so reading it fails.
-	if _, err := AddSource(context.Background(), store, &scripted{}, staticGateway(t, "oas-1"), AddSourceInput{
-		Kind: "openapi", Target: "127.0.0.1:18201",
-	}); err == nil {
-		t.Fatal("an openapi source without a spec was accepted")
+	var fetchedFor string
+	fetcher := func(_ context.Context, origin target.Target) ([]byte, error) {
+		fetchedFor = origin.String()
+		return []byte(`{"openapi":"3.1.0","paths":{"/inventory":{"get":{}}}}`), nil
 	}
+
+	source, err := addSource(context.Background(), store, &scripted{}, staticGateway(t, "oas-fetch"), AddSourceInput{
+		Kind: "openapi", Target: "127.0.0.1:18201", Fetcher: fetcher,
+	}, noRetry())
+	if err != nil {
+		t.Fatalf("addSource(openapi, no spec): %v", err)
+	}
+	if fetchedFor != "127.0.0.1:18201" {
+		t.Fatalf("fetched for %q, want the target 127.0.0.1:18201", fetchedFor)
+	}
+	if source.SpecPath != "http://127.0.0.1:18201/openapi.json" {
+		t.Fatalf("recorded spec source %q, want the origin's openapi url", source.SpecPath)
+	}
+	if source.Kind != "openapi" {
+		t.Fatalf("persisted kind = %q, want openapi", source.Kind)
+	}
+}
+
+// An openapi-kind source whose origin serves no /openapi.json is a hard error:
+// registering it would create a source with an empty catalog.
+func TestAddSourceOpenApiKindFailsWhenOriginHasNoDocument(t *testing.T) {
+	store := newStore(t)
+	if _, err := AddAccount(context.Background(), store, &scripted{
+		lines: []string{"https://gw.example", "alice"}, secrets: []string{"pw"},
+	}, &fakeLogin{}, "alpha"); err != nil {
+		t.Fatalf("AddAccount: %v", err)
+	}
+	fetcher := func(context.Context, target.Target) ([]byte, error) {
+		return nil, errors.New("origin returned HTTP 404")
+	}
+	if _, err := addSource(context.Background(), store, &scripted{}, staticGateway(t, "oas-404"), AddSourceInput{
+		Kind: "openapi", Target: "127.0.0.1:18201", Fetcher: fetcher,
+	}, noRetry()); err == nil {
+		t.Fatal("an openapi source with no servable document was accepted")
+	}
+}
+
+// noRetry drives addSource without sleeping or retrying, for the fast path.
+func noRetry() RetryPolicy {
+	return RetryPolicy{Attempts: 1, Backoff: func(int) time.Duration { return 0 }, Sleep: func(time.Duration) {}}
 }
