@@ -255,3 +255,48 @@ async def test_mount_after_prisma_initialization(monkeypatch, store: SourceStore
     assert "/mcp-sources" in routes
     assert "/mcp-source-link-sources/{source_id}/workers" in routes
     assert all("install" not in path for path in routes), "installer routes must be gone"
+
+
+@pytest.mark.asyncio
+async def test_changed_content_conflict_does_not_upload_over_the_approved_artifact(
+    store: SourceStore, source: SourceCreate
+) -> None:
+    """R5: a re-enroll with different content must not touch the stored artifact.
+
+    Before this, the gateway uploaded the new spec before the registration conflict
+    was decided, so an approved source's catalog URL could be swapped by a retry.
+    The conflict must leave the upload untouched and never reach submission.
+    """
+    from litellm.proxy.mcp_source_broker.store import ContentConflict
+
+    uploads: list[tuple[str, bytes]] = []
+    submissions: list[NewMCPServerRequest] = []
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        submissions.append(request)
+
+    async def artifact(key: str, body: bytes) -> None:
+        uploads.append((key, body))
+
+    async def conflicting_enroll(*args: object, **kwargs: object) -> ContentConflict:
+        return ContentConflict(id=source.source_id)
+
+    monkeypatch_target = store
+    original = monkeypatch_target.enroll
+
+    async def enroll_with_conflict(value: SourceCreate, owner: str) -> ContentConflict:
+        del value, owner
+        return ContentConflict(id=source.source_id)
+
+    monkeypatch_target.enroll = enroll_with_conflict  # pyright: ignore[reportAttributeAccessIssue]  # functional test seam
+    try:
+        app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+            response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+    finally:
+        monkeypatch_target.enroll = original  # pyright: ignore[reportAttributeAccessIssue]  # functional test seam
+
+    assert response.status_code == 409
+    assert "different content" in response.json()["detail"]
+    assert uploads == [], "changed content must not overwrite the stored artifact"
+    assert submissions == [], "changed content must not be submitted for review"

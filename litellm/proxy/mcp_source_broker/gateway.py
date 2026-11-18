@@ -34,7 +34,7 @@ from litellm.proxy.client_distribution.storage import (
 from litellm.proxy.mcp_source_broker.keys import Keys
 from litellm.proxy.mcp_source_broker.models import SourceCreate, SourceEnrolled, TransportName
 from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_gateway_router
-from litellm.proxy.mcp_source_broker.store import Database, NotOwnerConflict, SourceStore
+from litellm.proxy.mcp_source_broker.store import ContentConflict, Database, NotOwnerConflict, SourceStore
 from litellm.proxy.utils import PrismaClient
 from litellm.types.mcp import MCPAuth, MCPTransport
 
@@ -133,6 +133,15 @@ def create_gateway_router(
         result: Final = await store.enroll(request, owner)
         if isinstance(result, NotOwnerConflict):
             raise HTTPException(409, "source owner or alias conflicts")
+        if isinstance(result, ContentConflict):
+            # The stored row kept its original target and catalog. Do not upload the
+            # new spec over the artifact an approved row already points at, and do
+            # not re-submit: changed content needs its own reviewed source.
+            raise HTTPException(
+                409,
+                "this source already exists with different content; "
+                "re-review requires a new alias or an explicit administrator change",
+            )
         await put_artifact(result.spec_path, request.spec.encode())
         registration: Final = NewMCPServerRequest(
             server_id=result.source_id,

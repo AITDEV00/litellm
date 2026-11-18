@@ -38,12 +38,28 @@ async def test_reenroll_same_catalog_is_idempotent(store: SourceStore, source: S
 
 
 @pytest.mark.asyncio
-async def test_reenroll_changed_catalog_resets_to_pending(store: SourceStore, source: SourceCreate) -> None:
-    await store.enroll(source, "alice")
+async def test_reenroll_changed_catalog_returns_conflict_and_keeps_the_stored_row(
+    store: SourceStore, source: SourceCreate
+) -> None:
+    """Changed content must not rewrite the row it collides with.
+
+    R5: the old behaviour updated the stored fingerprint/target and reset status to
+    pending *before* the gateway decided conflict vs resume, so a re-enroll could
+    repoint an approved source's artifact. Now the stored row is untouched and the
+    caller gets a conflict.
+    """
+    from litellm.proxy.mcp_source_broker.store import ContentConflict
+
+    stored = await store.enroll(source, "alice")
+    original_expected: Final = stored.expected
     revised: SourceCreate = source.model_copy(update={"spec": '{"openapi":"3.1.0","paths":{}}'})
     result = await store.enroll(revised, "alice")
-    assert result.expected == revised.fingerprint()
-    assert result.status == "pending"
+
+    assert isinstance(result, ContentConflict)
+    after = await store.source(source.source_id)
+    assert after is not None
+    assert after.expected == original_expected, "the stored catalog fingerprint must not change"
+    assert after.expected != revised.fingerprint()
     assert len(store.db.sources) == 1
 
 
@@ -90,13 +106,19 @@ async def test_select_persists_requested_transport(store: SourceStore, source: S
 
 
 @pytest.mark.asyncio
-async def test_reenroll_same_catalog_changes_target(store: SourceStore, source: SourceCreate) -> None:
+async def test_reenroll_changed_target_returns_conflict_and_keeps_the_original_target(
+    store: SourceStore, source: SourceCreate
+) -> None:
+    """A changed loopback target is changed content, so it must not repoint the row."""
+    from litellm.proxy.mcp_source_broker.store import ContentConflict
+
     await store.enroll(source, "alice")
     revised = source.model_copy(update={"target": source.target.model_copy(update={"port": 18082})})
     result = await store.enroll(revised, "alice")
-    assert result.target.port == 18082
+
+    assert isinstance(result, ContentConflict)
     stored = await store.source(source.source_id)
-    assert stored is not None and stored.target.port == 18082
+    assert stored is not None and stored.target.port == source.target.port
 
 
 @pytest.mark.asyncio

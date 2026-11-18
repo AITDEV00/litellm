@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from typing import Annotated, Final, cast
+from typing import TYPE_CHECKING, Annotated, Final, Protocol, cast
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -40,15 +40,12 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from litellm.proxy._types import LitellmUserRoles
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.client_distribution.storage import (
-    RustFSConfig,
-    create_s3_client,
+    create_s3_client,  # pyright: ignore[reportUnknownVariableType]  # optional boto3 stubs
     load_config_from_env,
 )
 
-try:  # optional at import time: the alias only exists when boto3 stubs are installed
-    from mypy_boto3_s3 import S3Client
-except ImportError:  # pragma: no cover - local venv without boto3 stubs
-    S3Client = object  # pyright: ignore[reportAssignmentType, reportInvalidTypeForm]  # stubless venv
+if TYPE_CHECKING:
+    from litellm.proxy.client_distribution.storage import RustFSConfig
 
 router: Final = APIRouter(tags=["install"])
 
@@ -102,9 +99,36 @@ class ReleaseDocument(BaseModel):
     size: int = 0
 
 
-def _storage() -> tuple[RustFSConfig, S3Client]:
+class _Body(Protocol):
+    def read(self) -> bytes: ...
+
+
+class _StoredObject(Protocol):
+    @property
+    def Body(self) -> _Body: ...
+
+    def __getitem__(self, key: str) -> _Body: ...
+
+    def get(self, key: str, default: object = ...) -> object: ...
+
+
+class _Store(Protocol):
+    """The S3 operations this slice uses, typed narrowly.
+
+    The real boto3 client is untyped here (its stubs are not installed in the
+    verification venv), so narrowing at this one boundary keeps the rest of the
+    module fully typed instead of carrying Unknown through every call.
+    """
+
+    def get_object(self, *, Bucket: str, Key: str) -> _StoredObject: ...
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> object: ...
+
+
+def _storage() -> tuple[RustFSConfig, _Store]:
     config: Final = load_config_from_env()
-    return config, create_s3_client(config)
+    client: Final = cast(_Store, create_s3_client(config))
+    return config, client
 
 
 def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -134,10 +158,10 @@ def _base_url(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
-async def _active_manifest(config: RustFSConfig, s3: S3Client) -> SourceAgentManifest:
+async def _active_manifest(config: RustFSConfig, s3: _Store) -> SourceAgentManifest:
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=MANIFEST_KEY)
-        raw: Final = cast(bytes, response["Body"].read())
+        raw: Final = response["Body"].read()
     except ClientError as exc:
         if _is_missing(exc):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no source-agent release published") from exc
@@ -148,7 +172,7 @@ async def _active_manifest(config: RustFSConfig, s3: S3Client) -> SourceAgentMan
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt source-agent manifest: {exc}") from exc
 
 
-async def _verified_release(config: RustFSConfig, s3: S3Client, manifest: SourceAgentManifest) -> ReleaseDocument:
+async def _verified_release(config: RustFSConfig, s3: _Store, manifest: SourceAgentManifest) -> ReleaseDocument:
     """Load a release's own ``release.json`` and check it agrees with the pointer.
 
     The pointer alone is not trusted: a mismatched version or digest between the
@@ -159,7 +183,7 @@ async def _verified_release(config: RustFSConfig, s3: S3Client, manifest: Source
         response = await asyncio.to_thread(
             s3.get_object, Bucket=config.bucket, Key=f"{AGENT_PREFIX}/{manifest.version}/release.json"
         )
-        raw: Final = cast(bytes, response["Body"].read())
+        raw: Final = response["Body"].read()
     except ClientError as exc:
         if _is_missing(exc):
             raise HTTPException(
@@ -189,7 +213,7 @@ async def _render_installer(request: Request, manifest: SourceAgentManifest) -> 
     config, s3 = _storage()
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=TEMPLATE_KEY)
-        template: Final = cast(bytes, response["Body"].read()).decode("utf-8")
+        template: Final = response["Body"].read().decode("utf-8")
     except ClientError as exc:
         if _is_missing(exc):
             raise HTTPException(
@@ -245,14 +269,15 @@ async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="release asset not found") from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
     content_type: Final = "application/json" if asset == "release.json" else "application/octet-stream"
+    body: Final = response["Body"].read()
     return StreamingResponse(
-        content=response["Body"],
+        content=iter((body,)),
         media_type=content_type,
-        headers={"Content-Length": str(response.get("ContentLength", 0))},
+        headers={"Content-Length": str(len(body))},
     )
 
 
-async def _read_optional(config: RustFSConfig, s3: S3Client) -> tuple[bytes, str]:
+async def _read_optional(config: RustFSConfig, s3: _Store) -> tuple[bytes, str]:
     """Current pointer bytes plus a stable concurrency token.
 
     RustFS ETags can be opaque, so the token is the digest of the bytes we read.
@@ -262,7 +287,7 @@ async def _read_optional(config: RustFSConfig, s3: S3Client) -> tuple[bytes, str
     """
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=MANIFEST_KEY)
-        raw: Final = cast(bytes, response["Body"].read())
+        raw: Final = response["Body"].read()
         return raw, hashlib.sha256(raw).hexdigest()
     except ClientError as exc:
         if _is_missing(exc):
@@ -270,11 +295,11 @@ async def _read_optional(config: RustFSConfig, s3: S3Client) -> tuple[bytes, str
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
 
 
-async def _head_digest(config: RustFSConfig, s3: S3Client, key: str) -> str | None:
+async def _head_digest(config: RustFSConfig, s3: _Store, key: str) -> str | None:
     """The digest of an already-stored object, or None when it is absent."""
     try:
         response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
-        raw: Final = cast(bytes, response["Body"].read())
+        raw: Final = response["Body"].read()
         return hashlib.sha256(raw).hexdigest()
     except ClientError as exc:
         if _is_missing(exc):

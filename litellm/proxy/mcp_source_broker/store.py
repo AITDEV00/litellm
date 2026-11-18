@@ -80,6 +80,18 @@ class NotOwnerConflict:
     id: str
 
 
+@dataclass(frozen=True)
+class ContentConflict:
+    """An existing source was re-enrolled with different content.
+
+    The stored row keeps its original target and catalog fingerprint. Re-review of
+    changed content is a deliberate, separate act; a retry must not achieve it by
+    silently overwriting the artifact an already-approved row points at.
+    """
+
+    id: str
+
+
 class PermissionDenied(Exception):
     pass
 
@@ -167,7 +179,7 @@ class SourceStore:
         )
         return rows[0] if rows else None
 
-    async def enroll(self, value: SourceCreate, owner: str) -> SourceRecord | NotOwnerConflict:
+    async def enroll(self, value: SourceCreate, owner: str) -> SourceRecord | NotOwnerConflict | ContentConflict:
         if value.owner != owner:
             raise PermissionDenied("source owner mismatch")
         sid: Final = value.source_id_for(owner, value.alias)
@@ -182,6 +194,14 @@ class SourceStore:
                 return found[0]
             if found and found[0].tenant != owner:
                 return NotOwnerConflict(id=sid)
+            if found:
+                # An identical re-enroll is idempotent and returns the stored row.
+                # Anything else is changed content, and it must not touch the row:
+                # rewriting target/fingerprint here would repoint an approved
+                # source's artifact before the gateway ever made its conflict
+                # decision, so a pending retry could silently swap what an
+                # approved row serves.
+                return ContentConflict(id=sid)
             row: Final = SQLRow(
                 source_id=sid,
                 tenant=owner,
@@ -199,16 +219,6 @@ class SourceStore:
                 status="pending",
                 revision=1,
             )
-            if found:
-                await tx.execute_raw(
-                    'UPDATE "OicmMcpSource" SET target_host=$2,target_port=$3,expected=$4,status=$5 WHERE source_id=$1',
-                    row.source_id,
-                    row.target_host,
-                    row.target_port,
-                    row.expected,
-                    "pending",
-                )
-                return row.value()
             await tx.execute_raw(
                 'INSERT INTO "OicmMcpSource" (' + SOURCE_COLUMNS + ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
                 row.source_id,
