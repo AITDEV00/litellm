@@ -39,7 +39,7 @@ const dialTimeout = 15 * time.Second
 
 // Capabilities is the capability set this connector build implements. The
 // broker gates each pushed RPC on this list.
-var Capabilities = []string{"execute", "probe"}
+var Capabilities = []string{"execute", "execute_stream", "probe"}
 
 // DialTarget converts the public HTTPS gateway URL into the host:port form
 // gRPC requires, applying 443 when the URL omits a port. Passing the raw URL
@@ -193,6 +193,59 @@ func (d *Server) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (
 		}
 	}
 	return &dispatchpb.DispatchResponse{Status: int32(resp.StatusCode), Headers: headers, Body: body}, nil
+}
+
+// ExecuteStream runs one dispatched request against the origin and relays the
+// origin response body to the caller as it arrives, instead of reading it whole
+// first. The first message carries status and headers; each later message
+// carries one body chunk. A streaming MCP client therefore sees bytes as the
+// origin produces them, so an SSE or streamable-http response is not held until
+// the origin closes.
+func (d *Server) ExecuteStream(req *dispatchpb.DispatchRequest, stream dispatchpb.DispatchService_ExecuteStreamServer) error {
+	if len(req.Body) > wire.MaxOriginBody {
+		return status.Error(codes.ResourceExhausted, "request body exceeds the dispatch limit")
+	}
+	target := url.URL{Scheme: "http", Host: d.authority, Path: req.Path, RawQuery: req.Query}
+	httpReq, err := http.NewRequestWithContext(stream.Context(), req.Method, target.String(), bytes.NewReader(req.Body))
+	if err != nil {
+		return err
+	}
+	for _, header := range req.Headers {
+		httpReq.Header.Add(header.Name, header.Value)
+	}
+	resp, err := d.origin.RoundTrip(httpReq)
+	if err != nil {
+		logConnectorError("connector origin execute failure", &d.roundTripErrors, err)
+		return err
+	}
+	defer resp.Body.Close()
+	headers := make([]*dispatchpb.Header, 0, len(resp.Header))
+	for name, values := range resp.Header {
+		for _, value := range values {
+			headers = append(headers, &dispatchpb.Header{Name: name, Value: value})
+		}
+	}
+	if err := stream.Send(&dispatchpb.DispatchResponseChunk{Status: int32(resp.StatusCode), Headers: headers}); err != nil {
+		return err
+	}
+	buffer := make([]byte, wire.StreamChunk)
+	for {
+		n, readErr := resp.Body.Read(buffer)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buffer[:n])
+			if err := stream.Send(&dispatchpb.DispatchResponseChunk{Body: chunk}); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			logConnectorError("connector origin response read failure", &d.readErrors, readErr)
+			return readErr
+		}
+	}
 }
 
 // RunTunnel is the tunnel transport's reconnect loop: dial the broker with

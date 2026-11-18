@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc"
 
 	"oicm-litellm-layer/mcp-source-link/dispatchpb"
 )
@@ -141,7 +144,7 @@ func TestAdmitReportsImplementedCapabilities(t *testing.T) {
 	for _, capability := range resp.Capabilities {
 		advertised[capability] = true
 	}
-	for _, required := range []string{"execute", "probe"} {
+	for _, required := range []string{"execute", "execute_stream", "probe"} {
 		if !advertised[required] {
 			t.Fatalf("missing capability %q", required)
 		}
@@ -178,5 +181,73 @@ func TestExecuteSendsHostPortAsOriginHostHeader(t *testing.T) {
 	}
 	if seenHost != "127.0.0.1:18203" {
 		t.Fatalf("origin saw Host %q, want 127.0.0.1:18203", seenHost)
+	}
+}
+
+// fakeStream collects the chunks ExecuteStream sends and signals each one so a
+// test can observe incremental delivery.
+type fakeStream struct {
+	grpc.ServerStream
+	sent chan *dispatchpb.DispatchResponseChunk
+}
+
+func (s *fakeStream) Send(chunk *dispatchpb.DispatchResponseChunk) error {
+	s.sent <- chunk
+	return nil
+}
+
+func (s *fakeStream) Context() context.Context { return context.Background() }
+
+// ExecuteStream must send status and headers first, then the body in chunks as
+// the origin produces them, so a client sees the first bytes before the origin
+// closes its body.
+func TestExecuteStreamSendsHeadersThenChunksIncrementally(t *testing.T) {
+	releaseSecond := make(chan struct{})
+	origin := originRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		reader, writer := io.Pipe()
+		go func() {
+			_, _ = writer.Write([]byte("first"))
+			<-releaseSecond
+			_, _ = writer.Write([]byte("second"))
+			_ = writer.Close()
+		}()
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Test": {"1"}}, Body: reader}, nil
+	})
+	server := NewServer(origin, "127.0.0.1", "mcp", "")
+	stream := &fakeStream{sent: make(chan *dispatchpb.DispatchResponseChunk, 8)}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.ExecuteStream(&dispatchpb.DispatchRequest{Method: http.MethodGet, Path: "/events"}, stream)
+	}()
+
+	head := receiveChunk(t, stream.sent)
+	if head.Status != http.StatusOK || len(head.Headers) == 0 {
+		t.Fatalf("first chunk must carry status and headers, got status=%d headers=%d", head.Status, len(head.Headers))
+	}
+	first := receiveChunk(t, stream.sent)
+	if string(first.Body) != "first" {
+		t.Fatalf("first body chunk = %q, want %q before the origin closes", first.Body, "first")
+	}
+
+	close(releaseSecond)
+	second := receiveChunk(t, stream.sent)
+	if string(second.Body) != "second" {
+		t.Fatalf("second body chunk = %q, want %q", second.Body, "second")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("ExecuteStream returned %v, want nil after body close", err)
+	}
+}
+
+// receiveChunk waits for the next streamed chunk, failing if none arrives.
+func receiveChunk(t *testing.T, sent <-chan *dispatchpb.DispatchResponseChunk) *dispatchpb.DispatchResponseChunk {
+	t.Helper()
+	select {
+	case chunk := <-sent:
+		return chunk
+	case <-time.After(5 * time.Second):
+		t.Fatal("no chunk arrived")
+		return nil
 	}
 }

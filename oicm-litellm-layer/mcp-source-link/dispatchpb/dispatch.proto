@@ -34,6 +34,15 @@ service DispatchService {
   // Execute performs one HTTP round trip against the connector's loopback
   // origin. The per-RPC deadline and cancellation ride the gRPC context.
   rpc Execute(DispatchRequest) returns (DispatchResponse);
+
+  // ExecuteStream performs the same round trip but streams the origin response
+  // body back as it arrives instead of buffering it whole. The first message
+  // carries the status and headers; every subsequent message carries one body
+  // chunk; the stream ends when the origin body closes. A streaming MCP client
+  // (SSE, streamable-http) sees bytes as the origin produces them, not after
+  // the whole body has been read. A connector that does not implement this
+  // answers Unimplemented and the broker falls back to Execute.
+  rpc ExecuteStream(DispatchRequest) returns (stream DispatchResponseChunk);
 }
 
 message AdmitRequest {
@@ -84,6 +93,20 @@ message DispatchResponse {
   // Origin response headers.
   repeated Header headers = 2;
   // Origin response body; oversize bodies fail the RPC with ResourceExhausted.
+  bytes body = 3;
+}
+
+// DispatchResponseChunk is one message in an ExecuteStream response. The first
+// message of the stream carries status and headers with no body; later messages
+// carry body bytes only. Keeping the envelope identical to DispatchResponse's
+// fields lets a reader build the same http.Response it would from a unary
+// Execute, one chunk at a time.
+message DispatchResponseChunk {
+  // Origin HTTP status code. Present on the first message of the stream.
+  int32 status = 1;
+  // Origin response headers. Present on the first message of the stream.
+  repeated Header headers = 2;
+  // One chunk of origin body bytes. Empty on the first (headers-only) message.
   bytes body = 3;
 }
 

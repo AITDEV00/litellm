@@ -35,6 +35,13 @@ const (
 	// carries. The tunnel sends protobuf bytes verbatim, so this is the only
 	// cap on a single payload.
 	MaxOriginBody = 760 << 10
+
+	// StreamChunk sizes one ExecuteStream body message. A streamed response is
+	// not capped in total size: it is bounded by ResponseDeadline instead, so a
+	// long-lived SSE body can keep flowing. This cap only bounds a single
+	// message so one chunk cannot grow the relay's per-write buffer without
+	// limit.
+	StreamChunk = 64 << 10
 )
 
 // StripFramingHeaders are response headers that describe the original

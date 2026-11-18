@@ -127,7 +127,8 @@ func (r *Runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID
 			resp.Header.Del("Set-Cookie")
 			return nil
 		},
-		Transport: m,
+		Transport:     m,
+		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			http.Error(w, "source upstream unavailable", http.StatusBadGateway)
 		},

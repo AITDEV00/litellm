@@ -154,7 +154,83 @@ func (m *Member) RoundTrip(req *http.Request) (*http.Response, error) {
 		Body:    body,
 	}
 	ctx, cancel := context.WithTimeout(req.Context(), ResponseDeadline)
-	defer cancel()
+	if !m.Capable("execute_stream") {
+		defer cancel()
+		return m.roundTripUnary(ctx, request)
+	}
+	stream, err := m.stub.ExecuteStream(ctx, request)
+	if err != nil {
+		cancel()
+		count := m.errorCount.Add(1)
+		if count <= 3 || count%1000 == 0 {
+			log.Printf("tunnel execute failure worker=%s count=%d: %v", m.ID(), count, err)
+		}
+		return nil, err
+	}
+	first, err := stream.Recv()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	header := make(http.Header)
+	for _, h := range first.Headers {
+		header.Add(h.Name, h.Value)
+	}
+	for _, name := range wire.StripFramingHeaders {
+		header.Del(name)
+	}
+	bodyReader, bodyWriter := io.Pipe()
+	go func() {
+		defer cancel()
+		bodyWriter.CloseWithError(m.drainStream(stream, bodyWriter))
+	}()
+	return &http.Response{
+		Status:     strconv.Itoa(int(first.Status)),
+		StatusCode: int(first.Status),
+		Header:     header,
+		Body:       &cancelingBody{ReadCloser: bodyReader, cancel: cancel},
+	}, nil
+}
+
+// cancelingBody cancels the ExecuteStream context when the relay closes the
+// response early, so the connector stops reading the origin.
+type cancelingBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelingBody) Close() error {
+	_ = b.ReadCloser.Close()
+	b.cancel()
+	return nil
+}
+
+// drainStream copies body chunks from a started ExecuteStream into w until the
+// stream ends or fails, so the relay's reverse proxy can deliver them as they
+// arrive instead of after the whole body is buffered.
+func (m *Member) drainStream(stream dispatchpb.DispatchService_ExecuteStreamClient, w *io.PipeWriter) error {
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(chunk.Body) == 0 {
+			continue
+		}
+		if _, writeErr := w.Write(chunk.Body); writeErr != nil {
+			return writeErr
+		}
+	}
+}
+
+// roundTripUnary is the buffered fallback for a connector that predates
+// ExecuteStream. It reads the whole origin body through a unary Execute, so a
+// streaming origin is fully buffered here; it exists only so an older connector
+// keeps working, and a connector that advertises execute_stream never uses it.
+func (m *Member) roundTripUnary(ctx context.Context, request *dispatchpb.DispatchRequest) (*http.Response, error) {
 	resp, err := m.stub.Execute(ctx, request)
 	if err != nil {
 		count := m.errorCount.Add(1)

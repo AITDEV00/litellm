@@ -34,7 +34,7 @@ spec:
             - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
         - name: source-link
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5-dev5
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5-dev6
           imagePullPolicy: Always
           command: ["/source-link", "worker"]
           env:

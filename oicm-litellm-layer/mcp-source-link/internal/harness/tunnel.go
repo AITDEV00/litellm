@@ -123,12 +123,6 @@ func selfSignedCert(t *testing.T) (tls.Certificate, string) {
 // context ends, mirroring the shipped reconnect loop.
 func RunTunnelConnector(ctx context.Context, t *testing.T, target string, p config.Peer, origin *http.Transport) {
 	t.Helper()
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Errorf("connector dial failed: %v", err)
-		return
-	}
-	t.Cleanup(func() { _ = conn.Close() })
 	if origin == nil {
 		origin = &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -138,6 +132,19 @@ func RunTunnelConnector(ctx context.Context, t *testing.T, target string, p conf
 		}
 		t.Cleanup(origin.CloseIdleConnections)
 	}
+	RunTunnelConnectorWithTransport(ctx, t, target, p, origin)
+}
+
+// RunTunnelConnectorWithTransport connects one connector over an arbitrary origin
+// round tripper, so a test can hand it a streaming or faulting origin.
+func RunTunnelConnectorWithTransport(ctx context.Context, t *testing.T, target string, p config.Peer, origin http.RoundTripper) {
+	t.Helper()
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Errorf("connector dial failed: %v", err)
+		return
+	}
+	t.Cleanup(func() { _ = conn.Close() })
 	server := connector.NewServer(origin, authorityOf(t, p.Target), p.Kind, "")
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
 	dispatchpb.RegisterDispatchServiceServer(tunnelServer, server)

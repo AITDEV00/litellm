@@ -378,6 +378,74 @@ func (x *DispatchResponse) GetBody() []byte {
 	return nil
 }
 
+// DispatchResponseChunk is one message in an ExecuteStream response. The first
+// message of the stream carries status and headers with no body; later messages
+// carry body bytes only. Keeping the envelope identical to DispatchResponse's
+// fields lets a reader build the same http.Response it would from a unary
+// Execute, one chunk at a time.
+type DispatchResponseChunk struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Origin HTTP status code. Present on the first message of the stream.
+	Status int32 `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	// Origin response headers. Present on the first message of the stream.
+	Headers []*Header `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty"`
+	// One chunk of origin body bytes. Empty on the first (headers-only) message.
+	Body          []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DispatchResponseChunk) Reset() {
+	*x = DispatchResponseChunk{}
+	mi := &file_dispatchpb_dispatch_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchResponseChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchResponseChunk) ProtoMessage() {}
+
+func (x *DispatchResponseChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_dispatchpb_dispatch_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchResponseChunk.ProtoReflect.Descriptor instead.
+func (*DispatchResponseChunk) Descriptor() ([]byte, []int) {
+	return file_dispatchpb_dispatch_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DispatchResponseChunk) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *DispatchResponseChunk) GetHeaders() []*Header {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *DispatchResponseChunk) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
 type Header struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -388,7 +456,7 @@ type Header struct {
 
 func (x *Header) Reset() {
 	*x = Header{}
-	mi := &file_dispatchpb_dispatch_proto_msgTypes[6]
+	mi := &file_dispatchpb_dispatch_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -400,7 +468,7 @@ func (x *Header) String() string {
 func (*Header) ProtoMessage() {}
 
 func (x *Header) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatchpb_dispatch_proto_msgTypes[6]
+	mi := &file_dispatchpb_dispatch_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,7 +481,7 @@ func (x *Header) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Header.ProtoReflect.Descriptor instead.
 func (*Header) Descriptor() ([]byte, []int) {
-	return file_dispatchpb_dispatch_proto_rawDescGZIP(), []int{6}
+	return file_dispatchpb_dispatch_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Header) GetName() string {
@@ -453,14 +521,19 @@ const file_dispatchpb_dispatch_proto_rawDesc = "" +
 	"\x10DispatchResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12>\n" +
 	"\aheaders\x18\x02 \x03(\v2$.mcp.sourcebroker.dispatch.v1.HeaderR\aheaders\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\"\x83\x01\n" +
+	"\x15DispatchResponseChunk\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\x12>\n" +
+	"\aheaders\x18\x02 \x03(\v2$.mcp.sourcebroker.dispatch.v1.HeaderR\aheaders\x12\x12\n" +
 	"\x04body\x18\x03 \x01(\fR\x04body\"2\n" +
 	"\x06Header\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value2\xbf\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value2\xb6\x03\n" +
 	"\x0fDispatchService\x12`\n" +
 	"\x05Admit\x12*.mcp.sourcebroker.dispatch.v1.AdmitRequest\x1a+.mcp.sourcebroker.dispatch.v1.AdmitResponse\x12`\n" +
 	"\x05Probe\x12*.mcp.sourcebroker.dispatch.v1.ProbeRequest\x1a+.mcp.sourcebroker.dispatch.v1.ProbeResponse\x12h\n" +
-	"\aExecute\x12-.mcp.sourcebroker.dispatch.v1.DispatchRequest\x1a..mcp.sourcebroker.dispatch.v1.DispatchResponseB/Z-oicm-litellm-layer/mcp-source-link/dispatchpbb\x06proto3"
+	"\aExecute\x12-.mcp.sourcebroker.dispatch.v1.DispatchRequest\x1a..mcp.sourcebroker.dispatch.v1.DispatchResponse\x12u\n" +
+	"\rExecuteStream\x12-.mcp.sourcebroker.dispatch.v1.DispatchRequest\x1a3.mcp.sourcebroker.dispatch.v1.DispatchResponseChunk0\x01B/Z-oicm-litellm-layer/mcp-source-link/dispatchpbb\x06proto3"
 
 var (
 	file_dispatchpb_dispatch_proto_rawDescOnce sync.Once
@@ -474,30 +547,34 @@ func file_dispatchpb_dispatch_proto_rawDescGZIP() []byte {
 	return file_dispatchpb_dispatch_proto_rawDescData
 }
 
-var file_dispatchpb_dispatch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_dispatchpb_dispatch_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_dispatchpb_dispatch_proto_goTypes = []any{
-	(*AdmitRequest)(nil),     // 0: mcp.sourcebroker.dispatch.v1.AdmitRequest
-	(*AdmitResponse)(nil),    // 1: mcp.sourcebroker.dispatch.v1.AdmitResponse
-	(*ProbeRequest)(nil),     // 2: mcp.sourcebroker.dispatch.v1.ProbeRequest
-	(*ProbeResponse)(nil),    // 3: mcp.sourcebroker.dispatch.v1.ProbeResponse
-	(*DispatchRequest)(nil),  // 4: mcp.sourcebroker.dispatch.v1.DispatchRequest
-	(*DispatchResponse)(nil), // 5: mcp.sourcebroker.dispatch.v1.DispatchResponse
-	(*Header)(nil),           // 6: mcp.sourcebroker.dispatch.v1.Header
+	(*AdmitRequest)(nil),          // 0: mcp.sourcebroker.dispatch.v1.AdmitRequest
+	(*AdmitResponse)(nil),         // 1: mcp.sourcebroker.dispatch.v1.AdmitResponse
+	(*ProbeRequest)(nil),          // 2: mcp.sourcebroker.dispatch.v1.ProbeRequest
+	(*ProbeResponse)(nil),         // 3: mcp.sourcebroker.dispatch.v1.ProbeResponse
+	(*DispatchRequest)(nil),       // 4: mcp.sourcebroker.dispatch.v1.DispatchRequest
+	(*DispatchResponse)(nil),      // 5: mcp.sourcebroker.dispatch.v1.DispatchResponse
+	(*DispatchResponseChunk)(nil), // 6: mcp.sourcebroker.dispatch.v1.DispatchResponseChunk
+	(*Header)(nil),                // 7: mcp.sourcebroker.dispatch.v1.Header
 }
 var file_dispatchpb_dispatch_proto_depIdxs = []int32{
-	6, // 0: mcp.sourcebroker.dispatch.v1.DispatchRequest.headers:type_name -> mcp.sourcebroker.dispatch.v1.Header
-	6, // 1: mcp.sourcebroker.dispatch.v1.DispatchResponse.headers:type_name -> mcp.sourcebroker.dispatch.v1.Header
-	0, // 2: mcp.sourcebroker.dispatch.v1.DispatchService.Admit:input_type -> mcp.sourcebroker.dispatch.v1.AdmitRequest
-	2, // 3: mcp.sourcebroker.dispatch.v1.DispatchService.Probe:input_type -> mcp.sourcebroker.dispatch.v1.ProbeRequest
-	4, // 4: mcp.sourcebroker.dispatch.v1.DispatchService.Execute:input_type -> mcp.sourcebroker.dispatch.v1.DispatchRequest
-	1, // 5: mcp.sourcebroker.dispatch.v1.DispatchService.Admit:output_type -> mcp.sourcebroker.dispatch.v1.AdmitResponse
-	3, // 6: mcp.sourcebroker.dispatch.v1.DispatchService.Probe:output_type -> mcp.sourcebroker.dispatch.v1.ProbeResponse
-	5, // 7: mcp.sourcebroker.dispatch.v1.DispatchService.Execute:output_type -> mcp.sourcebroker.dispatch.v1.DispatchResponse
-	5, // [5:8] is the sub-list for method output_type
-	2, // [2:5] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	7, // 0: mcp.sourcebroker.dispatch.v1.DispatchRequest.headers:type_name -> mcp.sourcebroker.dispatch.v1.Header
+	7, // 1: mcp.sourcebroker.dispatch.v1.DispatchResponse.headers:type_name -> mcp.sourcebroker.dispatch.v1.Header
+	7, // 2: mcp.sourcebroker.dispatch.v1.DispatchResponseChunk.headers:type_name -> mcp.sourcebroker.dispatch.v1.Header
+	0, // 3: mcp.sourcebroker.dispatch.v1.DispatchService.Admit:input_type -> mcp.sourcebroker.dispatch.v1.AdmitRequest
+	2, // 4: mcp.sourcebroker.dispatch.v1.DispatchService.Probe:input_type -> mcp.sourcebroker.dispatch.v1.ProbeRequest
+	4, // 5: mcp.sourcebroker.dispatch.v1.DispatchService.Execute:input_type -> mcp.sourcebroker.dispatch.v1.DispatchRequest
+	4, // 6: mcp.sourcebroker.dispatch.v1.DispatchService.ExecuteStream:input_type -> mcp.sourcebroker.dispatch.v1.DispatchRequest
+	1, // 7: mcp.sourcebroker.dispatch.v1.DispatchService.Admit:output_type -> mcp.sourcebroker.dispatch.v1.AdmitResponse
+	3, // 8: mcp.sourcebroker.dispatch.v1.DispatchService.Probe:output_type -> mcp.sourcebroker.dispatch.v1.ProbeResponse
+	5, // 9: mcp.sourcebroker.dispatch.v1.DispatchService.Execute:output_type -> mcp.sourcebroker.dispatch.v1.DispatchResponse
+	6, // 10: mcp.sourcebroker.dispatch.v1.DispatchService.ExecuteStream:output_type -> mcp.sourcebroker.dispatch.v1.DispatchResponseChunk
+	7, // [7:11] is the sub-list for method output_type
+	3, // [3:7] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_dispatchpb_dispatch_proto_init() }
@@ -511,7 +588,7 @@ func file_dispatchpb_dispatch_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dispatchpb_dispatch_proto_rawDesc), len(file_dispatchpb_dispatch_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

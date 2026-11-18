@@ -36,9 +36,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DispatchService_Admit_FullMethodName   = "/mcp.sourcebroker.dispatch.v1.DispatchService/Admit"
-	DispatchService_Probe_FullMethodName   = "/mcp.sourcebroker.dispatch.v1.DispatchService/Probe"
-	DispatchService_Execute_FullMethodName = "/mcp.sourcebroker.dispatch.v1.DispatchService/Execute"
+	DispatchService_Admit_FullMethodName         = "/mcp.sourcebroker.dispatch.v1.DispatchService/Admit"
+	DispatchService_Probe_FullMethodName         = "/mcp.sourcebroker.dispatch.v1.DispatchService/Probe"
+	DispatchService_Execute_FullMethodName       = "/mcp.sourcebroker.dispatch.v1.DispatchService/Execute"
+	DispatchService_ExecuteStream_FullMethodName = "/mcp.sourcebroker.dispatch.v1.DispatchService/ExecuteStream"
 )
 
 // DispatchServiceClient is the client API for DispatchService service.
@@ -57,6 +58,14 @@ type DispatchServiceClient interface {
 	// Execute performs one HTTP round trip against the connector's loopback
 	// origin. The per-RPC deadline and cancellation ride the gRPC context.
 	Execute(ctx context.Context, in *DispatchRequest, opts ...grpc.CallOption) (*DispatchResponse, error)
+	// ExecuteStream performs the same round trip but streams the origin response
+	// body back as it arrives instead of buffering it whole. The first message
+	// carries the status and headers; every subsequent message carries one body
+	// chunk; the stream ends when the origin body closes. A streaming MCP client
+	// (SSE, streamable-http) sees bytes as the origin produces them, not after
+	// the whole body has been read. A connector that does not implement this
+	// answers Unimplemented and the broker falls back to Execute.
+	ExecuteStream(ctx context.Context, in *DispatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DispatchResponseChunk], error)
 }
 
 type dispatchServiceClient struct {
@@ -97,6 +106,25 @@ func (c *dispatchServiceClient) Execute(ctx context.Context, in *DispatchRequest
 	return out, nil
 }
 
+func (c *dispatchServiceClient) ExecuteStream(ctx context.Context, in *DispatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DispatchResponseChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DispatchService_ServiceDesc.Streams[0], DispatchService_ExecuteStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DispatchRequest, DispatchResponseChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DispatchService_ExecuteStreamClient = grpc.ServerStreamingClient[DispatchResponseChunk]
+
 // DispatchServiceServer is the server API for DispatchService service.
 // All implementations must embed UnimplementedDispatchServiceServer
 // for forward compatibility.
@@ -113,6 +141,14 @@ type DispatchServiceServer interface {
 	// Execute performs one HTTP round trip against the connector's loopback
 	// origin. The per-RPC deadline and cancellation ride the gRPC context.
 	Execute(context.Context, *DispatchRequest) (*DispatchResponse, error)
+	// ExecuteStream performs the same round trip but streams the origin response
+	// body back as it arrives instead of buffering it whole. The first message
+	// carries the status and headers; every subsequent message carries one body
+	// chunk; the stream ends when the origin body closes. A streaming MCP client
+	// (SSE, streamable-http) sees bytes as the origin produces them, not after
+	// the whole body has been read. A connector that does not implement this
+	// answers Unimplemented and the broker falls back to Execute.
+	ExecuteStream(*DispatchRequest, grpc.ServerStreamingServer[DispatchResponseChunk]) error
 	mustEmbedUnimplementedDispatchServiceServer()
 }
 
@@ -131,6 +167,9 @@ func (UnimplementedDispatchServiceServer) Probe(context.Context, *ProbeRequest) 
 }
 func (UnimplementedDispatchServiceServer) Execute(context.Context, *DispatchRequest) (*DispatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Execute not implemented")
+}
+func (UnimplementedDispatchServiceServer) ExecuteStream(*DispatchRequest, grpc.ServerStreamingServer[DispatchResponseChunk]) error {
+	return status.Errorf(codes.Unimplemented, "method ExecuteStream not implemented")
 }
 func (UnimplementedDispatchServiceServer) mustEmbedUnimplementedDispatchServiceServer() {}
 func (UnimplementedDispatchServiceServer) testEmbeddedByValue()                         {}
@@ -207,6 +246,17 @@ func _DispatchService_Execute_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DispatchService_ExecuteStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DispatchRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DispatchServiceServer).ExecuteStream(m, &grpc.GenericServerStream[DispatchRequest, DispatchResponseChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DispatchService_ExecuteStreamServer = grpc.ServerStreamingServer[DispatchResponseChunk]
+
 // DispatchService_ServiceDesc is the grpc.ServiceDesc for DispatchService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -227,6 +277,12 @@ var DispatchService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DispatchService_Execute_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ExecuteStream",
+			Handler:       _DispatchService_ExecuteStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "dispatchpb/dispatch.proto",
 }
