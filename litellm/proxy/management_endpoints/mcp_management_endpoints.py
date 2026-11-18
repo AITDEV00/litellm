@@ -748,6 +748,27 @@ if MCP_AVAILABLE:
         """
         return user_api_key_dict.user_role == LitellmUserRoles.PROXY_ADMIN
 
+    def owner_may_mutate(server: LiteLLM_MCPServerTable, user_api_key_dict: UserAPIKeyAuth) -> bool:
+        """Whether the caller may edit or delete this MCP server.
+
+        Admins may act on anything. A non-admin may act only on their own
+        submission while it is still pending review or has been rejected. An
+        active row is admin-only even for the user who submitted it: once it
+        serves traffic, changing it is a privilege decision, not a correction.
+
+        One predicate in one place, used by PUT /v1/mcp/server and
+        DELETE /v1/mcp/server/{server_id}.
+        """
+        if _user_is_full_admin(user_api_key_dict):
+            return True
+        caller: Final = user_api_key_dict.user_id
+        if not caller or server.submitted_by != caller:
+            return False
+        return server.approval_status in (
+            MCPApprovalStatus.pending_review,
+            MCPApprovalStatus.rejected,
+        )
+
     def _resolve_credential_target_user_id(user_api_key_dict: UserAPIKeyAuth, requested_user_id: str | None) -> str:
         """The user whose stored MCP credential a request acts on.
 
@@ -2605,16 +2626,19 @@ if MCP_AVAILABLE:
             "Database not connected. Connect a database to your proxy - https://docs.litellm.ai/docs/simple_proxy#managing-auth---virtual-keys"
         )
 
-        # Authz - restrict only admins to delete mcp servers
-        if LitellmUserRoles.PROXY_ADMIN != user_api_key_dict.user_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "Call not allowed to delete MCP server. User is not a proxy admin. route={}".format(
-                        "DELETE /v1/mcp/server"
-                    )
-                },
-            )
+        # Authz: admins may delete anything and keep flowing through so a missing
+        # row still returns 404. A non-admin may delete only their own pending or
+        # rejected submission; the row has to be read first to know whose it is.
+        if not _user_is_full_admin(user_api_key_dict):
+            existing: Final = await get_mcp_server(prisma_client, server_id)
+            if existing is not None and not owner_may_mutate(existing, user_api_key_dict):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "Call not allowed to delete MCP server. User is not a proxy admin and does not own "
+                        "this pending submission. route={}".format("DELETE /v1/mcp/server")
+                    },
+                )
 
         # try to delete the mcp server
         mcp_server_record_deleted: Final = await delete_mcp_server(prisma_client, server_id)
@@ -3224,17 +3248,6 @@ if MCP_AVAILABLE:
         # Validate and normalize payload fields
         validate_and_normalize_mcp_server_payload(payload)
 
-        # Authz - restrict only admins to delete mcp servers
-        if LitellmUserRoles.PROXY_ADMIN != user_api_key_dict.user_role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "Call not allowed to update MCP server. User is not a proxy admin. route={}".format(
-                        "PUT /v1/mcp/server"
-                    )
-                },
-            )
-
         # Snapshot stored configuration for protocol validation and mint-relevant changes below.
         # Protocol or transport edits require this read; other edits may continue on read failure
         # while skipping the best-effort stale-token purge.
@@ -3249,6 +3262,21 @@ if MCP_AVAILABLE:
             )
             old_server_record = None
             old_server_record_read_failed = True
+
+        # Authz: admins may edit anything. A non-admin is confined to their own
+        # pending or rejected submission, and is refused here rather than later.
+        # Admins keep flowing through so a missing or unreadable row still
+        # produces the 404 the endpoint has always returned.
+        if not _user_is_full_admin(user_api_key_dict) and (
+            old_server_record is None or not owner_may_mutate(old_server_record, user_api_key_dict)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "Call not allowed to update MCP server. User is not a proxy admin and does not own this "
+                    "pending submission. route={}".format("PUT /v1/mcp/server")
+                },
+            )
 
         _validate_mcp_protocol_update(payload, payload_fields_set, old_server_record, old_server_record_read_failed)
 
