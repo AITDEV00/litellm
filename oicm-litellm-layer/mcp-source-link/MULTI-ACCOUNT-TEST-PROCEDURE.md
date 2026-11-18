@@ -134,28 +134,28 @@ Success: the assistant confirms each answers. The two REST services serve
 `/openapi.json`; the two MCP services answer `initialize` then `tools/list` on
 `/mcp`.
 
-The two MCP services have no `/openapi.json`, so before registering them the
-assistant writes a minimal catalog for each that describes the `/mcp` POST. These
-are the spec files the source step will point at:
-
-```
-/tmp/test/spec-inventory-mcp.json   # paths: {"/mcp": {"post": ...}}
-/tmp/test/spec-orders-mcp.json
-```
+A source has a kind. The REST services are `openapi` sources and need their
+`/openapi.json` document. The MCP services are `mcp` sources and need no catalog:
+the source points straight at the MCP path and the broker talks MCP to it. So
+nothing needs to be written for the MCP pair.
 
 ## Phase 4: register the four sources
 
-You run these. The REST sources use their real OpenAPI documents; the MCP sources
-use the minimal catalogs from Phase 3. Two sources go under `alpha`, two under
-`beta`, so a later phase can compare them. No command here re-prompts for a
-password: each reuses the selected account's stored key.
+You run these. The REST sources pass `--kind openapi` with their real OpenAPI
+document; the MCP sources pass `--kind mcp` and the MCP path (`/mcp` by default,
+so `--path` is only needed for a different path). Two sources go under `alpha`,
+two under `beta`, so a later phase can compare them. No command here re-prompts
+for a password: each reuses the selected account's stored key.
 
 ```
-source-link source add --account alpha --target 127.0.0.1:18201 --spec /tmp/test/spec-18201.json
-source-link source add --account alpha --target 127.0.0.1:18203 --spec /tmp/test/spec-inventory-mcp.json
-source-link source add --account beta  --target 127.0.0.1:18202 --spec /tmp/test/spec-18202.json
-source-link source add --account beta  --target 127.0.0.1:18204 --spec /tmp/test/spec-orders-mcp.json
+source-link source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
+source-link source add --account alpha --target 127.0.0.1:18203 --kind mcp
+source-link source add --account beta  --target 127.0.0.1:18202 --kind openapi --spec /tmp/test/spec-18202.json
+source-link source add --account beta  --target 127.0.0.1:18204 --kind mcp
 ```
+
+`--kind` defaults to `openapi`, and `--path` defaults to `/mcp`, so an MCP source
+on a non-standard path is `--kind mcp --path /some/other/path`.
 
 Success, one line each:
 
@@ -166,11 +166,12 @@ Added source beta.127.0.0.1.18202  (origin 127.0.0.1:18202, worker <uuid>).
 Added source beta.127.0.0.1.18204  (origin 127.0.0.1:18204, worker <uuid>).
 ```
 
-Assistant verification: four `OicmMcpSource` rows, two owned by each user, and no
-duplicate. Also re-run one registration verbatim to show it is idempotent:
+Assistant verification: four `OicmMcpSource` rows, two owned by each user, the
+two MCP rows carrying `kind=mcp` and `mcp_path=/mcp`, and no duplicate. Also
+re-run one registration verbatim to show it is idempotent:
 
 ```
-source-link source add --account alpha --target 127.0.0.1:18201 --spec /tmp/test/spec-18201.json
+source-link source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
 # MCP source already exists as alpha.127.0.0.1.18201; nothing new was created.
 ```
 
