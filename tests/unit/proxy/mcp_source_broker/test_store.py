@@ -48,20 +48,23 @@ async def test_reenroll_changed_catalog_resets_to_pending(store: SourceStore, so
 
 
 @pytest.mark.asyncio
-async def test_selection_defaults_to_reverse_h2(store: SourceStore, source: SourceCreate) -> None:
+async def test_selection_defaults_to_tunnel(store: SourceStore, source: SourceCreate) -> None:
     await store.enroll(source, "alice")
     selection = await store.selection(source.source_id)
-    assert selection.transport == "reverse-h2"
+    assert selection.transport == "tunnel"
 
 
 @pytest.mark.asyncio
-async def test_selection_maps_legacy_remotedialer_value(store: SourceStore, source: SourceCreate) -> None:
-    """Rows enrolled before the rename still store the retired literal."""
+@pytest.mark.asyncio
+async def test_selection_maps_retired_transport_literals_to_tunnel(store: SourceStore, source: SourceCreate) -> None:
+    """Rows enrolled before the transition still store a retired literal; both
+    select the tunnel, which is the only plane left, without a data migration."""
     await store.enroll(source, "alice")
-    legacy: Final = store.db.sources[0].model_copy(update={"remote_transport": "remotedialer"})
-    store.db.sources[0] = legacy
-    selection = await store.selection(source.source_id)
-    assert selection.transport == "reverse-h2"
+    for legacy_name in ("remotedialer", "reverse-h2"):
+        legacy: Final = store.db.sources[0].model_copy(update={"remote_transport": legacy_name})
+        store.db.sources[0] = legacy
+        selection = await store.selection(source.source_id)
+        assert selection.transport == "tunnel", legacy_name
 
 
 @pytest.mark.asyncio
@@ -70,7 +73,7 @@ async def test_select_persists_requested_transport(store: SourceStore, source: S
 
     await store.enroll(source, "alice")
 
-    async def route(source_id: str, transport: TransportName = "reverse-h2") -> None:
+    async def route(source_id: str, transport: TransportName = "tunnel") -> None:
         await store.route(source_id, transport)
 
     app = FastAPI()
@@ -80,10 +83,10 @@ async def test_select_persists_requested_transport(store: SourceStore, source: S
     app.include_router(create_remote_gateway_router(store, "service-token", route=route))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         selected = await client.put(
-            f"/mcp-source-link-sources/{source.source_id}/selection", json={"transport": "reverse-h2"}
+            f"/mcp-source-link-sources/{source.source_id}/selection", json={"transport": "tunnel"}
         )
         assert selected.status_code == 200
-        assert (await store.selection(source.source_id)).transport == "reverse-h2"
+        assert (await store.selection(source.source_id)).transport == "tunnel"
 
 
 @pytest.mark.asyncio

@@ -129,13 +129,13 @@ class SourceStore:
         if not rows:
             raise KeyError(source_id)
         transport: Final = rows[0]["remote_transport"]
-        # Rows enrolled before the 2026-11-17 rename still store the retired
-        # "remotedialer" literal; every value selects the same reverse-h2 plane.
-        if transport == "remotedialer":
-            return RouteSelection(transport="reverse-h2")
-        if transport not in ("reverse-h2", "tunnel"):
+        # The tunnel is the only data plane, so any stored value other than
+        # "tunnel" (the retired "remotedialer" and "reverse-h2" literals
+        # included) selects it. Reading them keeps a pre-transition row usable
+        # without a data migration.
+        if transport not in ("tunnel", "remotedialer", "reverse-h2"):
             raise ValueError(f"unsupported stored transport {transport!r}")
-        return RouteSelection(transport=transport)
+        return RouteSelection(transport="tunnel")
 
     async def _sources(self, db: SQLDatabase, query: LiteralString, *args: object) -> Sequence[SourceRecord]:
         return tuple(row.value() for row in SOURCES.validate_python(await db.query_raw(query, *args)))
@@ -145,7 +145,7 @@ class SourceStore:
             """CREATE TABLE IF NOT EXISTS "OicmMcpSource" (source_id TEXT PRIMARY KEY, tenant TEXT NOT NULL,
                key TEXT NOT NULL, alias TEXT NOT NULL, target_host TEXT NOT NULL, target_port INT NOT NULL,
                spec_path TEXT NOT NULL, expected TEXT NOT NULL, gateway_auth_ciphertext TEXT NOT NULL,
-               status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'reverse-h2',
+               status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'tunnel',
                CONSTRAINT source_owner_alias UNIQUE (tenant,alias))""",
             """CREATE TABLE IF NOT EXISTS "OicmMcpEnrollment" (id TEXT PRIMARY KEY, source_id TEXT NOT NULL UNIQUE
                REFERENCES "OicmMcpSource"(source_id), token_hash BYTEA NOT NULL,
@@ -192,6 +192,10 @@ class SourceStore:
                 spec_path=value.spec_path,
                 expected=value.fingerprint(),
                 gateway_auth_ciphertext=self.keyring.gateway_ciphertext(value.identity()),
+                # Connectivity lifecycle, not approval: "pending" means enrolled
+                # but not yet probed healthy, and remote_store.report() promotes
+                # it to "active" on a good probe. Approval lives only on the
+                # gateway row's approval_status.
                 status="pending",
                 revision=1,
             )

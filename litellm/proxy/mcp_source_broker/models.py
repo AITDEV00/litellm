@@ -93,11 +93,11 @@ class SourceRecord(Frozen):
     revision: int
 
 
-TransportName = Literal["reverse-h2", "tunnel"]
+TransportName = Literal["tunnel"]
 
 
 class RouteSelection(Frozen):
-    transport: TransportName = "reverse-h2"
+    transport: TransportName = "tunnel"
 
 
 class RemotePeer(Frozen):

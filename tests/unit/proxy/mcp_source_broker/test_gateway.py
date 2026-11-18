@@ -8,43 +8,27 @@ from respx import MockRouter
 
 from fastapi import FastAPI
 
-from litellm.proxy._experimental.mcp_server.db import _prepare_mcp_server_data
-from litellm.proxy._types import LitellmUserRoles, NewMCPServerRequest, UpdateMCPServerRequest
+from litellm.proxy._types import MCPApprovalStatus, NewMCPServerRequest
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.mcp_source_broker.gateway import (
+    APPROVAL_PENDING,
+    EnrollmentConflict,
     create_gateway_router,
-    default_registration,
     mount_mcp_sources_when_enabled,
+    submit_for_review,
 )
 from litellm.proxy.mcp_source_broker.models import SourceCreate
 from litellm.proxy.mcp_source_broker.store import SourceStore
 
 
-@pytest.mark.asyncio
-async def test_gateway_enrolls_catalog_and_registers_mcp_row(
-    store: SourceStore,
-    source: SourceCreate,
-    respx_mock: MockRouter,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DISABLE_AIOHTTP_TRANSPORT", "True")
-    registrations: list[NewMCPServerRequest] = []
-    uploads: dict[str, bytes] = {}
+class Catalog:
+    def catalog_url(self, path: str) -> str:
+        return f"http://127.0.0.1:4000/install/{path}"
 
-    async def register(request: NewMCPServerRequest) -> None:
-        registrations.append(request)
 
-    async def artifact(key: str, body: bytes) -> None:
-        uploads[key] = body
-
-    class Catalog:
-        def catalog_url(self, path: str) -> str:
-            return f"http://127.0.0.1:4000/install/{path}"
-
+def _app(store: SourceStore, register, user: UserAPIKeyAuth, artifacts) -> FastAPI:
     app = FastAPI()
-    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
-        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="alice"
-    )
+    app.dependency_overrides[user_api_key_auth] = lambda: user
     app.include_router(
         create_gateway_router(
             store,
@@ -52,104 +36,141 @@ async def test_gateway_enrolls_catalog_and_registers_mcp_row(
             Catalog(),
             "service-token",
             data_plane_url="http://127.0.0.1:9092",
-            artifacts=artifact,
+            artifacts=artifacts,
         )
     )
+    return app
+
+
+@pytest.mark.asyncio
+async def test_team_member_enrolls_without_admin(
+    store: SourceStore,
+    source: SourceCreate,
+    respx_mock: MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Self-service is the point: a team-scoped key enrolls its own source and
+    the owner is the authenticated user, not a claim. The old admin-only gate
+    would make this a 403."""
+    monkeypatch.setenv("DISABLE_AIOHTTP_TRANSPORT", "True")
+    submissions: list[tuple[NewMCPServerRequest, str]] = []
+    uploads: dict[str, bytes] = {}
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        submissions.append((request, owner))
+
+    async def artifact(key: str, body: bytes) -> None:
+        uploads[key] = body
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice", team_id="team-a"), artifact)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
         response: Final = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
-        assert response.status_code == 201
-        assert registrations[0].server_id == source.source_id
-        assert registrations[0].url == f"http://127.0.0.1:9092/sources/{source.source_id}"
-        from litellm.proxy._experimental.mcp_server.openapi_to_mcp_generator import create_tool_function
 
-        call = create_tool_function("/v1/pets", "get", {}, registrations[0].url)
-        dispatched = respx_mock.get(f"http://127.0.0.1:9092/sources/{source.source_id}/v1/pets").respond(
-            200, json={"source": "fixture"}
-        )
-        tool_result = await call()
-        assert tool_result.value == {"source": "fixture"}
-        assert dispatched.calls.last.request.url.path == f"/sources/{source.source_id}/v1/pets"
-        assert registrations[0].credentials == {"auth_value": "service-token"}
-        assert registrations[0].mcp_access_groups == [f"mcp-source-{source.source_id}"]
-        assert uploads[source.spec_path] == source.spec.encode()
-        assert registrations[0].spec_path == f"http://127.0.0.1:4000/install/{source.spec_path}"
+    assert response.status_code == 201
+    assert response.json() == {"server_id": source.source_id, "status": APPROVAL_PENDING}
+    request, owner = submissions[0]
+    assert owner == "alice"
+    assert request.server_id == source.source_id
+    assert request.url == f"http://127.0.0.1:9092/sources/{source.source_id}"
+    assert request.credentials == {"auth_value": "service-token"}
+    assert request.mcp_access_groups == [f"mcp-source-{source.source_id}"]
+    # Ownership lives in submitted_by; there must be no second copy.
+    assert request.mcp_info is None or "owner" not in request.mcp_info
+    assert uploads[source.spec_path] == source.spec.encode()
+
+    from litellm.proxy._experimental.mcp_server.openapi_to_mcp_generator import create_tool_function
+
+    call = create_tool_function("/v1/pets", "get", {}, request.url)
+    dispatched = respx_mock.get(f"http://127.0.0.1:9092/sources/{source.source_id}/v1/pets").respond(
+        200, json={"source": "fixture"}
+    )
+    assert (await call()).value == {"source": "fixture"}
+    assert dispatched.calls.last.request.url.path == f"/sources/{source.source_id}/v1/pets"
 
 
 @pytest.mark.asyncio
-async def test_enroll_requires_admin(store: SourceStore, source: SourceCreate) -> None:
-    class Catalog:
-        def catalog_url(self, path: str) -> str:
-            return f"http://127.0.0.1:4000/install/{path}"
-
-    async def register(request: NewMCPServerRequest) -> None:
+async def test_enroll_requires_a_user_and_a_team(store: SourceStore, source: SourceCreate) -> None:
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
         pass
 
-    app = FastAPI()
-    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="mallory")
-    app.include_router(create_gateway_router(store, register, Catalog(), "service-token"))
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
-        assert response.status_code == 403
+    async def artifact(key: str, body: bytes) -> None:
+        pass
+
+    for user in (UserAPIKeyAuth(), UserAPIKeyAuth(user_id="alice")):
+        app = _app(store, register, user, artifact)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+            response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+        assert response.status_code == 400, user
 
 
 @pytest.mark.asyncio
-async def test_registration_inner_factory_registers(source: SourceCreate, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LITELLM_SALT_KEY", "unit-test-only")
-    mcp = NewMCPServerRequest(
-        server_id=source.source_id,
-        url="http://127.0.0.1:9092/" + source.source_id,
-        spec_path="/install/catalog",
-        mcp_info={"owner": "alice"},
-    )
-    calls: list[NewMCPServerRequest] = []
+async def test_conflicting_registration_is_a_409(store: SourceStore, source: SourceCreate) -> None:
+    """An identifier collision surfaces as a conflict, never as a silent rewrite
+    of the existing row."""
 
-    async def read(_: object, server_id: str) -> None:
-        assert server_id == source.source_id
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        raise EnrollmentConflict("taken")
 
-    async def create(_: object, request: NewMCPServerRequest, touched_by: str) -> object:
-        assert touched_by == "alice" and request == mcp
+    async def artifact(key: str, body: bytes) -> None:
+        pass
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice", team_id="team-a"), artifact)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        response = await client.post("/mcp-sources", json=source.model_dump(mode="json"))
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_submit_for_review_stamps_pending_owner_and_never_upserts() -> None:
+    """The submission path must create, not update. Routing through the upsert
+    would let a repeat enroll silently reactivate an approved or rejected row."""
+    request = NewMCPServerRequest(server_id="source-1", server_name="source-1", url="http://127.0.0.1:9092/x")
+    created: list[NewMCPServerRequest] = []
+    reloads: list[bool] = []
+
+    async def create(_: object, payload: NewMCPServerRequest, touched_by: str) -> object:
+        assert touched_by == "alice"
+        created.append(payload)
         return object()
 
     class Manager:
         async def reload_servers_from_database(self) -> None:
-            calls.append(mcp)
+            reloads.append(True)
 
-    await default_registration(object(), Manager(), mcp, find=read, create=create)
-    assert calls == [mcp]
+    await submit_for_review(object(), Manager(), request, "alice", create=create, validate=lambda _: None)  # type: ignore[arg-type]
 
-    async def existing(_: object, server_id: str) -> object:
-        return object()
+    assert len(created) == 1, "submission must create, not update, exactly once"
+    assert request.approval_status == MCPApprovalStatus.pending_review
+    assert request.submitted_by == "alice"
+    assert request.submitted_at is not None
+    assert reloads == [True]
 
-    async def update(
-        _: object, value: UpdateMCPServerRequest, touched_by: str, fields_set: set[str] | None = None
-    ) -> object:
-        assert touched_by == "alice"
-        assert fields_set is None
-        assert value.mcp_info == {"owner": "alice"}
-        prepared = _prepare_mcp_server_data(value, exclude_unset=True)
-        assert "extra_headers" not in prepared
-        assert "env_vars" not in prepared
-        assert "static_headers" not in prepared
-        assert all(value is not None for value in prepared.values())
-        return object()
 
-    await default_registration(object(), Manager(), mcp, find=existing, create=create, update=update)
-    assert calls == [mcp, mcp]
+@pytest.mark.asyncio
+async def test_submit_for_review_raises_on_identifier_conflict() -> None:
+    from litellm.proxy._experimental.mcp_server.db import McpIdentifierConflict
+
+    request = NewMCPServerRequest(server_id="source-1", server_name="source-1", url="http://127.0.0.1:9092/x")
+
+    async def create(_: object, payload: NewMCPServerRequest, touched_by: str) -> object:
+        return McpIdentifierConflict(field="server_name", value="source-1", server_id="existing-row")
+
+    class Manager:
+        async def reload_servers_from_database(self) -> None:
+            raise AssertionError("a conflict must not reload the registry")
+
+    with pytest.raises(EnrollmentConflict):
+        await submit_for_review(object(), Manager(), request, "alice", create=create, validate=lambda _: None)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
 async def test_mount_after_prisma_initialization(monkeypatch, store: SourceStore, source: SourceCreate) -> None:
-    async def test_enabled_mount():
-        monkeypatch.setenv("MCP_SOURCE_BROKER_ENABLED", "true")
-        monkeypatch.setenv("MCP_SOURCE_BROKER_PEPPER", "test-only-pepper-at-least-32-characters-long")
-        monkeypatch.setenv("MCP_SOURCE_BROKER_SERVICE_TOKEN", "test-only-service-token")
-        app = FastAPI()
-        mount_mcp_sources_when_enabled(app, object(), object(), store=store)
-        routes = {route.path for route in app.routes}
-        assert "/mcp-sources" in routes
-        assert "/mcp-source-link-sources/{source_id}/workers" in routes
-        assert all("install" not in path for path in routes), "installer routes must be gone"
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
-            assert (await client.post("/mcp-sources", json=source.model_dump(mode="json"))).status_code == 403
-
-    await test_enabled_mount()
+    monkeypatch.setenv("MCP_SOURCE_BROKER_ENABLED", "true")
+    monkeypatch.setenv("MCP_SOURCE_BROKER_PEPPER", "test-only-pepper-at-least-32-characters-long")
+    monkeypatch.setenv("MCP_SOURCE_BROKER_SERVICE_TOKEN", "test-only-service-token")
+    app = FastAPI()
+    mount_mcp_sources_when_enabled(app, object(), object(), store=store)
+    routes = {route.path for route in app.routes}
+    assert "/mcp-sources" in routes
+    assert "/mcp-source-link-sources/{source_id}/workers" in routes
+    assert all("install" not in path for path in routes), "installer routes must be gone"
