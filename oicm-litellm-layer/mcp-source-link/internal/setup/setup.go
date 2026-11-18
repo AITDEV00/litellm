@@ -223,7 +223,11 @@ func gatewayClient(gw *bootstrap.Client, gatewayURL string, key string) (*bootst
 	if gw != nil {
 		return gw, nil
 	}
-	return bootstrap.New(gatewayURL, key, config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE")))
+	httpClient, err := config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
+	if err != nil {
+		return nil, err
+	}
+	return bootstrap.New(gatewayURL, key, httpClient)
 }
 
 // RetryPolicy is the bounded backoff applied to transient registration failures.

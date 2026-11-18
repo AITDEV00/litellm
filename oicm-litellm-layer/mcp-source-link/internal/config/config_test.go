@@ -172,3 +172,33 @@ func TestReadBootstrapInputRejectsNonLoopbackTarget(t *testing.T) {
 		t.Fatal("a non-loopback target must be rejected")
 	}
 }
+
+// A bad CA path must be an error, not a silent fallback to system roots. Disguising
+// the misconfiguration as a later handshake failure is what made the original bug
+// hard to diagnose, so the client constructor itself must reject it.
+func TestHTTPSClientRejectsAMalformedCAInsteadOfDowngrading(t *testing.T) {
+	empty := filepath.Join(t.TempDir(), "empty.pem")
+	if err := os.WriteFile(empty, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string]string{
+		"missing file":   filepath.Join(t.TempDir(), "absent.pem"),
+		"no certificate": empty,
+	}
+	for name, ca := range cases {
+		t.Run(name, func(t *testing.T) {
+			client, err := HTTPSClient(ca)
+			if err == nil {
+				t.Fatalf("HTTPSClient(%q) = %v, want an error", ca, client)
+			}
+			if client != nil {
+				t.Fatalf("HTTPSClient(%q) returned a client alongside the error", ca)
+			}
+		})
+	}
+
+	if client, err := HTTPSClient(""); err != nil || client == nil {
+		t.Fatalf("HTTPSClient(\"\") = %v, %v; a blank CA must use system roots", client, err)
+	}
+}

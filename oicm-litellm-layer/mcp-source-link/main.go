@@ -79,7 +79,11 @@ func runInit(ctx context.Context) error {
 		return err
 	}
 	prompt := setup.Terminal{In: os.Stdin, Out: os.Stdout}
-	identity, err := setup.Initialize(ctx, setup.PathsFor(base), prompt, auth.PasswordLogin{HTTP: config.HTTPSClient("")}, nil)
+	httpClient, err := config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
+	if err != nil {
+		return err
+	}
+	identity, err := setup.Initialize(ctx, setup.PathsFor(base), prompt, auth.PasswordLogin{HTTP: httpClient}, nil)
 	if err != nil {
 		return err
 	}
@@ -161,7 +165,11 @@ func runReinit(ctx context.Context) error {
 	}
 	fmt.Println("Registering a replacement connector. Use a NEW source name: the old one is still registered.")
 	prompt := setup.Terminal{In: os.Stdin, Out: os.Stdout}
-	identity, err := setup.Initialize(ctx, paths, prompt, auth.PasswordLogin{HTTP: config.HTTPSClient("")}, nil)
+	httpClient, err := config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
+	if err != nil {
+		return err
+	}
+	identity, err := setup.Initialize(ctx, paths, prompt, auth.PasswordLogin{HTTP: httpClient}, nil)
 	if err != nil {
 		return err
 	}

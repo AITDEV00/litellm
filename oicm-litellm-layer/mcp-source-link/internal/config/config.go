@@ -303,14 +303,17 @@ func ReadUserKey(path string) (string, error) {
 }
 
 // HTTPSClient builds an HTTP client that trusts CAFile when set.
-func HTTPSClient(ca string) *http.Client {
+//
+// An unreadable or certificate-less CA is returned as an error rather than
+// downgraded to system roots. Falling back silently would surface the
+// misconfiguration later as an opaque TLS handshake failure against the gateway,
+// which reads as a network problem instead of the bad CA path it actually is.
+func HTTPSClient(ca string) (*http.Client, error) {
 	tlsConfig, err := TLS(ca)
 	if err != nil {
-		// A bad CA path is a real misconfiguration; fall back to system roots so the
-		// caller's next request fails with a TLS error that names the problem.
-		tlsConfig, _ = TLS("")
+		return nil, err
 	}
-	return &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
+	return &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}, nil
 }
 
 // writeOwnerOnly writes bytes to a sibling temporary file, fsyncs, then renames,
