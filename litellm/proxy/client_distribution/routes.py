@@ -74,6 +74,21 @@ def _content_type_for(key: str) -> str:
     return _DEFAULT_CONTENT_TYPE
 
 
+# Immutable release paths may accept an exact re-upload (same bytes, so a retried
+# publish is idempotent) but never different bytes: silently replacing a released
+# executable breaks every client that already pinned its digest. Mutable paths,
+# such as the installer template, stay freely replaceable so an operator can edit
+# them without a version bump.
+_IMMUTABLE_PREFIXES: Final = ("source-agent/",)
+
+
+def _is_immutable(key: str) -> bool:
+    return any(key.startswith(prefix) and key.count("/") >= 2 for prefix in _IMMUTABLE_PREFIXES) and not key.endswith(
+        "/manifest.json"
+    )
+
+
+
 def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
     if user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN:
         raise HTTPException(
@@ -332,37 +347,56 @@ async def admin_put_artifact(
     body: bytes = b"".join(chunks)
     sha256: str = hashlib.sha256(body).hexdigest()
 
-    # Check if the object already exists with the same hash
-    unchanged: bool = False
+    # Compare against the bytes actually stored, not the object's ETag: RustFS ETags
+    # may be opaque or multipart-formatted rather than a plain SHA-256, so an ETag
+    # comparison would report "changed" for identical bytes and "unchanged" for a
+    # real difference that happened to collide. Reading back costs one GET but makes
+    # the immutability decision truthful.
+    existing: bytes | None = None
     try:
-        head = await asyncio.to_thread(
-            s3.head_object, Bucket=config.bucket, Key=key
-        )
-        existing_etag: str = head.get("ETag", "").strip('"')
-        if existing_etag == sha256:
-            unchanged = True
+        head = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
+        existing = await asyncio.to_thread(lambda: head["Body"].read())
     except ClientError as exc:
         if not _is_not_found(exc):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="object store error",
             ) from exc
-        # Object doesn't exist yet; proceed to upload
 
-    if not unchanged:
-        await asyncio.to_thread(
-            s3.put_object,
-            Bucket=config.bucket,
-            Key=key,
-            Body=io.BytesIO(body),
-            ContentType=_content_type_for(key),
+    if existing is not None:
+        existing_digest: str = hashlib.sha256(existing).hexdigest()
+        if existing_digest == sha256:
+            return {"path": key, "sha256": sha256, "size": len(body), "unchanged": True}
+        if _is_immutable(key):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{key} is an immutable release path and already holds different bytes; publish a new version",
+            )
+
+    await asyncio.to_thread(
+        s3.put_object,
+        Bucket=config.bucket,
+        Key=key,
+        Body=io.BytesIO(body),
+        ContentType=_content_type_for(key),
+    )
+    stored: bytes = body
+    try:
+        readback = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
+        stored = await asyncio.to_thread(lambda: readback["Body"].read())
+    except ClientError:
+        pass
+    if hashlib.sha256(stored).hexdigest() != sha256:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{key} did not read back with the uploaded digest",
         )
 
     return {
         "path": key,
         "sha256": sha256,
         "size": len(body),
-        "unchanged": unchanged,
+        "unchanged": False,
     }
 
 

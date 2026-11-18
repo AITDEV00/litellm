@@ -1,39 +1,36 @@
-"""Source connector release distribution over RustFS.
+"""Source connector release distribution over RustFS, using the shared artifact channel.
 
-Extends the client-distribution slice for the MCP source broker's connector
-(the Go `source-link` binary): the broker operator publishes a
-release pair (binary, release.json) through the admin API, and source hosts
-install through ``/install/source-agent`` with no secrets in any URL and no
-generated per-host scripts. The installer is a fixed script that downloads the
-versioned pair and verifies the SHA-256 checksum of the binary before anything
-executes. The installed user systemd unit runs `source-link connector` with the
-environment sourced from `~/.config/source-agent/connector.env`
-(MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG). The connector
-has a single transport, so the unit sets no transport variable.
+The Go ``source-link`` connector ships from the same bucket as the cc-switch client,
+uploaded the same way: an administrator PUTs raw bytes to the gateway, the gateway
+writes them to RustFS with its own store credentials, and clients download them back
+through the same proxy. There is no second transport, no base64-in-JSON bundle, and
+no store credential on an operator machine.
 
-Credential and registration behavior follow ``connector-owned-enrollment.md``.
-One admin account creates ordinary user accounts. An ordinary user key with no
-team is enough: ``POST /mcp-sources`` accepts it and returns the gateway-derived
-owner, and the connector registers itself with that key and persists the
-server-issued worker identity at mode 0600 (see ``internal/bootstrap`` and
-``connector.LoadIdentity`` in the Go module). An ordinary user key must never be
-confused with the sidecar/service token or the pepper, which never reach a
-source host. What is still blocked is the approved live read on dev, because dev
-has no public host serving both the broker REST routes and the tunnel; that is a
-deployment gap, not this installer. See
-``oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md``.
+Layout (see ``docs/client-distribution/source-agent-releases.md``):
 
-Reuse rules: connection parameters, bucket handling and key normalization all
-come from :mod:`litellm.proxy.client_distribution.storage`. Only the
-source-agent-specific manifest, upload validation and script rendering live
-here.
+    templates/source-agent-install.sh.tmpl   operator-owned installer logic
+    source-agent/<version>/source-link       immutable binary bytes
+    source-agent/<version>/release.json      version/sha256/compat metadata
+    source-agent/manifest.json               active-release pointer
+
+The install script is *rendered per request* from the stored template plus the
+validated active release: base URL, version and checksum are filled by the gateway
+from values it trusts. A template edit therefore needs only its own upload (no
+version bump, no manifest activation, no image rebuild); a new binary needs an
+immutable ``source-agent/<version>/`` pair and an activated pointer.
+
+The binary and its ``release.json`` are uploaded through the generic
+``PUT /install/admin/v1/artifact/{path}`` route, which is immutable for those paths:
+re-uploading different bytes at an already-published version is a conflict rather
+than a silent replacement of a released executable.
 """
 
 from __future__ import annotations
 
-import base64
+import asyncio
 import hashlib
-from typing import TYPE_CHECKING, Annotated, Final, cast
+import os
+from typing import Annotated, Final, cast
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -43,41 +40,42 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from litellm.proxy._types import LitellmUserRoles
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.client_distribution.storage import (
-    create_s3_client,  # pyright: ignore[reportUnknownVariableType]  # optional boto3 stubs
+    RustFSConfig,
+    create_s3_client,
     load_config_from_env,
 )
 
-if TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client  # pyright: ignore[reportUnknownVariableType]  # stubs ship outside this venv
-
-    from litellm.proxy.client_distribution.storage import RustFSConfig
+try:  # optional at import time: the alias only exists when boto3 stubs are installed
+    from mypy_boto3_s3 import S3Client
+except ImportError:  # pragma: no cover - local venv without boto3 stubs
+    S3Client = object  # pyright: ignore[reportAssignmentType, reportInvalidTypeForm]  # stubless venv
 
 router: Final = APIRouter(tags=["install"])
 
-_AGENT_PREFIX: Final = "source-agent"
-_MANIFEST_KEY: Final = f"{_AGENT_PREFIX}/manifest.json"
-_MAX_RELEASE_BYTES: Final = 64 * 1024 * 1024
+AGENT_PREFIX: Final = "source-agent"
+MANIFEST_KEY: Final = f"{AGENT_PREFIX}/manifest.json"
+TEMPLATE_KEY: Final = "templates/source-agent-install.sh.tmpl"
+MAX_RELEASE_BYTES: Final = 64 * 1024 * 1024
+
+BASE_PLACEHOLDER: Final = "__BASE__"
+VERSION_PLACEHOLDER: Final = "__VERSION__"
+SHA_PLACEHOLDER: Final = "__SHA__"
+STATE_PLACEHOLDER: Final = "__STATE__"
 
 
-def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
-    if user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only proxy admins can publish source-agent releases",
-        )
+class SourceAgentManifest(BaseModel):
+    """The active-release pointer.
 
+    Its own schema, not the cc-switch ``schema 5`` manifest: that DTO carries
+    harness/provider fields a source-agent release has none of, so validating this
+    document against it would check fields that do not exist here.
+    """
 
-class _ReleasePayload(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: str
     sha256: str
-    binary_b64: str
-    release_json_b64: str
-    # The installer is a stored release asset, so updating it needs no gateway
-    # rebuild. It is optional only so an older client can republish a binary; a
-    # release without it cannot be installed from, and the install route says so.
-    install_script_b64: str = ""
+    size: int = 0
 
     @field_validator("version")
     @classmethod
@@ -90,202 +88,276 @@ class _ReleasePayload(BaseModel):
     @classmethod
     def hex_digest(cls, value: str) -> str:
         if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
-            raise ValueError("sha256 must be a hex SHA-256 digest")
+            raise ValueError("sha256 must be a lowercase hex SHA-256 digest")
         return value
 
 
-class _StoredManifest(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class ReleaseDocument(BaseModel):
+    """The immutable ``release.json`` stored beside each binary."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     version: str
     sha256: str
+    size: int = 0
 
 
-def _s3() -> tuple[RustFSConfig, S3Client]:  # pyright: ignore[reportUnknownParameterType, reportUnknownVariableType, reportGeneralTypeIssues]  # mypy_boto3_s3 stubs are absent in the venv used for local checks
+def _storage() -> tuple[RustFSConfig, S3Client]:
     config: Final = load_config_from_env()
-    client: Final = create_s3_client(config)  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-    return config, client  # pyright: ignore[reportUnknownVariableType]  # tuple element carries the stubless-S3 Unknown
+    return config, create_s3_client(config)
 
 
-def _validated_install_script(encoded: str) -> bytes:
-    """Decode and check the stored install script, or return empty bytes.
-
-    A release may omit the script (an older client republishing a binary); the
-    install route then reports that the release cannot be installed from. A
-    present script must be a real installer that drives `init`.
-    """
-    if not encoded:
-        return b""
-    import binascii
-
-    try:
-        script: Final = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="install script is not valid base64") from exc
-    if len(script) > _MAX_RELEASE_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="install script too large")
-    if b" init" not in script:
+def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
+    if user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="install script must invoke 'source-link init' so a new user is prompted",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only proxy admins can publish source-agent releases",
         )
-    return script
 
 
-async def _load_manifest(config: RustFSConfig, s3: S3Client) -> _StoredManifest:  # pyright: ignore[reportUnknownParameterType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-    import asyncio
+def _is_missing(exc: ClientError) -> bool:
+    return exc.response.get("Error", {}).get("Code", "") in {"NoSuchKey", "404", "NotFound"}
 
+
+def _base_url(request: Request) -> str:
+    """The canonical gateway URL, resolved from trusted config first.
+
+    Mirrors ``routes._get_base_url``: an explicit ``LITELLM_PUBLIC_BASE_URL`` wins,
+    otherwise the request's forwarded scheme and host are used. The installer must
+    download from the environment the client actually reached.
+    """
+    configured: Final = os.environ.get("LITELLM_PUBLIC_BASE_URL")
+    if configured:
+        return configured.rstrip("/")
+    scheme: Final = request.headers.get("x-forwarded-proto", "https")
+    host: Final = request.headers.get("host", "localhost")
+    return f"{scheme}://{host}"
+
+
+async def _active_manifest(config: RustFSConfig, s3: S3Client) -> SourceAgentManifest:
     try:
-        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=_MANIFEST_KEY)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-        return _StoredManifest.model_validate_json(response["Body"].read())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=MANIFEST_KEY)
+        raw: Final = cast(bytes, response["Body"].read())
     except ClientError as exc:
-        code: Final = exc.response.get("Error", {}).get("Code", "")
-        if code in {"NoSuchKey", "404", "NotFound"}:
+        if _is_missing(exc):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no source-agent release published") from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+    try:
+        return SourceAgentManifest.model_validate_json(raw)
     except ValidationError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt release manifest: {exc}") from exc
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt source-agent manifest: {exc}") from exc
 
 
-@router.put(
-    "/install/admin/v1/source-agent/release",
-    dependencies=[Depends(user_api_key_auth)],
-)
-async def admin_publish_release(
-    request: Request,
-    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
-) -> dict[str, object]:
-    """Publish a release: binary + release.json.
+async def _verified_release(config: RustFSConfig, s3: S3Client, manifest: SourceAgentManifest) -> ReleaseDocument:
+    """Load a release's own ``release.json`` and check it agrees with the pointer.
 
-    The client uploads the two files as one JSON body carrying base64 fields;
-    the gateway verifies the binary digest matches release.json, then writes
-    each immutable, versioned asset plus the current-release pointer, manifest
-    last. The route is admin-only; there is no separate signature on top of
-    that, because the checksum the installer enforces is derived from what the
-    gateway itself published.
+    The pointer alone is not trusted: a mismatched version or digest between the
+    pointer and the versioned document means the publication is inconsistent and must
+    not be rendered into an installer.
     """
-    _require_admin(user_api_key_dict)
-    raw: Final = await request.body()
-    if len(raw) > _MAX_RELEASE_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="release payload too large")
     try:
-        data: Final = _ReleasePayload.model_validate_json(raw)
-    except ValidationError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors()[0]["msg"]) from exc
-    import binascii
-
-    try:
-        binary: Final = base64.b64decode(data.binary_b64, validate=True)
-        manifest_body: Final = base64.b64decode(data.release_json_b64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="base64 field is not valid base64") from exc
-    if len(binary) > _MAX_RELEASE_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="binary too large")
-    version: Final = data.version
-    try:
-        manifest: Final = _StoredManifest.model_validate_json(manifest_body)
-    except ValidationError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"release.json is not a valid manifest: {exc}") from exc
-    if manifest.version != version or manifest.sha256 != data.sha256:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail="release.json does not agree with the payload version or digest"
+        response = await asyncio.to_thread(
+            s3.get_object, Bucket=config.bucket, Key=f"{AGENT_PREFIX}/{manifest.version}/release.json"
         )
-    if hashlib.sha256(binary).hexdigest() != data.sha256:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="binary digest does not match release.json sha256")
-
-    import asyncio
-
-    config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-    binary_key: Final = f"{_AGENT_PREFIX}/{version}/source-link"
-    try:
-        await asyncio.to_thread(
-            s3.head_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
-            Bucket=config.bucket,
-            Key=binary_key,
-        )
+        raw: Final = cast(bytes, response["Body"].read())
     except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code", "") not in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    else:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="release version is already published and immutable")
-    install_script: Final = _validated_install_script(data.install_script_b64)
-    assets: Final = [
-        (binary_key, binary, "application/octet-stream"),
-        (f"{_AGENT_PREFIX}/{version}/release.json", manifest_body, "application/json"),
-    ]
-    if install_script:
-        assets.append((f"{_AGENT_PREFIX}/{version}/install.sh", install_script, "application/x-sh"))
-    for key, body, content_type in assets:
-        await asyncio.to_thread(
-            s3.put_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
-            Bucket=config.bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
+        if _is_missing(exc):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"active version {manifest.version} has no release.json; republish it",
+            ) from exc
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+    try:
+        document: Final = ReleaseDocument.model_validate_json(raw)
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=f"corrupt release.json: {exc}") from exc
+    if document.version != manifest.version or document.sha256 != manifest.sha256:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="manifest pointer disagrees with the version it names; republish before serving",
         )
-    # The pointer moves last, after every referenced asset is durable, so an
-    # interrupted publish never activates a half-written release.
-    await asyncio.to_thread(
-        s3.put_object,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
-        Bucket=config.bucket,
-        Key=_MANIFEST_KEY,
-        Body=manifest_body,
-        ContentType="application/json",
+    return document
+
+
+async def _render_installer(request: Request, manifest: SourceAgentManifest) -> str:
+    """Load the stored template and fill its trusted values.
+
+    The template is read at request time, so editing it needs no version bump. Every
+    placeholder is replaced here, from the pointer the gateway just validated and its
+    own canonical base URL; an unresolved placeholder is a failure, not an output.
+    """
+    config, s3 = _storage()
+    try:
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=TEMPLATE_KEY)
+        template: Final = cast(bytes, response["Body"].read()).decode("utf-8")
+    except ClientError as exc:
+        if _is_missing(exc):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"installer template {TEMPLATE_KEY} is not published; upload it before serving installs",
+            ) from exc
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+    if not template.strip():
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="installer template is empty; republish it")
+
+    rendered: Final = (
+        template.replace(BASE_PLACEHOLDER, _base_url(request))
+        .replace(VERSION_PLACEHOLDER, manifest.version)
+        .replace(SHA_PLACEHOLDER, manifest.sha256)
+        .replace(STATE_PLACEHOLDER, "${state}")
     )
-    return {"ok": True, "version": version, "sha256": data.sha256, "size": len(binary)}
+    unresolved: Final = [
+        name for name in (BASE_PLACEHOLDER, VERSION_PLACEHOLDER, SHA_PLACEHOLDER, STATE_PLACEHOLDER) if name in rendered
+    ]
+    if unresolved:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"installer template left placeholders unresolved: {unresolved}",
+        )
+    return rendered
 
 
 @router.get("/install/source-agent")
 async def source_agent_install_script(request: Request) -> Response:
-    """Serve the current source-agent release's install script.
+    """Serve the installer rendered from the stored template and active release."""
+    config, s3 = _storage()
+    manifest: Final = await _active_manifest(config, s3)
+    await _verified_release(config, s3, manifest)
+    script: Final = await _render_installer(request, manifest)
+    return Response(content=script, media_type="application/x-sh")
 
-    The script is a stored, validated release object, not Python-rendered per
-    request, so changing it needs only a new upload: the gateway image and pod
-    stay untouched. An older release that predates stored scripts has no
-    ``install.sh`` object; that case is a clear 409 telling the operator to
-    republish with a script, never a silent fallback to generated content.
-    """
-    import asyncio
 
-    config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-    manifest = await _load_manifest(config, s3)  # pyright: ignore[reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
-    script_key: Final = f"{_AGENT_PREFIX}/{manifest.version}/install.sh"
-    try:
-        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=script_key)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-        script_bytes: Final = cast(bytes, response["Body"].read())  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
-    except ClientError as exc:
-        code: Final = exc.response.get("Error", {}).get("Code", "")
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail="the active release has no stored install script; republish it with install.sh",
-            ) from exc
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    return Response(content=script_bytes, media_type="application/x-sh")
+def digest(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
 
 
 @router.get("/install/source-agent/{version}/{asset}")
 async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
-    """Proxy one release asset read from RustFS. Versioned paths only."""
-    import asyncio
-
-    if asset not in {"source-link", "release.json", "install.sh"} or "/" in version or version.startswith("."):
+    """Proxy one immutable release asset. Versioned paths only."""
+    if asset not in {"source-link", "release.json"} or "/" in version or version.startswith(".") or ".." in version:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
-    config, s3 = _s3()  # pyright: ignore[reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
-    key: Final = f"{_AGENT_PREFIX}/{version}/{asset}"
+    config, s3 = _storage()
+    key: Final = f"{AGENT_PREFIX}/{version}/{asset}"
     try:
-        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType, reportUnknownVariableType]  # mypy_boto3_s3 stubs are absent locally
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
     except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in ("NoSuchKey", "404", "NotFound"):
+        if _is_missing(exc):
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="release asset not found") from exc
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
-    content_type: Final = {
-        "source-link": "application/octet-stream",
-        "install.sh": "application/x-sh",
-    }.get(asset, "application/json")
+    content_type: Final = "application/json" if asset == "release.json" else "application/octet-stream"
     return StreamingResponse(
-        content=response["Body"],  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]  # mypy_boto3_s3 stubs are absent locally
+        content=response["Body"],
         media_type=content_type,
-        headers={"Content-Length": str(response.get("ContentLength", 0))},  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # mypy_boto3_s3 stubs are absent locally
+        headers={"Content-Length": str(response.get("ContentLength", 0))},
     )
+
+
+async def _read_optional(config: RustFSConfig, s3: S3Client) -> tuple[bytes, str]:
+    """Current pointer bytes plus a stable concurrency token.
+
+    RustFS ETags can be opaque, so the token is the digest of the bytes we read.
+    A caller that saw version A passes that digest back; if the pointer has moved
+    to B meanwhile the digests differ and the write is refused, which is what makes
+    two concurrent publishers fail instead of last-write-wins dropping one release.
+    """
+    try:
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=MANIFEST_KEY)
+        raw: Final = cast(bytes, response["Body"].read())
+        return raw, hashlib.sha256(raw).hexdigest()
+    except ClientError as exc:
+        if _is_missing(exc):
+            return b"", ""
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+
+
+async def _head_digest(config: RustFSConfig, s3: S3Client, key: str) -> str | None:
+    """The digest of an already-stored object, or None when it is absent."""
+    try:
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
+        raw: Final = cast(bytes, response["Body"].read())
+        return hashlib.sha256(raw).hexdigest()
+    except ClientError as exc:
+        if _is_missing(exc):
+            return None
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+
+
+class ActivateRequest(BaseModel):
+    """Activate an already-uploaded, complete release.
+
+    ``expected_current`` is the pointer digest the caller last observed, or the
+    literal ``"absent"`` when it expects no pointer yet. Omitting it skips the
+    compare, which is only appropriate for a deliberate first publication.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: str
+    sha256: str
+    expected_current: str | None = None
+
+
+@router.put(
+    "/install/admin/v1/source-agent/activate",
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def admin_activate_release(
+    request: Request,
+    data: ActivateRequest,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> dict[str, object]:
+    """Point the active manifest at one complete, already-uploaded release.
+
+    Activation is separate from upload on purpose: the operator uploads the
+    immutable binary and release.json first, and only then moves the pointer, so an
+    interrupted publication leaves the previous installer and version serving. This
+    route validates the referenced bytes, refuses an incomplete pair, and applies a
+    compare-and-set on the pointer token so concurrent publishers cannot both win.
+    """
+    del request
+    _require_admin(user_api_key_dict)
+    config, s3 = _storage()
+
+    binary_key: Final = f"{AGENT_PREFIX}/{data.version}/source-link"
+    binary_digest: Final = await _head_digest(config, s3, binary_key)
+    if binary_digest is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"release {data.version} is not uploaded ({binary_key} is absent); upload before activating",
+        )
+    if binary_digest != data.sha256:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{binary_key} holds {binary_digest}, not the requested {data.sha256}",
+        )
+    release_digest: Final = await _head_digest(config, s3, f"{AGENT_PREFIX}/{data.version}/release.json")
+    if release_digest is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"release {data.version} has no release.json; upload the complete pair before activating",
+        )
+
+    _, current_token = await _read_optional(config, s3)
+    if data.expected_current is not None:
+        expected: Final = "" if data.expected_current == "absent" else data.expected_current
+        if current_token != expected:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="active release moved since it was read; re-read and retry the activation",
+            )
+
+    pointer: Final = SourceAgentManifest(version=data.version, sha256=data.sha256)
+    body: Final = pointer.model_dump_json().encode()
+    await asyncio.to_thread(s3.put_object, Bucket=config.bucket, Key=MANIFEST_KEY, Body=body, ContentType="application/json")
+    return {"ok": True, "version": pointer.version, "sha256": pointer.sha256, "previous": current_token or "absent"}
+
+
+@router.get("/install/admin/v1/source-agent/state", dependencies=[Depends(user_api_key_auth)])
+async def admin_release_state(
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> dict[str, object]:
+    """The current pointer bytes and its concurrency token, for a checked update."""
+    _require_admin(user_api_key_dict)
+    config, s3 = _storage()
+    raw, token = await _read_optional(config, s3)
+    return {"active": raw.decode("utf-8") if raw else None, "token": token or "absent"}

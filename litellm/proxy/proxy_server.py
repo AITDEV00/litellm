@@ -18166,25 +18166,37 @@ async def login_v3(request: Request):
 
 @router.post("/sso/cli/password", include_in_schema=False)  # hidden: connector install helper
 async def cli_password_login(request: Request):
-    """Exchange an ordinary user's username and password for a durable, scoped key.
+    """Exchange an ordinary user's username and password for one durable, scoped key.
 
-    This is the credential path for `source-link init`. It reuses
-    ``authenticate_user`` for password verification and throttling, then mints a
-    real DB-backed virtual key rather than returning the UI session JWT. The
-    session JWT is deliberately not used: it is a dashboard cookie with a short
-    lifetime, and a connector daemon needs a credential that survives restarts.
+    This is the credential path for `source-link init`. Verification comes from
+    ``verify_password_only``, which does the password check, throttling and breach
+    screening but mints nothing. Only after that returns, and only for an ordinary
+    non-admin account with no reset outstanding, does this mint exactly one
+    DB-backed virtual key. Calling ``authenticate_user`` here would have created a
+    dashboard session key we immediately had to reject, so an admin login would
+    have left a real UI credential behind; this mints nothing until every check
+    has passed.
 
     The issued key is the ordinary user's own and is restricted to the source
     self-service routes, so it can enroll a source and register its connector
     worker under that user, and nothing administrative. Ownership is derived by
     the gateway from this authenticated user, never from the request body.
 
+    Lifetime: ``duration=None`` is deliberate. A connector runs as a daemon and
+    must survive restarts, so a short UI/dashboard session token is the wrong
+    credential here. Revocation is the operator's lever: deleting or blocking the
+    key stops the connector on its next request. Retrying a login is safe in the
+    sense that it never leaves a half-issued privilege behind, but each successful
+    login mints a new key because the gateway cannot re-reveal an existing key's
+    secret; a lost response therefore means logging in again, not replaying a key.
+
     Only ordinary user accounts are issuable here. An admin login would hand a
-    long-lived admin credential to a source host, so it is refused and the caller
-    is told to use a user account created by an administrator.
+    long-lived admin credential to a source host, so it is refused before any key
+    exists, and the caller is told to use a user account created by an
+    administrator.
     """
     global premium_user, general_settings, master_key
-    from litellm.proxy.auth.login_utils import authenticate_user
+    from litellm.proxy.auth.login_utils import verify_password_only
     from litellm.proxy.mcp_source_broker.models import CONNECTOR_SELF_SERVICE_ROUTES
     from litellm.proxy.management_endpoints.key_management_endpoints import (
         generate_key_helper_fn,
@@ -18194,7 +18206,7 @@ async def cli_password_login(request: Request):
         body: Final = _LOGIN_REQUEST_BODY.validate_python(await request.json())
         username: Final = str(body.get("username"))
         password: Final = str(body.get("password"))
-        login_result: Final = await authenticate_user(
+        verified: Final = await verify_password_only(
             username=username,
             password=password,
             master_key=master_key,
@@ -18202,28 +18214,18 @@ async def cli_password_login(request: Request):
             throttle=LoginThrottle.from_request(request, general_settings, redis_usage_cache),
             general_settings=general_settings,
         )
-        if login_result.password_reset_required:
+        if verified.password_reset_required:
             raise ProxyException(
                 message="password reset required before this account can be used for a connector",
                 type=ProxyErrorTypes.auth_error,
                 param="password",
                 code=status.HTTP_403_FORBIDDEN,
             )
-        if login_result.user_role == LitellmUserRoles.PROXY_ADMIN.value:
-            raise ProxyException(
-                message=(
-                    "a connection must use an ordinary user account, not an admin. Ask your "
-                    "gateway administrator to create a user account for you"
-                ),
-                type=ProxyErrorTypes.auth_error,
-                param="username",
-                code=status.HTTP_403_FORBIDDEN,
-            )
         minted: Final = await generate_key_helper_fn(
             request_type="key",
-            user_id=login_result.user_id,
-            user_role=login_result.user_role,
-            key_alias=f"source-connector-{login_result.user_id}",
+            user_id=verified.user_id,
+            user_role=verified.user_role,
+            key_alias=f"source-connector-{verified.user_id}",
             allowed_routes=list(CONNECTOR_SELF_SERVICE_ROUTES),
             duration=None,
             llm_router=llm_router,
@@ -18239,7 +18241,7 @@ async def cli_password_login(request: Request):
         return JSONResponse(
             content={
                 "key": issued_key,
-                "user_id": login_result.user_id,
+                "user_id": verified.user_id,
                 "expires_at": minted.get("expires"),
             },
             status_code=status.HTTP_200_OK,

@@ -44,21 +44,19 @@ class IssueRemote:
             dataset_id=peer.dataset_id,
         )
 
-    async def resume_peer(
-        self, source_id: str, label: str, target_host: str, target_port: int
-    ) -> RemotePeerResponse | None:
-        self.resumes.append((source_id, label, target_host, target_port))
+    async def resume_peer(self, source_id: str, peer: RemotePeer) -> RemotePeerResponse | None:
+        self.resumes.append((source_id, peer.label, peer.target.host, peer.target.port))
         if not self.resumable:
             return None
         return RemotePeerResponse(
-            worker_id=f"worker-{label}",
+            worker_id=f"worker-{peer.label}",
             source_id=source_id,
-            target=f"{target_host}:{target_port}",
+            target=f"{peer.target.host}:{peer.target.port}",
             generation=1,
             credential="ab" * 32,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
-            label=label,
-            dataset_id="dataset-1",
+            label=peer.label,
+            dataset_id=peer.dataset_id,
         )
 
 

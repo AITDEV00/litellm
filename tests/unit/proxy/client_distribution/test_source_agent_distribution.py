@@ -1,17 +1,17 @@
-"""Tests for the source-agent signed-release distribution slice."""
+"""Tests for source-agent release distribution through the shared artifact channel.
+
+These drive the real routes against a small in-memory store: the checked-in
+template from disk is uploaded exactly as an operator would, the install route
+renders it from a validated active release, and the binary is fetched back and its
+checksum compared. Nothing here substitutes placeholders in a fixture, because the
+bug under test was precisely that no production code performed that substitution.
+"""
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
-import json
-import os
 import pathlib
-import shutil
-import stat
-import subprocess  # noqa: TID251  # execute-ok: regression runs the installer with a fake curl
-from pathlib import Path
 from typing import Any, Final
 
 import pytest
@@ -21,259 +21,226 @@ from fastapi.testclient import TestClient
 import litellm.proxy.client_distribution.source_agent_distribution as dist_mod
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 
+_REPO_ROOT: Final = pathlib.Path(__file__).resolve().parents[4]
+_TEMPLATE_PATH: Final = _REPO_ROOT / "oicm-litellm-layer" / "templates" / "source-agent-install.sh.tmpl"
+
+_BINARY: Final = b"\x7fELF" + b"source-link-binary-bytes" * 64
+_VERSION: Final = "0.5.0"
+
 
 class _FakeS3Client:
-    """In-memory S3 stub matching the boto3 client surface the slice uses."""
+    """In-memory store matching the boto3 surface this slice uses."""
 
     def __init__(self) -> None:
-        self._store: dict[str, bytes] = {}
+        self.store: Final[dict[str, bytes]] = {}
 
-    def head_object(self, Bucket: str, Key: str) -> dict[str, object]:
-        if Key not in self._store:
-            from botocore.exceptions import ClientError
+    def _missing(self, key: str, operation: str) -> None:
+        from botocore.exceptions import ClientError
 
-            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "missing"}}, "HeadObject")
-        return {"ContentLength": len(self._store[Key])}
+        raise ClientError({"Error": {"Code": "NoSuchKey", "Message": f"missing {key}"}}, operation)
 
     def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
-        if Key not in self._store:
-            from botocore.exceptions import ClientError
-
-            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "missing"}}, "GetObject")
-        data: bytes = self._store[Key]
+        if Key not in self.store:
+            self._missing(Key, "GetObject")
+        data: Final = self.store[Key]
         return {"Body": io.BytesIO(data), "ContentLength": len(data)}
 
     def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str = "") -> None:
-        self._store[Key] = Body
+        self.store[Key] = Body
 
 
-def _manifest_body(version: str, sha256: str, os_name: str = "linux", arch: str = "amd64") -> bytes:
-    return json.dumps(
-        {"arch": arch, "os": os_name, "sha256": sha256, "version": version},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-
-
-@pytest.fixture()
-def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+def _config() -> dist_mod.RustFSConfig:
     from litellm.proxy.client_distribution.storage import RustFSConfig
 
-    s3: Final = _FakeS3Client()
-    config: Final = RustFSConfig(
+    return RustFSConfig(
         endpoint_url="http://rustfs-dev.adeo-litellm.svc.cluster.local:9000",
         access_key="test",
         secret_key="test",
         bucket="litellm-install",
     )
-    monkeypatch.setattr(dist_mod, "_s3", lambda: (config, s3))
+
+
+@pytest.fixture()
+def store(monkeypatch: pytest.MonkeyPatch) -> _FakeS3Client:
+    client: Final = _FakeS3Client()
+    config: Final = _config()
+    monkeypatch.setattr(dist_mod, "_storage", lambda: (config, client))
     monkeypatch.setenv("LITELLM_PUBLIC_BASE_URL", "https://gateway.example")
+    return client
+
+
+@pytest.fixture()
+def app(monkeypatch: pytest.MonkeyPatch, store: _FakeS3Client) -> FastAPI:
     application: Final = FastAPI()
     application.include_router(dist_mod.router)
     application.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role="proxy_admin")
     return application
 
 
-_INSTALLER_SOURCE: Final = (
-    pathlib.Path(__file__).resolve().parents[4] / "oicm-litellm-layer" / "mcp-source-link" / "install.sh"
-)
+def _publish(store: _FakeS3Client, version: str = _VERSION, binary: bytes = _BINARY) -> str:
+    """Upload one immutable release pair and the template, exactly as a publisher would."""
+    sha256: Final = hashlib.sha256(binary).hexdigest()
+    store.store[f"source-agent/{version}/source-link"] = binary
+    store.store[f"source-agent/{version}/release.json"] = (
+        b'{"version":"%s","sha256":"%s","size":%d}' % (version.encode(), sha256.encode(), len(binary))
+    )
+    store.store[dist_mod.TEMPLATE_KEY] = _TEMPLATE_PATH.read_bytes()
+    return sha256
 
 
-def _installer(binary: bytes, version: str) -> bytes:
-    """Render the checked-in installer exactly as the publisher does.
+def _activate(store: _FakeS3Client, version: str = _VERSION, binary: bytes = _BINARY) -> None:
+    sha256: Final = hashlib.sha256(binary).hexdigest()
+    store.store[dist_mod.MANIFEST_KEY] = (
+        b'{"version":"%s","sha256":"%s","size":%d}' % (version.encode(), sha256.encode(), len(binary))
+    )
 
-    Testing the real shipped script, not a copy, is the point: a regression in it
-    would otherwise pass here and fail for a user.
+
+def test_installer_is_rendered_from_the_stored_template(app: FastAPI, store: _FakeS3Client) -> None:
+    """The served installer has every placeholder filled by the gateway.
+
+    This is the R1 regression: the old publisher uploaded the template verbatim, so
+    a real install shipped ``__BASE__`` and friends. Serving real values, and
+    failing on any leftover placeholder, is what a user can actually run.
     """
-    sha256: Final = hashlib.sha256(binary).hexdigest()
-    return (
-        _INSTALLER_SOURCE.read_text()
-        .replace("__BASE__", "https://gateway.example")
-        .replace("__VERSION__", version)
-        .replace("__SHA__", sha256)
-        .replace("__STATE__", "$HOME/.config/source-agent")
-        .encode()
-    )
+    sha256: Final = _publish(store)
+    _activate(store)
 
+    response: Final = TestClient(app).get("/install/source-agent")
 
-def _payload(binary: bytes, version: str = "0.1.0") -> dict[str, str]:
-    sha256: Final = hashlib.sha256(binary).hexdigest()
-    return {
-        "version": version,
-        "sha256": sha256,
-        "binary_b64": base64.b64encode(binary).decode(),
-        "release_json_b64": base64.b64encode(_manifest_body(version, sha256)).decode(),
-        "install_script_b64": base64.b64encode(_installer(binary, version)).decode(),
-    }
-
-
-
-
-def _publish(client: TestClient, binary: bytes, version: str = "0.1.0") -> tuple[object, bytes]:
-    manifest_body: Final = _manifest_body(version, hashlib.sha256(binary).hexdigest())
-    return (
-        client.put("/install/admin/v1/source-agent/release", json=_payload(binary, version)),
-        manifest_body,
-    )
-
-
-def test_admin_publish_rejects_digest_mismatch(app: FastAPI) -> None:
-    client: Final = TestClient(app)
-    payload: Final = {**_payload(b"fake-binary"), "sha256": "0" * 64}
-    payload["release_json_b64"] = base64.b64encode(_manifest_body("0.1.0", "0" * 64)).decode()
-    response: Final = client.put("/install/admin/v1/source-agent/release", json=payload)
-    assert response.status_code == 409
-    assert "digest" in response.json()["detail"]
-
-
-def test_publish_then_install_script_and_assets(app: FastAPI) -> None:
-    client: Final = TestClient(app)
-    binary: Final = b"fake-source-agent-binary"
-    response, manifest_body = _publish(client, binary)
     assert response.status_code == 200
-    assert response.json()["version"] == "0.1.0"
-
-    script: Final = client.get("/install/source-agent")
-    assert script.status_code == 200
-    text: Final = script.text
-    assert 'base="https://gateway.example"' in text
-    assert '"$base/install/source-agent/$version/$asset"' in text
-    assert hashlib.sha256(binary).hexdigest() in text
-    assert "sha256sum" in text
-    assert "checksum mismatch" in text
-
-    asset: Final = client.get("/install/source-agent/0.1.0/source-link")
-    assert asset.status_code == 200 and asset.content == binary
-    manifest: Final = client.get("/install/source-agent/0.1.0/release.json")
-    assert manifest.status_code == 200 and manifest.content == manifest_body
-    assert client.get("/install/source-agent/0.1.0/release.sig.b64").status_code == 404
-    assert asset.headers["Content-Type"].startswith("application/octet-stream")
-    assert "SOURCE_AGENT_RELEASE_PUBLIC_KEY_B64" not in text
-    assert "openssl" not in text
+    body: Final = response.text
+    for placeholder in ("__BASE__", "__VERSION__", "__SHA__", "__STATE__"):
+        assert placeholder not in body, f"{placeholder} leaked into the served installer"
+    assert 'base="https://gateway.example"' in body
+    assert f'version="{_VERSION}"' in body
+    assert f'expected="{sha256}"' in body
+    assert "ExecStart=${state}/source-link connector" in body
 
 
-def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) -> None:
-    stub_binary: Final = b"#!/bin/sh\nexit 0\n"
-    client: Final = TestClient(app)
-    _publish(client, stub_binary)
-    script: Final = client.get("/install/source-agent").text
-    tools: Final = tmp_path / "tools"
-    tools.mkdir()
-    curl: Final = tools / "curl"
-    curl.write_text(
-        "#!/bin/sh\n"
-        "output=''\n"
-        "url=''\n"
-        'while [ "$#" -gt 0 ]; do\n'
-        '  case "$1" in\n'
-        '    --output) output="$2"; shift 2 ;;\n'
-        "    -*) shift ;;\n"
-        '    *) url="$1"; shift ;;\n'
-        "  esac\n"
-        "done\n"
-        'cp "$FIXTURE_ASSETS/${url##*/}" "$output"\n'
+def test_installer_fails_loudly_when_pointer_disagrees_with_the_release(app: FastAPI, store: _FakeS3Client) -> None:
+    """A corrupt pointer must not render an installer for bytes it does not describe."""
+    _publish(store)
+    store.store[dist_mod.MANIFEST_KEY] = (
+        b'{"version":"0.5.0","sha256":"' + b"0" * 64 + b'","size":1}'
     )
-    curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
-    for command in ("sha256sum", "cut"):
-        path: Final = shutil.which(command)
-        assert path is not None
-        (tools / command).write_text(f'#!/bin/sh\nexec "{path}" "$@"\n')
-        (tools / command).chmod((tools / command).stat().st_mode | stat.S_IEXEC)
-    # There is no user systemd bus in the test sandbox; stub it so the script's
-    # install step is what runs, not the host's service manager.
-    (tools / "systemctl").write_text("#!/bin/sh\nexit 0\n")
-    (tools / "systemctl").chmod((tools / "systemctl").stat().st_mode | stat.S_IEXEC)
-    served: Final = tmp_path / "served"
-    served.mkdir()
-    (served / "source-link").write_bytes(stub_binary)
-    (served / "release.json").write_bytes(_manifest_body("0.1.0", hashlib.sha256(stub_binary).hexdigest()))
-    trusted: Final = tmp_path / "trusted.sh"
-    trusted.write_text(script)
 
-    def invoke(assets: Path, home: str) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.run(  # noqa: TID251  # execute-ok: controlled installer and fake download tool
-            ["sh", str(trusted)],
-            check=False,
-            env={
-                **os.environ,
-                "HOME": str(tmp_path / home),
-                "PATH": f"{tools}:/usr/bin:/bin",
-                "FIXTURE_ASSETS": str(assets),
-            },
-            capture_output=True,
-            timeout=10,
-        )
+    response: Final = TestClient(app).get("/install/source-agent")
 
-    assert invoke(served, "home").returncode == 0
-    altered: Final = tmp_path / "altered"
-    shutil.copytree(served, altered)
-    (altered / "source-link").write_bytes(b"#!/bin/sh\nexit 0\n# altered\n")
-    result: Final = invoke(altered, "untrusted-home")
-    assert result.returncode != 0
-    assert b"checksum mismatch" in result.stderr
-    assert not (tmp_path / "untrusted-home" / ".config/systemd/user/source-agent.service").exists()
+    assert response.status_code == 409
+    assert "disagrees" in response.json()["detail"]
 
 
-def test_installed_unit_has_no_transport_variable(app: FastAPI, tmp_path: Path) -> None:
-    """The connector has one transport, so the unit must not pin a variable that
-    no longer exists. A leftover MCP_SOURCE_LINK_TRANSPORT=reverse-h2 would be a
-    re-introduction of the deleted plane."""
+def test_installer_requires_a_published_template(app: FastAPI, store: _FakeS3Client) -> None:
+    """No template means a clear conflict naming what to upload, not a stale script."""
+    _publish(store)
+    del store.store[dist_mod.TEMPLATE_KEY]
+    _activate(store)
+
+    response: Final = TestClient(app).get("/install/source-agent")
+
+    assert response.status_code == 409
+    assert dist_mod.TEMPLATE_KEY in response.json()["detail"]
+
+
+def test_binary_asset_downloads_bytes_that_match_the_advertised_checksum(app: FastAPI, store: _FakeS3Client) -> None:
+    """The installer's checksum is meaningful only if the served binary matches it."""
+    sha256: Final = _publish(store)
+    _activate(store)
     client: Final = TestClient(app)
-    _publish(client, b"connector-binary")
-    script: Final = client.get("/install/source-agent").text
-    unit: Final = script.split("<<'UNIT'\n", 1)[1].split("\nUNIT\n", 1)[0]
-    assert "MCP_SOURCE_LINK_TRANSPORT" not in unit
-    assert "reverse-h2" not in unit
-    assert "source-link connector" in unit and "ExecStart=" in unit
+
+    installer: Final = client.get("/install/source-agent").text
+    downloaded: Final = client.get(f"/install/source-agent/{_VERSION}/source-link")
+
+    assert downloaded.status_code == 200
+    assert hashlib.sha256(downloaded.content).hexdigest() == sha256
+    assert sha256 in installer, "the served installer must pin the digest of the served binary"
 
 
-def test_install_script_404_when_no_release(app: FastAPI) -> None:
-    client: Final = TestClient(app)
-    response: Final = client.get("/install/source-agent")
+def test_unknown_asset_is_rejected(app: FastAPI, store: _FakeS3Client) -> None:
+    _publish(store)
+    response: Final = TestClient(app).get(f"/install/source-agent/{_VERSION}/etc")
+
     assert response.status_code == 404
 
 
-def test_published_version_cannot_be_overwritten(app: FastAPI) -> None:
+def test_activation_requires_the_binary_to_exist(app: FastAPI, store: _FakeS3Client) -> None:
+    """A pointer may only move to a release whose immutable bytes are already stored."""
+    store.store[dist_mod.TEMPLATE_KEY] = _TEMPLATE_PATH.read_bytes()
+    response: Final = TestClient(app).put(
+        "/install/admin/v1/source-agent/activate",
+        json={"version": _VERSION, "sha256": hashlib.sha256(_BINARY).hexdigest()},
+    )
+
+    assert response.status_code == 409
+    assert "not uploaded" in response.json()["detail"]
+
+
+def test_activation_refuses_a_digest_that_the_store_does_not_hold(app: FastAPI, store: _FakeS3Client) -> None:
+    """Activation validates the referenced bytes, so a pointer cannot claim a digest
+    that no stored object has."""
+    _publish(store)
+    response: Final = TestClient(app).put(
+        "/install/admin/v1/source-agent/activate",
+        json={"version": _VERSION, "sha256": "f" * 64},
+    )
+
+    assert response.status_code == 409
+
+
+def test_concurrent_activations_cannot_both_win(app: FastAPI, store: _FakeS3Client) -> None:
+    """The checked pointer handoff is what stops two publishers from interleaving.
+
+    Both read token A, both try to activate; the second must be refused because the
+    pointer moved, rather than silently overwriting the first release.
+    """
+    first_sha: Final = _publish(store)
+    second_binary: Final = _BINARY + b"-next"
+    _publish(store, version="0.6.0", binary=second_binary)
     client: Final = TestClient(app)
-    first, manifest = _publish(client, b"original")
+
+    observed: Final = client.get("/install/admin/v1/source-agent/state").json()["token"]
+    first: Final = client.put(
+        "/install/admin/v1/source-agent/activate",
+        json={"version": _VERSION, "sha256": first_sha, "expected_current": observed},
+    )
+    second: Final = client.put(
+        "/install/admin/v1/source-agent/activate",
+        json={
+            "version": "0.6.0",
+            "sha256": hashlib.sha256(second_binary).hexdigest(),
+            "expected_current": observed,
+        },
+    )
+
     assert first.status_code == 200
-    second, _ = _publish(client, b"replacement")
-    assert second.status_code == 409
-    assert client.get("/install/source-agent/0.1.0/source-link").content == b"original"
-    assert client.get("/install/source-agent/0.1.0/release.json").content == manifest
+    assert second.status_code == 409, "the stale-token publish must not clobber the first"
+    assert store.store[dist_mod.MANIFEST_KEY] == b'{"version":"0.5.0","sha256":"%s","size":0}' % (
+        first_sha.encode(),
+    )
 
 
-def test_unknown_asset_rejected(app: FastAPI) -> None:
+def test_rollback_reactivates_a_previous_complete_release(app: FastAPI, store: _FakeS3Client) -> None:
+    """Rollback is another pointer move to an already-complete pair, not an edit of
+    the old bytes."""
+    first_sha: Final = _publish(store)
+    second_binary: Final = _BINARY + b"-next"
+    second_sha: Final = _publish(store, version="0.6.0", binary=second_binary)
     client: Final = TestClient(app)
-    _publish(client, b"bin")
-    response: Final = client.get("/install/source-agent/0.1.0/unknown.asset")
-    assert response.status_code == 404
-    response: Final = client.get("/install/source-agent/0.1.0/release.json%2f..%2fetc")
-    assert response.status_code in (400, 404)
+
+    client.put("/install/admin/v1/source-agent/activate", json={"version": _VERSION, "sha256": first_sha})
+    client.put("/install/admin/v1/source-agent/activate", json={"version": "0.6.0", "sha256": second_sha})
+    rollback: Final = client.put("/install/admin/v1/source-agent/activate", json={"version": _VERSION, "sha256": first_sha})
+
+    assert rollback.status_code == 200
+    served: Final = client.get("/install/source-agent").text
+    assert f'version="{_VERSION}"' in served and first_sha in served
 
 
-def test_publish_requires_admin(app: FastAPI) -> None:
-    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="mallory")
-    client: Final = TestClient(app)
-    payload: Final = {
-        "version": "0.1.0",
-        "sha256": "0" * 64,
-        "binary_b64": "",
-        "release_json_b64": "",
-    }
-    response: Final = client.put("/install/admin/v1/source-agent/release", json=payload)
+def test_activation_requires_admin(app: FastAPI, store: _FakeS3Client) -> None:
+    sha256: Final = _publish(store)
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role="internal_user")
+    response: Final = TestClient(app).put(
+        "/install/admin/v1/source-agent/activate", json={"version": _VERSION, "sha256": sha256}
+    )
+
     assert response.status_code == 403
-
-
-def test_publish_rejects_path_traversal_version(app: FastAPI) -> None:
-    client: Final = TestClient(app)
-    binary: Final = b"bin"
-    manifest_body: Final = _manifest_body("../evil", hashlib.sha256(binary).hexdigest())
-    payload: Final = {
-        "version": "../evil",
-        "sha256": hashlib.sha256(binary).hexdigest(),
-        "binary_b64": base64.b64encode(binary).decode(),
-        "release_json_b64": base64.b64encode(manifest_body).decode(),
-    }
-    response: Final = client.put("/install/admin/v1/source-agent/release", json=payload)
-    assert response.status_code == 400

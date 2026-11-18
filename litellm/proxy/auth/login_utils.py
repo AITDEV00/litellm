@@ -280,6 +280,139 @@ async def authenticate_user(
     return await _sign_in(username, password, master_key, prisma_client, attempt, general_settings)
 
 
+class VerifiedIdentity:
+    """A password-verified identity, with no credential minted.
+
+    Deliberately carries no key: verification and credential issuance are
+    separate, so a caller that only needs to know who authenticated (the
+    connector login) never causes a dashboard session key to exist.
+    """
+
+    user_id: str
+    user_email: str | None
+    user_role: str
+    password_reset_required: bool
+
+    def __init__(
+        self,
+        user_id: str,
+        user_email: str | None,
+        user_role: str,
+        password_reset_required: bool = False,
+    ):
+        self.user_id = user_id
+        self.user_email = user_email
+        self.user_role = user_role
+        self.password_reset_required = password_reset_required
+
+
+async def verify_password_only(
+    username: str,
+    password: str,
+    master_key: str | None,
+    prisma_client: PrismaClient | None,
+    throttle: LoginThrottle,
+    general_settings: Mapping[str, object] = MappingProxyType({}),
+) -> VerifiedIdentity:
+    """Verify a username/password and return the identity, minting no key.
+
+    ``authenticate_user`` does verification *and* UI session-key issuance in one
+    step, so calling it from a non-UI caller silently creates a dashboard key that
+    the caller never asked for and may have to reject afterwards. This is the
+    verification half alone: same SSO-disable gate, same master-key requirement,
+    same throttle accounting (so failures are rate-limited and counted exactly as
+    a UI sign-in), same breach screening, but no ``generate_key_helper_fn`` call.
+
+    A caller that wants a real credential issues exactly the one credential it
+    needs after this returns and it has run its own authorization checks.
+
+    Returns:
+        VerifiedIdentity: the authenticated user, or raises ``ProxyException``.
+
+    Raises:
+        ProxyException: bad credentials, disabled password login, or missing
+            master key, with the same messages and codes as ``authenticate_user``.
+    """
+    if general_settings.get("disable_password_login_when_sso_enabled") is True and is_sso_provider_fully_configured():
+        raise ProxyException(
+            message=(
+                "Username/password login is disabled because SSO is configured "
+                "and 'disable_password_login_when_sso_enabled' is set. Sign in via SSO."
+            ),
+            type=ProxyErrorTypes.auth_error,
+            param="disable_password_login_when_sso_enabled",
+            code=403,
+        )
+
+    if master_key is None:
+        raise ProxyException(
+            message="Master Key not set for Proxy. Please set Master Key to use Admin UI. Set `LITELLM_MASTER_KEY` in .env or set general_settings:master_key in config.yaml.  https://docs.litellm.ai/docs/proxy/virtual_keys. If set, use `--detailed_debug` to debug issue.",
+            type=ProxyErrorTypes.auth_error,
+            param="master_key",
+            code=500,
+        )
+
+    attempt: Final = await throttle.attempt(username)
+    admin_credentials_match: Final = _admin_credentials_match(username, password, master_key, general_settings)
+    if admin_credentials_match:
+        # The admin identity is recognized here but never issued a key: an admin
+        # must not receive a long-lived credential from a machine-facing login.
+        raise ProxyException(
+            message=(
+                "a connection must use an ordinary user account, not an admin. Ask your "
+                "gateway administrator to create a user account for you"
+            ),
+            type=ProxyErrorTypes.auth_error,
+            param="username",
+            code=403,
+        )
+
+    user_row: Final = (
+        None
+        if prisma_client is None
+        else cast(
+            LiteLLM_UserTable | None,
+            await UserRepository(prisma_client).table.find_first(
+                where={"user_email": {"equals": username, "mode": "insensitive"}}
+            ),
+        )
+    )
+    stored_password: Final = None if user_row is None else getattr(user_row, "password", None)
+    if user_row is None or stored_password is None:
+        await attempt.failed()
+        raise ProxyException(
+            message=_invalid_credentials_message(general_settings),
+            type=ProxyErrorTypes.auth_error,
+            param="invalid_credentials",
+            code=401,
+        )
+    if not verify_password(password, stored_password):
+        await attempt.failed()
+        raise ProxyException(
+            message=_invalid_credentials_message(general_settings),
+            type=ProxyErrorTypes.auth_error,
+            param="invalid_credentials",
+            code=401,
+        )
+
+    await _rehash_password_if_needed(user_row.user_id, password, stored_password)
+    breached_now: Final = prisma_client is not None and await screen_login_password_for_breach(
+        user_id=user_row.user_id,
+        password=password,
+        last_breach_check_at=getattr(user_row, "last_breach_check_at", None),
+        general_settings=general_settings,
+        prisma_client=prisma_client,
+    )
+    password_reset_required: Final = breached_now or getattr(user_row, "password_reset_required", None) is True
+    await attempt.succeeded()
+    return VerifiedIdentity(
+        user_id=user_row.user_id,
+        user_email=getattr(user_row, "user_email", None),
+        user_role=cast(str, getattr(user_row, "user_role", LitellmUserRoles.INTERNAL_USER)),
+        password_reset_required=password_reset_required,
+    )
+
+
 async def _sign_in(
     username: str,
     password: str,

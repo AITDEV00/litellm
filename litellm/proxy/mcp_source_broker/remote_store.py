@@ -134,7 +134,7 @@ class RemoteStore:
                 dataset_id=peer.dataset_id,
             )
 
-    async def resume_peer(self, source_id: str, label: str, target_host: str, target_port: int) -> RemotePeerResponse | None:
+    async def resume_peer(self, source_id: str, peer: RemotePeer) -> RemotePeerResponse | None:
         """Re-derive the credential for an already-issued worker at its live generation.
 
         A first bootstrap can enroll the source, create the worker row, and then
@@ -145,9 +145,17 @@ class RemoteStore:
         the "duplicate label is a 409" rule intact for a *different* caller while
         giving the lost-credential path a defined recovery.
 
+        Resume is bound to the *whole* registration fingerprint: label, target,
+        dataset id and proof key must all match the stored row. Matching only the
+        label and target would let a caller who changed the dataset or origin
+        proof silently receive the old credential, which is a different
+        registration than the one on record. A mismatch is therefore "nothing to
+        resume", not "reissue the old one".
+
         Returns None when there is nothing safe to resume: no worker for the
-        label, a mismatched target, or a worker that is revoked or draining. Those
-        cases are the operator-action-needed terminal states, not retryable ones.
+        label, any fingerprint field differing, or a worker that is revoked or
+        draining. Those are the operator-action-needed terminal states, not
+        retryable ones.
         """
         source: Final = await self.sources.source(source_id)
         if source is None or source.status == "revoked":
@@ -161,7 +169,7 @@ class RemoteStore:
                         await tx.query_raw(
                             "SELECT " + REMOTE_COLUMNS + ' FROM "OicmMcpRemoteWorker" WHERE source_id=$1 AND label=$2',
                             source_id,
-                            label,
+                            peer.label,
                         )
                     )
                 )
@@ -169,7 +177,12 @@ class RemoteStore:
             found: Final = rows[0] if rows else None
             if found is None:
                 return None
-            if found.target_host != target_host or found.target_port != target_port:
+            if (
+                found.target_host != peer.target.host
+                or found.target_port != peer.target.port
+                or found.dataset_id != peer.dataset_id
+                or found.proof_key != peer.proof_key
+            ):
                 return None
             if found.status not in {"pending", "active"}:
                 return None

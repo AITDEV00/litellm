@@ -498,3 +498,48 @@ class TestAdminPutManifest:
         )
         assert response.status_code == 200
         assert response.json()["ok"] is True
+
+
+class TestImmutableReleasePaths:
+    """Release artifacts must not be silently replaced with different bytes.
+
+    The generic artifact route is an upsert for mutable objects like the shared
+    installer template, but a released source-agent binary is pinned by digest in
+    every installer already served. Different bytes at the same version path would
+    make those pins a lie, so the route has to refuse it.
+    """
+
+    def test_same_bytes_is_idempotent(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
+        client: TestClient = TestClient(admin_app)
+        body: bytes = b"release-binary"
+        first = client.put("/install/admin/v1/artifact/source-agent/0.5.0/source-link", content=body)
+        second = client.put("/install/admin/v1/artifact/source-agent/0.5.0/source-link", content=body)
+
+        assert first.status_code == 200 and first.json()["unchanged"] is False
+        assert second.status_code == 200 and second.json()["unchanged"] is True
+        assert second.json()["sha256"] == hashlib.sha256(body).hexdigest()
+
+    def test_different_bytes_at_a_release_path_is_a_conflict(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
+        client: TestClient = TestClient(admin_app)
+        client.put("/install/admin/v1/artifact/source-agent/0.5.0/source-link", content=b"original")
+        overwrite = client.put("/install/admin/v1/artifact/source-agent/0.5.0/source-link", content=b"mutated")
+
+        assert overwrite.status_code == 409
+        assert s3._store["source-agent/0.5.0/source-link"] == b"original", "the released bytes must survive"
+
+    def test_template_path_stays_mutable(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
+        client: TestClient = TestClient(admin_app)
+        first = client.put("/install/admin/v1/artifact/templates/source-agent-install.sh.tmpl", content=b"v1")
+        second = client.put("/install/admin/v1/artifact/templates/source-agent-install.sh.tmpl", content=b"v2")
+
+        assert first.status_code == 200 and second.status_code == 200
+        assert s3._store["templates/source-agent-install.sh.tmpl"] == b"v2", "a template edit needs no version bump"
+
+    def test_reported_digest_matches_the_bytes_actually_stored(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:
+        """The response digest is the stored bytes' digest, not an ETag guess."""
+        client: TestClient = TestClient(admin_app)
+        body: bytes = b"payload"
+        response = client.put("/install/admin/v1/artifact/source-agent/0.5.0/release.json", content=body)
+
+        assert response.json()["sha256"] == hashlib.sha256(s3._store["source-agent/0.5.0/release.json"]).hexdigest()
+        assert response.json()["sha256"] == hashlib.sha256(body).hexdigest()

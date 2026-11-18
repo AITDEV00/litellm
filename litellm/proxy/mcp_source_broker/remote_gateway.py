@@ -109,9 +109,7 @@ def create_remote_gateway_router(
         created: Final = await store.remote.create_peer(source_id, peer)
         if created is not None:
             return created
-        resumed: Final = await store.remote.resume_peer(
-            source_id, peer.label, peer.target.host, peer.target.port
-        )
+        resumed: Final = await store.remote.resume_peer(source_id, peer)
         if resumed is None:
             raise HTTPException(409, "source or worker label is unavailable")
         return resumed

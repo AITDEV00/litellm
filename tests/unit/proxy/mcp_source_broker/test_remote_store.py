@@ -309,12 +309,13 @@ async def test_resume_peer_rederives_the_same_credential_without_new_state() -> 
     second identity for one label.
     """
     broker: Final = make_broker()
-    issued: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    registered: Final = peer()
+    issued: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered)
     assert issued is not None
     rows_before: Final = len(broker.db.workers)
 
     resumed: Final = await broker.store.resume_peer(
-        "11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18080
+        "11111111-1111-1111-1111-111111111111", registered
     )
 
     assert resumed is not None
@@ -330,9 +331,58 @@ async def test_resume_peer_refuses_a_target_that_no_longer_matches() -> None:
     """A changed loopback target is a different origin, so it must not inherit the
     stored worker's credential."""
     broker: Final = make_broker()
-    assert await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer()) is not None
-    moved: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18081)
+    registered: Final = peer()
+    assert await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered) is not None
+    moved_peer: Final = registered.model_copy(update={"target": Target(host="127.0.0.1", port=18081)})
+    moved: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", moved_peer)
     assert moved is None
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_refuses_a_changed_dataset_so_it_cannot_steal_the_credential() -> None:
+    """Resume is bound to the full registration fingerprint.
+
+    Before the fix it matched only source/label/target, so a caller who changed the
+    dataset silently received the old worker's credential for a registration the
+    gateway never approved. A changed dataset is a different registration, so it
+    must not resume.
+    """
+    broker: Final = make_broker()
+    registered: Final = peer()
+    assert await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered) is not None
+    changed: Final = registered.model_copy(update={"dataset_id": "postgres-replica"})
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", changed)
+    assert resumed is None, "a changed dataset must not inherit the stored credential"
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_refuses_a_changed_proof_key_so_trust_drift_is_not_hidden() -> None:
+    """A different origin proof public key is a different trust anchor. Resuming it
+    would hand the old credential to a caller whose proof key the gateway never
+    validated for this worker."""
+    broker: Final = make_broker()
+    registered: Final = peer()
+    assert await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered) is not None
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    other_public: Final = Ed25519PrivateKey.generate().public_key().public_bytes_raw()
+    changed: Final = registered.model_copy(update={"proof_key": base64.b64encode(other_public).decode()})
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", changed)
+    assert resumed is None, "a changed proof key must not inherit the stored credential"
+
+
+@pytest.mark.asyncio
+async def test_resume_peer_rederives_only_for_an_exactly_identical_registration() -> None:
+    """The positive control: an identical registration still resumes in place, so the
+    fingerprint check did not just break recovery."""
+    broker: Final = make_broker()
+    registered: Final = peer()
+    issued: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered)
+    assert issued is not None
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
+    assert resumed is not None and resumed.worker_id == issued.worker_id
 
 
 @pytest.mark.asyncio
@@ -341,13 +391,14 @@ async def test_resume_peer_refuses_a_revoked_worker_so_replacement_needs_a_new_l
     resurrect the revoked credential. The supported replacement is a fresh label,
     and the revoked generation stays fenced."""
     broker: Final = make_broker()
-    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    registered: Final = peer()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered)
     assert created is not None
     revoked: Final = await broker.store.lifecycle(created.worker_id, "revoke", 1)
     assert revoked is not None and revoked.phase == "revoked"
 
     resumed: Final = await broker.store.resume_peer(
-        "11111111-1111-1111-1111-111111111111", "worker-a", "127.0.0.1", 18080
+        "11111111-1111-1111-1111-111111111111", registered
     )
     assert resumed is None, "a revoked worker must never resume"
 
