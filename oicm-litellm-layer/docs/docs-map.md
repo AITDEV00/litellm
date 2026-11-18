@@ -191,7 +191,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Additional features — origin (where OICM custom code lives, by slice) | `docs/additional-features-origin.md` |
-| Vertical slice placement technique (deterministic procedure) | `docs/techniques/vertical_slice_technique.md` |
+| Folder tidying technique (classify, deduplicate, split, verify) | `docs/techniques/folder_tidying_technique.md` |
 | Drop-detection wiring tests | `tests/unit/proxy/test_oicm_drop_detection.py` |
 | Live smoke suite (post-merge, against a deployed gateway) | `tests/smoke/AGENTS.md` |
 
