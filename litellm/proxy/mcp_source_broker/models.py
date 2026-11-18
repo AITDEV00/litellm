@@ -54,7 +54,7 @@ class SourceCreate(Frozen):
     older connector that still sends them is not rejected outright.
     """
 
-    alias: str = Field(pattern=r"^[a-z][a-z0-9-]{2,127}$")
+    alias: str = Field(pattern=r"^[a-z][a-z0-9_.]{2,127}$")
     target: Target
     spec: str = Field(max_length=600_000)
     owner: str = Field(default="", max_length=255)

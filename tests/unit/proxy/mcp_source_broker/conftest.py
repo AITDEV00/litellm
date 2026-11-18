@@ -120,7 +120,7 @@ def store() -> SourceStore:
 def source() -> SourceCreate:
     return SourceCreate(
         owner="alice",
-        alias="pets-api",
+        alias="pets_api",
         key="another-source-key",
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
         target=Target(),
