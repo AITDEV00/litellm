@@ -341,8 +341,9 @@ func runSourceAdd(ctx context.Context, opts options) error {
 		}
 		return err
 	}
-	fmt.Printf("\nAdded source %s (origin %s, worker %s).\nRestart the agent to serve it.\n",
+	fmt.Printf("\nAdded source %s (origin %s, worker %s).\n",
 		source.Name, source.Target, source.WorkerID)
+	signalReload(setupBase())
 	return nil
 }
 
@@ -373,7 +374,15 @@ func runSourceRemove(opts options) error {
 		return err
 	}
 	fmt.Printf("Removed source %q from local state. Its gateway registration is unchanged.\n", opts.name)
+	signalReload(setupBase())
 	return nil
+}
+
+// signalReload tells a running agent to reconcile its source set, and prints what
+// happened so the user knows whether the change is already live.
+func signalReload(stateDir string) {
+	_, notice := setup.SignalConnector(stateDir)
+	fmt.Println(notice)
 }
 
 func terminal() setup.Terminal {
@@ -399,12 +408,39 @@ func setupBase() string {
 // runConnector serves every registered source across every account in this one
 // process. It never prompts; an unregistered source is skipped with a clear log
 // line rather than blocking for input under systemd.
+//
+// It records its PID so `adma source add` can send SIGHUP to make it re-read the
+// store, and it turns that signal into a reload. SIGINT and SIGTERM still cancel
+// the context and shut every tunnel down.
 func runConnector(ctx context.Context) error {
 	store, err := openStore()
 	if err != nil {
 		return err
 	}
-	return connector.RunAll(ctx, store)
+	base := setupBase()
+	if err := setup.WritePid(base); err != nil {
+		return err
+	}
+	defer setup.RemovePid(base)
+
+	reload := make(chan struct{}, 1)
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hup:
+				select {
+				case reload <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	return connector.RunAll(ctx, store, reload)
 }
 
 func runWorker(ctx context.Context, stop context.CancelFunc) error {

@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
 	"time"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
@@ -61,50 +62,154 @@ func Run(ctx context.Context, source state.Source, gateway string) error {
 	return RunTunnel(ctx, identity, gateway, tlsConfig, transport, origin.Authority())
 }
 
-// RunAll serves every registered, enabled source concurrently and returns when
-// ctx ends or no source can be served.
+// RunAll serves every registered, enabled source concurrently until ctx ends.
 //
-// Each source gets its own supervised goroutine. A source that fails to dial
-// retries inside RunTunnel; a source whose account is missing is logged and
-// skipped rather than aborting the whole agent, so one bad registration cannot
-// stop every other source from serving.
-func RunAll(ctx context.Context, store *state.Store) error {
-	sources, err := store.Sources()
+// It reconciles: each call to Sync reads the store and starts a source that is not
+// already running, cancels one that was removed, and leaves an unchanged source
+// alone, so a reload never drops a healthy tunnel for a source nobody touched.
+// Reloads arrive on the reload channel, which is how `adma source add` makes a
+// running agent pick up the new source without a restart.
+func RunAll(ctx context.Context, store *state.Store, reload <-chan struct{}) error {
+	run := newRunner(ctx, store)
+	if err := run.sync(); err != nil {
+		return err
+	}
+	if run.started() == 0 {
+		return fmt.Errorf("no registered sources to serve; run: adma source add")
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			run.stopAll()
+			return nil
+		case <-reload:
+			if err := run.sync(); err != nil {
+				log.Printf("reload: %v", err)
+				continue
+			}
+			log.Printf("reloaded; serving %d source(s)", run.started())
+		}
+	}
+}
+
+// runner holds the live tunnels keyed by source name, so a reload can diff the
+// store against what is actually running.
+type runner struct {
+	ctx     context.Context
+	store   *state.Store
+	running map[string]*runningSource
+}
+
+type runningSource struct {
+	cancel  context.CancelFunc
+	source  state.Source
+	gateway string
+}
+
+func newRunner(ctx context.Context, store *state.Store) *runner {
+	return &runner{ctx: ctx, store: store, running: map[string]*runningSource{}}
+}
+
+func (r *runner) started() int {
+	return len(r.running)
+}
+
+// sync diffs the store against the running set. A source present in both with the
+// same identity is left to run; a new or changed one is (re)started; a vanished
+// one is cancelled.
+func (r *runner) sync() error {
+	sources, err := r.store.Sources()
 	if err != nil {
 		return err
 	}
-	started := 0
-	accounts := make(map[string]struct{})
+	wanted := make(map[string]state.Source, len(sources))
 	for _, source := range sources {
 		if !source.Enabled || !source.Registered() {
 			continue
 		}
-		account, found, err := store.Account(source.Account)
-		if err != nil {
-			return err
+		wanted[source.Name] = source
+	}
+	running := make(map[string]state.Source, len(r.running))
+	for name, current := range r.running {
+		running[name] = current.source
+	}
+	stop, start := planChanges(running, wanted)
+	for _, name := range stop {
+		r.running[name].cancel()
+		delete(r.running, name)
+	}
+	for _, source := range start {
+		if err := r.start(source); err != nil {
+			log.Printf("source %s not started: %v", source.Name, err)
 		}
-		if !found {
-			log.Printf("source %s names unknown account %s; skipping", source.Name, source.Account)
+	}
+	return nil
+}
+
+// planChanges is the reconcile decision, separated from the goroutine plumbing so
+// it is a pure function a test can pin: which running sources to stop, and which
+// wanted sources to start. A source in both maps with the same identity is in
+// neither, so a reload never restarts a healthy tunnel.
+func planChanges(running, wanted map[string]state.Source) (stop []string, start []state.Source) {
+	toStop := make([]string, 0, len(running))
+	for name, current := range running {
+		next, stillWanted := wanted[name]
+		if !stillWanted || !sameIdentity(current, next) {
+			toStop = append(toStop, name)
+		}
+	}
+	toStart := make([]state.Source, 0, len(wanted))
+	for name, source := range wanted {
+		current, alreadyRunning := running[name]
+		if alreadyRunning && sameIdentity(current, source) {
 			continue
 		}
-		gateway, err := resolveGateway(account.GatewayURL)
-		if err != nil {
-			return err
+		toStart = append(toStart, source)
+	}
+	sort.Strings(toStop)
+	sort.Slice(toStart, func(i, j int) bool { return toStart[i].Name < toStart[j].Name })
+	return toStop, toStart
+}
+
+func (r *runner) start(source state.Source) error {
+	account, found, err := r.store.Account(source.Account)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("unknown account %s; skipping", source.Account)
+	}
+	gateway, err := resolveGateway(account.GatewayURL)
+	if err != nil {
+		return err
+	}
+	sourceCtx, cancel := context.WithCancel(r.ctx)
+	r.running[source.Name] = &runningSource{cancel: cancel, source: source, gateway: gateway}
+	go func() {
+		if err := Run(sourceCtx, source, gateway); err != nil && sourceCtx.Err() == nil {
+			log.Printf("source %s stopped: %v", source.Name, err)
 		}
-		started++
-		accounts[source.Account] = struct{}{}
-		go func(source state.Source, gateway string) {
-			if err := Run(ctx, source, gateway); err != nil && ctx.Err() == nil {
-				log.Printf("source %s stopped: %v", source.Name, err)
-			}
-		}(source, gateway)
-	}
-	if started == 0 {
-		return fmt.Errorf("no registered sources to serve; run: adma source add")
-	}
-	log.Printf("serving %d source(s) across %d account(s)", started, len(accounts))
-	<-ctx.Done()
+	}()
+	log.Printf("serving source %s (%s) for account %s", source.Name, source.Target, source.Account)
 	return nil
+}
+
+func (r *runner) stopAll() {
+	for _, current := range r.running {
+		current.cancel()
+	}
+}
+
+// sameIdentity reports whether two records describe the same tunnel, so a reload
+// keeps an unchanged source running instead of restarting it. The generation is
+// the gateway's own change marker; worker and credential are what the tunnel
+// authenticates with.
+func sameIdentity(a, b state.Source) bool {
+	return a.WorkerID == b.WorkerID &&
+		a.Credential == b.Credential &&
+		a.Generation == b.Generation &&
+		a.Target == b.Target &&
+		a.Account == b.Account
 }
 
 // resolveGateway returns an explicit tunnel URL override when set, otherwise the
