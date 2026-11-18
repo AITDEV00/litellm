@@ -1,10 +1,10 @@
-## Public ingress for the reverse-h2 connector transport. The connector on a
+## Public ingress for the grpctunnel connector transport. The connector on a
 ## source host initiates one multiplexed HTTP/2 session here; nothing on the
 ## source host listens. The GRPC backend protocol switches nginx to grpc_pass,
-## which proxies cleartext HTTP/2 (h2c) to the sidecar's reverse listener on
+## which proxies cleartext HTTP/2 (h2c) to the sidecar's tunnel listener on
 ## 8093, so HTTP/2 stream multiplexing survives the hop through the cluster.
-## The same listener also carries the grpctunnel plane at
-## /grpctunnel.v1.TunnelService/ once a connector selects MCP_SOURCE_LINK_TRANSPORT=tunnel.
+## Only /grpctunnel.v1.TunnelService/ is published: the four reverse-h2
+## long-poll routes were deleted with that data plane and would 404.
 ##
 ## proxy-body-size must stay unlimited: the reverse tunnel is ONE long-lived
 ## client-streaming POST whose body accumulates every pushed RPC request,
@@ -30,34 +30,6 @@ spec:
     - host: litellm.ecouncil.ae
       http:
         paths:
-          - path: /mcp-source-link-reverse
-            pathType: Prefix
-            backend:
-              service:
-                name: litellm-mcp-broker-dev
-                port:
-                  name: link-reverse
-          - path: /mcp-source-link-hold
-            pathType: Prefix
-            backend:
-              service:
-                name: litellm-mcp-broker-dev
-                port:
-                  name: link-reverse
-          - path: /mcp-source-link-dispatch
-            pathType: Prefix
-            backend:
-              service:
-                name: litellm-mcp-broker-dev
-                port:
-                  name: link-reverse
-          - path: /mcp-source-link-respond
-            pathType: Prefix
-            backend:
-              service:
-                name: litellm-mcp-broker-dev
-                port:
-                  name: link-reverse
           - path: /grpctunnel.v1.TunnelService/
             pathType: Prefix
             backend:

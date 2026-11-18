@@ -9,14 +9,14 @@
 ## Port map inside the one pod (Service-facing names in backticks):
 ##   9091  FastAPI source-link control `remote-control` (the broker process)
 ##   9092  Go private dispatch `link-data`: /sources/{id}/{path}, /v1/source-link/revoke (sidecar)
-##   8093  Go reverse-h2 and tunnel ingress `link-reverse`: /mcp-source-link-{reverse,hold,dispatch,respond} and /grpctunnel.v1.TunnelService/* (sidecar)
+##   8093  Go tunnel ingress `link-reverse`: /grpctunnel.v1.TunnelService/* (sidecar)
 ##
 ## The Service below publishes these on the litellm-mcp-broker-dev Service.
 ## The gateway-facing data plane is the STANDARD Service port 8888, which
 ## targets the sidecar's link-data listener; the gateway's pool URL always
 ## points at 8888, never at a container port. The data listener accepts both
 ## HTTP/1.1 (gateway revocation and kubelet readiness) and h2c (gRPC workloads
-## and multiplexed load clients). Reverse-h2 and grpctunnel ingress stays h2c-only.
+## and multiplexed load clients). The grpctunnel ingress stays h2c-only.
 ##
 ## A custom tag changed through this patch needs `kubectl apply -k` afterwards;
 ## `make mcp-sidecar-release` deletes the pod but does not choose a new tag.
@@ -49,8 +49,6 @@ spec:
               value: "0.0.0.0:9092"
             - name: MCP_SOURCE_LINK_REVERSE_LISTEN
               value: "0.0.0.0:8093"
-            - name: MCP_SOURCE_LINK_TRANSPORT
-              value: "reverse-h2"
           ports:
             - name: link-data
               containerPort: 9092
