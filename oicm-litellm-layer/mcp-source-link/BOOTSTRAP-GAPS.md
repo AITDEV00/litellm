@@ -429,3 +429,104 @@ basedpyright for touched Python, and meaningful new regression tests. Then updat
 `BOOTSTRAP-GAPS.md` and the owning status record to actual proven status; not every
 closed bug means the full independent acceptance succeeded. Do not mark SHIPPED on
 partial fresh-start evidence.
+
+## Implementation status, 2026-11-19
+
+Not SHIPPED. Items 1, 6 and 7 of the acceptance are still unproven end to end; the
+rest has a defined flow and automated coverage. What follows separates built from
+proven so nobody reads a green unit test as a live acceptance.
+
+### B1, resume a partially completed bootstrap: IMPLEMENTED
+
+A failure between "worker row created" and "identity persisted" used to strand the
+install, because the retry collided at `submit_for_review` and again on the worker
+label and never saw the lost credential.
+
+- `gateway.py::enroll` resumes a repeat enroll only when the collided row is the
+  same owner's and still `pending_review` (`pending_source_resume`, injected so the
+  router stays free of Prisma wiring). An approved, rejected or foreign row is still
+  a hard 409, so nothing leaves review and no approved row is rewritten.
+- `remote_store.py::resume_peer` re-derives the credential for the worker already
+  stored under that label, at its stored generation, without inserting a row,
+  advancing the generation, or changing status. It refuses a changed target and a
+  revoked or draining worker.
+- Connector side, `setup.Initialize` resumes from stored state: when `user.key` and
+  `bootstrap.json` exist but `identity.json` does not, it re-registers with the
+  stored input and stored key, with no second prompt and no second key minted. Every
+  attempt starts from disk, so a permanent conflict cannot be masked by an earlier
+  attempt's memory.
+
+Tests: `TestInitializeResumesAfterWorkerFailure`,
+`TestInitializeResumeRejectsTerminalConflict`,
+`test_repeat_enroll_resumes_its_own_pending_row`,
+`test_repeat_enroll_on_an_unresumable_row_still_conflicts`,
+`test_pending_source_resume_rejects_any_row_not_pending`,
+`test_resume_peer_rederives_the_same_credential_without_new_state`,
+`test_resume_peer_refuses_a_target_that_no_longer_matches`.
+
+### B3, lost or revoked identity: DEFINED, terminal by design
+
+Terminal revoke stays manual (decision 2026-11-17 in
+`docs/mcp-source-broker/running-system/README.md`), so replacement is a fresh label
+through the existing admin worker call, not modified `revoke` semantics.
+`resume_peer` refuses a revoked worker, which is what makes the replacement path
+necessary rather than silent. The connector now separates the two failures an
+operator must tell apart: a 401 or 429 stays `ErrNotYetAvailable` and is retried
+with backoff, any other 4xx is `ErrTerminalRegistration` and is not retried, because
+a conflicting identifier or revoked worker will not fix itself and must read as
+operator action required rather than as a gateway outage.
+
+Test: `test_resume_peer_refuses_a_revoked_worker_so_replacement_needs_a_new_label`
+(revoke, resume declines, fresh label starts a new membership, revoked generation
+still refused admission).
+
+### B6, host release artifacts in RustFS: PUBLISHER BUILT, LIVE UPLOAD UNPROVEN
+
+The gateway route already validated, stored and activated releases with the pointer
+written last. What was missing was a way for a human to publish without hand-building
+the base64 JSON body. `Makefile::mcp-sidecar-publish` and
+`scripts/publish-source-agent-release.sh` fill that: explicit `GATEWAY=dev|prod`
+with no default that could silently mean prod, `VERSION` required, a static-binary
+check, `DRY_RUN=1` for inspection, and the same immutable-assets-then-pointer order
+the route enforces. It builds the binary but never a container image and never
+touches the Deployment.
+
+Proven: the target builds a static binary and a dry run reports the digest, size and
+asset set with no network call. Not proven: an actual upload to RustFS with unchanged
+gateway pod identity (acceptance item 6). That needs the dev REST path below.
+
+### B2, guided CLI install: IMPLEMENTED
+
+`source-link init` prompts for gateway URL, username, source name, dataset ID,
+loopback target, proof key, OpenAPI path and a hidden password, then logs in,
+validates and enrolls without any hand-written env, bootstrap JSON or worker
+identity. `install.sh` installs, verifies the published checksum, and enables the
+user unit.
+
+### B4, dev REST reachability: OPEN, deployment gap
+
+Unchanged: the dev gateway has no ingress. `kubectl -n adeo-litellm port-forward
+svc/litellm-proxy-dev 14010:4000` is the only way to reach it, and the public host
+routes the tunnel path to the dev broker but `/mcp-sources` to prod, which has no
+such route. Acceptance items 5 and 6 stay blocked until an ingress rule carries the
+broker REST routes to the dev gateway, or the acceptance runs against a host that
+reaches it directly.
+
+### B5, tests over real state: IMPLEMENTED for the resume and revocation paths
+
+Added: real-store resume agreement (same worker id, same generation, same credential,
+no new row), changed-target refusal, revoked-worker refusal with old-generation
+fencing after a replacement exists, and the connector-level resume and terminal
+classification tests. Still not covered: pending-vs-dispatch isolation as a distinct
+real-store test.
+
+### Gates run for this change
+
+`mcp-sidecar-check` (gofmt, vet, staticcheck, regenerated-proto diff, race tests)
+passed for every package including `internal/setup`, `internal/auth` and
+`internal/bootstrap`. `mcp-source-link-compat` passed. The broker and
+client-distribution suites passed, 132 tests. `ruff` clean. basedpyright reports 0
+errors on the three touched production modules. The repo-wide type gate could not be
+run against a current base: the box has no network, so its merge-base stayed 1169
+commits behind and it attributed unrelated drift to this branch.
+

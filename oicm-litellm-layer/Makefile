@@ -277,6 +277,17 @@ mcp-sidecar-check:
 mcp-source-link-compat:
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) test -tags compat -count=1 -timeout 20m ./compat/...
 
+## Publish the source-agent release assets the installer downloads. Requires an
+## explicit target, because a default that silently meant prod is the failure
+## mode worth designing out:
+##   make mcp-sidecar-publish GATEWAY=dev VERSION=v1.2.3
+##   make mcp-sidecar-publish GATEWAY=dev VERSION=v1.2.3 DRY_RUN=1
+## It builds nothing and rolls nothing; uploads are immutable and the release
+## pointer moves last, so an interrupted publish never activates a half release.
+mcp-sidecar-publish:
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
+	GATEWAY=$(GATEWAY) VERSION=$(VERSION) DRY_RUN=$(DRY_RUN) scripts/publish-source-agent-release.sh
+
 mcp-sidecar-build:
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
 	file $(MCP_SIDECAR_DIR)/source-link | grep -q "statically linked" || { echo "sidecar binary is not static; CGO_ENABLED=0 is mandatory"; exit 1; }

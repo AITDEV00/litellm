@@ -17,26 +17,35 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"oicm-litellm-layer/mcp-source-link/internal/auth"
 	"oicm-litellm-layer/mcp-source-link/internal/config"
 	"oicm-litellm-layer/mcp-source-link/internal/connector"
 	"oicm-litellm-layer/mcp-source-link/internal/control"
 	"oicm-litellm-layer/mcp-source-link/internal/listen"
 	"oicm-litellm-layer/mcp-source-link/internal/pool"
+	"oicm-litellm-layer/mcp-source-link/internal/setup"
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
 func main() {
-	if len(os.Args) != 2 || (os.Args[1] != "worker" && os.Args[1] != "connector") {
-		log.Fatal("usage: mcp-source-link worker|connector")
+	if len(os.Args) < 2 {
+		log.Fatal("usage: mcp-source-link worker|connector|init")
+	}
+	switch os.Args[1] {
+	case "worker", "connector", "init":
+	default:
+		log.Fatal("usage: mcp-source-link worker|connector|init")
 	}
 	if err := run(os.Args[1]); err != nil {
 		log.Fatal(err)
@@ -46,29 +55,77 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if mode == "connector" {
+	switch mode {
+	case "init":
+		return runInit(ctx)
+	case "connector":
 		return runConnector(ctx)
+	default:
+		return runWorker(ctx, stop)
 	}
-	return runWorker(ctx, stop)
 }
 
-// runConnector bootstraps the connector identity on first use, then hands the
-// resolved identity to the existing tunnel loop. A valid persisted identity is
-// reused as-is, so restarts never re-register.
+// runInit performs the interactive first-use setup: authenticate the ordinary
+// user, read the OpenAPI document, enroll the source, register this worker, and
+// persist everything owner-only. It is idempotent: a valid identity is never
+// overwritten.
+func runInit(ctx context.Context) error {
+	if !setup.IsInteractive() {
+		return errors.New("source-link init needs a terminal; run it interactively on the source host")
+	}
+	base := setupBase()
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return err
+	}
+	prompt := setup.Terminal{In: os.Stdin, Out: os.Stdout}
+	identity, err := setup.Initialize(ctx, setup.PathsFor(base), prompt, auth.PasswordLogin{HTTP: config.HTTPSClient("")}, nil)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nSource connector initialized.\n  worker:  %s\n  source:  %s\n  target:  %s\n"+
+		"Start it with: systemctl --user enable --now source-agent.service\n",
+		identity.WorkerID, identity.SourceID, identity.Target)
+	return nil
+}
+
+// setupBase is where initialization writes its owner-only state.
+func setupBase() string {
+	if explicit := config.Environment("MCP_SOURCE_LINK_STATE_DIR"); explicit != "" {
+		return explicit
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".config/source-agent"
+	}
+	return filepath.Join(home, ".config", "source-agent")
+}
+
+// runConnector starts the tunnel from a persisted identity. If none exists it
+// must not silently re-bootstrap: an interactive terminal is offered init, and a
+// non-interactive run (systemd) fails with instructions rather than blocking on
+// stdin forever.
 func runConnector(ctx context.Context) error {
 	gateway := config.Environment("MCP_SOURCE_LINK_PUBLIC_URL")
 	if !strings.HasPrefix(gateway, "https://") {
 		return errors.New("worker URL must use approved HTTPS")
 	}
-	tlsConfig, err := config.TLS(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
-	if err != nil {
-		return err
+	identityPath := filepath.Join(setupBase(), "identity.json")
+	if explicit := config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"); explicit != "" {
+		identityPath = explicit
 	}
-	httpClient := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
-	defer httpClient.CloseIdleConnections()
-	identity, err := connector.LoadIdentity(ctx, gateway, httpClient)
+	identity, err := config.ReadConnector(identityPath)
 	if err != nil {
-		return err
+		if !setup.IsInteractive() {
+			return errors.New("no connector identity found; run: source-link init")
+		}
+		fmt.Println("This connector is not initialized yet; starting setup.")
+		if initErr := runInit(ctx); initErr != nil {
+			return initErr
+		}
+		identity, err = config.ReadConnector(identityPath)
+		if err != nil {
+			return err
+		}
 	}
 	return connector.Run(ctx, identity)
 }

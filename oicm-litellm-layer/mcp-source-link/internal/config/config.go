@@ -161,12 +161,15 @@ func Slot(sourceID string) string {
 
 // BootstrapInput is the operator-supplied, first-use registration description.
 // It is written once by the installer (mode 0600) and never contains identity.
+// GatewayURL is recorded so a resume after a lost worker response can reach the
+// same gateway without another interactive prompt.
 type BootstrapInput struct {
-	Alias     string `json:"alias"`
-	DatasetID string `json:"dataset_id"`
-	ProofKey  string `json:"proof_key"`
-	Target    string `json:"target"`
-	Spec      string `json:"spec"`
+	Alias      string `json:"alias"`
+	DatasetID  string `json:"dataset_id"`
+	ProofKey   string `json:"proof_key"`
+	Target     string `json:"target"`
+	Spec       string `json:"spec"`
+	GatewayURL string `json:"gateway_url"`
 }
 
 // ReadBootstrapInput loads the enrollment description and validates the loopback
@@ -194,7 +197,89 @@ func ReadBootstrapInput(path string) (BootstrapInput, ConnectorTarget, error) {
 	return input, target, nil
 }
 
-// ParseTarget validates that a target is an explicit numeric loopback address.
+// ValidateBootstrapInput checks the fields an enrollment needs, so a prompt loop
+// can reject a bad value before any network call.
+func ValidateBootstrapInput(input BootstrapInput) error {
+	if input.Alias == "" || input.DatasetID == "" || input.ProofKey == "" || input.Spec == "" {
+		return errors.New("bootstrap input needs alias, dataset_id, proof_key and spec")
+	}
+	if _, err := ParseTarget(input.Target); err != nil {
+		return err
+	}
+	return nil
+}
+
+// WriteBootstrapInput persists the enrollment description atomically at an
+// owner-only path. It carries no identity and no secret.
+func WriteBootstrapInput(path string, input BootstrapInput) error {
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	return writeOwnerOnly(path, encoded)
+}
+
+// WriteOwnerOnly persists arbitrary bytes atomically at an owner-only path. The
+// interactive setup uses it for the issued user key.
+func WriteOwnerOnly(path string, contents []byte) error {
+	return writeOwnerOnly(path, contents)
+}
+
+// ReadUserKey loads the installed gateway account key. It must be owner-only, so
+// a resume never picks up a key another user could read.
+func ReadUserKey(path string) (string, error) {
+	if err := checkOwnerOnly(path); err != nil {
+		return "", err
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(string(contents))
+	if key == "" {
+		return "", errors.New("the stored user key is empty")
+	}
+	return key, nil
+}
+
+// HTTPSClient builds an HTTP client that trusts CAFile when set.
+func HTTPSClient(ca string) *http.Client {
+	tlsConfig, err := TLS(ca)
+	if err != nil {
+		// A bad CA path is a real misconfiguration; fall back to system roots so the
+		// caller's next request fails with a TLS error that names the problem.
+		tlsConfig, _ = TLS("")
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
+}
+
+// writeOwnerOnly writes bytes to a sibling temporary file, fsyncs, then renames,
+// so a crash can never leave a truncated file behind, and the final file is mode
+// 0600 regardless of the process umask.
+func writeOwnerOnly(path string, contents []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".source-agent-*")
+	if err != nil {
+		return err
+	}
+	name := temp.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := temp.Chmod(0o600); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if _, err := temp.Write(contents); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
 func ParseTarget(value string) (ConnectorTarget, error) {
 	var target ConnectorTarget
 	host, port, err := net.SplitHostPort(value)
@@ -217,35 +302,11 @@ func checkOwnerOnly(path string) error {
 }
 
 // WriteConnectorIdentity persists an issued identity atomically at an owner-only
-// path. It writes to a sibling temporary file, fsyncs, then renames, so a crash
-// can never leave a truncated identity behind.
+// path.
 func WriteConnectorIdentity(path string, identity ConnectorConfig) error {
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return err
 	}
-	directory := filepath.Dir(path)
-	temp, err := os.CreateTemp(directory, ".connector-identity-*")
-	if err != nil {
-		return err
-	}
-	name := temp.Name()
-	// Remove on any failure path; a successful rename makes this a no-op.
-	defer func() { _ = os.Remove(name) }()
-	if err := temp.Chmod(0o600); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if _, err := temp.Write(encoded); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return writeOwnerOnly(path, encoded)
 }

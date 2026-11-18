@@ -12,12 +12,14 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
@@ -76,6 +78,12 @@ type IssuedIdentity struct {
 // not installed yet. The caller backs off and retries rather than exiting.
 var ErrNotYetAvailable = errors.New("gateway enrollment not yet available")
 
+// ErrTerminalRegistration signals a gateway refusal that a retry cannot fix,
+// such as a conflicting identifier or a revoked worker. Retrying it forever would
+// look like a network outage while the operator sees nothing actionable, so it is
+// reported distinctly and the caller stops.
+var ErrTerminalRegistration = errors.New("gateway refused registration")
+
 // Client performs enrollment and worker issuance against a fixed gateway base.
 type Client struct {
 	Base    *url.URL
@@ -131,6 +139,12 @@ func (c *Client) post(ctx context.Context, path string, body any, out any) error
 	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
 		// Never echo the Authorization header or the response body wholesale: a body
 		// on an error path must not become a credential or admin-state leak.
+		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("%w: gateway %s returned %d", ErrNotYetAvailable, path, response.StatusCode)
+		}
+		if response.StatusCode >= 400 && response.StatusCode < 500 {
+			return fmt.Errorf("%w: gateway %s returned %d", ErrTerminalRegistration, path, response.StatusCode)
+		}
 		return fmt.Errorf("gateway %s returned %d", path, response.StatusCode)
 	}
 	return json.Unmarshal(payload, out)
@@ -167,8 +181,99 @@ func (c *Client) IssueWorker(
 	if err := c.post(ctx, "/mcp-source-link-sources/"+url.PathEscape(sourceID)+"/workers", body, &issued); err != nil {
 		return issued, err
 	}
-	if issued.WorkerID == "" || issued.SourceID == "" || issued.Generation == 0 || len(issued.Credential) != 64 {
-		return issued, errors.New("gateway worker response did not carry a complete identity")
+	if err := validateIssued(sourceID, issued); err != nil {
+		return IssuedIdentity{}, err
 	}
 	return issued, nil
 }
+
+// validateIssued rejects an identity that would only fail later, on the next
+// restart, after the response has already been persisted. A wrong source id, a
+// non-loopback target, or a non-hex credential of the right length must never
+// reach disk, or the connector would loop re-registering a broken identity.
+func validateIssued(sourceID string, issued IssuedIdentity) error {
+	if issued.WorkerID == "" || issued.SourceID == "" || issued.Generation == 0 {
+		return errors.New("gateway worker response did not carry a complete identity")
+	}
+	if issued.SourceID != sourceID {
+		return errors.New("gateway worker response named a different source than was enrolled")
+	}
+	if _, err := config.ParseTarget(issued.Target); err != nil {
+		return fmt.Errorf("gateway worker response carried an invalid target: %w", err)
+	}
+	if len(issued.Credential) != 64 {
+		return errors.New("gateway worker credential is not 64 characters")
+	}
+	if _, err := hex.DecodeString(issued.Credential); err != nil {
+		return errors.New("gateway worker credential is not hexadecimal")
+	}
+	return nil
+}
+
+// Register runs the whole first-use enrollment: enroll the source, then register
+// this worker, returning the identity to persist.
+func Register(
+	ctx context.Context, client *Client, input config.BootstrapInput, target config.ConnectorTarget,
+) (config.ConnectorConfig, error) {
+	enrollment := EnrollmentInput{
+		Alias: input.Alias, DatasetID: input.DatasetID, ProofKey: input.ProofKey, Spec: input.Spec,
+	}
+	enrolled, err := client.Enroll(ctx, enrollment, target)
+	if err != nil {
+		return config.ConnectorConfig{}, err
+	}
+	issued, err := client.IssueWorker(ctx, enrolled.SourceID, enrollment, target, WorkerLabel(input.Alias))
+	if err != nil {
+		return config.ConnectorConfig{}, err
+	}
+	return config.ConnectorConfig{
+		WorkerID:   issued.WorkerID,
+		SourceID:   issued.SourceID,
+		Target:     issued.Target,
+		Generation: issued.Generation,
+		Credential: issued.Credential,
+	}, nil
+}
+
+// WorkerLabel is the deterministic worker label for a source alias.
+//
+// The gateway's worker label pattern is `^[a-z][a-z0-9-]{1,31}$`: no underscores,
+// 2 to 32 characters. The source alias allows underscores and 128 characters, so
+// passing it straight through is rejected. Aliases that already fit are used
+// verbatim, which keeps the existing deterministic label for the pod; others are
+// normalized the same way every time so a restart derives the same label.
+func WorkerLabel(alias string) string {
+	if workerLabelPattern.MatchString(alias) {
+		return alias
+	}
+	normalized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, alias)
+	trimmed := strings.Trim(normalized, "-")
+	if trimmed == "" {
+		trimmed = "connector"
+	}
+	if len(trimmed) > 32 {
+		trimmed = strings.TrimRight(trimmed[:32], "-")
+	}
+	if trimmed[0] < 'a' || trimmed[0] > 'z' {
+		trimmed = "s" + trimmed
+		if len(trimmed) > 32 {
+			trimmed = trimmed[:32]
+		}
+	}
+	// The gateway pattern requires at least two characters.
+	if len(trimmed) < 2 {
+		trimmed += "-1"
+	}
+	return trimmed
+}
+
+var workerLabelPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
