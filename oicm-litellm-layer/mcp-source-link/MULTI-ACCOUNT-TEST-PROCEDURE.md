@@ -1,376 +1,292 @@
-# Multi-account connector: manual test procedure
+# Multi-account connector: guided end-to-end procedure
 
-This is the operator-facing, step-by-step procedure for proving the multi-account
-`source-link` client against a live dev gateway. It complements
-`MULTI-ACCOUNT-SOURCE-GAPS.md` (the requirements) and the automated tests in
-`internal/state`, `internal/setup`, `internal/target` and the Python broker suite.
-Those tests prove the units; this procedure proves the wiring end to end through
-the real binary.
+This is the hands-on procedure for proving the multi-account `source-link` client
+against the live dev gateway. It is written as a guided session: the assistant sets
+up state and hands you the exact commands, you run the interactive ones yourself,
+and the assistant verifies each phase before the next begins. Run it top to bottom.
 
-Run it top to bottom on a clean slate. Each step states what to run, what success
-looks like, and what a failure means. Do not skip a step because a later one is
-"the interesting one": a step that fails early usually means every step after it
-is measuring the wrong thing.
+Requirements this proves: `MULTI-ACCOUNT-SOURCE-GAPS.md`. Unit and integration
+tests live in `internal/state`, `internal/setup`, `internal/target` and the Python
+broker suite; this document proves the wiring through the real binary and a live
+gateway.
 
-## 0. Prerequisites and what each one is for
+Environment facts that will cost you time if you forget them:
 
-You need a dev gateway reachable over TLS, a database, and at least two ordinary
-user accounts on that gateway. Everything here is dev-only; nothing in this
-procedure touches production.
+- The password login looks the user up by **email**, not `user_id`. Enter the email
+  as the username.
+- The public source routes (`POST /mcp-sources`,
+  `POST /mcp-source-link-sources/{id}/workers`) are served by the **proxy**
+  (`litellm-proxy-dev`), not the broker pod.
+- Source targets are host:port only, and the broker registers every source as an
+  HTTP/OpenAPI origin. A native MCP server is registered with a minimal OpenAPI
+  document that describes its `/mcp` endpoint, because the connector forwards the
+  path verbatim and the broker needs a catalog.
+- Restarting the proxy kills the REST port-forward. Re-run it before the next
+  phase.
 
-| Thing | Why | How to check |
+Throughout, the dev gateway is reached at `https://localhost:14443` (TLS
+terminator in front of the `14010` forward). The self-signed certificate is why the
+binary is run with `--insecure`.
+
+## Phase 0: provision the two accounts
+
+The assistant does this. Two ordinary users on the dev gateway, one per person, so
+later phases can prove that an equal target under two owners stays two sources.
+
+Success: both rows exist and both can exchange their password for a key.
+
+```sql
+SELECT user_id, user_email, user_role, password_reset_required
+  FROM "LiteLLM_UserTable"
+ WHERE user_id IN ('accept-owner-1','accept-owner-2');
+-- both rows: user_role = internal_user, password_reset_required = false
+```
+
+Hand-off: the assistant gives you the two credential pairs, then stops. Do not
+continue until you have both.
+
+| Account | Username (email) | Password |
 |---|---|---|
-| Dev proxy port-forward | The connector talks to the gateway over REST | `ps aux \| grep 'port-forward svc/litellm-proxy-dev'` |
-| TLS terminator on 14443 | The client refuses plain HTTP; this fronts the forward with a cert | `curl -sk -o /dev/null -w '%{http_code}' https://localhost:14443/health/readiness` returns `200` |
-| Postgres pod | Source, worker and MCP registry rows are inspected and cleaned here | `kubectl -n adeo-litellm get pods \| grep postgres-dev` |
-| Two user accounts | Proves an equal target under two owners stays two sources | `SELECT user_id, user_email FROM "LiteLLM_UserTable"` |
-| Built binary | The thing under test | `make -C oicm-litellm-layer mcp-sidecar-build` |
+| alpha | `accept-owner-1@example.invalid` | `/tmp/accept.pw` |
+| beta | `accept-owner-2@example.invalid` | `/tmp/accept2.pw` |
 
-Two facts that will cost you an hour if you do not know them:
+## Phase 1: install the connector binary
 
-- The password login (`POST /sso/cli/password`) looks the user up by **email**, not
-  by `user_id`. Enter the email as the username.
-- The public source routes (`POST /mcp-sources`, `POST
-  /mcp-source-link-sources/{id}/workers`) are mounted on the **proxy**
-  (`litellm-proxy-dev`), not on the broker pod. The broker pod serves only the
-  private control plane. If you change those routes in code, you patch the proxy.
+The assistant publishes the binary the installer fetches, then hands you the
+install command. The dev gateway serves the connector through its install endpoint,
+so installing against dev is one `curl | bash` from a published release.
 
-Start the port-forward fresh, because rolling the proxy kills it:
+The connector binary and its installer are released together and checksum
+verified:
 
 ```
-kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14010:4000 &
+VERSION=v0.4.0-dev
+BASE=https://localhost:14443/install/source-agent/$VERSION
+curl -kfsSL "$BASE/install.sh" | sh
 ```
 
-The TLS terminator in this environment forwards `14443` to `14010`. Confirm both:
+Success: `Source connector installed` plus `State directory: ...`, and
+`source-link --help` shows the `account` and `source` command families.
+
+If the dev release endpoint is not yet published (the publisher is an admin
+artifact upload, and `install.sh` verifies a SHA that must match the uploaded
+bytes), the assistant falls back to installing the already-built binary directly:
 
 ```
-curl -s  -o /dev/null -w 'direct=%{http_code}\n'   http://localhost:14010/health/readiness
-curl -sk -o /dev/null -w 'tls=%{http_code}\n'      https://localhost:14443/health/readiness
+install -m 0755 <built-source-link> ~/.local/bin/source-link
+~/.local/bin/source-link --help
 ```
 
-Both must print `200`. If `tls=000`, the terminator lost its upstream; restart the
-forward.
-
-## 1. Start from a clean slate
-
-The correctness claims here (idempotency, no duplicate rows, scoped revocation)
-are only observable if the tables start empty. Delete the local state and the dev
-rows first.
-
-Local state, per test home:
+A fresh install has no accounts and no sources. Confirm:
 
 ```
-rm -rf /tmp/multi-proof && mkdir -p /tmp/multi-proof/home
-cp <built-binary> /tmp/multi-proof/source-link
+source-link account list   # "no accounts configured; run: source-link account add <alias>"
 ```
 
-Dev rows. The order matters because of foreign keys: workers reference
-enrollments, enrollments reference sources.
+## Phase 2: log in and connect with the binary
+
+You run this. It is interactive: three questions per account, once each.
 
 ```
-PSQL='kubectl -n adeo-litellm exec adeo-litellm-postgres-dev-1 -- psql -U postgres -d litellm -c'
-$PSQL 'DELETE FROM "LiteLLM_MCPUserEnvVars";'
-$PSQL 'DELETE FROM "LiteLLM_MCPUserCredentials";'
-$PSQL 'DELETE FROM "LiteLLM_MCPServerOAuthClient";'
-$PSQL 'DELETE FROM "LiteLLM_MCPToolsetTable";'
-$PSQL 'DELETE FROM "LiteLLM_MCPServerTable";'
-$PSQL 'DELETE FROM "OicmMcpRemoteWorker";'
-$PSQL 'DELETE FROM "OicmMcpEnrollment";'
-$PSQL 'DELETE FROM "OicmMcpConnector";'
-$PSQL 'DELETE FROM "OicmMcpSource";'
-```
-
-Success: every table reports `DELETE n` and the counts below are all `0`.
-
-```
-kubectl -n adeo-litellm exec adeo-litellm-postgres-dev-1 -- psql -U postgres -d litellm -t -c \
-  'SELECT (SELECT count(*) FROM "LiteLLM_MCPServerTable") AS mcp_rows,
-          (SELECT count(*) FROM "OicmMcpSource")         AS sources,
-          (SELECT count(*) FROM "OicmMcpRemoteWorker")   AS workers,
-          (SELECT count(*) FROM "OicmMcpEnrollment")     AS enrollments;'
-```
-
-Also clear anything already known by the live gateway's router, since a deleted DB
-row does not unload an in-memory MCP server:
-
-```
-curl -sk -X POST https://localhost:14443/health/reload -H "Authorization: Bearer $MASTER_KEY"
-```
-
-## 2. Add the first account
-
-The account step is where the old UX was worst: it demanded six fields and an
-opaque public key. The new contract is three questions, once per account.
-
-```
-export HOME=/tmp/multi-proof/home
 export MCP_SOURCE_LINK_INSECURE=1
-./source-link account add alpha
+source-link account add alpha
 ```
 
-Answer exactly:
+Answer: gateway `https://localhost:14443`, username
+`accept-owner-1@example.invalid`, password from `/tmp/accept.pw`.
 
-1. `Gateway URL (https://...):` -> `https://localhost:14443`
-2. `Username:` -> `accept-owner-1@example.invalid` (the email)
-3. `Password (not echoed):` -> the dev password
-
-Success looks like:
+Then the second account:
 
 ```
-Added account "alpha" (user accept-owner-1@example.invalid at https://localhost:14443).
+source-link account add beta
 ```
 
-What to check beyond the message:
+Answer with `accept-owner-2@example.invalid` and `/tmp/accept2.pw`.
 
-- Only three prompts appeared. If you saw a dataset-id, proof-key, or OpenAPI
-  prompt here, the binary is stale.
-- The raw password is nowhere on disk:
-  ```
-  grep -r "$(cat /tmp/accept.pw)" /tmp/multi-proof/home && echo LEAK || echo clean
-  ```
-  must print `clean`.
-- The key file is owner-only:
-  ```
-  ls -l /tmp/multi-proof/home/.config/source-agent/accounts/
-  ```
-  shows `-rw-------` for `alpha.key`.
-
-Failure modes: a `401` means the username was not the email or the password is
-wrong. An `account "alpha" already exists` message means step 1 did not clear the
-local home, which is fine, just use a fresh home.
-
-## 3. Add a second account
-
-A second account is a separate owner. This is what later proves that one target
-under two owners is two sources, not one.
-
-```
-./source-link account add beta
-```
-
-Same three prompts, with `accept-owner-2@example.invalid` and its password.
-
-```
-./source-link account list
-```
-
-Success:
+Success: `account list` shows both, with `*` on the first (auto-selected), and no
+key material in the listing:
 
 ```
 * alpha   https://localhost:14443   accept-owner-1@example.invalid
   beta    https://localhost:14443   accept-owner-2@example.invalid
 ```
 
-The `*` marks the selected account (the first one added becomes selected
-automatically). No password or key material appears in this listing.
-
-## 4. Add a source under the selected account
-
-This is the step that must not ask for credentials again. The only new question is
-the target (and the spec path).
-
-Prepare an origin OpenAPI document. Any service that serves `/openapi.json` works;
-here a local mock does.
+Assistant verification: the raw password is nowhere on disk, and each key file is
+`-rw-------`.
 
 ```
-curl -s http://127.0.0.1:18201/openapi.json -o /tmp/multi-proof/spec-18201.json
-./source-link source add --target 127.0.0.1:18201
+grep -r "$(cat /tmp/accept.pw)" ~/.config/source-agent && echo LEAK || echo clean
+ls -l ~/.config/source-agent/accounts/
 ```
 
-The only prompt is `Path to the origin's OpenAPI document:`, answer
-`/tmp/multi-proof/spec-18201.json`.
+## Phase 3: create the four origins (2 REST, 2 MCP)
 
-Success:
+The assistant starts them; you do not need to touch them. Each announces its port.
+
+| Origin | Port | Kind | Endpoints / tools |
+|---|---|---|---|
+| inventory REST | 18201 | FastAPI, OpenAPI | `GET /inventory`, `GET /inventory/{sku}` |
+| orders REST | 18202 | FastAPI, OpenAPI | `GET /orders`, `GET /orders/{order_id}` |
+| inventory MCP | 18203 | MCP streamable-http | tools `lookup_stock`, `list_stock` |
+| orders MCP | 18204 | MCP streamable-http | tools `lookup_order`, `list_orders` |
+
+Success: the assistant confirms each answers. The two REST services serve
+`/openapi.json`; the two MCP services answer `initialize` then `tools/list` on
+`/mcp`.
+
+The two MCP services have no `/openapi.json`, so before registering them the
+assistant writes a minimal catalog for each that describes the `/mcp` POST. These
+are the spec files the source step will point at:
+
+```
+/tmp/test/spec-inventory-mcp.json   # paths: {"/mcp": {"post": ...}}
+/tmp/test/spec-orders-mcp.json
+```
+
+## Phase 4: register the four sources
+
+You run these. The REST sources use their real OpenAPI documents; the MCP sources
+use the minimal catalogs from Phase 3. Two sources go under `alpha`, two under
+`beta`, so a later phase can compare them. No command here re-prompts for a
+password: each reuses the selected account's stored key.
+
+```
+source-link source add --account alpha --target 127.0.0.1:18201 --spec /tmp/test/spec-18201.json
+source-link source add --account alpha --target 127.0.0.1:18203 --spec /tmp/test/spec-inventory-mcp.json
+source-link source add --account beta  --target 127.0.0.1:18202 --spec /tmp/test/spec-18202.json
+source-link source add --account beta  --target 127.0.0.1:18204 --spec /tmp/test/spec-orders-mcp.json
+```
+
+Success, one line each:
 
 ```
 Added source alpha.127.0.0.1.18201 (origin 127.0.0.1:18201, worker <uuid>).
-Restart the agent to serve it.
+Added source alpha.127.0.0.1.18203 (origin 127.0.0.1:18203, worker <uuid>).
+Added source beta.127.0.0.1.18202  (origin 127.0.0.1:18202, worker <uuid>).
+Added source beta.127.0.0.1.18204  (origin 127.0.0.1:18204, worker <uuid>).
 ```
 
-Check:
-
-- No gateway URL, username or password prompt appeared. If one did, the source
-  step is not reusing the account store.
-- The derived name is `<account>.<host>.<port>` with dots. If it contains a
-  hyphen, it will be rejected by the gateway alias grammar; that is a bug, not a
-  bad input.
-
-## 5. Add a second source under the same account
-
-Same account, different port. Still no credentials.
+Assistant verification: four `OicmMcpSource` rows, two owned by each user, and no
+duplicate. Also re-run one registration verbatim to show it is idempotent:
 
 ```
-./source-link source add --target 127.0.0.1:18202
+source-link source add --account alpha --target 127.0.0.1:18201 --spec /tmp/test/spec-18201.json
+# MCP source already exists as alpha.127.0.0.1.18201; nothing new was created.
 ```
 
-Spec: `/tmp/multi-proof/spec-18202.json` (fetch it from `http://127.0.0.1:18202`).
+## Phase 5: run the agent and confirm it serves every source
 
-Success: a new source `alpha.127.0.0.1.18202`, and the account store was not
-touched.
-
-## 6. Add the same target under the other account
-
-This is the cross-owner case. `beta` registers `18202`, the same host:port `alpha`
-just used. It must be a **separate** source.
+The registered sources are inert until the agent runs. Start it so all four
+connect:
 
 ```
-./source-link source add --account beta --target 127.0.0.1:18202
+source-link connector
 ```
 
-Spec: `/tmp/multi-proof/spec-18202.json`.
+Success: `serving 4 source(s) across 2 account(s)`, then four tunnel connections.
+Leave it running for the next phase (or run it under `systemctl --user` if
+installed). If a source cannot reach its origin, only that one logs a failure and
+the others keep serving; that independence is the point.
 
-Success: `Added source beta.127.0.0.1.18202`. The name differs from
-`alpha.127.0.0.1.18202`, and both exist. Confirm in the DB that two rows share the
-target but differ in tenant:
+## Phase 6: approve the four sources
 
-```
-kubectl -n adeo-litellm exec adeo-litellm-postgres-dev-1 -- psql -U postgres -d litellm -t -c \
-  "SELECT alias, tenant, target_host, target_port FROM \"OicmMcpSource\" ORDER BY alias;"
-```
+Enrollment is not approval. Each new source is `pending_review` and is not
+callable until an administrator approves it.
 
-Failure: a single row, or a 409, means the derived name is not account-scoped.
+You do this in the UI at `http://localhost:14010/ui/mcp-servers/`, tab **Submitted
+MCPs**. Approve all four. Success: each row moves to approved, and the **All
+Servers** tab lists four callable tools.
 
-## 7. Repeat an exact registration (idempotency)
+Assistant verification: before approval, a tool call is refused; after, it is
+allowed. That is the human gate working.
 
-Re-add source 1 verbatim. This must create nothing.
+## Phase 7: call the tools through the dev gateway
 
-```
-./source-link source add --target 127.0.0.1:18201
-```
+You run these with a normal virtual key that has access to the sources' MCP access
+groups. Each source gets its own group, `mcp-source-{source_id}`.
 
-Success:
-
-```
-MCP source already exists as alpha.127.0.0.1.18201; nothing new was created.
-```
-
-Confirm no new rows were created by comparing counts before and after. The
-stronger proof is the gateway-side one, which the automated test
-`test_repeat_enroll_creates_no_new_row_upload_or_submission` pins; here, just
-confirm the row count did not change:
+List what is callable:
 
 ```
-kubectl -n adeo-litellm exec adeo-litellm-postgres-dev-1 -- psql -U postgres -d litellm -t -c \
-  'SELECT count(*) FROM "OicmMcpSource";'
+curl -sk https://localhost:14443/v1/mcp/server \
+  -H "Authorization: Bearer $USER_KEY"
 ```
 
-It still reads 3 (`alpha` x2, `beta` x1). Nothing was submitted for a new review.
-
-## 8. Verify the local state, then restart the agent
-
-The state is files, not memory. Inspect them, then prove the agent reloads them.
+Call one REST-derived tool and one MCP-derived tool. The gateway exposes each
+source's tools under its server id:
 
 ```
-cat /tmp/multi-proof/home/.config/source-agent/sources.json
-./source-link source list
+# inventory REST (look up a SKU)
+curl -sk -X POST https://localhost:14443/mcp-rest/tools/call \
+  -H "Authorization: Bearer $USER_KEY" -H "Content-Type: application/json" \
+  -d '{"server_id":"<alpha-18201 source_id>","name":"<tool>","arguments":{"sku":"widget"}}'
+
+# inventory MCP (lookup_stock)
+curl -sk -X POST https://localhost:14443/mcp-rest/tools/call \
+  -H "Authorization: Bearer $USER_KEY" -H "Content-Type: application/json" \
+  -d '{"server_id":"<alpha-18203 source_id>","name":"<lookup_stock tool>","arguments":{"sku":"widget"}}'
 ```
 
-`source list` shows all three sources, their account, target and `registered`
-status. Then start the agent and confirm it serves every source from every account
-in one process:
+Success: real data comes back (`widget`, qty 42; the order list). A failure here
+with the source approved means the connector is not connected for that source, not
+that approval failed.
+
+## Phase 8: revoke one source, confirm isolation, restore
+
+Revocation must hit exactly one source. Revoke the alpha inventory REST source at
+the control plane and call it again; it must fail, while the other three still
+work.
+
+Assistant performs the revoke; you re-run the Phase 7 call for that source and for
+one other.
 
 ```
-MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094 timeout 6 ./source-link connector
+# alpha 18201 now refused
+# alpha 18203, beta 18202, beta 18204 still return data
 ```
 
-Success: a line `serving 3 source(s) across 2 account(s)`, followed by per-source
-tunnel connect attempts (they may fail to reach the tunnel endpoint, which is fine
-for this check; what matters is that all three are attempted independently). Stop
-it with Ctrl-C or let the timeout end it. A restart must enumerate the same three
-sources with the same worker ids; that proves the identities were persisted, not
-re-derived.
+Then restore (re-register the revoked source; revocation is terminal by design, so
+this is a fresh registration under the same derived name) and confirm all four
+answer again.
 
-## 9. Target handling: what is accepted and what is refused
+Success: only the revoked source failed, and after restore all four succeed.
 
-The target grammar is what keeps a source from becoming a URL or a public
-hostname. Accepted:
+## Phase 9: disconnect one account
 
-- IPv4 literal: `10.34.104.99:4000`
-- private IPv4: `10.0.0.1:80`
-- Kubernetes service short form: `litellm-mcp-broker-dev.adeo-litellm.svc:8888`
-- Kubernetes service cluster form: the same with `.cluster.local`, which
-  normalizes to the short form
+This is the interesting failure. Stop the agent so `alpha`'s sources drop, or
+disconnect only alpha's tunnel. The expected behavior: beta's sources keep working,
+alpha's become unavailable and their calls fail with a clear "no eligible
+connector" style error, and neither account's stored key is affected. Restarting
+the agent reconnects both.
 
-Refused (each must fail before any network call):
-
-- a URL: `http://10.0.0.1:80`
-- a bare public hostname: `example.com:443`
-- a port out of range: `10.0.0.1:0`, `10.0.0.1:70000`
-- an unbracketed IPv6: `fd00::1:4000`
-
-These are pinned by `internal/target/target_test.go`; run that to re-verify
-without a gateway:
+You run the calls; the assistant drives the disconnect.
 
 ```
-cd oicm-litellm-layer/mcp-source-link && go test ./internal/target/ -v
+# with alpha disconnected:
+# beta 18202 and beta 18204 still return data
+# alpha 18201 and alpha 18203 fail, not hang
 ```
 
-To see a Kubernetes service target accepted live, add one (it enrolls; only the
-later tunnel would fail to reach it):
+Success: failure is scoped to the disconnected account's sources, the other account
+is unaffected, and a restart returns everything to normal.
 
-```
-./source-link source add --target litellm-mcp-broker-dev.adeo-litellm.svc:8888
-```
+## Phase 10: cleanup
 
-Success: a name like `alpha.litellm.mcp.broker.dev.adeo.litellm.svc.8888`, with the
-hyphens normalized to dots.
+Stop the agent, revoke or delete the four sources, remove the test state, and
+clear the dev rows. The assistant runs the deletion in foreign-key order
+(workers, connectors, enrollments, sources, then the MCP registry) and reloads the
+gateway so the UI shows an empty list.
 
-## 10. Revocation is scoped to one source
+## What each phase would catch if it regressed
 
-Revocation must mark exactly the named source terminal and leave its siblings
-alone. Use one worker id from `source list`, revoke it at the control plane, and
-confirm only that source's row changes status.
-
-```
-WORKER=<one worker id from source list>
-curl -sk -X POST https://localhost:14443/v1/source-link/revoke \
-  -H "Authorization: Bearer <service token>" \
-  -H "X-Source-Member: $WORKER" -H "X-Source-Id: <its source id>"
-```
-
-Then:
-
-```
-kubectl -n adeo-litellm exec adeo-litellm-postgres-dev-1 -- psql -U postgres -d litellm -t -c \
-  "SELECT alias, status FROM \"OicmMcpSource\" ORDER BY alias;"
-```
-
-Success: only the revoked source's status changed; the other two are unchanged.
-
-## 11. Admin approval gate
-
-Enrollment is not approval. A freshly enrolled source is `pending_review` and is
-not dispatchable until an administrator approves it in the UI at
-`http://localhost:14010/ui/mcp-servers/`. Confirm the row's approval status before
-and after approval, and confirm that a tool call before approval is refused.
-
-This is the point of the whole flow: an ordinary user can enroll and run a
-connector, but a human still decides what becomes an approved, callable tool.
-
-## 12. Clean up
-
-Leave the environment as you found it, or the next run's idempotency checks are
-measuring leftovers.
-
-```
-rm -rf /tmp/multi-proof
-```
-
-Then repeat the deletion block from step 1, and reload the gateway router.
-
-## What each step would catch if it regressed
-
-- Step 2/3 pass only if the password exchange works and the key is stored, never
-  the password. A regression that stores the password, or drops a prompt, fails
-  the `grep` and the prompt count.
-- Step 4/5 pass only if the source step reads the account store instead of
-  re-prompting. A regression that re-prompts fails on the missing answers.
-- Step 6 passes only if the derived name is account-scoped. A global name would
-  produce one row or a 409.
-- Step 7 passes only if idempotency is transactional on the server. A client-only
-  check would still let a second writer create a row; the gateway test covers that
-  half.
-- Step 8 passes only if identities are persisted files, not recomputed.
-- Step 9 passes only if the target grammar is enforced before the network.
-- Step 10 passes only if revocation is fenced per source.
-- Step 11 passes only if approval is a separate, human gate.
+- Phase 0/2: password exchange and key storage only. A stored password or a
+  dropped prompt fails the `grep` and the prompt count.
+- Phase 4: the source step reading the account store rather than re-prompting, and
+  account-scoped derived names. A global name gives one row or a 409.
+- Phase 4 (repeat): idempotency. A client-only check still lets a second writer
+  create a row; the gateway test covers that half.
+- Phase 5: the agent enumerating all sources from persisted state, not memory.
+- Phase 6: approval as a separate human gate.
+- Phase 7: end-to-end dispatch to both a REST and an MCP origin.
+- Phase 8: revocation fenced per source.
+- Phase 9: one account's failure not taking down the other.
