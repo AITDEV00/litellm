@@ -9,8 +9,14 @@ versioned pair and verifies the SHA-256 checksum of the binary before anything
 executes. The installed user systemd unit runs `source-link connector` with the
 environment sourced from `~/.config/source-agent/connector.env`
 (MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG). The connector
-has a single transport, so the unit sets no transport variable; the connector
-holds a team-scoped virtual key in that env file rather than a claim token.
+has a single transport, so the unit sets no transport variable.
+
+Credential shape is not settled. The connector is meant to authenticate as an
+ordinary gateway user account, and to perform its own enrollment, so that no
+human calls the gateway's registration routes and nobody needs the broker
+pepper. The tree does not implement that yet either, and the installer still
+expects the operator to place a key in that env file by hand. See
+``oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md``.
 
 Reuse rules: connection parameters, bucket handling and key normalization all
 come from :mod:`litellm.proxy.client_distribution.storage`. Only the

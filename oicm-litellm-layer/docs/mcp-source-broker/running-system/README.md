@@ -23,7 +23,7 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
-| Bootstrap credential exchange | DONE | step 11, BYOM self-service; `../decisions/approaches/byom-self-service.md` |
+| Bootstrap credential exchange | OPEN BLOCKER | `../decisions/approaches/connector-owned-enrollment.md` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
 ## Known gaps
@@ -32,7 +32,7 @@ These are not steps; they are things the design called for that the tree does no
 
 **Connector-version compatibility gate.** Built. `make -C oicm-litellm-layer mcp-source-link-compat` builds the connector at the pre-transition revision and the current connector, and runs each against a current broker over a TLS gateway: admit, probe, execute, generation fencing, revoke, and clean degradation when the broker lacks a capability the connector wants. It is a local capability regression check, not a GitHub Actions release gate
 
-**Bootstrap credential exchange.** Done, and not by deriving a credential out of band. A connector authenticates with a team-scoped LiteLLM virtual key the operator already holds, which is an ordinary scoped key rather than a per-source secret tied to the broker pepper. `connector.env` stores that key, and the installer flow is otherwise unchanged. What remains is that the installer still does not write `connector.env` itself, so the operator places the key. The `OicmMcpEnrollment` row still exists because worker rows have a foreign key onto it, but nothing redeems its token hash
+**Bootstrap credential exchange.** Reopened 2026-11-18 as an open blocker. An earlier entry here marked this done, on the theory that a team-scoped virtual key in `connector.env` answered it. It does not. Two requirements are unmet: the connector must authenticate as an ordinary gateway **user account** rather than a team-scoped key, and the connector binary must perform enrollment itself so that no human calls the gateway's registration routes and nobody needs the broker-side pepper. Today the binary has only `worker` and `connector` modes, makes no gateway REST calls at all, and the connector identity (`MCP_SOURCE_LINK_CONNECTOR_CONFIG`) is derived by hand from the pepper. The owning record for the requirement is [`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md)
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 

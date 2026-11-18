@@ -8,8 +8,9 @@ Where the two disagree the code wins, and the departures are listed under
 
 ## Intent
 
-Source hosts enroll their own private MCP servers using an ordinary team-scoped LiteLLM account, not an
-admin key. The gateway admin keeps full review / edit / guardrail / delete control over anything a user has
+Source hosts enroll their own private MCP servers using an ordinary LiteLLM **user account**, not an
+admin key and not a team-scoped virtual key. The user/team distinction was stated wrongly here when this
+was first written; see [`connector-owned-enrollment.md`](connector-owned-enrollment.md). The gateway admin keeps full review / edit / guardrail / delete control over anything a user has
 added. The connector binary performs enrollment on the user's behalf. The reverse data plane is independent
 of approval.
 
@@ -47,10 +48,12 @@ good probe, so it keeps its `pending` write. Lease/revision fields stay.
 The connector reuses the existing gateway endpoints. No new public registration endpoint exists.
 
 ```
-1. Operator holds a team-scoped virtual key on the source host.
+1. The source host has the connector installed and configured with the user's own gateway account.
 2. source-link register --alias reports --spec ./openapi.json
      connector computes owner=user_id, alias, and sid locally (uuid5 above).
-     connector calls POST /mcp-sources with {alias, target, spec} + Authorization: Bearer <team-key>.
+     connector calls POST /mcp-sources with {alias, target, spec} on the user's behalf.
+     This call is the connector's job, not the human's; see connector-owned-enrollment.md. The
+     identity is the user's account, not a team key.
 3. The existing gateway route `POST /mcp-sources` is re-purposed: drop the PROXY_ADMIN gate, and inside
    `enroll()`:
      a. Write the broker lease rows idempotently (existing advisory lock + upsert path).

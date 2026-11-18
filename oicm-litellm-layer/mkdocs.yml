@@ -120,6 +120,7 @@ nav:
       - "MCP Source Broker - History": mcp-source-broker/history/README.md
       - MCP Source Lifecycle Research Questions: mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md
       - BYOM Self-Service Registration with Admin Governance: mcp-source-broker/decisions/approaches/byom-self-service.md
+      - Connector-Owned Enrollment Requirement: mcp-source-broker/decisions/approaches/connector-owned-enrollment.md
       - Multi-Replica Broker Scaling Debate: mcp-source-broker/decisions/approaches/multi-replica-scaling.md
       - Nginx Reverse-Tunnel Pilot: mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md
       - Unified MCP Implementation Guide: mcp-source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md
