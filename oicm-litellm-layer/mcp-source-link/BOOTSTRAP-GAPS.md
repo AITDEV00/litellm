@@ -322,6 +322,19 @@ even with the code exactly as committed, that single URL cannot support a full d
 flow. The owning runtime record specifically says the dev gateway has no normal
 public ingress; use port-forward for dev gateway REST proof.
 
+Resolved 2026-11-18 for the exposure half: the `litellm-mcp-tunnel-dev` Ingress that
+published `/grpctunnel.v1.TunnelService/` on the production hostname was unauthorized
+public exposure of a development broker and has been deleted, and its manifest was
+removed from the dev overlay so a later `kubectl apply -k` cannot recreate it. No
+public tunnel route exists on any production-facing host now, and the internal broker
+Service and its cluster-internal `link-tunnel` listener remain. The dev gateway is
+reachable only through `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev
+14010:4000`.
+
+Still open: a supported, non-public way for an external source host to reach the dev
+tunnel. That needs its own design and approval; it must not reuse the production
+hostname, and this note does not authorize restoring the removed rule.
+
 Required behavior:
 
 - Do not add a broad route on the prod-shared hostname that accidentally exposes dev

@@ -3,13 +3,22 @@
 > **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > Nothing outside the cluster can open a connection to `litellm-proxy-dev`. The public host
-> `litellm.ecouncil.ae` fronts **prod** (`litellm-proxy`) and, separately, the dev broker's gRPC
-> tunnel path. It does not front the dev gateway, so a request to a dev gateway REST route over
-> the public host lands on prod instead. That is exactly why every dev proof runs through a
-> forward: `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, re-run after
+> `litellm.ecouncil.ae` fronts **prod** (`litellm-proxy`) only. It does not front the dev gateway,
+> so a request to a dev gateway REST route over the public host lands on prod instead. That is
+> exactly why every dev proof runs through a forward:
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, re-run after
 > any `litellm-src-release-dev` because a rollout replaces the pod. Test dev against that forward.
 > When a proof below says it ran through "the public ingress", the public host reached prod, not
 > the dev gateway.
+>
+> The dev broker's gRPC tunnel path was previously published on the same production hostname by a
+> separate `litellm-mcp-tunnel-dev` Ingress. That was an unauthorized public exposure of a
+> development broker through production nginx and it was removed on 2026-11-18; the manifest is
+> gone and the dev overlay no longer renders any Ingress. Do not restore a public
+> `/grpctunnel.v1.TunnelService/` rule on any production-facing host, and do not re-add the tunnel
+> ingress to the dev overlay. The internal broker Service and its cluster-internal `link-tunnel`
+> listener (8093) remain; those are not public exposure. Any future external source-host tunnel
+> design needs its own proposal rather than reusing the production hostname
 
 **This is the owning implementation record for the MCP source broker.** It describes what is built and running, and it is the file to update when behavior changes. `../history/superseded-design-proposal.md` is a superseded design proposal kept for decision history; `../decisions/approaches/lifecycle-and-pooling-questions.md` holds undecided questions; `../measurements/` holds measurements. Code wins over every document here, including this one
 
@@ -59,13 +68,13 @@ Proven live on dev: a no-team account enrolled its own source, the connector reg
 with no human touching a route, restart reused the identity with zero re-registration, and the
 pending source stayed out of the MCP registry
 
-Not yet proven: the approved real read, and reaching admitted/healthy. That is not
-blocked by the missing ingress, which is what the forward is for. REST goes through
-`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and the
-tunnel path is already served for dev by the public host's
-`/grpctunnel.v1.TunnelService/` rule, because `/mcp-sources` over the public host lands
-on prod. The remaining step is restarting that forward and repeating the approved read
-against it. Nothing here is marked SHIPPED until that runs
+Not yet proven: the approved real read, and reaching admitted/healthy. REST goes through
+`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`. There is no public
+tunnel path for the dev broker any more; the `litellm-mcp-tunnel-dev` Ingress was removed on
+2026-11-18 because it exposed a development broker through the production hostname. An external
+source host therefore cannot reach the dev tunnel today, and a live dev tunnel test is not
+possible until a separate, approved external tunnel design exists. Nothing here is marked
+SHIPPED until an approved read runs through a supported path
 
 Neither requirement changes the approval gate. A newly registered entry still lands in
 `pending_review` and serves nothing until an administrator approves it, whatever process made the

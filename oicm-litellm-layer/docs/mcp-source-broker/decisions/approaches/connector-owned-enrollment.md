@@ -3,11 +3,16 @@
 > **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > `litellm-proxy-dev` is unreachable from outside the cluster. `litellm.ecouncil.ae` fronts prod
-> (`litellm-proxy`) plus the dev broker's gRPC tunnel path, so a dev gateway REST call over that
-> host lands on prod. That is why every dev proof runs through a forward:
+> (`litellm-proxy`) only, so a dev gateway REST call over that host lands on prod. That is why
+> every dev proof runs through a forward:
 > `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, re-run after any dev
 > rollout because it replaces the pod, and test against that forward. This is how the acceptance
 > run for the connector bootstrap reached dev.
+>
+> The dev broker's gRPC tunnel path is no longer published on the production hostname: the
+> `litellm-mcp-tunnel-dev` Ingress was removed on 2026-11-18 because it exposed a development
+> broker through production nginx. An external source host cannot reach the dev tunnel until a
+> separately approved external tunnel design exists
 
 Status: IMPLEMENTED, partially accepted. Both requirements are built and covered by tests. The
 user-without-team half and the connector-owns-bootstrap half are proven live against the dev
@@ -455,14 +460,12 @@ The removed bounded `LoadIdentity` description above is historical, not current 
 ### Running the last acceptance step over a forward
 
 Step 5 (an approved real read) and reaching `active`/`healthy` were not run in that
-sitting. They are not blocked. REST rides the dev gateway forward
-(`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`), and the
-tunnel path is already served for dev by the public host's
-`/grpctunnel.v1.TunnelService/` rule. The forward exists precisely because the dev
-gateway has no ingress: `/mcp-sources` over the public host lands on prod, so REST goes
-to the forward while the tunnel may use the public host. Running the last step means
-restarting that forward and repeating the approved read against it. Nothing here is
-marked SHIPPED until it runs.
+sitting. REST rides the dev gateway forward
+(`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`). The dev
+broker's public tunnel path was removed on 2026-11-18, so an external source host
+cannot reach the dev tunnel today; running the last step requires a separately
+approved external tunnel design, not a restore of the production-host rule. Nothing
+here is marked SHIPPED until it runs.
 
 ### Re-enrollment
 

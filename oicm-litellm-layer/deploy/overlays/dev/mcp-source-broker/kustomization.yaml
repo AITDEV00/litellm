@@ -3,6 +3,5 @@ kind: Kustomization
 resources:
   - broker.yaml
   - network-policy.yaml
-  - tunnel-ingress.yaml
 patches:
   - path: source-link-patch.yaml
