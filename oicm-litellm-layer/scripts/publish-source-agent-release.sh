@@ -25,14 +25,18 @@ case "$gateway" in
     ;;
 esac
 
+template_only=${TEMPLATE_ONLY:-0}
+
 version=${VERSION:-}
-if [[ -z "$version" ]]; then
-  echo "set VERSION to the release version to publish (e.g. VERSION=0.5.0)" >&2
-  exit 2
-fi
-if [[ "$version" == .* || "$version" == */* || "$version" == *..* ]]; then
-  echo "VERSION must be a plain path segment" >&2
-  exit 2
+if [[ "$template_only" != 1 ]]; then
+  if [[ -z "$version" ]]; then
+    echo "set VERSION to the release version to publish (e.g. VERSION=0.5.0)" >&2
+    exit 2
+  fi
+  if [[ "$version" == .* || "$version" == */* || "$version" == *..* ]]; then
+    echo "VERSION must be a plain path segment" >&2
+    exit 2
+  fi
 fi
 
 binary=${BINARY:-$layer/mcp-source-link/source-link}
@@ -40,11 +44,46 @@ release_json=${RELEASE_JSON:-}
 template=${TEMPLATE:-$layer/templates/source-agent-install.sh.tmpl}
 dry_run=${DRY_RUN:-0}
 
-for path in "$binary" "$template"; do
-  [[ -f "$path" ]] || { echo "missing artifact: $path" >&2; exit 2; }
-done
+[[ -f "$template" ]] || { echo "missing artifact: $template" >&2; exit 2; }
 command -v sh >/dev/null || { echo "sh is required to syntax-check the template" >&2; exit 2; }
 sh -n "$template" || { echo "installer template fails 'sh -n': $template" >&2; exit 2; }
+
+admin_key=${LITELLM_PROXY_ADMIN_KEY:-}
+endpoint="http://127.0.0.1:${port}"
+
+put_artifact() {
+  local source=$1 key=$2
+  local out
+  out=$(curl -sS -w '\n%{http_code}' -X PUT \
+    "$endpoint/install/admin/v1/artifact/$key" \
+    -H "Authorization: Bearer $admin_key" \
+    -H 'Content-Type: application/octet-stream' \
+    --data-binary "@$source")
+  local status=${out##*$'\n'}
+  [[ "$status" == 200 ]] || { echo "upload of $key failed with HTTP $status" >&2; echo "${out%$'\n'*}" >&2; exit 1; }
+  echo "  uploaded $key"
+}
+
+if [[ "$template_only" == 1 ]]; then
+  # A template edit is its own release: upload it and stop. It is rendered per
+  # request, so there is no version bump, pointer move or image rebuild, and no
+  # built binary is required. Checking VERSION or the binary first would make this
+  # mode unreachable without a full release build, which is the defect this branch
+  # fixes.
+  template_sha=$(sha256sum "$template" | cut -d' ' -f1)
+  if [[ "$dry_run" == 1 ]]; then
+    echo "dry run: would upload template ($template_sha) to the $gateway gateway; no pointer move"
+    exit 0
+  fi
+  [[ -n "$admin_key" ]] || { echo "set LITELLM_PROXY_ADMIN_KEY to a Proxy Admin key for $gateway" >&2; exit 2; }
+  put_artifact "$template" "templates/source-agent-install.sh.tmpl"
+  echo "template updated ($template_sha); active release unchanged"
+  exit 0
+fi
+
+for path in "$binary"; do
+  [[ -f "$path" ]] || { echo "missing artifact: $path" >&2; exit 2; }
+done
 
 if ! file "$binary" | grep -q 'statically linked'; then
   echo "refusing to publish $binary: not a statically linked binary" >&2
@@ -90,33 +129,12 @@ fi
 
 admin_key=${LITELLM_PROXY_ADMIN_KEY:-}
 [[ -n "$admin_key" ]] || { echo "set LITELLM_PROXY_ADMIN_KEY to a Proxy Admin key for $gateway" >&2; exit 2; }
-endpoint="http://127.0.0.1:${port}"
-
-put_artifact() {
-  local source=$1 key=$2
-  local out
-  out=$(curl -sS -w '\n%{http_code}' -X PUT \
-    "$endpoint/install/admin/v1/artifact/$key" \
-    -H "Authorization: Bearer $admin_key" \
-    -H 'Content-Type: application/octet-stream' \
-    --data-binary "@$source")
-  local status=${out##*$'\n'}
-  [[ "$status" == 200 ]] || { echo "upload of $key failed with HTTP $status" >&2; echo "${out%$'\n'*}" >&2; exit 1; }
-  echo "  uploaded $key"
-}
 
 echo "publishing source-agent $version to $gateway"
 put_artifact "$binary" "source-agent/$version/source-link"
 put_artifact "$manifest" "source-agent/$version/release.json"
 
 template_sha=$(sha256sum "$template" | cut -d' ' -f1)
-if [[ "${TEMPLATE_ONLY:-0}" == 1 ]]; then
-  # A template edit is its own release: upload it and stop. No version bump, no
-  # pointer move, no image rebuild, because it is rendered per request.
-  put_artifact "$template" "templates/source-agent-install.sh.tmpl"
-  echo "template updated ($template_sha); active release $version unchanged"
-  exit 0
-fi
 put_artifact "$template" "templates/source-agent-install.sh.tmpl"
 
 state=$(curl -sS -H "Authorization: Bearer $admin_key" "$endpoint/install/admin/v1/source-agent/state")
