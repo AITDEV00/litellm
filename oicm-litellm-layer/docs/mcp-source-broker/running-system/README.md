@@ -23,7 +23,7 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
-| Bootstrap credential exchange | UNDECIDED | `../decisions/approaches/lifecycle-and-pooling-questions.md` §2 |
+| Bootstrap credential exchange | DONE | step 11, BYOM self-service; `../decisions/approaches/byom-self-service.md` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
 ## Known gaps
@@ -32,7 +32,7 @@ These are not steps; they are things the design called for that the tree does no
 
 **Connector-version compatibility gate.** Built. `make -C oicm-litellm-layer mcp-source-link-compat` builds the connector at the pre-transition revision and the current connector, and runs each against a current broker over a TLS gateway: admit, probe, execute, generation fencing, revoke, and clean degradation when the broker lacks a capability the connector wants. It is a local capability regression check, not a GitHub Actions release gate
 
-**Bootstrap credential exchange.** The installer renders a systemd unit and a checksum-verified binary, but never writes `connector.env`. Its credential is `HMAC(pepper, "remotedialer-credential", grant_id, worker_id, generation)`, which needs the broker-side pepper, so the operator must derive it out of band. `../decisions/approaches/lifecycle-and-pooling-questions.md` §2 states this as an open question and it is still open. The `redeemed_at` columns in the schema are shaped for a claim flow that has no endpoint
+**Bootstrap credential exchange.** Done, and not by deriving a credential out of band. A connector authenticates with a team-scoped LiteLLM virtual key the operator already holds, which is an ordinary scoped key rather than a per-source secret tied to the broker pepper. `connector.env` stores that key, and the installer flow is otherwise unchanged. What remains is that the installer still does not write `connector.env` itself, so the operator places the key. The `OicmMcpEnrollment` row still exists because worker rows have a foreign key onto it, but nothing redeems its token hash
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
@@ -139,7 +139,7 @@ server name and that name prefixes every tool name. The response is
 `201 {"server_id": ..., "status": "pending_review"}`. The submitter can read that row
 back, and nobody else sees it until an administrator approves it
 
-The source target allows loopback only and requires an explicit local service. An ordinary source membership stays in the authenticated relay authfile even when unhealthy; quarantine prevents tool dispatch, not subsequent recovery. Administrators can retrieve the existing connector installer whenever the source has been catalog-quarantined
+The source target allows loopback only and requires an explicit local service. Quarantine prevents tool dispatch, not subsequent recovery. Administrators can retrieve the existing connector installer whenever the source has been catalog-quarantined
 
 The source target is only a loopback host and port. Source identity is derived from the authenticated user id and `alias`. The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a stable private pool URL with LiteLLM, and grants that source its own MCP access group. Re-enrollment keeps its source, enrollment, connector lease, and relay credentials; it updates the target and expected canonical catalog fingerprint. It does not return another one-time token
 
@@ -156,23 +156,23 @@ Release `0.3.0` (2026-11-17) is the current release: the reverse-h2 `source-link
 ## Calls
 
 
-Use an ordinary virtual key authorized for the source-specific MCP access group. No Chisel installation is needed on the caller's machine. The gateway creates OpenAPI tools from the saved spec and dispatches them to the pool URL without a trailing slash
+Use an ordinary virtual key authorized for the source-specific MCP access group, which is named `mcp-source-{source_id}`. Nothing is installed on the caller's machine. The gateway creates OpenAPI tools from the saved spec and dispatches them to the pool URL without a trailing slash
 
 
 A healthy connector has a recent successful catalog probe and actual catalog fingerprint equal to the enrollment's expected fingerprint. Startup clears health timestamps. Different catalogs are quarantined rather than merged. The pool strips gateway authorization, cookies, and transport headers before forwarding. Retries are restricted to errors where the upstream connection was not established
 
 
-The fixture proof can use this request with `READ_KEY`:
+The fixture proof can use this request with `READ_KEY` (substitute the `server_id` a source reported):
 
 
 ```sh
 curl -fsS http://127.0.0.1:14003/mcp-rest/tools/call \
   -H "Authorization: Bearer $READ_KEY" \
   -H 'Content-Type: application/json' \
-  --data '{"server_id":"f804e8c9-a9c7-5824-a90a-837262788be8","name":"read_source","arguments":{}}'
+  --data '{"server_id":"<server_id>","name":"read_source","arguments":{}}'
 ```
 
-The returned `CallToolResult.content[0].text` contains JSON from the source's `/source.json` endpoint. For an echo tool, use `{"channel":"dev-tool","body":{"text":"round-trip-through-chisel"}}` as `arguments`. Validate the actual source marker and that its `credentials_seen` and `cookies_seen` booleans are false
+The returned `CallToolResult.content[0].text` contains JSON from the source's catalog endpoint. For an echo tool, use `{"channel":"dev-tool","body":{"text":"round-trip-through-tunnel"}}` as `arguments`. Validate the actual source marker and that its `credentials_seen` and `cookies_seen` booleans are false
 
 
 ## Port map (canonical)
@@ -193,16 +193,22 @@ The broker Service `litellm-mcp-broker-dev` is the only gateway-facing address. 
 ```sh
 .venv/bin/python -m pytest -q tests/unit/proxy/mcp_source_broker
 .venv/bin/python -m pytest -q tests/unit/proxy/client_distribution
-.venv/bin/python -m pytest -q oicm-litellm-layer/tests/deploy/test_dev_prod_parity.py
+.venv/bin/python -m pytest -q oicm-litellm-layer/tests/deploy
 .venv/bin/python -m basedpyright litellm/proxy/mcp_source_broker
-make -C oicm-litellm-layer litellm-src-release-dev
+make -C oicm-litellm-layer mcp-sidecar-check
+make -C oicm-litellm-layer mcp-source-link-compat
 ```
 
 Publishing to a cluster that cannot reach `codeload.github.com` needs the documented host override, or `litellm-src-build` dies fetching the admin-agent tarball: `make litellm-src-release-dev LITELLM_SRC_BUILD_ARGS=--add-host=codeload.github.com:20.233.83.150`. The Go race suite needs `CGO_ENABLED=1` despite the sidecar build exporting `CGO_ENABLED=0`: `CGO_ENABLED=1 go test -race ./...` in `mcp-source-link`. The dev gateway's install surface is the `litellm-proxy-dev` Service on port 4000, so the documented 14001 port-forward is `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`; the broker Service has no 14001 port. A gateway roll replaces the pod and kills that forward, so re-run it after every `litellm-src-release-dev`.
 
-Both broker images are reproducible from the Makefile and nothing else. `make -C oicm-litellm-layer mcp-broker-release-dev` resolves the running dev gateway's image digest itself, builds the auxiliary image from `deploy/overlays/dev/mcp-source-broker/Dockerfile` against it with `--pull=always`, pushes the tag, and rolls the dev broker Deployment. `make -C oicm-litellm-layer mcp-sidecar-release` builds the Go connector binary in `mcp-source-link` with the host toolchain (`CGO_ENABLED=0`, statically linked, guarded by a `file` check), layers it into the `FROM scratch` image in `mcp-source-link/Dockerfile`, pushes, and deletes the sidecar pod so the same tag re-pulls. The Go build runs through `GO_ENV` (`/tmp/sa-build/bin/go`, `GOPATH=/tmp/rd-gopath`); keep `KUBECONFIG` pointing at the Al Ain kubeconfig. Do not hand-roll `podman build` for either image: a same-tag push is invisible to a running pod without the pod delete / rollout the targets perform
+Both broker images are reproducible from the Makefile and nothing else. `make -C oicm-litellm-layer mcp-broker-release-dev` resolves the running dev gateway's image digest itself, builds the auxiliary image from `deploy/overlays/dev/mcp-source-broker/Dockerfile` against it with `--pull=always`, pushes the tag, and rolls the dev broker Deployment. `make -C oicm-litellm-layer mcp-sidecar-release` builds the Go connector binary in `mcp-source-link` with the host toolchain (`CGO_ENABLED=0`, statically linked, guarded by a `file` check), layers it into the `FROM scratch` image in `mcp-source-link/Dockerfile`, pushes, pins the tag into `source-link-patch.yaml` so the committed manifest names the bytes that run, and finally deletes the sidecar pod so the same tag re-pulls. The Go build runs through `GO_ENV` (`/tmp/sa-build/bin/go`, `GOPATH=/tmp/rd-gopath`); keep `KUBECONFIG` pointing at the Al Ain kubeconfig. Do not hand-roll `podman build` for either image: a same-tag push is invisible to a running pod without the pod delete / rollout the targets perform
 
 The 2026-11-17 reproducibility audit closed the last manual paths: the auxiliary recipe above used to live only in this document and its `Dockerfile` had been deleted at commit `db12cdb7946`; both are now committed and the Makefile is the canonical build entry. The released binary provenance is the same chain: `make mcp-sidecar-build` produces the exact `source-link` that release `0.3.0` publishes, and its `release.json` pins the sidecar image's registry manifest digest so a release always names the image its connector matches
+
+The three paragraphs that follow describe the 2026-11-13 Chisel delivery and are kept as
+the record of the first verified end-to-end path. Chisel, the one-time claim, and the
+contexts port 8089/9090 they mention no longer exist; the current equivalent proof is the
+2026-11-18 tunnel verification above and the step-9/step-10 entries below
 
 On 2026-11-13, the installed dev gateway and auxiliary image carried `read_source` and `echo_source` for source `f804e8c9-a9c7-5824-a90a-837262788be8`. The one-time enrollment claim minted connector `7f3a49c4-59a7-5611-8c4e-fff9b8a0e670` at `127.0.0.20:18081`. An ordinary same-identity re-enrollment refreshed the saved canonical fingerprint after catalog drift. It returned no new token or connector
 
@@ -240,7 +246,7 @@ The Go module directory is `mcp-source-link`, matching the `source-link` binary 
 
 The rename covers every published surface, not just the directory: the connector routes `/mcp-source-link-{reverse,hold,dispatch,respond}`, the gateway's `/mcp-source-link-sources` routes, the sidecar's control routes `/v1/source-link/{peers,report,revoke}`, the `MCP_SOURCE_LINK_*` environment variables an installed connector reads from `connector.env`, the `MCP_SOURCE_LINK_ENABLED` broker flag, the `link-data` and `link-reverse` Service port names, the sidecar container name, and the image repository `mcp-source-link-worker`. The reverse ingress also gains the `/grpctunnel.v1.TunnelService/` prefix for the tunnel plane
 
-Three strings deliberately keep the old name because each is stored state, so renaming it would silently invalidate live records: the `remotedialer-credential` HMAC domain in `keys.py` (it derives every enrolled worker's stored credential digest), and the `remote_transport` column's legacy `'remotedialer'` value, which `selection()` maps to `reverse-h2` at read time rather than rewriting rows at boot. New rows default to `reverse-h2`. Because the installed connector's env vars moved, a connector upgraded to a build before this rename keeps working against the old route names only if its broker also predates the rename; the two must be rolled together, which is why release 0.4.0 ships both
+Three strings deliberately keep the old name because each is stored state, so renaming it would silently invalidate live records: the `remotedialer-credential` HMAC domain in `keys.py` (it derives every enrolled worker's stored credential digest), and the `remote_transport` column's legacy `'remotedialer'` value, which `selection()` still accepts at read time rather than rewriting rows at boot. New rows default to `'tunnel'`, and `selection()` returns `tunnel` for every accepted literal (`'tunnel'`, `'remotedialer'`, `'reverse-h2'`) since the tunnel is now the only data plane; rejecting anything else is what keeps a corrupted value loud instead of silently rerouted. Because the installed connector's env vars moved, a connector upgraded to a build before this rename keeps working against the old route names only if its broker also predates the rename; the two must be rolled together, which is why release 0.4.0 ships both
 
 9. Transport standardization on `jhump/grpctunnel` (DONE 2026-11-18, started 2026-11-17; reverse-h2 deleted). The broker-to-connector pair must keep working across independent upgrades of either side: any client version connects to any server version, degrades to less functionality rather than breaking. The current hand-rolled reverse-h2 framing makes that contract unenforceable, and the bugs fixed in the 2026-11-17 smell pass (round-trip ignoring caller cancellation, shutdown deadlock while holding the runtime mutex) are exactly the classes of defect the library handles natively. Evaluation of six candidates (scratch clones in `evaluate-delete-later/`, 2026-11-17): `rancher/remotedialer` is the closest API match but is WebSocket-based, offers the server a general `net.Dial` into the agent's namespace, has an open concurrency-issue PR, and this repo already ran it in the WSS era and paid to remove it (commit `34aee32e104` built on it; step 7 records the removal); `apiserver-network-proxy` says in its README it should not be imported as a library; `frp` is standalone binaries; `openconfig/grpctunnel` is TCP-proxy-focused and explicitly not an official Google product; `yamux` is only a multiplexer and we already multiplex via HTTP/2. `jhump/grpctunnel` is the fit: reverse tunnel is precisely agent-dials-home, the server pushes typed RPCs down the agent-initiated stream, windowed flow control, per-RPC cancellation native, tunnel revision negotiation built in; single-maintainer risk noted. Spike scope: a `dispatch.proto` defining the RPCs the broker pushes (admission/probe/dispatch with a capability set exchanged at registration so old binaries degrade to less functionality instead of breaking), generated stubs pinned in the repo, sidecar hosting the tunnel handler and the Python broker dialing into it, and a compatibility soak gate: every broker release runs against the previously published connector binary. Two binding rules for the dispatch proto, decided before the first `.proto` exists: additive-only evolution (never renumber, never repurpose, never remove), and breaking changes require a deliberate new connector release, never a silent one. Reconnection does not resurrect in-flight requests; retry safety remains application logic because only the broker knows which origin operations are idempotent. Ingress carries gRPC over the shared 443 route with the `backend-protocol: GRPC` annotation on the backend leg. Acceptance for the spike: tunnel regression suite passes under `go test -race`, head-to-head benchmark against reverse-h2 at the step-4 load profile (50-1000 RPS, held streams, failover), and both-direction compatibility demonstrated (old stubs against new broker and new stubs against old broker) before any decision to replace the reverse-h2 path
 
@@ -254,10 +260,30 @@ The Go-driver follow-up measured 65536 fully successful dispatches through the r
 
 The exact public HTTPS reverse-tunnel path was exercised with authenticated fresh-worker health through shared nginx, including follow-up completions of 16384, 32768, and 65536 requests. Subsequent per-leg TCP measurements and balanced idle-pool tests established connector-origin connection lifecycle pressure for the reproduced local failure. Public failures were not all strictly controlled and cannot retrospectively receive one guaranteed cancellation initiator. The earlier "pool tuning cannot cure" conclusion was invalid: the compared fixtures were not controlled. See the corrected final sections of the concurrency report rather than the intermediate cancellation diagnosis.
 
-The full race suite covers transient probe timeout retention, expiry after the grace period, mismatch quarantine, and immediate generation fencing. The successful 65536 run, its resource use, the uncapped active connector, and the test-only h2c frontend are recorded in [the concurrency record](../measurements/go-driver-concurrency-2026-11-18.md). That report also records the 131072 offer as inconclusive because it lacked a final result. The validated sidecar image is `h2c-data-20261118`, running registry digest `sha256:2465ab2ba89f1b9e4df5a561471c2d766484409c19a94b9c55064dc9e5bc1111`. Live verification on 2026-11-18 shows `HTTP/1.1 204` and `HTTP/2 204` from `/readyz`, and h2c 401 on `/sources/probe-id/read`, proving h2c reaches the authenticated dispatch handler. The gateway-facing private data listener intentionally supports both h2c and the existing HTTP/1.1 dispatch, loopback-revoke, and kubelet-readiness contracts. `link-reverse` 8093 stays h2c-only. In-process protocol and race suites pass. Production unchanged: `litellm-proxy` stays on its existing image with one `litellm` container and no source-link sidecar. Historical `probe-health-20261118` references above describe the previous rollout. `main.go` also sets the tunnel connector's `MaxIdleConns` and `MaxIdleConnsPerHost` to 65536 for established-loopback reuse under a measured burst. This is not an admission cap and not an independent connector deployment: it becomes active when the supplied static connector artifact is installed on the source host. The pod's Go image alone carries server-side support, not an assumption that remote hosts upgraded
+The full race suite covers transient probe timeout retention, expiry after the grace period, mismatch quarantine, and immediate generation fencing. The successful 65536 run, its resource use, the uncapped active connector, and the test-only h2c frontend are recorded in [the concurrency record](../measurements/go-driver-concurrency-2026-11-18.md). That report also records the 131072 offer as inconclusive because it lacked a final result. The sidecar image validated during that run was `h2c-data-20261118`; the current dev tag is pinned by `source-link-patch.yaml` and advanced by `mcp-sidecar-pin`. Live verification on 2026-11-18 shows `HTTP/1.1 204` and `HTTP/2 204` from `/readyz`, and h2c 401 on `/sources/probe-id/read`, proving h2c reaches the authenticated dispatch handler. The gateway-facing private data listener intentionally supports both h2c and the existing HTTP/1.1 dispatch, loopback-revoke, and kubelet-readiness contracts. The 8093 listener (`link-tunnel`, named `link-reverse` until 2026-11-18) stays h2c-only. In-process protocol and race suites pass. Production unchanged: `litellm-proxy` stays on its existing image with one `litellm` container and no source-link sidecar. Historical `probe-health-20261118` references above describe the previous rollout. `main.go` also sets the tunnel connector's `MaxIdleConns` and `MaxIdleConnsPerHost` to 65536 for established-loopback reuse under a measured burst. This is not an admission cap and not an independent connector deployment: it becomes active when the supplied static connector artifact is installed on the source host. The pod's Go image alone carries server-side support, not an assumption that remote hosts upgraded
 
 Post-roll protocol checks covered Service readiness and the h2c authentication path, not a guaranteed live data read at scale. Two control rows with active phase and matching catalog fingerprints still returned 503 `no eligible connector` for an actual source read, and no `healthy_at` was published. Persisted peer/fingerprint retention alone is not proof of a present tunnel or successful end-to-end dispatch; a fresh actual source read is still required after connectors reconnect. Existing source connectors were not restarted and no new test enrollment was added in the final reconciliation. This final verification boundary does not retrospectively invalidate earlier successful real-source tests under older images, but it distinguishes them from final live dispatch health
 
 A custom-tagged sidecar release requires a dev-overlay apply after `make mcp-sidecar-release`; deleting the pod alone does not select the new tag
+
+11. BYOM self-service enrollment, and the deletion of the reverse-h2 data plane (DONE
+2026-11-18). `POST /mcp-sources` no longer requires `PROXY_ADMIN`: the owner is the calling
+key's user id, the source is registered through the BYOM `register_mcp_server` path rather
+than the `default_registration` upsert, and the response is
+`201 {"server_id": ..., "status": "pending_review"}`. `owner_may_mutate` gives an owner
+edit/delete of their own row while it is pending or rejected, and `authorize_mcp_server`
+lets a submitter read back what they submitted. The reverse-h2 long-poll plane and
+`internal/reverseh2/` are gone; the worker serves only the tunnel on 8093. Proven live
+through the public ingress with a connector built from this tree: `tunnel admitted
+worker=... generation=1 capabilities=[execute probe]`, `phase=active healthy=True` with the
+catalog fingerprint equal to the enrollment's expected value, and `GET /sources/{id}/read`
+returning origin data with `authorization_seen=false` and `cookie_seen=false`. The approval
+gate was proven separately: a pending row is absent from `GET /v1/mcp/server` and appears
+only after `PUT /v1/mcp/server/{id}/approve`. Three defects surfaced only under real
+traffic and each has a regression test: the enrollment anchor row is a foreign-key
+dependency of worker registration and cannot be skipped, the enroll alias pattern allowed
+the `-` that `MCP_TOOL_PREFIX_SEPARATOR` forbids, and a submitter could not read their own
+new row. Reasoning and the departures from it are in
+[`../decisions/approaches/byom-self-service.md`](../decisions/approaches/byom-self-service.md)
 
 The Pass 2 delta, Pass 3 handover, MCP ingress pilot, and source-agent reference archives have been deleted from this directory. They held the research prototypes and evidence logs that steps 3-4 were built on; none of that content is recoverable from this repository now. The shipped implementation is `mcp-source-link/`, and the surviving measurements are in [the concurrency record](../measurements/go-driver-concurrency-2026-11-18.md)

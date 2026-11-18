@@ -101,7 +101,15 @@ The 65k rows are genuinely simultaneous: one release barrier frees all 65536 gor
 
 The `-race` row is not a defect: the detector stretches the run to 44s, the 2s probe deadline lapses under instrumentation, and the health gate correctly sheds to 503 until probes recover. No `DATA RACE` report was produced; the full race suite passes clean. It is recorded here because an operator repeating the soak under `-race` will see it.
 
-Historical deploy note: the previous `probe-health-20261118` image predates the h2c-capable data listener. The live additive-protocol deployment and verified digests are recorded below
+Historical deploy note: the previous `probe-health-20261118` image predates the
+h2c-capable data listener. The live additive-protocol deployment and verified digests are recorded below
+
+> **Deployment facts below are current as of the run, not as of today.** The sidecar
+> has since been rebuilt twice: the reverse-h2 plane was deleted on 2026-11-18, so the
+> 8093 listener carries only `/grpctunnel.v1.TunnelService/`, and the Service port that
+> was `link-reverse` is now `link-tunnel`. The concurrency numbers are unaffected, since
+> they measure the tunnel and pool path, which did not change. For what runs today read
+> [the owning implementation record](../running-system/README.md)
 
 ## Live deployment and the correction to the h2c and pooling record
 
@@ -117,7 +125,7 @@ Live HTTP/1.1 and HTTP/2 protocol handling and authenticated dispatch routing en
 
 The historical rows above still document public failures rather than claiming they all necessarily pass again under the current deployment. Connection-lifecycle pressure in the load and connector-origin legs is the measured resource failure. Nested Execute cancellation and subsequent 503 eligibility loss were propagated effects in the reproduced case, not a fixed stream-count ceiling. The public canceled-stream initiator remains unproven for past uncontrolled runs
 
-Production was not modified; the deployed `litellm-proxy` remains a single LiteLLM container and no production broker sidecar was created. A custom-tag release needs `kubectl apply -k deploy/overlays/dev/mcp-source-broker` after `make mcp-sidecar-release MCP_SIDECAR_TAG=...`: the latter deletes a pod but does not advance the image tag in the manifest
+Production was not modified; the deployed `litellm-proxy` remains a single LiteLLM container and no production broker sidecar was created. `make mcp-sidecar-release MCP_SIDECAR_TAG=...` now builds, pushes, pins the tag into the overlay, and rolls the pod, so the committed manifest and the cluster no longer drift apart. Applying the overlay is still how a hand-edited tag reaches the cluster
 
 Final current-fixture checks before release: `TestTunnelSoakReproducesPublicFailure` with 4096 simultaneous requests passed 4096/4096 exact responses; its configured 32768-request round passed 32768/32768 exact responses in 6.915 seconds with 5439 agent dials and 17049 connector-origin dials. `TestTunnelMultiChannelStress` with 4 x 1000 passed 4000/4000 exact responses in 2.336 seconds. Full `go test -race ./...` and `go vet ./...` passed. Each channel has a distinct transport with its own loopback dial override because Go's request transport cloning does not retain a custom `DialContext`; a shared supplied test transport makes fixture probes resolve the placeholder origin host. Product transport instances are constructed per source-host peer
 

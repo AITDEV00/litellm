@@ -229,7 +229,8 @@ than hand-edit; each file states its generation date.
 | **MCP source broker: owning implementation record (start here)** | `docs/mcp-source-broker/running-system/README.md` |
 | MCP source broker: slice index, maps each question to the folder that answers it | `docs/mcp-source-broker/README.md` |
 | MCP source broker: measurements (concurrency batches, proven and inconclusive results) | `docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md` |
-| MCP source lifecycle and pooling research questions (live blocker: §2 credential bootstrap) | `docs/mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md` |
+| MCP source lifecycle and pooling research questions (mostly closed; §2 credential bootstrap shipped as BYOM self-service) | `docs/mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md` |
+| BYOM self-service registration design, shipped 2026-11-18: reasoning plus where the code departed from it | `docs/mcp-source-broker/decisions/approaches/byom-self-service.md` |
 | Multi-replica broker scaling: UNFINALIZED debate record with positions, corrections, extension seam, and resume conditions | `docs/mcp-source-broker/decisions/approaches/multi-replica-scaling.md` |
 | Nginx reverse-tunnel pilot: the lab flow that preceded the broker | `docs/mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md` |
 | MCP source broker: superseded design proposal, kept for decision history only | `docs/mcp-source-broker/history/superseded-design-proposal.md` |

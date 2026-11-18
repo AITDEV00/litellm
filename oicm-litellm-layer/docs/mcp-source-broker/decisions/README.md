@@ -8,11 +8,12 @@ Design reasoning that is either still open or already decided against. Nothing h
 
 | File | Kind | State |
 |---|---|---|
-| [`approaches/lifecycle-and-pooling-questions.md`](approaches/lifecycle-and-pooling-questions.md) | Open questions | Partly superseded, §2 credential bootstrap still open |
+| [`approaches/byom-self-service.md`](approaches/byom-self-service.md) | Design | SHIPPED 2026-11-18; kept for the reasoning and the record of where the code departed |
+| [`approaches/lifecycle-and-pooling-questions.md`](approaches/lifecycle-and-pooling-questions.md) | Open questions | Mostly closed: §2 credential bootstrap shipped as BYOM self-service; the rest still open |
 | [`approaches/multi-replica-scaling.md`](approaches/multi-replica-scaling.md) | Debate record | UNFINALIZED, parked by design |
 
 ## How to read these
 
-Both files are records of reasoning, not instructions. They carry dates and stated positions because the value is in knowing which arguments were made and which were refuted. Do not implement from either without first checking [`../running-system/README.md`](../running-system/README.md), which states what actually shipped.
+These files are records of reasoning, not instructions. They carry dates and stated positions because the value is in knowing which arguments were made and which were refuted. Do not implement from any of them without first checking [`../running-system/README.md`](../running-system/README.md), which states what actually shipped.
 
 When a decision in this folder is settled and built, move the conclusion into `running-system/` and leave only the reasoning here.

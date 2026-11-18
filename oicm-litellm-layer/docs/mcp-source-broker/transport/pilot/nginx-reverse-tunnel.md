@@ -1,5 +1,11 @@
 # Test an Nginx data source through LiteLLM’s reverse tunnel
 
+> **Historical pilot, do not run.** This describes the Chisel-based lab setup from before the
+> broker existed. Chisel, the WebSocket path, and the relay ports named here are all deleted
+> from the tree, so following these steps today reaches nothing. It is kept because it is the
+> proof that an agent-initiated reverse channel can carry an MCP source. For the transport
+> that actually ships, read [`../../running-system/README.md`](../../running-system/README.md)
+
 Server A runs a small Nginx instance and a Chisel client. A opens a TLS WebSocket through the gateway ingress. LiteLLM reads the Nginx response through a private relay port and generates the MCP tool from an OpenAPI file stored on the gateway side.
 
 Run this on a staging gateway or pilot replica with an existing HTTPS ingress and an existing LiteLLM model alias. Use Bash. You’ll need Nginx, OpenSSL, and curl on A, Chisel on both sides, and curl and jq where you run the probes.
