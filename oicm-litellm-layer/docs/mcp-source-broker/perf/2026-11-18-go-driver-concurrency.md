@@ -104,3 +104,17 @@ The 65k rows are genuinely simultaneous: one release barrier frees all 65536 gor
 The `-race` row is not a defect: the detector stretches the run to 44s, the 2s probe deadline lapses under instrumentation, and the health gate correctly sheds to 503 until probes recover. No `DATA RACE` report was produced; the full race suite passes clean. It is recorded here because an operator repeating the soak under `-race` will see it.
 
 Deploy note: the dev sidecar must be rebuilt and rolled for the live broker to accept an h2c load leg, since the running `probe-health-20261118` image predates `h2cProtocols()` on the data listener. The product change is additive for in-cluster callers, which already speak HTTP/2 or gRPC over h2c on 8093 and now have the same option on the 9092 data plane; an HTTP/1.1 client hitting the data plane directly is no longer a supported probe path
+
+## Multi-channel stress: 16 mock MCP servers x 32768 simultaneous requests
+
+The multi-channel harness (`tunnel_multi_test.go`, `MCP_TUNNEL_MULTI=1`) models many independent MCP sources behind one broker and one agent client: each channel is a separate fixture stack with its own source ID, dataset, Ed25519 proof key, mock MCP origin (fixed 2s per-request delay), and admitted reverse tunnel. The agent client multiplexes every channel over h2c, and one global release barrier frees all channels' requests at the same instant, so the offered load is channels x per-channel genuinely simultaneous dispatches. Every response body is verified against its own channel's marker, proving per-source routing integrity under stress, not just status codes.
+
+| Matrix | Total simultaneous | Result | Wall | Failures |
+| --- | ---: | --- | ---: | ---: |
+| 4 channels x 1000 | 4000 | 4000/4000 | 2.362 s | 0 |
+| 16 channels x 4096 | 65536 | 65536/65536 | 6.678 s | 0 |
+| 16 channels x 32768 | 524288 | 524288/524288 | 52.634 s | 0 |
+
+The 16 x 32768 row is the headline: half a million dispatches in flight at one instant across 16 concurrently admitted tunnels, all routed to the correct per-channel origins, zero 502s, zero 503s, zero cancellations, zero tunnel teardowns, every body matching its channel marker. Host memory peaked near 29 GB of 30 GB (driver goroutines dominate; this is a single-process test harness bound, not a broker bound), and the run completed without swapping itself to death. The full race suite passes with the harness committed.
+
+These rows establish multi-source fan-out capacity at the process level: the runtime's per-source session pool, least-in-flight selection, and per-channel probe/health gating all hold when 16 sources are simultaneously saturated. The bound measured here is the test host's memory, not the data plane
