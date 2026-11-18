@@ -180,6 +180,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Supported platform matrix | `docs/client-distribution/platform-matrix.md` |
 | Deployment (ingress, artifact pod, sync job) | `docs/client-distribution/deployment.md` |
 | RustFS backend (object storage, shared S3 client) | `docs/client-distribution/rustfs.md` |
+| Source-connector artifacts via same `/install` channel (REQUIRED, unimplemented) | `docs/client-distribution/source-agent-releases.md` |
 | Admin sync API (push/upsert/delete artifacts) | `docs/client-distribution/admin-sync.md` |
 | Security (threat model, checksums) | `docs/client-distribution/security.md` |
 | Rollout plan | `docs/client-distribution/rollout.md` |

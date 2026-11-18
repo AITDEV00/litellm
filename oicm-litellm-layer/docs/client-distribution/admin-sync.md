@@ -16,7 +16,14 @@ reimplement that logic, and would drift.
 
 So the admin talks to the slice, and the slice talks to RustFS. One place
 enforces the invariants. The gateway is the only thing with RustFS credentials;
-the admin only ever holds the LiteLLM master key.
+the admin only ever holds the LiteLLM master key
+
+**Source-agent updater note, 2026-11-18:** reuse this gateway-mediated path for the new
+`source-link` artifacts and stored installer template. Its required immutable version paths,
+release manifest and concrete template shape are in [source-agent-releases](source-agent-releases.md)
+The partial parallel `PUT /install/admin/v1/source-agent/release` base64 protocol uploaded these
+same bytes but is not the design to keep; it does not make your missing own-render/POST shell
+guarantee operational, and is already independently shown to publish literal placeholders
 
 ## Why on the gateway
 
@@ -93,7 +100,15 @@ bytes fetched from `/install/templates/install.sh.tmpl` are the correct checks.
 For behavior changes, inspect the actual rendered script for the intended
 logic rather than stopping at a successful upload status.
 
-## Immutability + manifest compare-and-swap
+## Immutability + manifest compare-and-swap (claimed contract, implementation gap)
+
+The three checks below are the intended write invariants. An independent source review on
+2026-11-18 did not find them all implemented in `client_distribution.routes.py`: the handler
+has no `If-Match`, existing different bytes can be overwritten via `admin_put_artifact`, and
+existence validation is not a resulting-digest guard. Treat these as **unproven until tests**
+before leaning on them for source-agent publication. Keep raw gateway-mediated RustFS upload,
+not S3 credentials on operator machines (confirmed present in code). It should finish these
+existing safeguards rather than create another client-store alternative
 
 - **Immutable artifacts.** A `cc-switch/<version>/<file>` object, once
   published with a given sha256, is never overwritten with different bytes.

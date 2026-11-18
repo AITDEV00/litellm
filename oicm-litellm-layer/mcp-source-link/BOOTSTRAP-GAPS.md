@@ -242,35 +242,35 @@ gRPC broker sidecar, which remains a separate server image release when its own 
 
 **Still missing, and required:**
 
-1. The install script is currently synthesized by `_render_source_agent_installer` in the
-   gateway Python image, despite the assets being in RustFS. Move installer bytes into a
-   stored, validated versioned release object. `/install/source-agent` fetches/serves that
-   stored installer (or an inert minimal launcher that fetches/verifies it), not a Python
-   generated operational script. Keep gateway/forwarded host data shell-safe.
-2. Allow the ordinary iteration of changing the shipped installer, rebuilding `source-link`,
-   uploading them together or separately as compatible complete versions, and updating the
-   manifest, all without a gateway image build/deploy. Any invocation of the shaped script
-   and B2 CLI initialization then picks up that current release's bytes.
-3. Add a checked-in release-directory publisher command or Make target that accepts local
-   installer, binary and release metadata. It validates metadata/checksums/files, uploads via
-   RustFS's existing authenticated S3 environment, and updates the active manifest. It should
-   not require hand-wrapping a binary in one base64 JSON payload and reading environment
-   secrets itself does not authorize logs/output to expose them. Provide explicit dev/prod
-   selection and safe dry-run; an omitted destination must not silently imply prod.
-4. Publish only under `source-agent/<new-version>/`, restricting object names and sizes.
-   Upload/verify a complete immutable release first, activate it last, and preserve
-   no-overwrite. Use a server-checked conditional pointer or narrow serialized publish path
-   so concurrent publishers cannot lose an update or repoint to bad/incomplete assets. An
-   interrupted upload must leave the previously active release working. Rollback points the
-   manifest to an existing complete old version instead of editing any binary.
-5. No Docker/gateway/sidecar rollout is part of this tool. Its command, dry run and proof do
-   not substitute client-asset deployment for updating a server's sidecar code. Separate
-   protocol-relevant client and sidecar versions only through tested compatibility metadata.
-6. Record actual update and rollback commands and artifact layout in the owning source-agent
-   docs. `HEAD`-or-fallback on an inert gateway route may be useful for diagnostics, but is
-   not a general folder write surface. Admin/S3 authentication must remain required. Never
-   accept unrestricted public writes, include credentials in download URLs, or use an
-   unprotected generic path upload route to implement convenience.
+1. Follow `../docs/client-distribution/source-agent-releases.md` rather than maintaining
+   another base64-in-JSON release protocol. It specifies the already-existing cc-switch
+   pattern: `templates/source-agent-install.sh.tmpl` in RustFS, selected active
+   `source-agent/<version>` binary+release metadata, then safe gateway-time rendering with
+   canonical URL/version/hash for `GET /install/source-agent`. All four literal placeholders
+   in the current actual uploader must disappear in exchange for this implemented lifecycle,
+   not get substituted manually only by test fixtures
+2. Upload raw bytes through the existing authenticated
+   `PUT /install/admin/v1/artifact/{path}` gateway channel to RustFS, with source-agent path
+   restriction and content limits. The operator uses a per-environment Proxy Admin credential.
+   No gate writes with shared RustFS credentials, direct `mc` access, or public/mc pre-signed
+   URLs. They do not need to know nor construct base64 JSON bodies
+3. Add the small checked-in operator wrapper for that same raw-artifact mechanism (explicit
+   dev/prod selection, dry-run with no credential requirement, static file/schema/checksum
+   validation, safe redacted logs). Preserve gateway-side bounded raw artifact uploads and
+   streaming. No new bespoke parallel transport; reuse storage helpers and auth conventions.
+   Ensure upload of any version-tuple passes explicit hash/no-change guards at both source-
+   agent paths and helper tools. Server side enforces this, not only the local script
+4. Complete a new version's binary and release metadata first, then advance its dedicated
+   active manifest last after checking hash plus presence and matching compatibility info.
+   Conditional/automatic publication ordering is required. An interruption leaves old active
+   version intact; rollback points back to a verified previous complete version. Template
+   changes alone should not require changing the binary
+5. No Docker/gateway/sidecar rollout is part of the operator target. Client artifacts update
+   outside server images. A sidecar any new code change is independently container-released,
+   as it was already
+6. Record actual update and rollback commands in the new client-distribution owning doc.
+   It is explicitly gateway-mediated artifact-to-RustFS publication with admin-auth, not
+   direct/raw object-store user writes. Engineers get no RustFS credential through this flow
 
 **Proof and tests:**
 
@@ -439,8 +439,11 @@ installed service has no gateway URL while existing startup still requires one, 
 password login lacks an unauthenticated gateway admission. Additional review items R4-R11
 cover duplicate durable keys, catalog approval and worker resume drift, active reissue
 reissue controls, missing transient retry, admin replacement flows, and dev topology.
-The summarized statuses below are the worker's claims, not acceptance proof for this review
-Read it before handing this work to the next worker or calling the completed flow finished
+**Reviewer note:** all statuses below are the worker's historical claims, not proven closure.
+Read the independent review R1 through R11 and treat every claim as unaccepted until its listed
+specific reproduction has an otherwise-failing-before-fix regression test. In particular B2,
+B6 and B1 below must not misdirect a new worker into simply closing its already-declared list
+and ignoring the actual broken production route/publishing and auth boundaries
 
 Not SHIPPED. Items 1, 6 and 7 of the acceptance are still unproven end to end; the
 rest has a defined flow and automated coverage. What follows separates built from

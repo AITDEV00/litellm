@@ -77,9 +77,12 @@ is the one authenticated surface. Its security properties:
   write API cannot reach the `litellm-logs` bucket or any other key.
 - **Body size cap.** A per-request limit (reject `413` above it) so a runaway
   client cannot fill the bucket in one request.
-- **Manifest integrity.** The manifest `PUT` verifies every referenced object
-  exists with a matching hash and rejects `409` otherwise, so a published
-  manifest never lies about the store.
+- **Manifest integrity (intended, not fully implemented):** code verifies selected referenced
+  objects exist, but general `_validate_store_references` uses `head_object` and does not check
+  the requested byte hash for those objects. No HTTP `If-Match`/CAS was found. Artifact PUT
+  accepts differing bytes at the same path, so immutable release SHA-overwriting also needs
+  its promised server-side restriction. These are code gaps recorded 2026-11-18; do not claim
+  hash agreement or lost-update prevention without tests implementing them
 - **Separate prefix.** Write (`/install/admin/*`) and read (the rest of
   `/install/*`) are distinct sub-paths, so the ingress can restrict the write
   surface to an admin network range without affecting public reads.

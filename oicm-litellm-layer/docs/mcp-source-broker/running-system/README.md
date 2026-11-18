@@ -81,9 +81,12 @@ re-derives the credential for the worker already stored under that label at its 
 without a new row and without advancing the generation. An approved, rejected or foreign row is
 still a 409, and a revoked or draining worker is refused, so the duplicate-label fencing and the
 terminal-revoke decision are both intact. Connector side, `setup.Initialize` resumes from
-`user.key` and `bootstrap.json` alone, with no second prompt and no second key. A 401 or 429 is
-retried; any other 4xx is terminal and reported as operator action required rather than as a
-gateway outage
+`user.key` and `bootstrap.json` alone, with no second prompt and no second key. Those are facts
+about the claim. In current code 401/429 produce `ErrNotYetAvailable` but `Initialize` does not
+wait/retry: it returns directly out of `runInit` before the installer enables the service. The
+actual worker response remains a one-attempt code path even though documentation states retries.
+See [the independent review](../../mcp-source-link/REVIEW-2026-11-19.md) for this and approval/
+credential drift traps rather than just checking pending-review ownership
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
@@ -209,13 +212,30 @@ The source target is only a loopback host and port. Source identity is derived f
 
 The connector transport is the grpctunnel stream in `mcp-source-link/`: the connector on the source host dials in (the gateway cannot make outbound connections, so an agent-initiated session is the only way back), the sidecar accepts it, and dispatch rides back over that session. There is no in-flight admission cap (`DispatchInFlightCap = 0` as of step 10) and each connector runs 8 concurrent origin round trips. The 64 in-flight figure quoted here and in step 4 describes behavior before step 10 and no longer holds. This path is fully verified live (steps 2, 3, 4, 7 below) but its wire contract is implicit Go structs on both ends, which is why step 9 spikes `jhump/grpctunnel`: any version of either side must keep connecting, degrading to less functionality rather than breaking, and that contract must be enforced by a versioned proto, not implied by struct layout. That compatibility requirement is verified across versions by `make -C oicm-litellm-layer mcp-source-link-compat`
 
-Connector installation no longer has a per-source token installer; the Chisel relay text below is retained only as the 2026-11-13 historical record. The current contract is the client-distribution slice `litellm/proxy/client_distribution/source_agent_distribution.py`: an admin publishes a release pair (binary, `release.json`) through `PUT /install/admin/v1/source-agent/release`, and any source host runs the fixed script from `GET /install/source-agent`, which downloads the versioned pair, verifies the binary against the SHA-256 checksum embedded in the script, writes `source-link` mode 500, and renders a user systemd unit `source-agent.service` running `source-link connector` with environment from `~/.config/source-agent/connector.env` (`MCP_SOURCE_LINK_PUBLIC_URL`, `MCP_SOURCE_LINK_CONNECTOR_CONFIG`). The unit only starts once the config exists; without it the installer leaves the binary installed and prints the gating message. There is no release signature and no signing key: releases were briefly signed with an Ed25519 key and the installer briefly verified that signature on 2026-11-17, and both were removed the same day as over-engineering. The publish route is admin-only and the checksum the installer enforces is derived from what the gateway itself published, so the signature protected nothing the admin gate and checksum do not already cover. A substituted binary that cannot speak the tunnel or present a valid enrollment credential fails at the broker regardless. The old `release.sig.b64` objects from the signed era remain in the bucket as inert legacy bytes; the asset route no longer serves them
+Connector installation no longer has a per-source token installer; the Chisel relay text below
+is retained only as the 2026-11-13 historical record. Also **not current**: the following prose
+describes an obsolete generated installer/env-continuation workflow; new `init` work exists but
+[is independently refused](../../mcp-source-link/REVIEW-2026-11-19.md). What partly exists
+today is `PUT /install/admin/v1/source-agent/release` receiving base64 binary + JSON + optional
+installer. It **does** gateway-publish to RustFS without a gateway image deploy, but its actual
+current publisher never replaces `__BASE__`, `__VERSION__`, `__SHA__`, `__STATE__`, hence cannot
+safely drive a working normal installer. It also left runtime env connection missing
+
+The already-supported source-of-truth design for the general cc-switch path is raw admin artifact
+PUT via the gateway, RustFS-resident templates and active release metadata, validated gateway-
+rendered install script and authenticated-only writes. That pattern is what source-agent must
+use, with its devoted version/hand-off validation and unattended service/lifecycle fixes;
+[source-agent-releases](../client-distribution/source-agent-releases.md) defines the concrete
+contract. There is no reason for a separate direct-S3 route for admin machines, gateway builds
+for each new binary/installer, or any unauthenticated RustFS write endpoint. This design is
+not yet accepted merely because the storage objects can move. There is no release signature
+and no signing key: releases briefly had them but those were removed as over-engineering
 
 Release `0.2.0` (2026-11-17) is the first reverse-h2 release and stays in the bucket as immutable history (SHA-256 `03c607b6...702d00c`). Its assets include a `release.sig.b64` from the signed era that nothing reads any more. The pre-rename `0.1.0` release (retired WSS-era source-agent) also stays in the bucket as harmless legacy
 
 A release version is immutable once published: re-publishing a version that already has a `source-link` object returns 409, so a version number always names the same bytes
 
-Release `0.3.0` (2026-11-17) is the current release: the reverse-h2 `source-link` built by `make mcp-sidecar-build` (SHA-256 `1242a6e1...b5269`), with `release.json` pinning sidecar image manifest `sha256:3ad55297...a3b7a4`. It carries the round-trip caller-cancellation and shutdown-deadlock fixes, so connector hosts get a behaviour change beyond the installer script, not just a new checksum. The published 0.3.0 binary and manifest are unchanged by the installer-contract revert; only the served script changed. A republish of `0.3.0` returns 409 `release version is already published and immutable` with the stored bytes unchanged, and both `0.1.0` and `0.2.0` still serve their original bytes
+Release `0.3.0` was the historical last-verified release on 2026-11-17: the reverse-h2 `source-link` built by `make mcp-sidecar-build` (SHA-256 `1242a6e1...b5269`), with `release.json` pinning sidecar image manifest `sha256:3ad55297...a3b7a4`. It carries the round-trip caller-cancellation and shutdown-deadlock fixes, so connector hosts get a behaviour change beyond the installer script, not just a new checksum. The published 0.3.0 binary and manifest are unchanged by the installer-contract revert; only the served script changed. A republish of `0.3.0` returns 409 `release version is already published and immutable` with the stored bytes unchanged, and both `0.1.0` and `0.2.0` still serve their original bytes
 
 ## Calls
 
