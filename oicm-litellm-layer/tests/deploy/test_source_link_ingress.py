@@ -1,4 +1,4 @@
-"""Pins the source-link reverse ingress annotations the tunnel plane needs.
+"""Pins the source-link tunnel ingress annotations and path set.
 
 The grpctunnel reverse tunnel is one long-lived client-streaming POST whose
 body accumulates every pushed RPC request for the tunnel's whole lifetime.
@@ -23,12 +23,7 @@ import pytest
 import yaml
 
 _INGRESS: Final = (
-    Path(__file__).resolve().parents[2]
-    / "deploy"
-    / "overlays"
-    / "dev"
-    / "mcp-source-broker"
-    / "reverse-h2-ingress.yaml"
+    Path(__file__).resolve().parents[2] / "deploy" / "overlays" / "dev" / "mcp-source-broker" / "tunnel-ingress.yaml"
 )
 
 _PATCH: Final = (
@@ -69,7 +64,7 @@ def test_tunnel_service_path_is_published(ingress: dict) -> None:
     assert "/grpctunnel.v1.TunnelService/" in paths
 
 
-def test_reverse_h2_paths_are_not_published(ingress: dict) -> None:
+def test_tunnel_paths_exclude_the_deleted_reverse_h2_routes(ingress: dict) -> None:
     """The reverse-h2 data plane is deleted, so its routes must not be routed.
 
     The worker no longer serves those handlers, so a leftover path here sends
@@ -98,3 +93,20 @@ def test_sidecar_patch_carries_no_transport_variable(patch: list[dict]) -> None:
     }
     assert env, "the source-link container should still declare its env"
     assert "MCP_SOURCE_LINK_TRANSPORT" not in env
+
+
+def test_names_describe_the_tunnel_not_the_deleted_plane(ingress: dict, patch: list[dict]) -> None:
+    """Nothing this overlay publishes should still be named after reverse-h2.
+
+    The ingress resource, its file, and the Service port are the three things a
+    reader or an operator types by hand. Leaving any of them named for a deleted
+    protocol makes the surviving name look like a leftover that is safe to drop.
+    """
+    assert ingress["metadata"]["name"] == "litellm-mcp-tunnel-dev"
+    assert _INGRESS.name == "tunnel-ingress.yaml"
+    paths = ingress["spec"]["rules"][0]["http"]["paths"]
+    assert {p["backend"]["service"]["port"]["name"] for p in paths} == {"link-tunnel"}
+    services = [doc for doc in patch if doc.get("kind") == "Service"]
+    assert len(services) == 1, "the patch should carry exactly one Service"
+    ports = {port["name"] for port in services[0]["spec"]["ports"]}
+    assert "link-tunnel" in ports and "link-reverse" not in ports

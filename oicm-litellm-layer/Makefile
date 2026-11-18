@@ -50,6 +50,7 @@ MCP_SIDECAR_IMG  := $(REGISTRY)/$(REPO_PATH)/mcp-source-link-worker
 MCP_BROKER_IMG   := $(REGISTRY)/$(REPO_PATH)/litellm-mcp-broker
 MCP_SIDECAR_TAG  ?= $(LITELLM_SRC_TAG)
 MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)
+MCP_SIDECAR_MANIFEST := $(CURDIR)/deploy/overlays/dev/mcp-source-broker/source-link-patch.yaml
 
 # Host Go toolchain and module cache for the sidecar build. GO_BIN defaults to
 # the user-local toolchain this repo's Go work has always used; override with
@@ -149,8 +150,10 @@ endef
 	smoke smoke-fast smoke-models smoke-leaks smoke-leaks-mutate \
 	help clean clean-artifacts \
 	oicm-sa-config oicm-sa-provision oicm-sa-provision-abudhabi oicm-sa-secrets \
-	docs litellm-logo port-forward-datasources
-
+        docs litellm-logo port-forward-datasources \
+        mcp-sidecar-build mcp-sidecar-push mcp-sidecar-pin mcp-sidecar-release \
+        mcp-sidecar-check mcp-source-link-compat \
+        mcp-broker-build mcp-broker-push mcp-broker-release-dev
 # These composites build a controller (or gateway) image and then apply it, so a
 # failed build must stop the rollout and the pin must land before the apply. A
 # parallel `make -j` would otherwise interleave them.
@@ -191,7 +194,7 @@ help:
 	@echo "  litellm-src-release           same for prod"
 	@echo ""
 	@echo "MCP source broker images."
-	@echo "  mcp-sidecar-release          build+push sidecar, delete the dev broker pod to re-pull"
+	@echo "  mcp-sidecar-release          build+push+pin sidecar, delete the dev broker pod to re-pull"
 	@echo "  mcp-broker-release-dev       build+push control app on the running gateway digest, roll dev"
 	@echo ""
 	@echo "Local + smoke.  make litellm-local-run | litellm-ui-dev | smoke-fast"
@@ -244,7 +247,9 @@ push-litellm:
 ## mcp-sidecar-build      compile the tunnel sidecar (CGO_ENABLED=0, static)
 ##                        and bake it into a FROM-scratch image at $(MCP_SIDECAR_TAG)
 ## mcp-sidecar-push       push the sidecar image to Harbor
-## mcp-sidecar-release    build + push + roll the dev broker pod to the new bytes.
+## mcp-sidecar-pin        write $(MCP_SIDECAR_TAG) into the dev overlay, so the
+##                        committed manifest names the bytes that actually run
+## mcp-sidecar-release    build + push + pin + roll the dev broker pod to the new bytes.
 ##                        Same-tag updates need the pod DELETED to re-pull;
 ##                        this target does that, then waits for the rollout.
 ##
@@ -280,7 +285,14 @@ mcp-sidecar-build:
 mcp-sidecar-push:
 	podman push --tls-verify=false $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG)
 
-mcp-sidecar-release: mcp-sidecar-build mcp-sidecar-push
+## Pin the sidecar tag in the dev overlay so the committed manifest names the
+## bytes that actually run. Without this the overlay keeps whichever tag was
+## committed last and silently disagrees with the cluster.
+mcp-sidecar-pin:
+	@echo "Pinning $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG) in $(MCP_SIDECAR_MANIFEST)"
+	$(call pin_image,$(MCP_SIDECAR_IMG),$(MCP_SIDECAR_TAG),$(MCP_SIDECAR_MANIFEST))
+
+mcp-sidecar-release: mcp-sidecar-build mcp-sidecar-push mcp-sidecar-pin
 	$(KUBECTL) -n $(NAMESPACE) delete pod -l app=$(BROKER_DEPLOYMENT_DEV) --wait=false
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(BROKER_DEPLOYMENT_DEV) --timeout=$(ROLLOUT_TIMEOUT)
 

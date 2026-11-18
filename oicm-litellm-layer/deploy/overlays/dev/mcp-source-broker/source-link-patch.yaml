@@ -9,7 +9,7 @@
 ## Port map inside the one pod (Service-facing names in backticks):
 ##   9091  FastAPI source-link control `remote-control` (the broker process)
 ##   9092  Go private dispatch `link-data`: /sources/{id}/{path}, /v1/source-link/revoke (sidecar)
-##   8093  Go tunnel ingress `link-reverse`: /grpctunnel.v1.TunnelService/* (sidecar)
+##   8093  Go tunnel ingress `link-tunnel`: /grpctunnel.v1.TunnelService/* (sidecar)
 ##
 ## The Service below publishes these on the litellm-mcp-broker-dev Service.
 ## The gateway-facing data plane is the STANDARD Service port 8888, which
@@ -34,7 +34,7 @@ spec:
             - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
         - name: source-link
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:dev-byom-eb1d1b18fd
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:dev-byom-dab13b275f
           imagePullPolicy: Always
           command: ["/source-link", "worker"]
           env:
@@ -52,7 +52,7 @@ spec:
           ports:
             - name: link-data
               containerPort: 9092
-            - name: link-reverse
+            - name: link-tunnel
               containerPort: 8093
           readinessProbe:
             httpGet:
@@ -81,9 +81,9 @@ spec:
     - name: data
       port: 8888
       targetPort: link-data
-    - name: link-reverse
+    - name: link-tunnel
       port: 8093
-      targetPort: 8093
+      targetPort: link-tunnel
     - name: remote-control
       port: 9091
       targetPort: 9091

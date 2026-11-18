@@ -48,7 +48,7 @@ Port map, from `deploy/overlays/dev/mcp-source-broker/source-link-patch.yaml`:
 |---|---|---|---|---|
 | 9091 | `remote-control` | HTTP | Python broker | `/v1/source-link/{peers,report,revoke}` and admin routes |
 | 9092 | `link-data` | HTTP/1.1 **and** h2c | Go sidecar | `/readyz`, `/sources/{id}/{path}`, `/v1/source-link/revoke` |
-| 8093 | `link-reverse` | h2c only | Go sidecar | `/grpctunnel.v1.TunnelService/*` only |
+| 8093 | `link-tunnel` | h2c only | Go sidecar | `/grpctunnel.v1.TunnelService/*` only |
 | 8888 | Service `data` | — | Service → 9092 | the URL the gateway is registered with |
 
 The two containers share a pod network namespace deliberately: the broker reaches the sidecar's revoke endpoint over `127.0.0.1:9092`, and that endpoint accepts loopback callers only
@@ -182,7 +182,7 @@ The broker Service `litellm-mcp-broker-dev` is the only gateway-facing address. 
 | Service port | Service name | Container port | Listener | Who calls it |
 |---|---|---|---|---|
 | 8888 | `data` | 9092 (`link-data`) | Go sidecar private dispatch: `/sources/{id}/{path}`, `/v1/source-link/revoke` | The gateway's MCP pool URL, `MCP_SOURCE_BROKER_DATA_PLANE_URL` |
-| 8093 | `link-reverse` | 8093 | Go sidecar `/grpctunnel.v1.TunnelService/*` only | Source connector, over the `tunnel` gRPC plane |
+| 8093 | `link-tunnel` | 8093 | Go sidecar `/grpctunnel.v1.TunnelService/*` only | Source connector, over the `tunnel` gRPC plane |
 | 9091 | `remote-control` | 9091 | FastAPI broker process (remote control) | Administrator via port-forward |
 
 8888 is the standard gateway-facing data-plane port: the gateway's registered pool URL is always `http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888/sources/{id}`, from the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var. The connector routes ride the shared 443 ingress, unchanged. The NetworkPolicy matches pod ports after Service DNAT, so it keeps listing the container ports. The 8092 WSS listener and its `rd-worker` Service port and Ingress were removed on 2026-11-17. The worker serves only `tunnel` on 8093; `reverse-h2` and its four long-poll routes were deleted on 2026-11-18

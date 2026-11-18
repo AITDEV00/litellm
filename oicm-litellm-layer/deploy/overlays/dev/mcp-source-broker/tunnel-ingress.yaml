@@ -15,7 +15,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: litellm-mcp-reverse-h2-dev
+  name: litellm-mcp-tunnel-dev
   namespace: adeo-litellm
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
@@ -36,7 +36,7 @@ spec:
               service:
                 name: litellm-mcp-broker-dev
                 port:
-                  name: link-reverse
+                  name: link-tunnel
   tls:
     - hosts:
         - litellm.ecouncil.ae
