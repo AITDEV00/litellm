@@ -1,24 +1,37 @@
+// Command mcp-source-link is the MCP source broker's sidecar. In worker mode
+// it serves the dispatch planes beside the Python control app; in connector
+// mode it runs on a source host and dials out. Both modes are the same binary.
+//
+// This file is wiring only. Behavior lives in the internal slices:
+//
+//	config      environment, identity, and peer record validation
+//	control     peer state, health reports, credential comparison
+//	pool        which connector serves a request
+//	catalog     catalog proof and verification
+//	reverseh2   the long-poll data plane
+//	tunnel      the grpctunnel data plane
+//	connector   the source-host side of both planes
+//	wire        envelope types and shared size limits
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"math/rand/v2"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
 	"syscall"
 	"time"
+
+	"oicm-litellm-layer/mcp-source-link/internal/config"
+	"oicm-litellm-layer/mcp-source-link/internal/connector"
+	"oicm-litellm-layer/mcp-source-link/internal/control"
+	"oicm-litellm-layer/mcp-source-link/internal/pool"
+	"oicm-litellm-layer/mcp-source-link/internal/reverseh2"
+	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
 func main() {
@@ -33,43 +46,52 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if environment("MCP_SOURCE_LINK_TRANSPORT") != "" && environment("MCP_SOURCE_LINK_TRANSPORT") != transportReverseH2 && environment("MCP_SOURCE_LINK_TRANSPORT") != transportTunnel {
-		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", environment("MCP_SOURCE_LINK_TRANSPORT"))
+	transport := config.Environment("MCP_SOURCE_LINK_TRANSPORT")
+	if transport != "" && transport != config.TransportReverseH2 && transport != config.TransportTunnel {
+		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", transport)
 	}
 	if mode == "connector" {
-		return runConnector(ctx, environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"))
+		cfg, err := config.ReadConnector(config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"))
+		if err != nil {
+			return err
+		}
+		return connector.Run(ctx, cfg)
 	}
-	cfg, err := loadConfig()
+	return runWorker(ctx, stop)
+}
+
+func runWorker(ctx context.Context, stop context.CancelFunc) error {
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	client, err := controlClient(cfg)
+	client, err := config.ControlClient(cfg)
 	if err != nil {
 		return err
 	}
 	defer client.CloseIdleConnections()
-	control, err := newControl(ctx, cfg, client)
+	state, err := control.New(ctx, cfg, client)
 	if err != nil {
 		return err
 	}
-	runtime := newRuntime(control)
-	tunnels := newTunnelRuntime(runtime)
+	sessions := pool.New(state)
+	tunnels := tunnel.New(sessions)
+	reverse := reverseh2.New(sessions)
+
 	data := http.NewServeMux()
 	data.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	data.HandleFunc("POST /v1/source-link/revoke", runtime.revokeHTTP)
-	data.HandleFunc("/sources/{source}/{path...}", runtime.forward)
-	reverse := reverseServer()
-	reverse.Addr = cfg.ReverseListen
-	reverseMux := http.NewServeMux()
-	reverseMux.HandleFunc("POST /mcp-source-link-reverse", runtime.reverseRegister)
-	reverseMux.HandleFunc("POST /mcp-source-link-hold", runtime.reverseHold)
-	reverseMux.HandleFunc("POST /mcp-source-link-dispatch", runtime.reverseDispatch)
-	reverseMux.HandleFunc("POST /mcp-source-link-respond", runtime.reverseRespond)
-	reverse.Handler = tunnelHTTPHandler(tunnels.grpcServer(), reverseMux)
-	reverse.Protocols = h2cProtocols()
+	data.HandleFunc("POST /v1/source-link/revoke", sessions.RevokeHTTP)
+	data.HandleFunc("/sources/{source}/{path...}", sessions.Forward)
+
+	reverseServer := reverseh2.Server()
+	reverseServer.Addr = cfg.ReverseListen
+	reverseServer.Handler = tunnel.HTTPHandler(tunnels.GRPCServer(), reverse.Routes())
+	reverseServer.Protocols = reverseh2.H2CProtocols()
+
 	servers := []*http.Server{
-		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: dataProtocols()},
-		reverse,
+		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second,
+			MaxHeaderBytes: 32 << 10, HTTP2: reverseh2.HTTP2Config(), Protocols: reverseh2.DataProtocols()},
+		reverseServer,
 	}
 	for _, server := range servers {
 		listener, err := net.Listen("tcp", server.Addr)
@@ -83,235 +105,31 @@ func run(mode string) error {
 			}
 		}(server)
 	}
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_ = control.refresh(ctx)
-				runtime.reconcile()
-			}
-		}
-	}()
+	go reconcileLoop(ctx, state, sessions)
 	log.Printf("reverse-h2 worker; private dispatch on %s; reverse ingress on %s", cfg.DataListen, cfg.ReverseListen)
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	runtime.closeAllSessions()
-	tunnels.closeAll()
+	sessions.CloseAllSessions()
+	tunnels.CloseAll()
 	for _, server := range servers {
 		_ = server.Shutdown(shutdown)
 	}
 	return nil
 }
 
-func runConnector(ctx context.Context, path string) error {
-	cfg, err := readConnector(path)
-	if err != nil {
-		return err
-	}
-	gateway := environment("MCP_SOURCE_LINK_PUBLIC_URL")
-	ca := environment("MCP_SOURCE_LINK_CA_FILE")
-	if !strings.HasPrefix(gateway, "https://") {
-		return errors.New("worker URL must use approved HTTPS")
-	}
-	tlsConfig, err := httpTLS(ca)
-	if err != nil {
-		return err
-	}
-	if environment("MCP_SOURCE_LINK_TRANSPORT") == transportTunnel {
-		local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
-		origin := &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return local.DialContext(ctx, "tcp", cfg.Target)
-			},
-			MaxIdleConns: 65536, MaxIdleConnsPerHost: 65536,
-			IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
-		}
-		defer origin.CloseIdleConnections()
-		return runTunnelConnector(ctx, cfg, gateway, tlsConfig, origin)
-	}
-	headers := http.Header{
-		"X-Source-Member":     {cfg.WorkerID},
-		"X-Source-Generation": {fmt.Sprint(cfg.Generation)},
-		"Authorization":       {"Bearer " + cfg.Credential},
-	}
-	return runReverseConnector(ctx, cfg, gateway, tlsConfig, headers)
-}
-
-func runReverseConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config, headers http.Header) error {
-	base := strings.TrimSuffix(gateway, "/")
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig:     tlsConfig,
-			ForceAttemptHTTP2:   true,
-			TLSHandshakeTimeout: 8 * time.Second,
-			IdleConnTimeout:     90 * time.Second,
-			MaxIdleConns:        4,
-			DisableCompression:  true,
-		},
-	}
-	local := &net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}
-
-	origin := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return local.DialContext(ctx, "tcp", cfg.Target)
-		},
-		IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
-	}
-	defer origin.CloseIdleConnections()
-	delay := 300 * time.Millisecond
-	for ctx.Err() == nil {
-		started := time.Now()
-		err := reverseTunnelSession(ctx, client, base, headers, origin)
-		if ctx.Err() != nil {
-			return nil
-		}
-		if time.Since(started) > 30*time.Second {
-			delay = 300 * time.Millisecond
-		}
-		log.Printf("reverse connector %s disconnected: %v", cfg.WorkerID, err)
-		timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay/2))))
+// reconcileLoop refreshes peer state and closes any session the control plane
+// has moved past.
+func reconcileLoop(ctx context.Context, state *control.Client, sessions *pool.Runtime) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
 		select {
 		case <-ctx.Done():
-			timer.Stop()
-		case <-timer.C:
-		}
-		delay = min(15*time.Second, delay*2)
-	}
-	return nil
-}
-
-func reversePost(ctx context.Context, client *http.Client, url string, headers http.Header, body []byte) (*http.Response, error) {
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, reader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header = headers.Clone()
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return client.Do(req)
-}
-
-func reverseTunnelSession(ctx context.Context, client *http.Client, base string, headers http.Header, origin *http.Transport) error {
-	response, err := reversePost(ctx, client, base+"/mcp-source-link-reverse", headers, nil)
-	if err != nil {
-		return err
-	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("reverse registration returned HTTP %d", response.StatusCode)
-	}
-	holdCtx, holdCancel := context.WithCancel(ctx)
-	defer holdCancel()
-	go func() {
-		resp, err := reversePost(holdCtx, client, base+"/mcp-source-link-hold", headers, nil)
-		if err == nil {
-			_ = resp.Body.Close()
-		}
-		holdCancel()
-	}()
-	const dispatchers = 8
-	var workers sync.WaitGroup
-	lost := make(chan struct{}, 1)
-	for range dispatchers {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for {
-				select {
-				case <-holdCtx.Done():
-					return
-				case <-lost:
-					return
-				default:
-				}
-				resp, err := reversePost(holdCtx, client, base+"/mcp-source-link-dispatch", headers, nil)
-				if err != nil || resp.StatusCode != http.StatusOK {
-					if resp != nil {
-						_ = resp.Body.Close()
-					}
-					select {
-					case lost <- struct{}{}:
-					default:
-					}
-					return
-				}
-				var item dispatchRequest
-				if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
-					_ = resp.Body.Close()
-					continue
-				}
-				_ = resp.Body.Close()
-				payload, err := executeDispatch(holdCtx, origin, item)
-				if err != nil {
-					payload = dispatchResponse{ID: item.ID, Error: err.Error()}
-				}
-				encoded, err := json.Marshal(payload)
-				if err != nil {
-					continue
-				}
-				done, err := reversePost(holdCtx, client, base+"/mcp-source-link-respond", headers, encoded)
-				if err != nil {
-					select {
-					case lost <- struct{}{}:
-					default:
-					}
-					_ = done
-					return
-				}
-				status := done.StatusCode
-				_, _ = io.Copy(io.Discard, io.LimitReader(done.Body, 4096))
-				_ = done.Body.Close()
-				if status != http.StatusNoContent {
-					select {
-					case lost <- struct{}{}:
-					default:
-					}
-					return
-				}
-			}
-		}()
-	}
-	workers.Wait()
-	return nil
-}
-
-func executeDispatch(ctx context.Context, origin *http.Transport, item dispatchRequest) (dispatchResponse, error) {
-	target := url.URL{Scheme: "http", Host: "target.source.invalid", Path: item.Path, RawQuery: item.Query}
-	req, err := http.NewRequestWithContext(ctx, item.Method, target.String(), bytes.NewReader(item.Body))
-	if err != nil {
-		return dispatchResponse{}, err
-	}
-	for name, values := range item.Headers {
-		for _, value := range values {
-			req.Header.Add(name, value)
+			return
+		case <-ticker.C:
+			_ = state.Refresh(ctx)
+			sessions.Reconcile()
 		}
 	}
-	resp, err := origin.RoundTrip(req)
-	if err != nil {
-		return dispatchResponse{}, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, reverseMaxOriginBody+1))
-	if err != nil {
-		return dispatchResponse{}, err
-	}
-	if len(body) > reverseMaxOriginBody {
-		return dispatchResponse{}, errors.New("origin response exceeds the dispatch body limit")
-	}
-	headers := make(map[string][]string, len(resp.Header))
-	for name, values := range resp.Header {
-		headers[name] = values
-	}
-	return dispatchResponse{ID: item.ID, Status: resp.StatusCode, Headers: headers, Body: body}, nil
 }

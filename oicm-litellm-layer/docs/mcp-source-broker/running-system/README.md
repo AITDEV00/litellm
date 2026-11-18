@@ -32,7 +32,7 @@ These are not steps; they are things the design called for that the tree does no
 
 **Bootstrap credential exchange.** The installer renders a systemd unit and a checksum-verified binary, but never writes `connector.env`. Its credential is `HMAC(pepper, "remotedialer-credential", grant_id, worker_id, generation)`, which needs the broker-side pepper, so the operator must derive it out of band. `../decisions/approaches/lifecycle-and-pooling-questions.md` §2 states this as an open question and it is still open. The `redeemed_at` columns in the schema are shaped for a claim flow that has no endpoint
 
-**Admitted-capability visibility.** The sidecar learns each connector's capability set on every tunnel open but does not log it, so which fleet versions are connected is only knowable by live inspection. `tunnel.go` `tunnelRuntime.onOpen` is where that log line would go
+**Admitted-capability visibility.** The sidecar learns each connector's capability set on every tunnel open but does not log it, so which fleet versions are connected is only knowable by live inspection. `internal/tunnel` `Runtime.onOpen` is where that log line would go
 
 ## What this system is today
 
@@ -60,14 +60,19 @@ The gateway contains no relay and starts no connector. Production is not enabled
 
 ## Where to look
 
-| Question | File |
+The Go sidecar is split into one package per behavior under `mcp-source-link/internal/`, so the owning file for a question is the package named after it.
+
+| Question | Package |
 |---|---|
-| Caller request routing, admission cap, header stripping | `pool.go` |
-| Tunnel plane, admission, probe loop, fencing | `tunnel.go` |
-| Reverse-h2 session and dispatch correlation | `reverse.go`, `reverse_handlers.go` |
-| Catalog canonicalization and proof verification | `probe.go` |
-| Connector side: origin round trip, reconnect loop | `tunnel_connector.go`, `main.go` |
-| Broker peer list, health report, service auth | `control.go`, `litellm/proxy/mcp_source_broker/` |
+| Caller request routing, admission cap, header stripping | `internal/pool` |
+| Tunnel plane, admission, probe loop, fencing | `internal/tunnel` |
+| Reverse-h2 session and dispatch correlation | `internal/reverseh2` |
+| Catalog canonicalization and proof verification | `internal/catalog` |
+| Connector side: origin round trip, reconnect loop | `internal/connector` |
+| Broker peer list, health report, service auth | `internal/control` |
+| Environment, identity file, and peer record validation | `internal/config` |
+| Envelope types and shared size limits | `internal/wire` |
+| Process wiring for both modes | `mcp-source-link/main.go` |
 | Gateway registration and data-plane URL | `litellm/proxy/mcp_source_broker/gateway.py` |
 | Connector installer and release publishing | `litellm/proxy/client_distribution/source_agent_distribution.py` |
 

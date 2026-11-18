@@ -1,4 +1,4 @@
-package main
+package connector
 
 import (
 	"bytes"
@@ -27,13 +27,20 @@ import (
 	"github.com/jhump/grpctunnel/tunnelpb"
 
 	"oicm-litellm-layer/mcp-source-link/dispatchpb"
+	"oicm-litellm-layer/mcp-source-link/internal/config"
+	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
+	"oicm-litellm-layer/mcp-source-link/internal/wire"
 )
 
-// grpcDialTarget converts the public HTTPS gateway URL into the host:port form
-// gRPC requires, applying 443 when the URL omits a port. Passing the raw URL to
-// grpc.Dial leaves the scheme in the address, which the dialer cannot parse and
-// every attempt dies on the dial timeout.
-func grpcDialTarget(gateway string) (string, error) {
+// Capabilities is the capability set this connector build implements. The
+// broker gates each pushed RPC on this list.
+var Capabilities = []string{"execute", "probe"}
+
+// DialTarget converts the public HTTPS gateway URL into the host:port form
+// gRPC requires, applying 443 when the URL omits a port. Passing the raw URL
+// to grpc.Dial leaves the scheme in the address, which the dialer cannot
+// parse and every attempt dies on the dial timeout.
+func DialTarget(gateway string) (string, error) {
 	parsed, err := url.Parse(gateway)
 	if err != nil {
 		return "", err
@@ -48,10 +55,6 @@ func grpcDialTarget(gateway string) (string, error) {
 	return net.JoinHostPort(parsed.Hostname(), port), nil
 }
 
-// connectorCapabilities is the capability set this connector build
-// implements. The broker gates each pushed RPC on this list.
-var connectorCapabilities = []string{"execute", "probe"}
-
 func logConnectorError(kind string, count *atomic.Uint64, err error) {
 	n := count.Add(1)
 	if n <= 3 || n%1000 == 0 {
@@ -59,21 +62,27 @@ func logConnectorError(kind string, count *atomic.Uint64, err error) {
 	}
 }
 
-// dispatchServer implements DispatchService on the connector: it answers
-// the broker's pushed RPCs by round-tripping the connector's loopback
-// origin.
-type dispatchServer struct {
+// Server implements DispatchService on the connector: it answers the
+// broker's pushed RPCs by round-tripping the connector's loopback origin.
+type Server struct {
 	dispatchpb.UnimplementedDispatchServiceServer
 	origin          http.RoundTripper
 	roundTripErrors atomic.Uint64
 	readErrors      atomic.Uint64
 }
 
-func (d *dispatchServer) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatchpb.AdmitResponse, error) {
-	return &dispatchpb.AdmitResponse{Capabilities: connectorCapabilities}, nil
+// NewServer builds a dispatch server over the given origin transport.
+func NewServer(origin http.RoundTripper) *Server {
+	return &Server{origin: origin}
 }
 
-func (d *dispatchServer) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*dispatchpb.ProbeResponse, error) {
+// Admit answers the capability handshake.
+func (d *Server) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatchpb.AdmitResponse, error) {
+	return &dispatchpb.AdmitResponse{Capabilities: Capabilities}, nil
+}
+
+// Probe answers a challenged catalog probe.
+func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*dispatchpb.ProbeResponse, error) {
 	target := url.URL{Scheme: "http", Host: "target.source.invalid", Path: "/openapi.json"}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
@@ -88,22 +97,23 @@ func (d *dispatchServer) Probe(ctx context.Context, req *dispatchpb.ProbeRequest
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("origin catalog probe failed: %d", resp.StatusCode)
 	}
-	catalog, err := io.ReadAll(io.LimitReader(resp.Body, tunnelMaxCatalog+1))
+	contents, err := io.ReadAll(io.LimitReader(resp.Body, tunnel.MaxCatalog+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(catalog) > tunnelMaxCatalog {
+	if len(contents) > tunnel.MaxCatalog {
 		return nil, errors.New("origin catalog exceeds the dispatch body limit")
 	}
 	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
 	if err != nil {
 		return nil, errors.New("origin returned no proof signature")
 	}
-	return &dispatchpb.ProbeResponse{CatalogJson: catalog, ProofSignature: signature}, nil
+	return &dispatchpb.ProbeResponse{CatalogJson: contents, ProofSignature: signature}, nil
 }
 
-func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (*dispatchpb.DispatchResponse, error) {
-	if len(req.Body) > reverseMaxOriginBody {
+// Execute runs one dispatched request against the origin.
+func (d *Server) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (*dispatchpb.DispatchResponse, error) {
+	if len(req.Body) > wire.MaxOriginBody {
 		return nil, status.Error(codes.ResourceExhausted, "request body exceeds the dispatch limit")
 	}
 	target := url.URL{Scheme: "http", Host: "target.source.invalid", Path: req.Path, RawQuery: req.Query}
@@ -120,12 +130,12 @@ func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRe
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, reverseMaxOriginBody+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxOriginBody+1))
 	if err != nil {
 		logConnectorError("connector origin response read failure", &d.readErrors, err)
 		return nil, err
 	}
-	if len(body) > reverseMaxOriginBody {
+	if len(body) > wire.MaxOriginBody {
 		return nil, status.Error(codes.ResourceExhausted, "origin response exceeds the dispatch limit")
 	}
 	headers := make([]*dispatchpb.Header, 0, len(resp.Header))
@@ -137,19 +147,19 @@ func (d *dispatchServer) Execute(ctx context.Context, req *dispatchpb.DispatchRe
 	return &dispatchpb.DispatchResponse{Status: int32(resp.StatusCode), Headers: headers, Body: body}, nil
 }
 
-// runTunnelConnector is the tunnel transport's reconnect loop: dial the
-// broker with TLS, attach identity metadata, and serve the reverse tunnel.
-func runTunnelConnector(ctx context.Context, cfg connectorConfig, gateway string, tlsConfig *tls.Config, origin http.RoundTripper) error {
-	dialTarget, err := grpcDialTarget(gateway)
+// RunTunnel is the tunnel transport's reconnect loop: dial the broker with
+// TLS, attach identity metadata, and serve the reverse tunnel.
+func RunTunnel(ctx context.Context, cfg config.ConnectorConfig, gateway string, tlsConfig *tls.Config, origin http.RoundTripper) error {
+	dialTarget, err := DialTarget(gateway)
 	if err != nil {
 		return err
 	}
 	creds := credentials.NewTLS(tlsConfig)
-	server := &dispatchServer{origin: origin}
+	server := NewServer(origin)
 	delay := 300 * time.Millisecond
 	for ctx.Err() == nil {
 		started := time.Now()
-		err := tunnelSession(ctx, cfg, dialTarget, creds, server)
+		err := tunnelServe(ctx, cfg, dialTarget, creds, server)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -168,10 +178,10 @@ func runTunnelConnector(ctx context.Context, cfg connectorConfig, gateway string
 	return nil
 }
 
-// tunnelSession opens one reverse tunnel and serves pushed RPCs on it
-// until it drops. Identity metadata rides the tunnel-opening stream and is
-// validated by the sidecar before the tunnel establishes.
-func tunnelSession(ctx context.Context, cfg connectorConfig, target string, creds credentials.TransportCredentials, server *dispatchServer) error {
+// tunnelServe opens one reverse tunnel and serves pushed RPCs on it until it
+// drops. Identity metadata rides the tunnel-opening stream and is validated
+// by the worker before the tunnel establishes.
+func tunnelServe(ctx context.Context, cfg config.ConnectorConfig, target string, creds credentials.TransportCredentials, server *Server) error {
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer dialCancel()
 	conn, err := grpc.DialContext(dialCtx, target,

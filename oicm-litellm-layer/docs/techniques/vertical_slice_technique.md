@@ -72,7 +72,7 @@ Inside, the files are split by what each does, and none is large:
 
 This is a slice done correctly: the largest file is 184 lines, every file is named for its job, and `utils.py` exists but is 12 lines and slice-private.
 
-By contrast `mcp-source-link/` is 18 Go files in a single flat package, 4003 lines total, separated only by filename prefixes (`tunnel.go`, `tunnel_connector.go`, `tunnel_probe_test.go`, `reverse.go`, `reverse_handlers.go`, `pool.go`, `probe.go`). The prefixes are doing the work a directory should do. It is not a violation of the principle, since one package is one slice and Go makes sibling files cheap, but it shows the failure mode: when a folder passes roughly ten files, an agent must read file names carefully to reconstruct the grouping.
+By contrast, `mcp-source-link/` was until recently 18 Go files in a single flat package, 4003 lines total, separated only by filename prefixes (`tunnel.go`, `tunnel_connector.go`, `tunnel_probe_test.go`, `reverse.go`, `reverse_handlers.go`, `pool.go`, `probe.go`). The prefixes were doing the work a directory should do: `tunnel.go` mixed the member, the runtime, the gRPC server, and the probe loop, and finding "where is a request routed" meant knowing that `pool.go` held it. It has since been split into one package per behavior under `internal/`, which is the remedy this document describes. The lesson survives the fix: when a folder passes roughly ten files, an agent must read file names carefully to reconstruct the grouping, and that is the signal to cut slices.
 
 ## 3. The rules
 

@@ -1,4 +1,8 @@
-package main
+// Package config owns process configuration: environment-derived worker
+// settings, the connector's on-disk identity, and the control-plane peer
+// records both planes read. It performs validation only and makes no
+// network calls.
+package config
 
 import (
 	"crypto/tls"
@@ -14,7 +18,14 @@ import (
 	"time"
 )
 
-type config struct {
+// Transport names accepted by MCP_SOURCE_LINK_TRANSPORT.
+const (
+	TransportReverseH2 = "reverse-h2"
+	TransportTunnel    = "tunnel"
+)
+
+// Config is the worker's process configuration.
+type Config struct {
 	ControlURL    string
 	ServiceToken  string
 	DataListen    string
@@ -23,12 +34,8 @@ type config struct {
 	CAFile        string
 }
 
-const (
-	transportReverseH2 = "reverse-h2"
-	transportTunnel    = "tunnel"
-)
-
-type peer struct {
+// Peer is one connector as the control plane reports it.
+type Peer struct {
 	WorkerID           string  `json:"worker_id"`
 	SourceID           string  `json:"source_id"`
 	Label              string  `json:"label"`
@@ -42,13 +49,15 @@ type peer struct {
 	CatalogFingerprint *string `json:"catalog_fingerprint"`
 }
 
-type healthReport struct {
+// HealthReport is the probe outcome posted back to the control plane.
+type HealthReport struct {
 	WorkerID           string  `json:"worker_id"`
 	Generation         uint64  `json:"generation"`
 	CatalogFingerprint *string `json:"catalog_fingerprint"`
 }
 
-type connectorConfig struct {
+// ConnectorConfig is the connector's on-disk identity file.
+type ConnectorConfig struct {
 	WorkerID   string `json:"worker_id"`
 	SourceID   string `json:"source_id"`
 	Target     string `json:"target"`
@@ -56,23 +65,25 @@ type connectorConfig struct {
 	Credential string `json:"credential"`
 }
 
-func environment(name string) string {
+// Environment returns a trimmed environment value, treating blank as unset.
+func Environment(name string) string {
 	return strings.TrimSpace(os.Getenv(name))
 }
 
-func loadConfig() (config, error) {
-	cfg := config{
-		ControlURL:    environment("MCP_SOURCE_LINK_CONTROL_URL"),
-		ServiceToken:  environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
-		DataListen:    environment("MCP_SOURCE_LINK_DATA_LISTEN"),
-		ReverseListen: environment("MCP_SOURCE_LINK_REVERSE_LISTEN"),
-		Transport:     environment("MCP_SOURCE_LINK_TRANSPORT"),
-		CAFile:        environment("MCP_SOURCE_LINK_CA_FILE"),
+// Load reads and validates the worker configuration.
+func Load() (Config, error) {
+	cfg := Config{
+		ControlURL:    Environment("MCP_SOURCE_LINK_CONTROL_URL"),
+		ServiceToken:  Environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
+		DataListen:    Environment("MCP_SOURCE_LINK_DATA_LISTEN"),
+		ReverseListen: Environment("MCP_SOURCE_LINK_REVERSE_LISTEN"),
+		Transport:     Environment("MCP_SOURCE_LINK_TRANSPORT"),
+		CAFile:        Environment("MCP_SOURCE_LINK_CA_FILE"),
 	}
 	if cfg.ControlURL == "" || len(cfg.ServiceToken) < 32 {
 		return cfg, errors.New("control URL and service token are required")
 	}
-	if cfg.Transport != "" && cfg.Transport != transportReverseH2 {
+	if cfg.Transport != "" && cfg.Transport != TransportReverseH2 {
 		return cfg, errors.New("transport must be reverse-h2")
 	}
 	if cfg.ReverseListen == "" {
@@ -87,7 +98,8 @@ func loadConfig() (config, error) {
 	return cfg, nil
 }
 
-func httpTLS(ca string) (*tls.Config, error) {
+// TLS builds the client TLS configuration, trusting CAFile when set.
+func TLS(ca string) (*tls.Config, error) {
 	config := &tls.Config{MinVersion: tls.VersionTLS12}
 	if ca == "" {
 		return config, nil
@@ -107,16 +119,19 @@ func httpTLS(ca string) (*tls.Config, error) {
 	return config, nil
 }
 
-func controlClient(cfg config) (*http.Client, error) {
-	tlsConfig, err := httpTLS(cfg.CAFile)
+// ControlClient is the HTTP client used against the control plane.
+func ControlClient(cfg Config) (*http.Client, error) {
+	tlsConfig, err := TLS(cfg.CAFile)
 	if err != nil {
 		return nil, err
 	}
 	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}, nil
 }
 
-func readConnector(path string) (connectorConfig, error) {
-	var cfg connectorConfig
+// ReadConnector loads and validates the connector identity file. The file
+// must be owner-only and name a numeric loopback target.
+func ReadConnector(path string) (ConnectorConfig, error) {
+	var cfg ConnectorConfig
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
 		return cfg, errors.New("connector configuration must be a regular owner-only file")
@@ -142,6 +157,7 @@ func readConnector(path string) (connectorConfig, error) {
 	return cfg, nil
 }
 
-func slot(sourceID string) string {
+// Slot is the synthetic host that identifies one source to the proxy.
+func Slot(sourceID string) string {
 	return sourceID + ".source.invalid:1"
 }
