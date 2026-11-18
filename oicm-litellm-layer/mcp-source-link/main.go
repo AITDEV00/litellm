@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -105,11 +104,8 @@ func setupBase() string {
 // non-interactive run (systemd) fails with instructions rather than blocking on
 // stdin forever.
 func runConnector(ctx context.Context) error {
-	gateway := config.Environment("MCP_SOURCE_LINK_PUBLIC_URL")
-	if !strings.HasPrefix(gateway, "https://") {
-		return errors.New("worker URL must use approved HTTPS")
-	}
-	identityPath := filepath.Join(setupBase(), "identity.json")
+	base := setupBase()
+	identityPath := filepath.Join(base, "identity.json")
 	if explicit := config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"); explicit != "" {
 		identityPath = explicit
 	}
@@ -127,7 +123,7 @@ func runConnector(ctx context.Context) error {
 			return err
 		}
 	}
-	return connector.Run(ctx, identity)
+	return connector.Run(ctx, identity, base)
 }
 
 func runWorker(ctx context.Context, stop context.CancelFunc) error {

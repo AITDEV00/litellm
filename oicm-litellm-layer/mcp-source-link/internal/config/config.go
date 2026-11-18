@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,6 +70,50 @@ type ConnectorConfig struct {
 // Environment returns a trimmed environment value, treating blank as unset.
 func Environment(name string) string {
 	return strings.TrimSpace(os.Getenv(name))
+}
+
+// ResolveGateway is the one place the connector's gateway URL is decided.
+//
+// Precedence is explicit then persisted: an operator may override with
+// MCP_SOURCE_LINK_PUBLIC_URL (automation), otherwise the URL written during
+// initialization is used, so an installed service restarts from its own
+// bootstrapped configuration without a hand-written env file. The value must be an
+// absolute https URL with a host and no userinfo, and a non-https or malformed
+// value is a hard error rather than a silent downgrade.
+func ResolveGateway(stateDir string) (string, error) {
+	if explicit := Environment("MCP_SOURCE_LINK_PUBLIC_URL"); explicit != "" {
+		return ValidateGatewayURL(explicit)
+	}
+	bootstrap, _, err := ReadBootstrapInput(filepath.Join(stateDir, "bootstrap.json"))
+	if err != nil {
+		return "", errors.New("no gateway URL configured; run: source-link init")
+	}
+	return ValidateGatewayURL(bootstrap.GatewayURL)
+}
+
+// ValidateGatewayURL enforces the https/host/no-userinfo contract shared by
+// bootstrap and tunnel startup, so both paths accept exactly the same values.
+func ValidateGatewayURL(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return "", fmt.Errorf("gateway URL: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return "", errors.New("gateway URL must be https")
+	}
+	if parsed.Host == "" {
+		return "", errors.New("gateway URL must include a host")
+	}
+	if parsed.User != nil {
+		return "", errors.New("gateway URL must not embed credentials")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", errors.New("gateway URL must not include a path")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("gateway URL must not include a query or fragment")
+	}
+	return strings.TrimSuffix(parsed.String(), "/"), nil
 }
 
 // Load reads and validates the worker configuration.

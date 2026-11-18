@@ -5,10 +5,8 @@ package connector
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
@@ -29,12 +27,16 @@ func originTransport(target string, maxIdle int) *http.Transport {
 }
 
 // Run dials out and serves the tunnel until the context ends.
-func Run(ctx context.Context, cfg config.ConnectorConfig) error {
-	gateway := config.Environment("MCP_SOURCE_LINK_PUBLIC_URL")
-	ca := config.Environment("MCP_SOURCE_LINK_CA_FILE")
-	if !strings.HasPrefix(gateway, "https://") {
-		return errors.New("worker URL must use approved HTTPS")
+//
+// The gateway URL comes from ResolveGateway, so an installed service uses the URL
+// persisted during initialization unless an explicit override is set. The CA file
+// is honoured here too, which is what makes a private-CA dev gateway reachable.
+func Run(ctx context.Context, cfg config.ConnectorConfig, stateDir string) error {
+	gateway, err := config.ResolveGateway(stateDir)
+	if err != nil {
+		return err
 	}
+	ca := config.Environment("MCP_SOURCE_LINK_CA_FILE")
 	tlsConfig, err := config.TLS(ca)
 	if err != nil {
 		return err
