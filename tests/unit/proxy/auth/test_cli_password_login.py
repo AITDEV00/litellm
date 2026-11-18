@@ -168,6 +168,57 @@ async def test_admin_is_rejected_by_verification_before_any_key_exists(
 
 
 @pytest.mark.asyncio
+async def test_database_admin_is_rejected_before_issuance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A password-valid database PROXY_ADMIN must be refused at verification.
+
+    The env UI-admin is already rejected; this covers the database-backed admin,
+    which previously verified successfully and only endpoint scoping limited it.
+    No key may be minted for it. Endpoint scope is not the boundary."""
+    row: Final = _Row("admin-1", LitellmUserRoles.PROXY_ADMIN.value, _password("admin-secret"))
+    _patch_repository(monkeypatch, row)
+    minted: Final[list[object]] = []
+
+    async def _no_mint(*args: object, **kwargs: object) -> object:
+        minted.append((args, kwargs))
+        return {"token": "must-not-exist"}
+
+    monkeypatch.setattr(login_utils, "generate_key_helper_fn", _no_mint, raising=False)
+    throttle: Final = _Throttle()
+
+    with pytest.raises(ProxyException) as raised:
+        await login_utils.verify_password_only(
+            username="admin@example.com",
+            password="admin-secret",
+            master_key="sk-master",
+            prisma_client=_Prisma(),  # pyright: ignore[reportArgumentType]  # narrow fake
+            throttle=throttle,  # pyright: ignore[reportArgumentType]  # recording seam
+            general_settings=MappingProxyType({}),
+        )
+
+    assert str(raised.value.code) == "403"
+    assert "ordinary user account" in raised.value.message
+    assert minted == [], "a database admin must never reach key issuance"
+    assert throttle.failures == 1, "the rejected admin attempt must be counted"
+
+
+@pytest.mark.asyncio
+async def test_database_admin_view_only_is_also_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PROXY_ADMIN_VIEW_ONLY is still an administrative role and must be refused."""
+    row: Final = _Row("admin-2", LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value, _password("viewer-secret"))
+    _patch_repository(monkeypatch, row)
+    with pytest.raises(ProxyException) as raised:
+        await login_utils.verify_password_only(
+            username="viewer@example.com",
+            password="viewer-secret",
+            master_key="sk-master",
+            prisma_client=_Prisma(),  # pyright: ignore[reportArgumentType]  # narrow fake
+            throttle=_Throttle(),  # pyright: ignore[reportArgumentType]  # recording seam
+            general_settings=MappingProxyType({}),
+        )
+    assert str(raised.value.code) == "403"
+
+
+@pytest.mark.asyncio
 async def test_reset_required_is_reported_not_silently_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     """A reset-required password verifies but is flagged, so the caller refuses it
     instead of issuing a working connector credential."""

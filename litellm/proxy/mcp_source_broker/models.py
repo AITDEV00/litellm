@@ -66,11 +66,7 @@ class Target(Frozen):
     @field_validator("host")
     @classmethod
     def validate_host(cls, value: str) -> str:
-        if _is_ip_literal(value):
-            return value
-        if SERVICE_HOST.fullmatch(value):
-            return value
-        raise ValueError("target host must be an IP address or a Kubernetes service name like name.namespace.svc")
+        return canonical_worker_host(value)
 
 
 def _is_ip_literal(value: str) -> bool:
@@ -79,6 +75,35 @@ def _is_ip_literal(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def canonical_worker_host(value: str) -> str:
+    """Validate and normalize a worker target host to its canonical stored form.
+
+    The worker row stores exactly what the reviewed source stores, so a service DNS
+    name, a private IPv4, and an IPv6 literal must all survive insert, read, and
+    projection. IPv6 is normalized through ``ipaddress`` so two spellings collapse to
+    one, matching the client's ``target`` normalization; a service name is
+    lowercased. This is the single validator the row DTO and the request ``Target``
+    both reach, so the two boundaries cannot drift.
+    """
+    try:
+        return ipaddress.ip_address(value).compressed
+    except ValueError:
+        if SERVICE_HOST.fullmatch(value):
+            return value
+        raise ValueError("worker target host must be an IP address or a Kubernetes service name like name.namespace.svc")
+
+
+def canonical_hostport(host: str, port: int) -> str:
+    """Render a host:port the way ``net.JoinHostPort`` does, bracketing IPv6.
+
+    The connector parses this with ``net.SplitHostPort``, which requires a bracketed
+    IPv6 address; emitting an unbracketed ``::1:9001`` would split on the wrong colon.
+    """
+    if _is_ip_literal(host) and ":" in host:
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
 
 
 class SourceCreate(Frozen):

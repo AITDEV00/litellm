@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Final, Literal, Protocol
 from uuid import uuid5
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator
 
+from litellm._logging import verbose_proxy_logger
 from litellm.proxy.mcp_source_broker.keys import Keys
 from litellm.proxy.mcp_source_broker.models import (
     NAMESPACE,
@@ -16,8 +17,25 @@ from litellm.proxy.mcp_source_broker.models import (
     RemotePeer,
     RemotePeerResponse,
     SourceRecord,
+    canonical_hostport,
+    canonical_worker_host,
 )
 from litellm.proxy.mcp_source_broker.store import Database, SQLDatabase, postgres_json_row
+
+
+class PeerTargetMismatch(Exception):
+    """A worker registration asked to serve a target other than the reviewed source.
+
+    Raised before any insert so a caller cannot enroll a source at one origin and
+    then register a connector that dials a different one.
+    """
+
+    def __init__(self, source_target: str, request_target: object) -> None:
+        super().__init__(
+            f"worker target {request_target} does not match the reviewed source target {source_target}"
+        )
+        self.source_target: Final = source_target
+        self.request_target: Final = request_target
 
 
 class RemoteWorkerRow(BaseModel):
@@ -25,7 +43,7 @@ class RemoteWorkerRow(BaseModel):
     worker_id: str
     source_id: str
     label: str
-    target_host: Literal["127.0.0.1"]
+    target_host: str
     target_port: int
     dataset_id: str
     proof_key: str
@@ -39,8 +57,34 @@ class RemoteWorkerRow(BaseModel):
     enrollment_id: str
     delivered_at: datetime | None = None
 
+    @field_validator("target_host")
+    @classmethod
+    def validate_target_host(cls, value: str) -> str:
+        # The stored host is exactly the reviewed source host, which can be a
+        # service DNS name, a private IPv4, or an IPv6 literal. Validation here is
+        # the same one the request Target uses, so an accepted target is always
+        # readable back out of the row.
+        return canonical_worker_host(value)
+
 
 REMOTE_WORKERS: Final = TypeAdapter(tuple[RemoteWorkerRow, ...])
+
+
+def _project_peer(row: Mapping[str, object]) -> RemotePeerProjection | None:
+    """Build one peer projection, isolating a malformed row.
+
+    A single corrupt worker row (a bad status literal, an unparseable timestamp, a
+    host that no longer validates) must not make ``peers()`` raise and take every
+    other peer down with it, which would strand all connectors. The bad row is
+    dropped and logged; the rest project normally.
+    """
+    try:
+        return RemotePeerProjection.model_validate(
+            {"worker": row["worker"], "expected": row["expected"], "kind": row["kind"]}
+        )
+    except (ValidationError, KeyError, TypeError) as error:
+        verbose_proxy_logger.warning("mcp_source_broker: dropping malformed worker projection: %s", str(error))
+        return None
 
 
 def _report_proves_health(kind: str, fingerprint: str | None, expected: str) -> bool:
@@ -115,6 +159,13 @@ class RemoteStore:
         source: Final = await self.sources.source(source_id)
         if source is None or source.status == "revoked":
             return None
+        # The worker must serve exactly the reviewed source target. Source approval
+        # and worker issuance are separate calls, so without this the connector could
+        # register a worker that dials a target nobody reviewed (a source approved at
+        # 127.0.0.1:9001 could issue a worker for 127.0.0.1:9002). The reviewed stored
+        # target is the authority; the request target only has to agree with it.
+        if peer.target.host != source.target.host or peer.target.port != source.target.port:
+            raise PeerTargetMismatch(source_target=canonical_hostport(source.target.host, source.target.port), request_target=peer.target)
         async with self.db.tx(timeout=10000) as tx:
             await tx.execute_raw("SELECT pg_advisory_xact_lock(hashtext($1))", source_id)
             found: Final = self._rows(
@@ -146,7 +197,7 @@ class RemoteStore:
             return RemotePeerResponse(
                 worker_id=worker_id,
                 source_id=source_id,
-                target=peer.target.host + ":" + str(peer.target.port),
+                target=canonical_hostport(peer.target.host, peer.target.port),
                 generation=generation,
                 credential=self.keys.remote_credential(grant_id, worker_id, generation),
                 expires_at=expires,
@@ -218,7 +269,7 @@ class RemoteStore:
             return RemotePeerResponse(
                 worker_id=found.worker_id,
                 source_id=source_id,
-                target=f"{found.target_host}:{found.target_port}",
+                target=canonical_hostport(found.target_host, found.target_port),
                 generation=found.generation,
                 credential=self.keys.remote_credential(found.enrollment_id, found.worker_id, found.generation),
                 expires_at=found.expires_at,
@@ -306,21 +357,19 @@ class RemoteStore:
             )
         )
         projections: Final = tuple(
-            RemotePeerProjection.model_validate(
-                {
-                    "worker": row["worker"],
-                    "expected": row["expected"],
-                    "kind": row["kind"],
-                }
-            )
+            projection
             for row in raw
+            if (
+                projection := _project_peer(row)
+            )
+            is not None
         )
         return tuple(
             RemoteGoPeer(
                 worker_id=projection.worker.worker_id,
                 source_id=projection.worker.source_id,
                 label=projection.worker.label,
-                target=f"{projection.worker.target_host}:{projection.worker.target_port}",
+                target=canonical_hostport(projection.worker.target_host, projection.worker.target_port),
                 dataset_id=projection.worker.dataset_id,
                 proof_key=projection.worker.proof_key,
                 generation=projection.worker.generation,

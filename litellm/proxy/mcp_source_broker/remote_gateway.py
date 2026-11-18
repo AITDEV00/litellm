@@ -20,6 +20,7 @@ from litellm.proxy.mcp_source_broker.models import (
     RouteSelection,
     TransportName,
 )
+from litellm.proxy.mcp_source_broker.remote_store import PeerTargetMismatch
 from litellm.proxy.mcp_source_broker.store import SourceStore
 
 
@@ -106,7 +107,10 @@ def create_remote_gateway_router(
         source_id: str, peer: RemotePeer, user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]
     ) -> RemotePeerResponse:
         await owner_or_administrator(store, source_id, user)
-        created: Final = await store.remote.create_peer(source_id, peer)
+        try:
+            created: Final = await store.remote.create_peer(source_id, peer)
+        except PeerTargetMismatch as mismatch:
+            raise HTTPException(409, str(mismatch)) from mismatch
         if created is not None:
             return created
         resumed: Final = await store.remote.resume_peer(source_id, peer)

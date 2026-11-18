@@ -177,7 +177,7 @@ class RemoteMemoryDatabase:
                     worker_id=str(args[0]),
                     source_id=str(args[1]),
                     label=str(args[2]),
-                    target_host="127.0.0.1",
+                    target_host=str(args[3]),
                     target_port=self._int(args[4]),
                     dataset_id=str(args[5]),
                     proof_key=str(args[6]),
@@ -595,3 +595,120 @@ def test_postgres_json_row_converts_every_timestamp_column_the_peers_query_selec
 
     for column in timestamp_columns:
         assert isinstance(row[column], datetime), f"{column} must convert to a datetime, not stay a string"
+
+
+def _broker_with_source(target: Target) -> Broker:
+    """A broker whose single source is reviewed at ``target``."""
+    keys: Final = Keys(PEPPER)
+    db: Final = RemoteMemoryDatabase()
+    db.sources.append(
+        SourceRecord(
+            source_id="11111111-1111-1111-1111-111111111111",
+            tenant="alice",
+            key="k" * 64,
+            alias="pets-api",
+            target=target,
+            spec_path="mcp-source-broker/spec.json",
+            expected="f" * 64,
+            gateway_auth_ciphertext="",
+            status="pending",
+            revision=1,
+        )
+    )
+
+    class Store:
+        def __init__(self) -> None:
+            self.keyring = keys
+            self.db = typing.cast(Database, db)
+
+        async def source(self, source_id: str) -> SourceRecord | None:
+            return next((s for s in db.sources if s.source_id == source_id), None)
+
+    return Broker(keys=keys, db=db, store=RemoteStore(Store()))
+
+
+def _plain_peer(target: Target) -> RemotePeer:
+    return RemotePeer(label="worker-a", dataset_id="ds", target=target)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target,expected_canonical",
+    [
+        (Target(host="10.34.104.99", port=9001), "10.34.104.99:9001"),
+        (Target(host="inventory.default.svc", port=9001), "inventory.default.svc:9001"),
+        (Target(host="::1", port=9001), "[::1]:9001"),
+        (Target(host="2001:db8::1", port=9001), "[2001:db8::1]:9001"),
+    ],
+)
+async def test_worker_target_survives_insert_read_and_projection(target: Target, expected_canonical: str) -> None:
+    """A service DNS, a private IPv4, and an IPv6 worker must round-trip.
+
+    Previously the row DTO pinned the host to the literal ``127.0.0.1`` and
+    ``peers()`` rendered ``host:port`` without brackets, so any non-loopback
+    source either could not be stored or produced an address the connector could
+    not parse. This pins insert -> read -> projection for each accepted shape.
+    """
+    broker: Final = _broker_with_source(target)
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", _plain_peer(target))
+    assert created is not None
+    assert created.target == expected_canonical, "the response target must be canonical, IPv6 bracketed"
+
+    read_back: Final = await broker.store.worker(created.worker_id)
+    assert read_back is not None
+    assert read_back.target_host == target.host
+
+    peers: Final = await broker.store.peers()
+    assert [p.target for p in peers] == [expected_canonical]
+
+
+@pytest.mark.asyncio
+async def test_create_peer_rejects_a_target_other_than_the_reviewed_source() -> None:
+    """The worker must serve exactly the reviewed source target.
+
+    A source approved at 127.0.0.1:9001 must refuse a worker for 127.0.0.1:9002
+    before any side effect, so approval still describes what is exposed.
+    """
+    from litellm.proxy.mcp_source_broker.remote_store import PeerTargetMismatch
+
+    broker: Final = _broker_with_source(Target(host="127.0.0.1", port=9001))
+    with pytest.raises(PeerTargetMismatch) as raised:
+        await broker.store.create_peer(
+            "11111111-1111-1111-1111-111111111111", _plain_peer(Target(host="127.0.0.1", port=9002))
+        )
+    assert "127.0.0.1:9001" in str(raised.value)
+    assert broker.db.workers == [], "a mismatched worker must not be inserted"
+
+
+@pytest.mark.asyncio
+async def test_peers_isolate_a_malformed_row_instead_of_failing_all() -> None:
+    """One corrupt worker row must not take every other peer down.
+
+    A bad status literal or unparseable field in a single row previously made the
+    whole ``peers()`` projection raise, stranding every connector. The bad row is
+    dropped and the healthy row still projects.
+    """
+    broker: Final = _broker_with_source(Target(host="127.0.0.1", port=9001))
+    good: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", _plain_peer(Target(host="127.0.0.1", port=9001)))
+    assert good is not None
+    bad: Final = RemoteWorkerRow.model_construct(
+        worker_id="bad",
+        source_id="11111111-1111-1111-1111-111111111111",
+        label="bad",
+        target_host="127.0.0.1",
+        target_port=9001,
+        dataset_id="ds",
+        proof_key="",
+        token_hash=b"\x00",
+        expires_at=broker.db.now,
+        redeemed_at=broker.db.now,
+        healthy_at=None,
+        catalog_fingerprint=None,
+        status="not-a-status",
+        generation=1,
+        enrollment_id="e",
+        delivered_at=None,
+    )
+    broker.db.workers.append(bad)
+    peers: Final = await broker.store.peers()
+    assert [p.worker_id for p in peers] == [good.worker_id], "the healthy peer must survive a malformed sibling"
