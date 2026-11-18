@@ -31,20 +31,24 @@ const (
 
 var notSecret = fmt.Sprintf("%064d", 0)
 
-// fixtureHTTP2Client speaks the h2c protocol the data plane now requires; a
-// plain HTTP/1.1 client is rejected by the fixture server, matching the
-// product listener's protocol set.
-var fixtureHTTP2Client = &http.Client{Transport: &http2.Transport{
-	AllowHTTP: true,
-	DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
-		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
-	},
-}}
+func fixtureHTTP2Client(t *testing.T) *http.Client {
+	t.Helper()
+	transport := &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
+		},
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	return &http.Client{Transport: transport}
+}
 
 type fixture struct {
-	control *control
-	runtime *runtime
-	data    *httptest.Server
+	control    *control
+	runtime    *runtime
+	data       net.Listener
+	dataURL    string
+	dataServer *http.Server
 }
 
 func testPeer(id string, generation uint64, key ed25519.PublicKey) peer {
@@ -100,22 +104,24 @@ func setupFixture(t *testing.T) *fixture {
 	f.control = &control{base: state.URL, token: serviceKey, tokenDigest: secretDigest(serviceKey), client: state.Client(), workers: make(map[string]peer)}
 	f.runtime = newRuntime(f.control)
 	dataMux := http.NewServeMux()
+	dataMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	dataMux.HandleFunc("/sources/{source}/{path...}", f.runtime.forward)
 	dataMux.HandleFunc("POST /v1/source-link/revoke", f.runtime.revokeHTTP)
-	dataServer := &http.Server{Handler: dataMux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: h2cProtocols()}
+	dataServer := &http.Server{Handler: dataMux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: dataProtocols()}
 	dataListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.data = httptest.NewUnstartedServer(dataMux)
-	f.data.Config = dataServer
-	f.data.Listener = dataListener
-	f.data.Start()
+	f.data = dataListener
+	f.dataServer = dataServer
+	f.dataURL = "http://" + dataListener.Addr().String()
+	go func() {
+		_ = dataServer.Serve(dataListener)
+	}()
 	t.Cleanup(func() {
-		for _, client := range []*httptest.Server{state, f.data} {
-			client.CloseClientConnections()
-			client.Close()
-		}
+		_ = dataServer.Close()
+		state.CloseClientConnections()
+		state.Close()
 	})
 	return f
 }
@@ -187,7 +193,7 @@ func read(t *testing.T, url string, method string, headers http.Header) (int, st
 			req.Header.Add(name, value)
 		}
 	}
-	resp, err := fixtureHTTP2Client.Do(req)
+	resp, err := fixtureHTTP2Client(t).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +279,7 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	got := map[string]int{}
 	requestHeaders := http.Header{"Authorization": {"Bearer " + serviceKey}, "Cookie": {"private=not-forwarded"}}
 	for range 12 {
-		status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, requestHeaders)
+		status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, requestHeaders)
 		if status != http.StatusOK {
 			t.Fatalf("read status %d %s", status, body)
 		}
@@ -282,21 +288,21 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	if got["A"] != 6 || got["B"] != 6 || got["C"] != 0 {
 		t.Fatalf("unexpected distribution: %v", got)
 	}
-	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/write", http.MethodPost, requestHeaders)
+	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/write", http.MethodPost, requestHeaders)
 	if status != http.StatusConflict {
 		t.Fatalf("unreviewed write got %d %s", status, body)
 	}
 	requestHeaders.Set("Mcp-Session-Id", "any")
-	status, _ = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, requestHeaders)
+	status, _ = read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, requestHeaders)
 	if status != http.StatusBadRequest {
 		t.Fatalf("stateful read status %d", status)
 	}
-	request, _ := http.NewRequest(http.MethodPost, f.data.URL+"/v1/source-link/revoke", nil)
+	request, _ := http.NewRequest(http.MethodPost, f.dataURL+"/v1/source-link/revoke", nil)
 	request.Header.Set("Authorization", "Bearer "+serviceKey)
 	request.Header.Set("X-Source-Member", workerB)
 	request.Header.Set("X-Source-Id", sourceID)
 	f.revokePeer(workerB)
-	response, err := fixtureHTTP2Client.Do(request)
+	response, err := fixtureHTTP2Client(t).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +313,7 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 		return f.runtime.sessions[workerB] == nil
 	})
 	for range 4 {
-		status, body = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
+		status, body = read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
 		if status != http.StatusOK || body != "A" {
 			t.Fatalf("single member after revoke got %d %s", status, body)
 		}
@@ -326,7 +332,7 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	startSession(t, f, p)
 	eventually(t, func() bool { return readyReverse(t, f, workerA) })
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
-	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
 		t.Fatalf("pre-drain read got %d %s", status, body)
 	}
@@ -342,7 +348,7 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	if session == nil {
 		t.Fatal("drain closed the live session")
 	}
-	status, _ = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	status, _ = read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("drained member still received dispatch: %d", status)
 	}
@@ -352,7 +358,7 @@ func TestDrainExcludesDispatchButKeepsSession(t *testing.T) {
 	f.control.mu.Unlock()
 	f.runtime.reconcile()
 	eventually(t, func() bool {
-		status, body = read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+		status, body = read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 		return status == http.StatusOK && body == "A"
 	})
 }

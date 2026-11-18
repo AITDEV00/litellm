@@ -86,7 +86,7 @@ func probeStallFixture(t *testing.T) (*fixture, *stalledProbeDispatch) {
 
 func tunnelRead(t *testing.T, f *fixture) (int, string) {
 	t.Helper()
-	return read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
+	return read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, http.Header{"Authorization": {"Bearer " + serviceKey}})
 }
 
 func TestTunnelRetainsCatalogDuringTransientProbeTimeout(t *testing.T) {

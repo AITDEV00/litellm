@@ -55,15 +55,21 @@ func reverseServer() *http.Server {
 	}
 }
 
-// h2cProtocols is the shared protocol set for in-cluster plaintext listeners:
-// h2c only, no HTTP/1.1 fallback, so a multiplexed HTTP/2 load leg can drive
-// the data plane over one connection instead of one TCP dial per request,
-// which exhausts the node's ephemeral port range near ~28k concurrent
-// requests. HTTP/1.1 probing of these ports is not a supported client.
+// h2cProtocols serves only unencrypted HTTP/2 on connector-facing listeners.
 func h2cProtocols() *http.Protocols {
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
 	protocols.SetHTTP1(false)
+	return protocols
+}
+
+// dataProtocols keeps the shared private dispatch listener backward-compatible
+// with the Python control app's HTTP/1.1 revocation and readiness calls, while
+// allowing an HTTP/2 multiplexed load client to avoid per-request TCP ports.
+func dataProtocols() *http.Protocols {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	protocols.SetHTTP1(true)
 	return protocols
 }
 

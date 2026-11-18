@@ -249,7 +249,7 @@ func TestReverseForwardingAndRevoke(t *testing.T) {
 	go func() { f.runtime.reverseProbeLoop(ctx, session) }()
 	eventually(t, func() bool { return f.runtime.hasActive(sourceID) })
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
-	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
 		t.Fatalf("reverse read got %d %s", status, body)
 	}

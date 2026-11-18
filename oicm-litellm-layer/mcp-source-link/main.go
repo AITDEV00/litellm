@@ -68,7 +68,7 @@ func run(mode string) error {
 	reverse.Handler = tunnelHTTPHandler(tunnels.grpcServer(), reverseMux)
 	reverse.Protocols = h2cProtocols()
 	servers := []*http.Server{
-		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: h2cProtocols()},
+		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: dataProtocols()},
 		reverse,
 	}
 	for _, server := range servers {
@@ -128,6 +128,7 @@ func runConnector(ctx context.Context, path string) error {
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return local.DialContext(ctx, "tcp", cfg.Target)
 			},
+			MaxIdleConns: 65536, MaxIdleConnsPerHost: 65536,
 			IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
 		}
 		defer origin.CloseIdleConnections()

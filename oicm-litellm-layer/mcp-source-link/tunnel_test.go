@@ -54,19 +54,26 @@ func tunnelFixture(t *testing.T) (*fixture, *tunnelRuntime, string) {
 // rejected re-registration never races the test's completion.
 func tunnelConnector(ctx context.Context, t *testing.T, target string, p peer) {
 	t.Helper()
+	tunnelConnectorWithOrigin(ctx, t, target, p, nil)
+}
+
+func tunnelConnectorWithOrigin(ctx context.Context, t *testing.T, target string, p peer, origin *http.Transport) {
+	t.Helper()
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Errorf("connector dial failed: %v", err)
 		return
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-	origin := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "tcp", p.Target)
-		},
-		DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
+	if origin == nil {
+		origin = &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "tcp", p.Target)
+			},
+			DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
+		}
+		t.Cleanup(origin.CloseIdleConnections)
 	}
-	t.Cleanup(origin.CloseIdleConnections)
 	serverImpl := &dispatchServer{origin: origin}
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
 	dispatchpb.RegisterDispatchServiceServer(tunnelServer, serverImpl)
@@ -108,7 +115,7 @@ func TestTunnelForwardingAndRevoke(t *testing.T) {
 	go tunnelConnector(ctx, t, target, p)
 	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}, "Cookie": {"private=not-forwarded"}}
-	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
 		t.Fatalf("tunnel read got %d %s", status, body)
 	}
@@ -198,7 +205,7 @@ func TestTunnelDuplicateRegistrationRejected(t *testing.T) {
 		t.Fatal("duplicate attempt displaced the original session")
 	}
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
-	status, body := read(t, f.data.URL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
+	status, body := read(t, f.dataURL+"/sources/"+sourceID+"/read", http.MethodGet, headers)
 	if status != http.StatusOK || body != "A" {
 		t.Fatalf("original session stopped serving after duplicate attempt: %d %s", status, body)
 	}

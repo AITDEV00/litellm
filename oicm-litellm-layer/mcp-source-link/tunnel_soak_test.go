@@ -21,6 +21,22 @@ import (
 	"golang.org/x/net/http2"
 )
 
+func TestDataProtocolsServeLegacyAndMultiplexedRequests(t *testing.T) {
+	f := setupFixture(t)
+	resp, err := http.Get(f.dataURL + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.ProtoMajor != 1 || resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("HTTP/1.1 readiness compatibility lost: %s status=%d", resp.Proto, resp.StatusCode)
+	}
+	status, _ := read(t, f.dataURL+"/readyz", http.MethodGet, http.Header{})
+	if status != http.StatusNoContent {
+		t.Fatalf("h2c readiness failed: %d", status)
+	}
+}
+
 func envOr(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -47,10 +63,22 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 	concurrency, _ := strconv.Atoi(envOr("MCP_TUNNEL_SOAK_N", "16384"))
 	delay, _ := time.ParseDuration(envOr("MCP_TUNNEL_SOAK_DELAY", "2s"))
 	t.Logf("rounds=%d concurrency=%d origin-delay=%s", rounds, concurrency, delay)
-
 	_, signing, _ := ed25519.GenerateKey(rand.Reader)
 	origin, catalog := signedOrigin(t, "soak", signing)
 	f, _, target := tunnelFixture(t)
+	var originDials atomic.Int64
+	originIdles, _ := strconv.Atoi(envOr("MCP_TUNNEL_SOAK_ORIGIN_IDLES", "65536"))
+	delayedOriginTransport := &http.Transport{
+		MaxIdleConns:        originIdles,
+		MaxIdleConnsPerHost: originIdles,
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			originDials.Add(1)
+			return (&net.Dialer{}).DialContext(ctx, network, address)
+		},
+	}
+	t.Cleanup(delayedOriginTransport.CloseIdleConnections)
+	delayedOriginClient := &http.Client{Transport: delayedOriginTransport}
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/read" {
 			time.Sleep(delay)
@@ -61,7 +89,7 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 			return
 		}
 		proxyReq.Header = r.Header.Clone()
-		proxyResp, err := http.DefaultClient.Do(proxyReq)
+		proxyResp, err := delayedOriginClient.Do(proxyReq)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -80,12 +108,25 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 	p.Target = strings.TrimPrefix(slow.URL, "http://")
 	p.ExpectedCatalog = catalog
 	f.setPeer(p, "")
+	var connectorDials atomic.Int64
+	connectorOriginTransport := &http.Transport{
+		MaxIdleConns:          originIdles,
+		MaxIdleConnsPerHost:   originIdles,
+		IdleConnTimeout:       90 * time.Second,
+		DisableCompression:    true,
+		ResponseHeaderTimeout: 30 * time.Second,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			connectorDials.Add(1)
+			return (&net.Dialer{}).DialContext(ctx, "tcp", p.Target)
+		},
+	}
+	t.Cleanup(connectorOriginTransport.CloseIdleConnections)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go tunnelConnector(ctx, t, target, p)
+	go tunnelConnectorWithOrigin(ctx, t, target, p, connectorOriginTransport)
 	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
 
-	url := f.data.URL + "/sources/" + sourceID + "/read"
+	url := f.dataURL + "/sources/" + sourceID + "/read"
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
 	var outerFailures atomic.Int64
 	t.Cleanup(func() {
@@ -93,10 +134,12 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 			t.Errorf("outer tunnel torn down during soak: %d events", outerFailures.Load())
 		}
 	})
+	var loadDials atomic.Int64
 	h2 := &http2.Transport{
 		StrictMaxConcurrentStreams: false,
 		AllowHTTP:                  true,
 		DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
+			loadDials.Add(1)
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
 		},
 	}
@@ -135,6 +178,9 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
 				resp.Body.Close()
 				codes <- resp.StatusCode
+				if resp.ProtoMajor != 2 {
+					results <- fmt.Errorf("unexpected load protocol: %s", resp.Proto)
+				}
 				if resp.StatusCode != http.StatusOK || string(body) != "soak" {
 					results <- fmt.Errorf("status=%d body=%s", resp.StatusCode, body)
 				}
@@ -157,8 +203,8 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 		}
 		ok := counts[http.StatusOK]
 		failureText := strings.Join(firstErrors, " | ")
-		t.Logf("round=%d n=%d wall=%s ok=%d failures=%d%v",
-			round, concurrency, time.Since(started).Round(time.Millisecond), ok, concurrency-ok, failureText)
+		t.Logf("round=%d n=%d wall=%s ok=%d failures=%d load-dials=%d connector-dials=%d proxy-dials=%d origin-idles=%d%v",
+			round, concurrency, time.Since(started).Round(time.Millisecond), ok, concurrency-ok, loadDials.Load(), connectorDials.Load(), originDials.Load(), originIdles, failureText)
 		if ok != concurrency {
 			t.Errorf("round %d: %d/%d succeeded", round, ok, concurrency)
 		}

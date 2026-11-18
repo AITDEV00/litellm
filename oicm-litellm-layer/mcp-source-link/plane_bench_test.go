@@ -47,7 +47,7 @@ func TestSpikePlaneComparison(t *testing.T) {
 				go plane.client(ctx, t, target, p)
 				eventually(t, func() bool { return readyReverse(t, f, workerA) })
 
-				url := f.data.URL + "/sources/" + sourceID + "/read"
+				url := f.dataURL + "/sources/" + sourceID + "/read"
 				var wg sync.WaitGroup
 				ticker := time.NewTicker(time.Second / time.Duration(rps))
 				defer ticker.Stop()
@@ -115,7 +115,7 @@ func readBench(t *testing.T, url string, headers http.Header) (int, string) {
 			req.Header.Add(name, value)
 		}
 	}
-	resp, err := fixtureHTTP2Client.Do(req)
+	resp, err := fixtureHTTP2Client(t).Do(req)
 	if err != nil {
 		return 0, ""
 	}

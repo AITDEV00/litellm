@@ -14,7 +14,12 @@
 ## The Service below publishes these on the litellm-mcp-broker-dev Service.
 ## The gateway-facing data plane is the STANDARD Service port 8888, which
 ## targets the sidecar's link-data listener; the gateway's pool URL always
-## points at 8888, never at a container port.
+## points at 8888, never at a container port. The data listener accepts both
+## HTTP/1.1 (gateway revocation and kubelet readiness) and h2c (gRPC workloads
+## and multiplexed load clients). Reverse-h2 and grpctunnel ingress stays h2c-only.
+##
+## A custom tag changed through this patch needs `kubectl apply -k` afterwards;
+## `make mcp-sidecar-release` deletes the pod but does not choose a new tag.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,7 +34,7 @@ spec:
             - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
         - name: source-link
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:probe-health-20261118
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:h2c-data-20261118
           imagePullPolicy: Always
           command: ["/source-link", "worker"]
           env:

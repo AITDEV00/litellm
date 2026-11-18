@@ -32,7 +32,7 @@ func TestTunnelHighChurnStability(t *testing.T) {
 	go tunnelConnector(ctx, t, target, p)
 	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
 
-	url := f.data.URL + "/sources/" + sourceID + "/read"
+	url := f.dataURL + "/sources/" + sourceID + "/read"
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
 	deadline := time.Now().Add(5 * time.Second)
 	var mu sync.Mutex

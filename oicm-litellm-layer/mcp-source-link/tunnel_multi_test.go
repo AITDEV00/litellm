@@ -50,6 +50,20 @@ func TestTunnelMultiChannelStress(t *testing.T) {
 	}
 	var chans []channel
 	connectors := make([]context.CancelFunc, 0, channels)
+	originForPeer := func(p peer) *http.Transport {
+		transport := &http.Transport{
+			MaxIdleConns:          65536,
+			MaxIdleConnsPerHost:   65536,
+			IdleConnTimeout:       90 * time.Second,
+			DisableCompression:    true,
+			ResponseHeaderTimeout: 30 * time.Second,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "tcp", p.Target)
+			},
+		}
+		t.Cleanup(transport.CloseIdleConnections)
+		return transport
+	}
 	for index := range channels {
 		f, _, target := tunnelFixture(t)
 		id := fmt.Sprintf("44444444-4444-4444-4444-%012d", index)
@@ -62,8 +76,8 @@ func TestTunnelMultiChannelStress(t *testing.T) {
 		f.setPeer(p, "")
 		ctx, cancel := context.WithCancel(context.Background())
 		connectors = append(connectors, cancel)
-		go tunnelConnector(ctx, t, target, p)
-		chans = append(chans, channel{fixture: f, worker: id, sourceID: id, url: f.data.URL + "/sources/" + id + "/read", marker: marker})
+		go tunnelConnectorWithOrigin(ctx, t, target, p, originForPeer(p))
+		chans = append(chans, channel{fixture: f, worker: id, sourceID: id, url: f.dataURL + "/sources/" + id + "/read", marker: marker})
 	}
 	t.Cleanup(func() {
 		for _, cancel := range connectors {
@@ -131,6 +145,11 @@ func TestTunnelMultiChannelStress(t *testing.T) {
 					}
 					body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
 					resp.Body.Close()
+					if resp.ProtoMajor != 2 {
+						recordFailure(&firstFailures, "unexpected load protocol: "+resp.Proto)
+						failures.Add(1)
+						return
+					}
 					if resp.StatusCode != http.StatusOK || string(body) != ch.marker {
 						recordFailure(&firstFailures, fmt.Sprintf("status=%d body=%s", resp.StatusCode, body))
 						failures.Add(1)
