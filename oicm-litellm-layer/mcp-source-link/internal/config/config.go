@@ -91,6 +91,21 @@ func ResolveGateway(stateDir string) (string, error) {
 	return ValidateGatewayURL(bootstrap.GatewayURL)
 }
 
+// ResolveTunnelGateway is the tunnel's endpoint, which a dev topology may need to
+// differ from the REST one.
+//
+// On dev the public host routes the gRPC tunnel path to the dev broker but sends
+// ordinary REST to prod, so a source host needs REST and tunnel on different
+// endpoints with their own trust. An explicit MCP_SOURCE_LINK_TUNNEL_URL selects
+// that; otherwise the tunnel uses the same gateway REST uses, which is the normal
+// single-endpoint production shape.
+func ResolveTunnelGateway(stateDir string) (string, error) {
+	if explicit := Environment("MCP_SOURCE_LINK_TUNNEL_URL"); explicit != "" {
+		return ValidateGatewayURL(explicit)
+	}
+	return ResolveGateway(stateDir)
+}
+
 // ValidateGatewayURL enforces the https/host/no-userinfo contract shared by
 // bootstrap and tunnel startup, so both paths accept exactly the same values.
 func ValidateGatewayURL(value string) (string, error) {

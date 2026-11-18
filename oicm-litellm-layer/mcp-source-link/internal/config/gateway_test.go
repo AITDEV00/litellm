@@ -120,3 +120,48 @@ func indexOf(haystack, needle string) int {
 	}
 	return -1
 }
+
+// TestResolveTunnelGatewayCanDifferFromREST covers the dev topology: the public
+// host routes the tunnel path to the dev broker but ordinary REST to prod, so a
+// dev source host needs a distinct tunnel endpoint. With no override the tunnel
+// shares the REST gateway, which is the normal production shape.
+func TestResolveTunnelGatewayCanDifferFromREST(t *testing.T) {
+	dir := t.TempDir()
+	writeBootstrap(t, dir, "https://rest.example")
+	t.Setenv("MCP_SOURCE_LINK_PUBLIC_URL", "")
+	t.Setenv("MCP_SOURCE_LINK_TUNNEL_URL", "https://tunnel.example")
+
+	tunnel, err := ResolveTunnelGateway(dir)
+	if err != nil {
+		t.Fatalf("a distinct tunnel endpoint must be accepted: %v", err)
+	}
+	if tunnel != "https://tunnel.example" {
+		t.Fatalf("got %q, want the explicit tunnel endpoint", tunnel)
+	}
+	rest, err := ResolveGateway(dir)
+	if err != nil || rest != "https://rest.example" {
+		t.Fatalf("REST must stay on its own endpoint, got %q err %v", rest, err)
+	}
+}
+
+func TestResolveTunnelGatewayDefaultsToTheRESTGateway(t *testing.T) {
+	dir := t.TempDir()
+	writeBootstrap(t, dir, "https://gateway.example")
+	t.Setenv("MCP_SOURCE_LINK_PUBLIC_URL", "")
+	t.Setenv("MCP_SOURCE_LINK_TUNNEL_URL", "")
+
+	tunnel, err := ResolveTunnelGateway(dir)
+	if err != nil || tunnel != "https://gateway.example" {
+		t.Fatalf("the tunnel must default to the REST gateway, got %q err %v", tunnel, err)
+	}
+}
+
+func TestResolveTunnelGatewayRejectsPlainHTTP(t *testing.T) {
+	dir := t.TempDir()
+	writeBootstrap(t, dir, "https://gateway.example")
+	t.Setenv("MCP_SOURCE_LINK_TUNNEL_URL", "http://tunnel.example")
+
+	if _, err := ResolveTunnelGateway(dir); err == nil {
+		t.Fatal("a plain-HTTP tunnel endpoint must be rejected, not silently downgraded")
+	}
+}

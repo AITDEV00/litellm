@@ -32,7 +32,7 @@ func originTransport(target string, maxIdle int) *http.Transport {
 // persisted during initialization unless an explicit override is set. The CA file
 // is honoured here too, which is what makes a private-CA dev gateway reachable.
 func Run(ctx context.Context, cfg config.ConnectorConfig, stateDir string) error {
-	gateway, err := config.ResolveGateway(stateDir)
+	gateway, err := config.ResolveTunnelGateway(stateDir)
 	if err != nil {
 		return err
 	}
