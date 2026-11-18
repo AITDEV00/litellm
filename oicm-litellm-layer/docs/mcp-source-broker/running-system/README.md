@@ -1,5 +1,15 @@
 # Dev source broker
 
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+>
+> Nothing outside the cluster can open a connection to `litellm-proxy-dev`. The public host
+> `litellm.ecouncil.ae` fronts **prod** (`litellm-proxy`) and, separately, the dev broker's gRPC
+> tunnel path. It does not front the dev gateway, so a request to a dev gateway REST route over
+> the public host lands on prod instead. Reach dev with a forward, for example
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run that forward
+> after any `litellm-src-release-dev`, because a rollout replaces the pod. When a proof below
+> says it ran through "the public ingress", the public host reached prod, not the dev gateway.
+
 **This is the owning implementation record for the MCP source broker.** It describes what is built and running, and it is the file to update when behavior changes. `../history/superseded-design-proposal.md` is a superseded design proposal kept for decision history; `../decisions/approaches/lifecycle-and-pooling-questions.md` holds undecided questions; `../measurements/` holds measurements. Code wins over every document here, including this one
 
 Build, test, lint, and proto-regeneration instructions for the Go sidecar live in `mcp-source-link/README.md` at the repository root of this layer, not here
@@ -247,7 +257,7 @@ contexts port 8089/9090 they mention no longer exist; the current equivalent pro
 
 On 2026-11-13, the installed dev gateway and auxiliary image carried `read_source` and `echo_source` for source `f804e8c9-a9c7-5824-a90a-837262788be8`. The one-time enrollment claim minted connector `7f3a49c4-59a7-5611-8c4e-fff9b8a0e670` at `127.0.0.20:18081`. An ordinary same-identity re-enrollment refreshed the saved canonical fingerprint after catalog drift. It returned no new token or connector
 
-An administrator retrieved the authenticated recovery script through both the public dev ingress and a local gateway forward. The identical script installed the connector as user `jyao` on `aitdev00`, verified Chisel `1.12.0`, wrote a mode-600 environment file, and generated a matching user systemd unit. No `sudo`, downloaded shell execution, disabled TLS verification, or temporary service command override was needed
+An administrator retrieved the authenticated recovery script through a local gateway forward and, in the historical Chisel flow, a route that no longer exists. The identical script installed the connector as user `jyao` on `aitdev00`, verified Chisel `1.12.0`, wrote a mode-600 environment file, and generated a matching user systemd unit. No `sudo`, downloaded shell execution, disabled TLS verification, or temporary service command override was needed
 
 A virtual key restricted to this source's MCP access group listed exactly `read_source` and `echo_source`. `read_source` returned hostname `aitdev00` and the persisted source marker. `echo_source` returned `round-trip-through-chisel` on channel `dev-tool`, with `credentials_seen=false` and `cookies_seen=false`. The same key received HTTP 403 for the other source and a non-admin key could not retrieve an installer. Direct dispatch without the service credential returned HTTP 401. An already-redeemed token was rejected, including the complete claim-rejection test in the unit suite
 

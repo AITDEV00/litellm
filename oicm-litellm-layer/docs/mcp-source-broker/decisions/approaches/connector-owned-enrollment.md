@@ -1,5 +1,14 @@
 # Connector-owned enrollment, recorded 2026-11-18
 
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+>
+> `litellm-proxy-dev` is unreachable from outside the cluster. `litellm.ecouncil.ae` fronts prod
+> (`litellm-proxy`) plus the dev broker's gRPC tunnel path, so a dev gateway REST call over that
+> host lands on prod. Forward, for example
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run the forward
+> after any dev rollout, which replaces the pod. This is why the acceptance run for the
+> connector bootstrap reached dev over a forward rather than the public host.
+
 Status: IMPLEMENTED, partially accepted. Both requirements are built and covered by tests. The
 user-without-team half and the connector-owns-bootstrap half are proven live against the dev
 cluster, except for the one live step that dev cannot currently serve; see "Implementation and

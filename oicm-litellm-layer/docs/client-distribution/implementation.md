@@ -1,5 +1,13 @@
 # Implementation Plan
 
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+>
+> `litellm-proxy-dev` is not exposed outside the cluster. The public host `litellm.ecouncil.ae`
+> fronts prod (`litellm-proxy`) and the dev broker's gRPC tunnel path, not the dev gateway, so a
+> dev gateway REST call over the public host lands on prod. Forward instead, for example
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run it after a
+> dev rollout, which replaces the pod.
+
 > **v6 pivot (2026-10-14): cc-switch-cli replaces the `lite` CLI.** The served
 > client is now the cc-switch static binary, not the uv-installed `lite`
 > Python CLI. The uv / wheelhouse / managed-Python mirror tiers and the

@@ -10,6 +10,8 @@ Explanation: The point of this rule is to keep out AI slop comments. AI writes w
 
 Knowledge about the OICM layer lives in its docs site, not in these instructions. `oicm-litellm-layer/mkdocs.yml` `nav:` is the structure and `oicm-litellm-layer/docs/docs-map.md` is a one-line purpose per file; read those, then the owning doc, before acting. Cluster access, deploys, credentials, and per-provider request contracts are all documented there, and durable facts belong back in the owning doc rather than appended here
 
+The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it, and `litellm.ecouncil.ae` fronts prod plus the dev broker's gRPC tunnel path, never the dev gateway, so a dev gateway REST call over the public host lands on prod. Reach dev with `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000` (or another local port) and re-run the forward after any dev rollout, which replaces the pod. Do not describe a dev REST proof as having run through the public ingress unless that is what you mean to claim, because it did not reach the dev gateway
+
 Don't assume that the existing code is correct or the right way of doing things / good coding patterns. In fact, there are a lot of bad coding practices, overly complex code, code smells, etc. If something doesn't look right, speak up. Feel free to break existing patterns or question weird existing code to make new code high quality, as in:
 
 - correct

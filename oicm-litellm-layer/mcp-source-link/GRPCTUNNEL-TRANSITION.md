@@ -1,5 +1,13 @@
 # grpctunnel final transition: remaining work
 
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+>
+> `litellm-proxy-dev` is not exposed outside the cluster, and `litellm.ecouncil.ae` fronts prod
+> plus the dev broker's gRPC tunnel path, not the dev gateway. Forward, for example
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run the forward
+> after a dev rollout. A proof described as running through "the public ingress" reached prod,
+> not the dev gateway.
+
 Status: DONE, verified live on dev 2026-11-18. Every step in the work plan landed and
 both proofs were captured against the dev cluster. See "Outcome" below for what ran and
 for the two places where the implementation deliberately differs from this plan.
