@@ -149,14 +149,9 @@ the native `/tts/stream` surface, which the current hamsa pod does not expose
 (HTTP 405). Check this line survives every merge that touches
 `get_litellm_params.py`.
 
-### Rust OCR provider gate — `litellm/ocr/main.py`
+### Rust OCR provider gate — `litellm/ocr/dispatch.py`
 
-`_RUST_OCR_PROVIDERS` frozenset plus `_should_use_native()` gate so only
-mistral/azure_ai/vertex_ai OCR requests take the native Rust bridge and paddlex
-keeps the legacy Python dispatch. The v1.99.1 merge dropped the gate (every OCR
-request hit rust and raised `invalid provider: paddlex`); restored in commit
-`031043b779`. Wiring is asserted by `test_oicm_drop_detection.py` companion
-checks in `tests/test_litellm/ocr/`.
+**Re-verified 2026-11-18: this slice was replaced, and the current wiring is not pinned.** The original `litellm/ocr/main.py` with its `_RUST_OCR_PROVIDERS` frozenset and `_should_use_native()` gate no longer exists anywhere in the tree. OCR now dispatches through the Rust bridge: `litellm/ocr/dispatch.py` binds a request and calls `NATIVE_OCR` / `NATIVE_AOCR` from `litellm.rust_bridge.ocr.entrypoints`, so provider gating lives in the bridge catalog rather than in a Python frozenset. The historical bug is preserved for context: the v1.99.1 merge dropped the gate and every OCR request hit rust, raising `invalid provider: paddlex`; restored in commit `031043b779`. **Known gap: `test_oicm_drop_detection.py` contains no OCR assertion,** and the tests named here earlier (`tests/test_litellm/ocr/`) do not exist. Current OCR coverage is `tests/test_litellm_rust/ocr/` plus `tests/test_litellm/llms/paddlex/ocr/`. Adding an OCR case to the drop-detection suite is listed in Known gaps of the MCP broker record's sibling concerns, and until it exists this slice is the one entry in this map whose wiring a merge could drop silently
 
 ### Per-request stream tracing — `litellm/litellm_core_utils/stream_tracer.py`
 

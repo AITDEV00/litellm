@@ -148,6 +148,13 @@ once, and test offline repeatedly without re-scraping.
 Goal: Implement the feature step-by-step, each step independently testable,
 borrowing existing functions from the current codebase.
 
+> **Authority for slice placement in this repository:** the canonical procedure is
+> [`../techniques/vertical_slice_technique.md`](vertical_slice_technique.md), and the
+> resulting map of existing slices is
+> [`additional-features-origin.md`](../additional-features-origin.md). If the generic
+> template below conflicts with either, **they win**. The template is a starting shape,
+> not the rule.
+
 **Procedure**:
 
 1. **Identify reusable functions** — scan the existing codebase for functions
