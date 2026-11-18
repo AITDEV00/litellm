@@ -369,6 +369,12 @@ class RouteChecks:
             pass
         elif route.startswith("/v1/mcp/") or route.startswith("/mcp-rest/"):
             pass  # authN/authZ handled by api itself
+        elif route.startswith("/mcp-sources"):
+            # The source broker's self-service enrollment. Ownership and the
+            # team-scope requirement are enforced in the handler, which derives
+            # the owner from the authenticated user id; requiring proxy admin
+            # here would defeat the point of self-service.
+            pass  # authN/authZ handled by api itself
         elif RouteChecks.check_passthrough_route_access(route=route, user_api_key_dict=valid_token) or (
             valid_token.is_team_service_account
             and RouteChecks.check_route_access(

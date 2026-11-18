@@ -5045,3 +5045,36 @@ def test_every_dashboard_role_can_send_telemetry_ui_events(
         )
     except HTTPException as exc:
         pytest.fail(f"{user_role.value} was denied {method} {route}: {exc.detail}")
+
+
+def test_internal_user_reaches_mcp_sources_for_self_service_enrollment() -> None:
+    """The source broker's self-service enrollment must not be admin-gated.
+
+    /v1/mcp/ is exempt because its handlers do their own authz; /mcp-sources is
+    the same shape. If this regresses, BYOM enrollment dies with "Only proxy
+    admin can be used to generate..." before the handler ever runs.
+    """
+    user_obj: Final = LiteLLM_UserTable(
+        user_id="test_user",
+        user_email="test@example.com",
+        user_role=LitellmUserRoles.INTERNAL_USER.value,
+    )
+    valid_token: Final = UserAPIKeyAuth(user_id="test_user", user_role=LitellmUserRoles.INTERNAL_USER)
+    request: Final = MagicMock(spec=Request)
+    request.method = "POST"
+    request.query_params = {}
+
+    RouteChecks.non_proxy_admin_allowed_routes_check(
+        user_obj=user_obj,
+        _user_role=LitellmUserRoles.INTERNAL_USER.value,
+        route="/mcp-sources",
+        request=request,
+        valid_token=valid_token,
+        request_data={},
+    )
+
+
+def test_mcp_sources_exemption_does_not_leak_to_other_routes() -> None:
+    """The exemption is prefix-scoped; an unrelated route still gates on admin."""
+    outcome: Final = _daily_activity_route_outcome("/config/update", LitellmUserRoles.INTERNAL_USER)
+    assert outcome.startswith("denied"), outcome
