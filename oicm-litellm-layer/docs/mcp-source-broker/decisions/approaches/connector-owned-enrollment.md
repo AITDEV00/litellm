@@ -458,7 +458,40 @@ the "approved real read" half of acceptance is blocked, and nothing here is mark
 
 ### Re-enrollment
 
-Not implemented, and deliberately not claimed. A re-enroll of an existing alias returns 409 at
-`submit_for_review` after the broker store and artifact upload have already run, which is the
-hazard the task called out. This change restricts itself to fresh-source acceptance and does not
-touch that path; see the hazard section above.
+A first bootstrap is not atomic across the gateway writes, so a failure after the
+worker row exists but before the identity is persisted used to strand the install
+permanently: the retry collided at `submit_for_review` and again on the worker
+label, and never saw the credential it had lost.
+
+Two resume paths now close that, and neither re-mints an active identity:
+
+- `gateway.py::enroll`. A repeat enroll that collides is resumed only when the
+  existing row is the same owner's and still `pending_review`
+  (`pending_source_resume`). An approved, rejected, or foreign row stays a hard
+  409, so nothing is moved out of review and no approved row is rewritten.
+- `remote_store.py::resume_peer`, reached from the worker route only after
+  `create_peer` declines. It re-derives the credential for the worker already
+  stored under that label, at that worker's stored generation, without inserting
+  a row, advancing the generation, or changing status. It refuses when the target
+  differs or the worker is revoked or draining, because those need operator
+  action rather than a retry.
+
+Resuming returns the same `worker_id` and the same `generation`, so duplicate
+session fencing is unchanged: there is still exactly one worker for that label,
+and a second connector cannot appear under it.
+
+### Lost or revoked identity, and how it is reported
+
+A revoked worker is terminal by design
+(`running-system/README.md`, decision 2026-11-17: terminal revoke stays manual).
+`resume_peer` refuses it and the connector replacement flow is a fresh label
+through the existing admin call, not modified `revoke` semantics.
+
+So an operator does not have to read two different failures as the same one:
+`bootstrap.Client` classifies the gateway's refusal. A 401 or 429 stays
+`ErrNotYetAvailable` and is retried with backoff, since those are transient or
+fixable by writing the right key. Any other 4xx is `ErrTerminalRegistration` and
+is not retried, because a conflicting identifier or a revoked worker will never
+succeed on its own and must be surfaced as operator action required instead of
+looking like a gateway outage.
+

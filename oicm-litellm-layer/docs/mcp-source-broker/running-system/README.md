@@ -34,6 +34,8 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
 | Bootstrap credential exchange | IMPLEMENTED, live read blocked | `../decisions/approaches/connector-owned-enrollment.md` |
+| First-bootstrap resume after a lost worker response | IMPLEMENTED, live read blocked | `../../../mcp-source-link/BOOTSTRAP-GAPS.md` B1 |
+| Source-agent release publisher | BUILT, live RustFS upload unproven | `scripts/publish-source-agent-release.sh` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
 ## Known gaps
@@ -65,6 +67,19 @@ Neither requirement changes the approval gate. A newly registered entry still la
 `pending_review` and serves nothing until an administrator approves it, whatever process made the
 registration call and whoever it authenticated as. Approval, guardrail edits and rejection stay
 administrator actions
+
+**First-bootstrap resume.** Added 2026-11-19. The first bootstrap is not atomic across the gateway
+writes, so a failure after the worker row existed but before the identity was persisted used to
+strand the install: the retry collided on the source identifier and again on the worker label and
+never saw the lost credential. A repeat enroll now resumes when the collided row is the same
+owner's and still `pending_review`, and the worker route falls back to `resume_peer`, which
+re-derives the credential for the worker already stored under that label at its stored generation,
+without a new row and without advancing the generation. An approved, rejected or foreign row is
+still a 409, and a revoked or draining worker is refused, so the duplicate-label fencing and the
+terminal-revoke decision are both intact. Connector side, `setup.Initialize` resumes from
+`user.key` and `bootstrap.json` alone, with no second prompt and no second key. A 401 or 429 is
+retried; any other 4xx is terminal and reported as operator action required rather than as a
+gateway outage
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
