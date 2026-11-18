@@ -46,12 +46,20 @@ class Target(Frozen):
 
 
 class SourceCreate(Frozen):
-    owner: str = Field(min_length=1, max_length=255)
+    """A self-service enrollment request.
+
+    ``owner``, ``key`` and ``expires_at`` are server-derived: the connector
+    authenticates as its own user with a team-scoped virtual key, so there is no
+    per-source claim token to present. They remain accepted-but-ignored so an
+    older connector that still sends them is not rejected outright.
+    """
+
     alias: str = Field(pattern=r"^[a-z][a-z0-9-]{2,127}$")
-    key: str = Field(min_length=16, max_length=255)
-    expires_at: AwareDatetime
     target: Target
     spec: str = Field(max_length=600_000)
+    owner: str = Field(default="", max_length=255)
+    key: str = Field(default="", max_length=255)
+    expires_at: AwareDatetime | None = None
 
     @field_validator("spec")
     @classmethod
@@ -67,7 +75,9 @@ class SourceCreate(Frozen):
         return f"mcp-source-broker/{self.source_id}/openapi.json"
 
     def identity(self) -> str:
-        return hashlib.sha256(self.key.encode()).hexdigest()
+        # The claim token is gone; the gateway-auth ciphertext is keyed on the
+        # owner and alias now, which are the only stable facts about a source.
+        return hashlib.sha256(f"{self.owner}:{self.alias}".encode()).hexdigest()
 
     def fingerprint(self) -> str:
         return hashlib.sha256(self.spec.encode()).hexdigest()

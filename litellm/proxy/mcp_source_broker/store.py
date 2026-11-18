@@ -223,12 +223,17 @@ class SourceStore:
                 row.status,
                 row.revision,
             )
-            await tx.execute_raw(
-                'INSERT INTO "OicmMcpEnrollment" (id,source_id,token_hash,expires_at,redeemed_at) '
-                "VALUES ($1,$2,$3::bytea,$4::timestamptz,NOW())",
-                grant,
-                sid,
-                "\\x" + self.keyring.token_hash(grant, self.keyring.mint_token()).hex(),
-                value.expires_at,
-            )
+            # The claim-token envelope is obsolete: a connector authenticates as
+            # its own user, so there is no one-time token to record. The insert
+            # only runs when a legacy caller still supplies an expiry, which
+            # keeps old clients working without making the column required.
+            if value.expires_at is not None:
+                await tx.execute_raw(
+                    'INSERT INTO "OicmMcpEnrollment" (id,source_id,token_hash,expires_at,redeemed_at) '
+                    "VALUES ($1,$2,$3::bytea,$4::timestamptz,NOW())",
+                    grant,
+                    sid,
+                    "\\x" + self.keyring.token_hash(grant, self.keyring.mint_token()).hex(),
+                    value.expires_at,
+                )
             return row.value()

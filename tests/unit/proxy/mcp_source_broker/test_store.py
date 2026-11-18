@@ -103,3 +103,17 @@ async def test_reenroll_same_catalog_changes_target(store: SourceStore, source: 
 async def test_selection_missing_source_raises_keyerror(store: SourceStore) -> None:
     with pytest.raises(KeyError):
         await store.selection("missing-source-id")
+
+
+@pytest.mark.asyncio
+async def test_enroll_without_claim_token_writes_no_enrollment_row(store: SourceStore, source: SourceCreate) -> None:
+    """Self-service enrollment carries no claim token.
+
+    The one-time token envelope is obsolete, so an enrollment that omits
+    expires_at must not attempt an insert into "OicmMcpEnrollment". A required
+    column there turned every such enroll into a 500 in dev.
+    """
+    tokenless: Final = source.model_copy(update={"expires_at": None})
+    result = await store.enroll(tokenless, "alice")
+    assert result.source_id == source.source_id
+    assert store.db.enrollments == []
