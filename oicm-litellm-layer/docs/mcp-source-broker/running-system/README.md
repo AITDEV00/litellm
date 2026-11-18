@@ -34,6 +34,8 @@ These are not steps; they are things the design called for that the tree does no
 
 **Bootstrap credential exchange.** Reopened 2026-11-18 as an open blocker. An earlier entry here marked this done, on the theory that a team-scoped virtual key in `connector.env` answered it. It does not. Two requirements are unmet: the connector must authenticate as an ordinary gateway **user account** rather than a team-scoped key, and the connector binary must perform enrollment itself so that no human calls the gateway's registration routes and nobody needs the broker-side pepper. Today the binary has only `worker` and `connector` modes, makes no gateway REST calls at all, and the connector identity (`MCP_SOURCE_LINK_CONNECTOR_CONFIG`) is derived by hand from the pepper. The owning record for the requirement is [`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md)
 
+Neither requirement changes the approval gate. A newly registered entry still lands in `pending_review` and serves nothing until an administrator approves it, whatever process made the registration call and whoever it authenticated as. Approval, guardrail edits and rejection stay administrator actions
+
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
 ## What this system is today
@@ -108,7 +110,7 @@ the whole path ran through the public ingress:
   returned the origin payload, and an origin that echoed its received headers reported
   `authorization_seen=false`, `cookie_seen=false`, and no internal nonce, so caller
   credentials and cookies never reach the source
-- Enrollment and approval, recorded separately: a non-admin team key self-enrolled and got
+- Enrollment and approval, recorded separately: a non-admin user key self-enrolled and got
   `201 {"status": "pending_review"}`, read its own row back, was absent from
   `GET /v1/mcp/server` while pending, and appeared only after an admin approved it
 
@@ -122,9 +124,22 @@ submitter got a 403 reading the row enrollment had just handed them
 
 ## Enrollment
 
-Any authenticated user holding a team-scoped key posts a `SourceCreate` to
-`POST /mcp-sources`. No administrator role is required, and the owner is derived from the
-key's user id rather than from the body:
+Gateway user accounts are created when the gateway is deployed, from the user and key entries in
+the kube manifests for the environment. Account creation is a deployment concern and is not part
+of this flow. Each person who exposes a source uses their own deployed user account, and that
+account's own virtual key is what the connector carries. No team membership is needed and no
+admin role on the source host is implied
+
+The connector posts a `SourceCreate` to `POST /mcp-sources` with the user's own key, so the
+gateway sees the call arriving as that user. The owner is derived from the key's user id rather
+than from the body:
+
+The identity requirement is recorded in
+[`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md),
+which is open: today the handler also demands `team_id`, and the connector does not make these
+calls at all, so a human still does
+
+The request body:
 
 ```json
 {

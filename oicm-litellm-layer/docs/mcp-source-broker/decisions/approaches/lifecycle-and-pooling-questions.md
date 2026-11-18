@@ -4,7 +4,13 @@ Status: open research questions, not an implementation or delivery commitment. W
 
 > **Partly superseded.** This was written before the reverse-h2 transport, the Chisel removal, and the tunnel plane existed, so its "what works today" section describes Chisel and a single-source deployment that no longer match the tree. For current behavior read [the owning implementation record](../../running-system/README.md), which is the owning implementation record and carries the authoritative list of what is still open in its Status register and Known gaps sections
 >
-> §2, how a bootstrap credential reaches a source host without leaking, is no longer open. It shipped on 2026-11-18 as BYOM self-service: the connector authenticates with a team-scoped virtual key the operator already holds, so `connector.env` just stores a real scoped key rather than a credential derived out of band. See [`byom-self-service.md`](byom-self-service.md). The remaining questions here are still open.
+> §2, how a bootstrap credential reaches a source host without leaking, is partly answered and not
+> closed. The intended answer is that a gateway admin creates a gateway **user account** for each
+> person who exposes a source, and that person's own virtual key is the single credential the source
+> host holds; see [`connector-owned-enrollment.md`](connector-owned-enrollment.md). What shipped on
+> 2026-11-18 does not meet it: the enrollment handler still demands a team-scoped key, and the
+> connector does not make the registration calls itself yet, so a human does still invoke them.
+> Those two gaps are open blockers. The remaining questions here are also still open.
 
 ## What works today
 

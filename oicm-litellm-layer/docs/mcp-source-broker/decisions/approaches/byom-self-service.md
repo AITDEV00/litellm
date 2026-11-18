@@ -48,12 +48,15 @@ good probe, so it keeps its `pending` write. Lease/revision fields stay.
 The connector reuses the existing gateway endpoints. No new public registration endpoint exists.
 
 ```
-1. The source host has the connector installed and configured with the user's own gateway account.
+0. Gateway user accounts exist already, created from the user and key entries in the kube
+   manifests when the gateway was deployed. Each person who exposes a source uses their own such
+   account, and that account's own virtual key is the only credential the source host ever needs.
+1. The source host has the connector installed and configured with that user account's own key.
 2. source-link register --alias reports --spec ./openapi.json
      connector computes owner=user_id, alias, and sid locally (uuid5 above).
-     connector calls POST /mcp-sources with {alias, target, spec} on the user's behalf.
-     This call is the connector's job, not the human's; see connector-owned-enrollment.md. The
-     identity is the user's account, not a team key.
+     connector calls POST /mcp-sources with {alias, target, spec}, sending the user's key.
+     This call is the connector's job, not the human's; see connector-owned-enrollment.md. No
+     team membership is required, and the admin key never reaches the source host.
 3. The existing gateway route `POST /mcp-sources` is re-purposed: drop the PROXY_ADMIN gate, and inside
    `enroll()`:
      a. Write the broker lease rows idempotently (existing advisory lock + upsert path).
@@ -64,7 +67,8 @@ The connector reuses the existing gateway endpoints. No new public registration 
 4. Admin reviews via GET /v1/mcp/server/submissions, approves via PUT /v1/mcp/server/{id}/approve,
    edits guardrails, or rejects.
 5. Connector opens / holds the reverse tunnel immediately. No polling needed; when status is wanted,
-   GET /v1/mcp/server/{id} is sufficient.
+   GET /v1/mcp/server/{id} is sufficient. Holding a tunnel is not access: the row is still pending,
+   so nothing dispatches to it until step 6.
 6. Approval fires the existing BYOM cache invalidation in `approve_mcp_server_submission`; then
    `get_active_submitted_mcp_server_ids_for_user` already grants the creator runtime visibility.
    Nothing else has to fire.
@@ -122,8 +126,10 @@ existing machinery, and one stays:
    sugar, not a design change.
 3. Dashboard submission form. Deferred. The connector path is REST-native; the existing
    `/guardrails/register` UI is the nearest analogue if an SSO user ever needs it.
-4. Device-authorization bootstrap. Deferred. The user's virtual key already *is* the bootstrap credential,
-   so `connector.env` just stores a real scoped key the installer already supports.
+4. Device-authorization bootstrap. Not needed, and not done. The user's own virtual key already *is*
+   the bootstrap credential: the admin creates the account and hands that one key over. What is
+   still missing is on the connector side, which neither registers nor obtains its connector
+   identity by itself yet; see [`connector-owned-enrollment.md`](connector-owned-enrollment.md).
 
 The one genuinely new authorization predicate is a single helper used by the existing edit and delete
 routes:
