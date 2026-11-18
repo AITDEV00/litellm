@@ -126,7 +126,6 @@ nav:
       - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
       - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md
   - Techniques:
-      - Folder Tidying (Reference, History, Proposals): techniques/folder_tidying_technique.md
       - Logic Mapping: techniques/logic_mapping_technique.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md
       - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
