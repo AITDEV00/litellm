@@ -432,6 +432,16 @@ partial fresh-start evidence.
 
 ## Implementation status, 2026-11-19
 
+**Independent review after commits `ebef0d6f75f..53ef2522d24`: BLOCKED.**
+[REVIEW-2026-11-19.md](REVIEW-2026-11-19.md) contains reproduced failures and the exact
+verification commands. The actual publisher never renders the installer placeholders, the
+installed service has no gateway URL while existing startup still requires one, and the new
+password login lacks an unauthenticated gateway admission. Additional review items R4-R11
+cover duplicate durable keys, catalog approval and worker resume drift, active reissue
+reissue controls, missing transient retry, admin replacement flows, and dev topology.
+The summarized statuses below are the worker's claims, not acceptance proof for this review
+Read it before handing this work to the next worker or calling the completed flow finished
+
 Not SHIPPED. Items 1, 6 and 7 of the acceptance are still unproven end to end; the
 rest has a defined flow and automated coverage. What follows separates built from
 proven so nobody reads a green unit test as a live acceptance.

@@ -442,6 +442,16 @@ asserts that.
 4. The pending source stayed absent from `GET /v1/mcp/server`. Approval isolation held: being
    enrolled, with a worker registered, did not put the source in the registry.
 
+### Independent implementation review, 2026-11-19
+
+[REVIEW-2026-11-19.md](../../../../mcp-source-link/REVIEW-2026-11-19.md) supersedes claims
+that this work was completed merely because `init` and resume tests pass. All four installer
+placeholders are published unreplaced, the service still needs a gateway env value which the
+new startup never writes, and a fresh username/password call is blocked by normal API-key
+auth before its handler. It also documents unintended duplicate key issuance, source approval
+and resume consistency hazards, missing transient retry, and undone operational acceptance.
+The removed bounded `LoadIdentity` description above is historical, not current runtime code
+
 ### Running the last acceptance step over a forward
 
 Step 5 (an approved real read) and reaching `active`/`healthy` were not run in that
