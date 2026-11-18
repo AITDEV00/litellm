@@ -503,14 +503,15 @@ validates and enrolls without any hand-written env, bootstrap JSON or worker
 identity. `install.sh` installs, verifies the published checksum, and enables the
 user unit.
 
-### B4, dev REST reachability: OPEN, deployment gap
+### B4, dev REST reachability: NOT A BLOCKER, use a forward
 
-Unchanged: the dev gateway has no ingress. `kubectl -n adeo-litellm port-forward
-svc/litellm-proxy-dev 14010:4000` is the only way to reach it, and the public host
-routes the tunnel path to the dev broker but `/mcp-sources` to prod, which has no
-such route. Acceptance items 5 and 6 stay blocked until an ingress rule carries the
-broker REST routes to the dev gateway, or the acceptance runs against a host that
-reaches it directly.
+The dev gateway has no ingress. That does not block acceptance: `kubectl -n
+adeo-litellm port-forward svc/litellm-proxy-dev 14010:4000` reaches it, and REST
+proof runs against that forward. The public host routes the tunnel path to the dev
+broker but `/mcp-sources` to prod, which is exactly why the forward exists and why a
+proof must never be described as running through the public ingress. Acceptance
+items 5 and 6 run over the forward; an ingress rule would only make that
+convenient, not possible.
 
 ### B5, tests over real state: IMPLEMENTED for the resume and revocation paths
 

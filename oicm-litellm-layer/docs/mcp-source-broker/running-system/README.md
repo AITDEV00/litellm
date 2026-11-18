@@ -1,14 +1,15 @@
 # Dev source broker
 
-> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > Nothing outside the cluster can open a connection to `litellm-proxy-dev`. The public host
 > `litellm.ecouncil.ae` fronts **prod** (`litellm-proxy`) and, separately, the dev broker's gRPC
 > tunnel path. It does not front the dev gateway, so a request to a dev gateway REST route over
-> the public host lands on prod instead. Reach dev with a forward, for example
-> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run that forward
-> after any `litellm-src-release-dev`, because a rollout replaces the pod. When a proof below
-> says it ran through "the public ingress", the public host reached prod, not the dev gateway.
+> the public host lands on prod instead. That is exactly why every dev proof runs through a
+> forward: `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, re-run after
+> any `litellm-src-release-dev` because a rollout replaces the pod. Test dev against that forward.
+> When a proof below says it ran through "the public ingress", the public host reached prod, not
+> the dev gateway.
 
 **This is the owning implementation record for the MCP source broker.** It describes what is built and running, and it is the file to update when behavior changes. `../history/superseded-design-proposal.md` is a superseded design proposal kept for decision history; `../decisions/approaches/lifecycle-and-pooling-questions.md` holds undecided questions; `../measurements/` holds measurements. Code wins over every document here, including this one
 
@@ -33,8 +34,8 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
-| Bootstrap credential exchange | IMPLEMENTED, live read blocked | `../decisions/approaches/connector-owned-enrollment.md` |
-| First-bootstrap resume after a lost worker response | IMPLEMENTED, live read blocked | `../../../mcp-source-link/BOOTSTRAP-GAPS.md` B1 |
+| Bootstrap credential exchange | IMPLEMENTED, last step runs over a port-forward | `../decisions/approaches/connector-owned-enrollment.md` |
+| First-bootstrap resume after a lost worker response | IMPLEMENTED, last step runs over a port-forward | `../../../mcp-source-link/BOOTSTRAP-GAPS.md` B1 |
 | Source-agent release publisher | BUILT, live RustFS upload unproven | `scripts/publish-source-agent-release.sh` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
@@ -58,10 +59,13 @@ Proven live on dev: a no-team account enrolled its own source, the connector reg
 with no human touching a route, restart reused the identity with zero re-registration, and the
 pending source stayed out of the MCP registry
 
-Not yet proven: the approved real read, and reaching admitted/healthy, because no single public
-host currently serves both the broker REST routes and the tunnel for dev. `litellm.ecouncil.ae`
-routes the tunnel path to the dev broker but `/mcp-sources` to prod. That is a deployment gap, and
-the fix is an ingress rule, not a code change. Nothing here is marked SHIPPED until that runs
+Not yet proven: the approved real read, and reaching admitted/healthy. That is not
+blocked by the missing ingress, which is what the forward is for. REST goes through
+`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and the
+tunnel path is already served for dev by the public host's
+`/grpctunnel.v1.TunnelService/` rule, because `/mcp-sources` over the public host lands
+on prod. The remaining step is restarting that forward and repeating the approved read
+against it. Nothing here is marked SHIPPED until that runs
 
 Neither requirement changes the approval gate. A newly registered entry still lands in
 `pending_review` and serves nothing until an administrator approves it, whatever process made the

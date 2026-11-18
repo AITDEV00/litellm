@@ -1,12 +1,12 @@
 # Debug Pod Technique — Copy-of-Replica for Isolated Profiling
 
-> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > `litellm-proxy-dev` is not exposed outside the cluster. The public host `litellm.ecouncil.ae`
 > fronts prod (`litellm-proxy`) and the dev broker's gRPC tunnel path, not the dev gateway, so a
-> dev gateway REST call over the public host lands on prod. Forward instead, for example
-> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run it after a
-> dev rollout, which replaces the pod.
+> dev gateway REST call over the public host lands on prod. That is why every dev proof runs
+> through a forward: `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`,
+> re-run it after a dev rollout, and test against that forward, not the public host.
 
 > **Problem**: When a live endpoint is slow or intermittently fails (e.g. the
 > model performance dashboard 30d / MTD / YTD views), you cannot profile the

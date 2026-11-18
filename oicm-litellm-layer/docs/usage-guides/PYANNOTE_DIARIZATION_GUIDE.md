@@ -1,12 +1,12 @@
 # Pyannote Speaker Diarization: Curl Guide
 
-> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > `litellm-proxy-dev` is not exposed outside the cluster. The public host `litellm.ecouncil.ae`
 > fronts prod (`litellm-proxy`) and the dev broker's gRPC tunnel path, not the dev gateway, so a
-> dev gateway REST call over the public host lands on prod. Forward instead, for example
-> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run it after a
-> dev rollout, which replaces the pod.
+> dev gateway REST call over the public host lands on prod. That is why every dev proof runs
+> through a forward: `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`,
+> re-run it after a dev rollout, and test against that forward, not the public host.
 
 > **Scope**: How to call pyannote speaker diarization (`pyannote/community-1`) through the LiteLLM gateway's `/v1/diarize` route, with sample curl commands, expected response shapes, error contracts, and verified performance numbers
 >

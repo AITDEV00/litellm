@@ -1,18 +1,19 @@
 # Connector-owned enrollment, recorded 2026-11-18
 
-> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is the only way to reach it.**
+> **The dev LiteLLM gateway has no ingress. `kubectl port-forward` is how you test it.**
 >
 > `litellm-proxy-dev` is unreachable from outside the cluster. `litellm.ecouncil.ae` fronts prod
 > (`litellm-proxy`) plus the dev broker's gRPC tunnel path, so a dev gateway REST call over that
-> host lands on prod. Forward, for example
-> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, and re-run the forward
-> after any dev rollout, which replaces the pod. This is why the acceptance run for the
-> connector bootstrap reached dev over a forward rather than the public host.
+> host lands on prod. That is why every dev proof runs through a forward:
+> `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`, re-run after any dev
+> rollout because it replaces the pod, and test against that forward. This is how the acceptance
+> run for the connector bootstrap reached dev.
 
 Status: IMPLEMENTED, partially accepted. Both requirements are built and covered by tests. The
 user-without-team half and the connector-owns-bootstrap half are proven live against the dev
-cluster, except for the one live step that dev cannot currently serve; see "Implementation and
-acceptance record" at the end. Nothing here is marked SHIPPED until that last step runs
+cluster. The one remaining acceptance step is an approved real read, which runs over the dev
+gateway port-forward; see "Running the last acceptance step over a forward" at the end. Nothing
+here is marked SHIPPED until it runs
 
 > **Open work required before SHIPPED:** [BOOTSTRAP-GAPS.md](../../../../mcp-source-link/BOOTSTRAP-GAPS.md)
 > records recovery, revocation and dev-routing defects. Its B2 supersedes the exclusion of login
@@ -441,20 +442,17 @@ asserts that.
 4. The pending source stayed absent from `GET /v1/mcp/server`. Approval isolation held: being
    enrolled, with a worker registered, did not put the source in the registry.
 
-### The step dev cannot currently serve
+### Running the last acceptance step over a forward
 
-Steps 5 of the acceptance (an approved real read through the public gateway) and reaching
-`active`/`healthy` were not run. Reaching admitted/healthy needs the gRPC tunnel to the broker,
-and the public host `litellm.ecouncil.ae` routes `/grpctunnel.v1.TunnelService/` to the **dev**
-broker but routes `/mcp-sources` to **prod**, which has no such route (404). So there is no single
-public host that serves both the REST bootstrap and the tunnel for dev. A local TLS relay cannot
-substitute for it: the tunnel needs HTTP/2, and a simple terminating proxy cannot carry gRPC.
-
-This is a deployment gap, not a code gap. It is recorded here rather than worked around by
-editing prod. The fix is either an ingress rule on the public host routing `/mcp-sources` and the
-other broker REST routes to the dev gateway (mirroring the existing tunnel-path rule), or running
-the acceptance against a host that reaches the dev gateway directly. Until one of those exists,
-the "approved real read" half of acceptance is blocked, and nothing here is marked SHIPPED.
+Step 5 (an approved real read) and reaching `active`/`healthy` were not run in that
+sitting. They are not blocked. REST rides the dev gateway forward
+(`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`), and the
+tunnel path is already served for dev by the public host's
+`/grpctunnel.v1.TunnelService/` rule. The forward exists precisely because the dev
+gateway has no ingress: `/mcp-sources` over the public host lands on prod, so REST goes
+to the forward while the tunnel may use the public host. Running the last step means
+restarting that forward and repeating the approved read against it. Nothing here is
+marked SHIPPED until it runs.
 
 ### Re-enrollment
 
