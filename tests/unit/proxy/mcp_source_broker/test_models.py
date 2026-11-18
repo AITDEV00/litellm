@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from litellm.proxy.mcp_source_broker.models import SourceCreate, Target
 
+
 def test_alias_rejects_the_tool_name_separator() -> None:
     """The alias becomes the MCP server name, which prefixes every tool name.
 
