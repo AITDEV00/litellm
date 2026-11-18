@@ -43,10 +43,24 @@ class RemoteWorkerRow(BaseModel):
 REMOTE_WORKERS: Final = TypeAdapter(tuple[RemoteWorkerRow, ...])
 
 
+def _report_proves_health(kind: str, fingerprint: str | None, expected: str) -> bool:
+    """A health report proves a worker healthy when it is consistent with its kind.
+
+    An OpenAPI source must return the catalog digest that matches the pinned
+    expected fingerprint, so a wrong or absent digest keeps it unhealthy. An MCP
+    source publishes no OpenAPI catalog, so its report carries no fingerprint and
+    the reachability the report itself implies is the proof.
+    """
+    if kind == "mcp":
+        return fingerprint is None
+    return fingerprint is not None and hmac.compare_digest(fingerprint, expected)
+
+
 class RemotePeerProjection(BaseModel):
     model_config = ConfigDict(frozen=True)
     worker: RemoteWorkerRow
     expected: str
+    kind: str
 
     @field_validator("worker", mode="before")
     @classmethod
@@ -260,7 +274,7 @@ class RemoteStore:
         source: Final = None if worker is None else await self.sources.source(worker.source_id)
         if worker is None or source is None or worker.status != "active" or worker.generation != generation:
             return False
-        good: Final = fingerprint is not None and hmac.compare_digest(fingerprint, source.expected)
+        good: Final = _report_proves_health(source.kind, fingerprint, source.expected)
         async with self.db.tx(timeout=10000) as tx:
             await tx.execute_raw(
                 'UPDATE "OicmMcpRemoteWorker" SET healthy_at=CASE WHEN $1 THEN NOW() ELSE NULL END,'
@@ -287,7 +301,7 @@ class RemoteStore:
     async def peers(self) -> Sequence[RemoteGoPeer]:
         raw: Final = self._rows(
             await self.db.query_raw(
-                'SELECT row_to_json(w) AS worker,s.expected FROM "OicmMcpRemoteWorker" w '
+                'SELECT row_to_json(w) AS worker,s.expected,s.kind FROM "OicmMcpRemoteWorker" w '
                 'JOIN "OicmMcpSource" s ON s.source_id=w.source_id ORDER BY w.worker_id'
             )
         )
@@ -296,6 +310,7 @@ class RemoteStore:
                 {
                     "worker": row["worker"],
                     "expected": row["expected"],
+                    "kind": row["kind"],
                 }
             )
             for row in raw
@@ -316,6 +331,7 @@ class RemoteStore:
                 expected_catalog=projection.expected,
                 catalog_fingerprint=projection.worker.catalog_fingerprint,
                 healthy_at=projection.worker.healthy_at,
+                kind=projection.kind,  # pyright: ignore[reportArgumentType]  # stored value is the validated SourceKind literal
             )
             for projection in projections
             if projection.worker.redeemed_at is not None

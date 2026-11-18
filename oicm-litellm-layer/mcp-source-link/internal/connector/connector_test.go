@@ -1,8 +1,10 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"testing"
 
@@ -39,6 +41,73 @@ type originRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f originRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
+// An OpenAPI source must be probed at /openapi.json and its body carried back as
+// the catalog the broker fingerprints.
+func TestProbeFetchesOpenAPICatalog(t *testing.T) {
+	document := []byte(`{"openapi":"3.1.0"}`)
+	var seenPath string
+	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seenPath = req.URL.Path
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(bytes.NewReader(document)),
+		}, nil
+	}), "127.0.0.1", "openapi", "")
+	resp, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seenPath != "/openapi.json" {
+		t.Fatalf("probed %q, want /openapi.json", seenPath)
+	}
+	if !bytes.Equal(resp.CatalogJson, document) {
+		t.Fatalf("catalog = %q, want the origin document", resp.CatalogJson)
+	}
+}
+
+// An MCP source must never fetch /openapi.json: it serves JSON-RPC at its path,
+// so probing the OpenAPI document 404s and the source can never go healthy.
+func TestProbeMCPHitsMCPPathAndReturnsNoCatalog(t *testing.T) {
+	var seenPath string
+	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seenPath = req.URL.Path
+		return &http.Response{
+			StatusCode: http.StatusMethodNotAllowed,
+			Header:     http.Header{},
+			Body:       io.NopCloser(bytes.NewReader(nil)),
+		}, nil
+	}), "127.0.0.1", "mcp", "")
+	resp, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seenPath == "/openapi.json" {
+		t.Fatal("MCP source was probed at /openapi.json")
+	}
+	if seenPath != "/mcp" {
+		t.Fatalf("probed %q, want /mcp", seenPath)
+	}
+	if len(resp.CatalogJson) != 0 {
+		t.Fatalf("MCP probe returned a catalog (%q), want none", resp.CatalogJson)
+	}
+}
+
+// An MCP origin that answers 5xx is down, so the probe must fail rather than
+// mark the source healthy.
+func TestProbeMCPFailsOnServerError(t *testing.T) {
+	server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     http.Header{},
+			Body:       io.NopCloser(bytes.NewReader(nil)),
+		}, nil
+	}), "127.0.0.1", "mcp", "")
+	if _, err := server.Probe(context.Background(), &dispatchpb.ProbeRequest{Nonce: "n"}); err == nil {
+		t.Fatal("5xx origin was reported healthy")
+	}
+}
+
 // A cancelled caller must reach the origin transport, otherwise a cancelled
 // gateway request would keep occupying a connector.
 func TestExecuteCancellationReachesOriginTransport(t *testing.T) {
@@ -46,7 +115,7 @@ func TestExecuteCancellationReachesOriginTransport(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
 		return nil, req.Context().Err()
-	}), "127.0.0.1")
+	}), "127.0.0.1", "openapi", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := server.Execute(ctx, &dispatchpb.DispatchRequest{Method: http.MethodGet, Path: "/read"}); !errors.Is(err, context.Canceled) {
@@ -60,7 +129,7 @@ func TestExecuteCancellationReachesOriginTransport(t *testing.T) {
 // Admit must report the capabilities this build implements, because the broker
 // gates pushed RPCs on that set.
 func TestAdmitReportsImplementedCapabilities(t *testing.T) {
-	server := NewServer(http.DefaultTransport, "127.0.0.1")
+	server := NewServer(http.DefaultTransport, "127.0.0.1", "openapi", "")
 	resp, err := server.Admit(context.Background(), &dispatchpb.AdmitRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +154,7 @@ func TestExecuteRejectsOversizeBody(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		called = true
 		return nil, errors.New("should not be called")
-	}), "127.0.0.1")
+	}), "127.0.0.1", "openapi", "")
 	oversize := make([]byte, 4<<20)
 	if _, err := server.Execute(context.Background(), &dispatchpb.DispatchRequest{Method: http.MethodPost, Path: "/read", Body: oversize}); err == nil {
 		t.Fatal("oversize body was accepted")

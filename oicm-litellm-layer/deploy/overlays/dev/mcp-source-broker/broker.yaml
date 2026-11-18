@@ -35,7 +35,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: broker
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5-dev1
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5-dev3
           imagePullPolicy: Always
           command: ["python", "-m", "litellm.proxy.mcp_source_broker.main"]
           env:

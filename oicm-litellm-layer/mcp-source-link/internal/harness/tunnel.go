@@ -138,7 +138,7 @@ func RunTunnelConnector(ctx context.Context, t *testing.T, target string, p conf
 		}
 		t.Cleanup(origin.CloseIdleConnections)
 	}
-	server := connector.NewServer(origin, authorityOf(t, p.Target))
+	server := connector.NewServer(origin, authorityOf(t, p.Target), p.Kind, "")
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
 	dispatchpb.RegisterDispatchServiceServer(tunnelServer, server)
 	sessionCtx := metadata.AppendToOutgoingContext(ctx,

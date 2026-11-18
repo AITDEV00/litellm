@@ -73,6 +73,8 @@ type Server struct {
 	dispatchpb.UnimplementedDispatchServiceServer
 	origin          http.RoundTripper
 	authority       string
+	kind            string
+	path            string
 	roundTripErrors atomic.Uint64
 	readErrors      atomic.Uint64
 }
@@ -82,9 +84,11 @@ type Server struct {
 // authority is the Host header the origin should receive. It is the target's own
 // host (an IP literal, or a Kubernetes service DNS name), so an origin behind a
 // service router sees the name it is deployed under rather than an unrelated
-// placeholder.
-func NewServer(origin http.RoundTripper, authority string) *Server {
-	return &Server{origin: origin, authority: authority}
+// placeholder. kind and path identify what the origin serves: an OpenAPI source
+// exposes its spec at /openapi.json, while an MCP source serves JSON-RPC at its
+// configured path.
+func NewServer(origin http.RoundTripper, authority, kind, path string) *Server {
+	return &Server{origin: origin, authority: authority, kind: kind, path: path}
 }
 
 // Admit answers the capability handshake.
@@ -92,23 +96,33 @@ func (d *Server) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatch
 	return &dispatchpb.AdmitResponse{Capabilities: Capabilities}, nil
 }
 
-// Probe answers a catalog probe by fetching the origin's OpenAPI document.
+// Probe answers a catalog probe. For an OpenAPI source it fetches the origin's
+// /openapi.json and returns the document for the broker to fingerprint. For an
+// MCP source there is no OpenAPI document: the probe reaches the MCP endpoint to
+// confirm the origin is up, and returns an empty catalog so the broker records
+// health without a fingerprint.
 //
 // The nonce is echoed to the origin for an origin that still signs, but a missing
 // signature is no longer an error: an unsigned catalog is the norm for a local
 // source. The broker records the catalog digest as the fingerprint either way.
 func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*dispatchpb.ProbeResponse, error) {
-	target := url.URL{Scheme: "http", Host: d.authority, Path: "/openapi.json"}
+	target := url.URL{Scheme: "http", Host: d.authority, Path: d.probePath()}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("X-Source-Nonce", req.Nonce)
+	if d.kind == "mcp" {
+		httpReq.Header.Set("Accept", "application/json, text/event-stream")
+	}
 	resp, err := d.origin.RoundTrip(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if d.kind == "mcp" {
+		return d.mcpProbe(resp)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("origin catalog probe failed: %d", resp.StatusCode)
 	}
@@ -119,10 +133,29 @@ func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*disp
 	if len(contents) > tunnel.MaxCatalog {
 		return nil, errors.New("origin catalog exceeds the dispatch body limit")
 	}
-	// Absent signature is allowed; a present one is carried through for the
-	// broker's optional check.
 	signature, _ := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
 	return &dispatchpb.ProbeResponse{CatalogJson: contents, ProofSignature: signature}, nil
+}
+
+// probePath is the origin path the probe dials for this source's kind.
+func (d *Server) probePath() string {
+	if d.kind == "mcp" {
+		if d.path != "" {
+			return d.path
+		}
+		return "/mcp"
+	}
+	return "/openapi.json"
+}
+
+// mcpProbe treats any answer below 500 as reachable: an MCP server may reject a
+// plain GET with 400/405 and still be healthy, since it only speaks JSON-RPC.
+// A 5xx or a transport error means the origin is not serving.
+func (d *Server) mcpProbe(resp *http.Response) (*dispatchpb.ProbeResponse, error) {
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return nil, fmt.Errorf("origin mcp probe failed: %d", resp.StatusCode)
+	}
+	return &dispatchpb.ProbeResponse{}, nil
 }
 
 // Execute runs one dispatched request against the origin.
@@ -176,7 +209,7 @@ func RunTunnel(
 		return err
 	}
 	creds := credentials.NewTLS(tlsConfig)
-	server := NewServer(origin, authority)
+	server := NewServer(origin, authority, cfg.Kind, cfg.Path)
 	delay := 300 * time.Millisecond
 	for ctx.Err() == nil {
 		started := time.Now()

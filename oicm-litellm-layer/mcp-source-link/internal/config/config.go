@@ -42,7 +42,13 @@ type Peer struct {
 	CredentialDigest   string  `json:"credential_digest"`
 	ExpectedCatalog    string  `json:"expected_catalog"`
 	CatalogFingerprint *string `json:"catalog_fingerprint"`
+	Kind               string  `json:"kind"`
 }
+
+// IsMCP reports whether the peer serves an MCP endpoint rather than an OpenAPI
+// document. MCP sources publish no OpenAPI catalog, so the probe must not fetch
+// one for them.
+func (p Peer) IsMCP() bool { return p.Kind == "mcp" }
 
 // HealthReport is the probe outcome posted back to the control plane.
 type HealthReport struct {
@@ -58,6 +64,8 @@ type ConnectorConfig struct {
 	Target     string `json:"target"`
 	Generation uint64 `json:"generation"`
 	Credential string `json:"credential"`
+	Kind       string `json:"kind"`
+	Path       string `json:"path"`
 }
 
 // Environment returns a trimmed environment value, treating blank as unset.

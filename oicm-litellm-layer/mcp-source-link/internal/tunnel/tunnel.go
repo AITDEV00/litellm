@@ -182,22 +182,33 @@ func (m *Member) RoundTrip(req *http.Request) (*http.Response, error) {
 // probe pushes one Probe RPC down the tunnel and verifies the returned
 // catalog proof. The nonce is generated here, so a captured response cannot
 // be replayed for a later probe.
-func (m *Member) probe(worker config.Peer) (string, error) {
+//
+// An MCP peer serves no OpenAPI catalog, so its probe only confirms the origin
+// is reachable and yields a nil fingerprint. The broker records the peer as
+// healthy without a catalog digest.
+func (m *Member) probe(worker config.Peer) (*string, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
-		return "", err
+		return nil, err
 	}
 	nonceText := base64.RawURLEncoding.EncodeToString(nonce)
 	ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
 	defer cancel()
 	resp, err := m.stub.Probe(ctx, &dispatchpb.ProbeRequest{Nonce: nonceText})
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if worker.IsMCP() {
+		return nil, nil
 	}
 	if len(resp.CatalogJson) > MaxCatalog {
-		return "", errors.New("probe catalog exceeds the size limit")
+		return nil, errors.New("probe catalog exceeds the size limit")
 	}
-	return catalog.Verify(worker, nonceText, resp.CatalogJson, resp.ProofSignature)
+	fingerprint, err := catalog.Verify(worker, nonceText, resp.CatalogJson, resp.ProofSignature)
+	if err != nil {
+		return nil, err
+	}
+	return &fingerprint, nil
 }
 
 // ErrClosed reports that the tunnel ended before the call completed.
@@ -354,8 +365,8 @@ func (tr *Runtime) probeLoop(m *Member) {
 			continue
 		}
 		report := config.HealthReport{WorkerID: m.ID(), Generation: m.generation}
-		if fingerprint == worker.ExpectedCatalog {
-			report.CatalogFingerprint = &fingerprint
+		if fingerprint != nil && *fingerprint == worker.ExpectedCatalog {
+			report.CatalogFingerprint = fingerprint
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		admitted, err := tr.pool.State().Report(ctx, report)

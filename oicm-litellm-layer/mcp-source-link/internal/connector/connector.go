@@ -58,6 +58,8 @@ func Run(ctx context.Context, source state.Source, gateway string) error {
 		Target:     source.Target,
 		Generation: source.Generation,
 		Credential: source.Credential,
+		Kind:       source.Kind,
+		Path:       source.Path,
 	}
 	return RunTunnel(ctx, identity, gateway, tlsConfig, transport, origin.Authority())
 }

@@ -253,6 +253,7 @@ class RemoteGoPeer(Frozen):
     expected_catalog: str
     catalog_fingerprint: str | None
     healthy_at: datetime | None
+    kind: SourceKind = "openapi"
 
 
 class RemoteHealthReport(Frozen):

@@ -95,7 +95,7 @@ class RemoteMemoryDatabase:
                 source = next((s for s in self.sources if s.source_id == worker.source_id), None)
                 if source is None:
                     continue
-                rows.append({"worker": worker.model_dump(), "expected": source.expected})
+                rows.append({"worker": worker.model_dump(), "expected": source.expected, "kind": source.kind})
             return rows
         if "SELECT worker_id FROM" in sql:
             return [{"worker_id": w.worker_id} for w in self.workers if w.source_id == args[0] and w.label == args[1]]
@@ -148,7 +148,7 @@ class RemoteMemoryDatabase:
                     worker.model_copy(
                         update={
                             "healthy_at": self.now if good else None,
-                            "catalog_fingerprint": str(args[1]) if good else None,
+                            "catalog_fingerprint": (None if args[1] is None else str(args[1])) if good else None,
                         }
                     ),
                 )
@@ -278,6 +278,24 @@ async def test_report_admits_only_matching_catalog() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_report_without_a_catalog_marks_the_source_healthy() -> None:
+    """An MCP source has no OpenAPI catalog, so its health report carries no
+    fingerprint. A successful report on the right generation must still make it
+    healthy, otherwise an MCP source can never leave the unhealthy state."""
+    broker: Final = make_broker()
+    broker.db.sources[0] = broker.db.sources[0].model_copy(update={"kind": "mcp"})  # mutable-ok: test fake row list
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+    admitted: Final = await broker.store.report(created.worker_id, 1, None)
+    assert admitted, "a reachable MCP source must be admitted without a catalog"
+    assert broker.db.sources[0].status == "active"
+    assert broker.worker.healthy_at is not None
+    assert broker.worker.catalog_fingerprint is None
+    stale: Final = await broker.store.report(created.worker_id, 2, None)
+    assert not stale, "stale generation must still be rejected for an MCP source"
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_drain_keeps_generation_and_recover_rotates_it() -> None:
     broker: Final = make_broker()
     created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
@@ -318,6 +336,20 @@ async def test_peers_publish_plain_sha256_digest_matching_go_contract() -> None:
     assert listed[0].credential_digest == hashlib.sha256(credential.encode()).hexdigest()
     assert listed[0].phase == "active"
     assert listed[0].expected_catalog == "f" * 64
+
+
+@pytest.mark.asyncio
+async def test_peers_carry_source_kind_so_the_sidecar_skips_the_catalog_probe() -> None:
+    """An MCP source has no OpenAPI catalog. The peer must publish kind so the
+    sidecar probes its MCP endpoint instead of /openapi.json, which 404s."""
+    broker: Final = make_broker()
+    mcp_source: Final = broker.db.sources[0].model_copy(update={"kind": "mcp"})
+    broker.db.sources[0] = mcp_source  # mutable-ok: test fake row list
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+    listed: Final = await broker.store.peers()
+    assert len(listed) == 1
+    assert listed[0].kind == "mcp"
 
 
 @pytest.mark.asyncio

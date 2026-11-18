@@ -1,6 +1,6 @@
-// Package catalog owns origin catalog validation: fetching a source's OpenAPI
-// document, canonicalizing it, and computing the digest the broker records as the
-// catalog fingerprint.
+// Package catalog owns origin catalog validation: canonicalizing a source's
+// OpenAPI document and computing the digest the broker records as the catalog
+// fingerprint.
 //
 // The old contract also required the origin to return an Ed25519 signature over a
 // nonce, source id, dataset id and digest. That is removed from this product path:
@@ -13,20 +13,15 @@
 package catalog
 
 import (
-	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
 	"strings"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
-	"oicm-litellm-layer/mcp-source-link/internal/wire"
 )
 
 // Canonical returns the hex SHA-256 of a catalog after confirming it parses as
@@ -79,34 +74,4 @@ func Verify(worker config.Peer, nonceText string, contents []byte, signature []b
 		return "", errors.New("origin proof signature mismatch")
 	}
 	return actual, nil
-}
-
-// Fetch runs one catalog probe over transport and returns the verified digest.
-func Fetch(ctx context.Context, transport http.RoundTripper, worker config.Peer) (string, error) {
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	nonceText := base64.RawURLEncoding.EncodeToString(nonce)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+config.Slot(worker.SourceID)+"/openapi.json", nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("X-Source-Nonce", nonceText)
-	resp, err := transport.RoundTrip(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	contents, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxCatalogBody+1))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return "", errors.New("source catalog probe failed")
-	}
-	if len(contents) > wire.MaxCatalogBody {
-		return "", errors.New("source catalog exceeds the size limit")
-	}
-	// A signature is optional now; an absent header is not an error. A malformed
-	// one is passed through so Verify reports it rather than being ignored here.
-	signature, _ := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
-	return Verify(worker, nonceText, contents, signature)
 }
