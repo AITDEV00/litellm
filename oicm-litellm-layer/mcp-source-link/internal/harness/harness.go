@@ -32,8 +32,8 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/catalog"
 	"oicm-litellm-layer/mcp-source-link/internal/config"
 	"oicm-litellm-layer/mcp-source-link/internal/control"
+	"oicm-litellm-layer/mcp-source-link/internal/listen"
 	"oicm-litellm-layer/mcp-source-link/internal/pool"
-	"oicm-litellm-layer/mcp-source-link/internal/reverseh2"
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
@@ -54,7 +54,6 @@ type Fixture struct {
 	Control    *control.Client
 	Runtime    *pool.Runtime
 	Tunnels    *tunnel.Runtime
-	Reverse    *reverseh2.Plane
 	DataURL    string
 	dataServer *http.Server
 	lock       sync.Mutex
@@ -132,14 +131,13 @@ func New(t *testing.T) *Fixture {
 	f.Control = client
 	f.Runtime = pool.New(client)
 	f.Tunnels = tunnel.New(f.Runtime)
-	f.Reverse = reverseh2.New(f.Runtime)
 
 	dataMux := http.NewServeMux()
 	dataMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	dataMux.HandleFunc("/sources/{source}/{path...}", f.Runtime.Forward)
 	dataMux.HandleFunc("POST /v1/source-link/revoke", f.Runtime.RevokeHTTP)
 	dataServer := &http.Server{Handler: dataMux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second,
-		MaxHeaderBytes: 32 << 10, HTTP2: reverseh2.HTTP2Config(), Protocols: reverseh2.DataProtocols()}
+		MaxHeaderBytes: 32 << 10, HTTP2: listen.HTTP2Config(), Protocols: listen.Data()}
 	dataListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

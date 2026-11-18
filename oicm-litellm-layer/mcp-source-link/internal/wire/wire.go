@@ -31,13 +31,9 @@ const (
 	// transport.
 	MaxCatalogBody = 600000
 
-	// MaxBody bounds one serialized dispatch envelope on the wire.
-	MaxBody = 1 << 20
-
-	// MaxOriginBody bounds the request or origin-response payload carried
-	// inside an envelope. The envelope base64-inflates the payload by 4/3
-	// and adds the id, status, and header fields, so this cap keeps the
-	// whole envelope under MaxBody.
+	// MaxOriginBody bounds the request or origin-response payload the tunnel
+	// carries. The tunnel sends protobuf bytes verbatim, so this is the only
+	// cap on a single payload.
 	MaxOriginBody = 760 << 10
 )
 

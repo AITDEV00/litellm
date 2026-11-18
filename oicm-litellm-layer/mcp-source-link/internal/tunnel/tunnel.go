@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	// ProbeTimeout bounds one Probe RPC, matching the reverse-h2 probe.
+	// ProbeTimeout bounds one Probe RPC.
 	ProbeTimeout = 2 * time.Second
 	// AdmitTimeout bounds the capability handshake pushed down a fresh tunnel.
 	AdmitTimeout = 10 * time.Second
@@ -49,8 +49,8 @@ const (
 	probePollCadence = 2 * time.Second
 )
 
-// ResponseDeadline is the per-Execute deadline. It is the same value the
-// reverse-h2 plane uses, taken from wire so the two cannot drift.
+// ResponseDeadline is the per-Execute deadline, taken from wire so the probe
+// and dispatch paths cannot drift.
 var ResponseDeadline = wire.ResponseDeadline
 
 // Member is one live connector tunnel: a grpctunnel channel plus the
@@ -114,7 +114,7 @@ func (m *Member) Fenced(worker config.Peer, exists bool) bool {
 }
 
 // Close implements pool.Member. It ends the tunnel and cancels in-flight
-// Execute RPCs, which is the same effect as closing a reverse-h2 session.
+// Execute RPCs.
 func (m *Member) Close() {
 	m.markClosed()
 	m.channel.Close()
@@ -396,14 +396,15 @@ func firstMetadata(md metadata.MD, key string) string {
 	return values[0]
 }
 
-// HTTPHandler multiplexes gRPC-over-h2c with the reverse-h2 routes on one
-// listener: tunnel RPCs to the gRPC server, everything else to the fallback.
-func HTTPHandler(grpcServer *grpc.Server, fallback http.Handler) http.Handler {
+// HTTPHandler serves gRPC-over-h2c on the reverse listener. Anything that is
+// not a gRPC request is rejected: the tunnel is the only thing this listener
+// speaks.
+func HTTPHandler(grpcServer *grpc.Server) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.ProtoMajor == 2 && strings.HasPrefix(req.Header.Get("Content-Type"), "application/grpc") {
 			grpcServer.ServeHTTP(w, req)
 			return
 		}
-		fallback.ServeHTTP(w, req)
+		http.Error(w, "this listener serves gRPC only", http.StatusNotFound)
 	})
 }

@@ -1,15 +1,12 @@
 package wire
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"testing"
 	"time"
 )
 
-// The catalog cap is enforced by both the reverse-h2 HTTP probe and the tunnel
-// Probe RPC. It lives here so the two cannot drift; this pins the value both
-// planes read.
+// The catalog cap is enforced by the tunnel's HTTP probe read and its Probe
+// RPC. It lives here so the two call sites cannot drift.
 func TestCatalogCapIsSingleSourced(t *testing.T) {
 	if MaxCatalogBody <= 0 {
 		t.Fatalf("catalog cap is not usable: %d", MaxCatalogBody)
@@ -28,30 +25,7 @@ func TestResponseDeadlineIsPositive(t *testing.T) {
 		t.Fatalf("dispatch deadline is not positive: %s", ResponseDeadline)
 	}
 	if ResponseDeadline != 90*time.Second {
-		t.Fatalf("dispatch deadline changed to %s; both planes inherit it, so update the docs too", ResponseDeadline)
-	}
-}
-
-// A maximum-size origin payload must still fit one envelope after base64
-// inflation and header overhead. This is the invariant the two caps exist for.
-func TestMaxOriginBodyFitsInsideMaxBody(t *testing.T) {
-	payload := make([]byte, MaxOriginBody)
-	for i := range payload {
-		payload[i] = 0x78
-	}
-	envelope := DispatchResponse{
-		ID:      "i",
-		Status:  200,
-		Headers: map[string][]string{"Content-Type": {"application/json"}},
-		Body:    payload,
-	}
-	encoded, err := json.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(encoded) > MaxBody {
-		t.Fatalf("envelope %d exceeds wire limit %d: base64 of %d is %d",
-			len(encoded), MaxBody, MaxOriginBody, len(base64.StdEncoding.EncodeToString(payload)))
+		t.Fatalf("dispatch deadline changed to %s; update the docs too", ResponseDeadline)
 	}
 }
 

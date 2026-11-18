@@ -71,13 +71,12 @@ func TestLoadRequiresControlURLTokenAndListeners(t *testing.T) {
 	t.Setenv("MCP_SOURCE_BROKER_SERVICE_TOKEN", "0123456789abcdef0123456789abcdef")
 	t.Setenv("MCP_SOURCE_LINK_DATA_LISTEN", "0.0.0.0:9092")
 	t.Setenv("MCP_SOURCE_LINK_REVERSE_LISTEN", "0.0.0.0:8093")
-	t.Setenv("MCP_SOURCE_LINK_TRANSPORT", TransportReverseH2)
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("valid environment rejected: %v", err)
 	}
-	if cfg.DataListen != "0.0.0.0:9092" || cfg.Transport != TransportReverseH2 {
+	if cfg.DataListen != "0.0.0.0:9092" || cfg.ReverseListen != "0.0.0.0:8093" {
 		t.Fatalf("fields not loaded: %+v", cfg)
 	}
 
@@ -92,10 +91,13 @@ func TestLoadRequiresControlURLTokenAndListeners(t *testing.T) {
 		t.Fatal("accepted a non-numeric listener address")
 	}
 
+	// The worker runs one data plane, so an unrecognized transport variable must
+	// be ignored rather than rejected: it is connector-only and a stale value on
+	// a worker host must not stop the sidecar from booting.
 	t.Setenv("MCP_SOURCE_LINK_DATA_LISTEN", "0.0.0.0:9092")
 	t.Setenv("MCP_SOURCE_LINK_TRANSPORT", "carrier-pigeon")
-	if _, err := Load(); err == nil {
-		t.Fatal("accepted an unknown transport")
+	if _, err := Load(); err != nil {
+		t.Fatalf("worker rejected a transport variable it no longer reads: %v", err)
 	}
 }
 

@@ -18,19 +18,12 @@ import (
 	"time"
 )
 
-// Transport names accepted by MCP_SOURCE_LINK_TRANSPORT.
-const (
-	TransportReverseH2 = "reverse-h2"
-	TransportTunnel    = "tunnel"
-)
-
 // Config is the worker's process configuration.
 type Config struct {
 	ControlURL    string
 	ServiceToken  string
 	DataListen    string
 	ReverseListen string
-	Transport     string
 	CAFile        string
 }
 
@@ -77,17 +70,13 @@ func Load() (Config, error) {
 		ServiceToken:  Environment("MCP_SOURCE_BROKER_SERVICE_TOKEN"),
 		DataListen:    Environment("MCP_SOURCE_LINK_DATA_LISTEN"),
 		ReverseListen: Environment("MCP_SOURCE_LINK_REVERSE_LISTEN"),
-		Transport:     Environment("MCP_SOURCE_LINK_TRANSPORT"),
 		CAFile:        Environment("MCP_SOURCE_LINK_CA_FILE"),
 	}
 	if cfg.ControlURL == "" || len(cfg.ServiceToken) < 32 {
 		return cfg, errors.New("control URL and service token are required")
 	}
-	if cfg.Transport != "" && cfg.Transport != TransportReverseH2 {
-		return cfg, errors.New("transport must be reverse-h2")
-	}
 	if cfg.ReverseListen == "" {
-		return cfg, errors.New("reverse-h2 transport requires a reverse listener address")
+		return cfg, errors.New("a tunnel listener address is required")
 	}
 	for _, address := range []string{cfg.DataListen, cfg.ReverseListen} {
 		host, port, err := net.SplitHostPort(address)

@@ -1,5 +1,5 @@
 // Command mcp-source-link is the MCP source broker's sidecar. In worker mode
-// it serves the dispatch planes beside the Python control app; in connector
+// it serves the tunnel data plane beside the Python control app; in connector
 // mode it runs on a source host and dials out. Both modes are the same binary.
 //
 // This file is wiring only. Behavior lives in the internal slices:
@@ -8,16 +8,15 @@
 //	control     peer state, health reports, credential comparison
 //	pool        which connector serves a request
 //	catalog     catalog proof and verification
-//	reverseh2   the long-poll data plane
+//	listen      protocol and sizing choices for the two listeners
 //	tunnel      the grpctunnel data plane
-//	connector   the source-host side of both planes
+//	connector   the source-host side
 //	wire        envelope types and shared size limits
 package main
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -29,8 +28,8 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/config"
 	"oicm-litellm-layer/mcp-source-link/internal/connector"
 	"oicm-litellm-layer/mcp-source-link/internal/control"
+	"oicm-litellm-layer/mcp-source-link/internal/listen"
 	"oicm-litellm-layer/mcp-source-link/internal/pool"
-	"oicm-litellm-layer/mcp-source-link/internal/reverseh2"
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
@@ -46,10 +45,6 @@ func main() {
 func run(mode string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	transport := config.Environment("MCP_SOURCE_LINK_TRANSPORT")
-	if transport != "" && transport != config.TransportReverseH2 && transport != config.TransportTunnel {
-		return fmt.Errorf("unsupported transport %q; reverse-h2 and tunnel are the available transports", transport)
-	}
 	if mode == "connector" {
 		cfg, err := config.ReadConnector(config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"))
 		if err != nil {
@@ -76,22 +71,20 @@ func runWorker(ctx context.Context, stop context.CancelFunc) error {
 	}
 	sessions := pool.New(state)
 	tunnels := tunnel.New(sessions)
-	reverse := reverseh2.New(sessions)
 
 	data := http.NewServeMux()
 	data.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	data.HandleFunc("POST /v1/source-link/revoke", sessions.RevokeHTTP)
 	data.HandleFunc("/sources/{source}/{path...}", sessions.Forward)
 
-	reverseServer := reverseh2.Server()
-	reverseServer.Addr = cfg.ReverseListen
-	reverseServer.Handler = tunnel.HTTPHandler(tunnels.GRPCServer(), reverse.Routes())
-	reverseServer.Protocols = reverseh2.H2CProtocols()
+	reverse := listen.Server()
+	reverse.Addr = cfg.ReverseListen
+	reverse.Handler = tunnel.HTTPHandler(tunnels.GRPCServer())
 
 	servers := []*http.Server{
 		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second,
-			MaxHeaderBytes: 32 << 10, HTTP2: reverseh2.HTTP2Config(), Protocols: reverseh2.DataProtocols()},
-		reverseServer,
+			MaxHeaderBytes: 32 << 10, HTTP2: listen.HTTP2Config(), Protocols: listen.Data()},
+		reverse,
 	}
 	for _, server := range servers {
 		listener, err := net.Listen("tcp", server.Addr)
@@ -106,11 +99,10 @@ func runWorker(ctx context.Context, stop context.CancelFunc) error {
 		}(server)
 	}
 	go reconcileLoop(ctx, state, sessions)
-	log.Printf("reverse-h2 worker; private dispatch on %s; reverse ingress on %s", cfg.DataListen, cfg.ReverseListen)
+	log.Printf("tunnel worker; private dispatch on %s; tunnel ingress on %s", cfg.DataListen, cfg.ReverseListen)
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	sessions.CloseAllSessions()
 	tunnels.CloseAll()
 	for _, server := range servers {
 		_ = server.Shutdown(shutdown)
@@ -118,8 +110,8 @@ func runWorker(ctx context.Context, stop context.CancelFunc) error {
 	return nil
 }
 
-// reconcileLoop refreshes peer state and closes any session the control plane
-// has moved past.
+// reconcileLoop refreshes peer state and drops any tunnel the control plane has
+// moved past.
 func reconcileLoop(ctx context.Context, state *control.Client, sessions *pool.Runtime) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()

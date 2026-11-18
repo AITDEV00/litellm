@@ -9,44 +9,45 @@ import (
 	"google.golang.org/grpc"
 )
 
-// The reverse listener multiplexes gRPC-over-h2c with the long-poll routes, so
-// a gRPC request must reach the gRPC server and everything else must fall
-// through. Getting this wrong silently breaks one of the two planes.
-func TestHTTPHandlerRoutesGRPCAndFallbackSeparately(t *testing.T) {
-	var fallbackHits int
-	fallback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fallbackHits++
-		w.WriteHeader(http.StatusTeapot)
-	})
-	handler := HTTPHandler(grpc.NewServer(), fallback)
+// The reverse listener serves the tunnel and nothing else. A non-gRPC request
+// must be refused rather than handed to some other handler, because there is no
+// other plane behind this listener any more.
+func TestHTTPHandlerServesGRPCAndRefusesEverythingElse(t *testing.T) {
+	handler := HTTPHandler(grpc.NewServer())
 
-	// A normal HTTP/1.1 request must reach the fallback mux.
-	plain := httptest.NewRequest(http.MethodGet, "/mcp-source-link-reverse", nil)
-	plainRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(plainRecorder, plain)
-	if plainRecorder.Code != http.StatusTeapot || fallbackHits != 1 {
-		t.Fatalf("HTTP/1.1 request did not reach the fallback: status=%d hits=%d", plainRecorder.Code, fallbackHits)
+	for _, testCase := range []struct {
+		name        string
+		protoMajor  int
+		contentType string
+		path        string
+	}{
+		{"long-poll route", 1, "application/json", "/mcp-source-link-reverse"},
+		{"h2c non-gRPC", 2, "application/json", "/mcp-source-link-hold"},
+		{"plain GET", 1, "", "/readyz"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, testCase.path, nil)
+			req.ProtoMajor = testCase.protoMajor
+			if testCase.contentType != "" {
+				req.Header.Set("Content-Type", testCase.contentType)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("non-gRPC request got %d, want %d", recorder.Code, http.StatusNotFound)
+			}
+		})
 	}
 
-	// A gRPC-shaped request over HTTP/2 must not reach the fallback. An empty
-	// gRPC body is rejected by the server, which is fine; routing is the point.
-	grpcRequest := httptest.NewRequest(http.MethodPost, "/TunnelService/OpenReverseTunnel", nil)
-	grpcRequest.ProtoMajor, grpcRequest.ProtoMinor = 2, 0
-	grpcRequest.Header.Set("Content-Type", "application/grpc")
-	handler.ServeHTTP(httptest.NewRecorder(), grpcRequest)
-	if fallbackHits != 1 {
-		t.Fatalf("a gRPC-shaped request reached the fallback mux: hits=%d", fallbackHits)
-	}
-
-	// HTTP/2 without the gRPC content type must still fall through, so the
-	// long-poll plane keeps working over h2c.
-	muxRequest := httptest.NewRequest(http.MethodPost, "/mcp-source-link-hold", nil)
-	muxRequest.ProtoMajor, muxRequest.ProtoMinor = 2, 0
-	muxRequest.Header.Set("Content-Type", "application/json")
-	muxRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(muxRecorder, muxRequest)
-	if fallbackHits != 2 || muxRecorder.Code != http.StatusTeapot {
-		t.Fatalf("h2c non-gRPC request did not reach the fallback: status=%d hits=%d", muxRecorder.Code, fallbackHits)
+	// A gRPC-shaped request over HTTP/2 must reach the gRPC server. An empty gRPC
+	// body is rejected by the server, which is fine; routing is the point.
+	req := httptest.NewRequest(http.MethodPost, "/TunnelService/OpenReverseTunnel", nil)
+	req.ProtoMajor, req.ProtoMinor = 2, 0
+	req.Header.Set("Content-Type", "application/grpc")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code == http.StatusNotFound {
+		t.Fatal("a gRPC request was refused by the tunnel listener")
 	}
 }
 

@@ -2,8 +2,8 @@
 // registry, the eligibility predicate every routing decision shares, and the
 // reverse proxy that carries a gateway request to the chosen member.
 //
-// Members are opaque here: the reverse-h2 and grpctunnel planes each supply
-// their own Member implementation, and pool never learns which one it has.
+// Members are opaque here: the grpctunnel plane supplies the only Member
+// implementation, and pool never learns how a member is built.
 package pool
 
 import (

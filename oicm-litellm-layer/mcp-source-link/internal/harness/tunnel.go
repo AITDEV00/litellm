@@ -18,18 +18,16 @@ import (
 	"oicm-litellm-layer/mcp-source-link/dispatchpb"
 	"oicm-litellm-layer/mcp-source-link/internal/config"
 	"oicm-litellm-layer/mcp-source-link/internal/connector"
-	"oicm-litellm-layer/mcp-source-link/internal/reverseh2"
+	"oicm-litellm-layer/mcp-source-link/internal/listen"
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
 // TunnelServer stands up the tunnel plane exactly as production wires it: one
-// h2c listener multiplexing the tunnel gRPC service beside the long-poll mux.
-// It returns the listener address.
+// h2c listener serving the tunnel gRPC service. It returns the listener address.
 func (f *Fixture) TunnelServer(t *testing.T) string {
 	t.Helper()
-	server := reverseh2.Server()
-	server.Handler = tunnel.HTTPHandler(f.Tunnels.GRPCServer(), http.NewServeMux())
-	server.Protocols = reverseh2.H2CProtocols()
+	server := listen.Server()
+	server.Handler = tunnel.HTTPHandler(f.Tunnels.GRPCServer())
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -81,8 +79,14 @@ func RunTunnelConnector(ctx context.Context, t *testing.T, target string, p conf
 	}
 }
 
-// ReadyTunnel is the tunnel equivalent of ReadyReverse.
+// ReadyTunnel reports whether a member is admitted and its catalog verified.
 func (f *Fixture) ReadyTunnel(t *testing.T, id string) bool {
 	t.Helper()
-	return f.ReadyReverse(t, id)
+	session := f.Runtime.Existing(id)
+	if session == nil || !session.Ready(SourceID) {
+		return false
+	}
+	f.RefreshPeers()
+	peer, ok := f.Control.Peer(id)
+	return ok && peer.CatalogFingerprint != nil && *peer.CatalogFingerprint == peer.ExpectedCatalog
 }

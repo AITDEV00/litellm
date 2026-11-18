@@ -82,7 +82,7 @@ func TestNewForTestIndexesPeersByWorkerID(t *testing.T) {
 // The digest comparison every plane authenticates through must reject near
 // misses, and must not be fooled by a prefix or an empty value.
 func TestSameSecretRejectsPrefixAndEmpty(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/mcp-source-link-reverse", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/control", nil)
 	req.Header.Set("Authorization", "Bearer "+strings.Repeat("0", 64))
 	if !SameSecret(DigestValue(strings.Repeat("0", 64)), Bearer(req)) {
 		t.Fatalf("digest contract changed: supplied-length=%d", len(Bearer(req)))
