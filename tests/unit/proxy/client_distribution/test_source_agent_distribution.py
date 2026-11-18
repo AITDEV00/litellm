@@ -183,6 +183,19 @@ def test_install_script_rejects_checksum_mismatch(app: FastAPI, tmp_path: Path) 
     assert not (tmp_path / "untrusted-home" / ".config/systemd/user/source-agent.service").exists()
 
 
+def test_installed_unit_has_no_transport_variable(app: FastAPI, tmp_path: Path) -> None:
+    """The connector has one transport, so the unit must not pin a variable that
+    no longer exists. A leftover MCP_SOURCE_LINK_TRANSPORT=reverse-h2 would be a
+    re-introduction of the deleted plane."""
+    client: Final = TestClient(app)
+    _publish(client, b"connector-binary")
+    script: Final = client.get("/install/source-agent").text
+    unit: Final = script.split("<<'UNIT'\n", 1)[1].split("\nUNIT\n", 1)[0]
+    assert "MCP_SOURCE_LINK_TRANSPORT" not in unit
+    assert "reverse-h2" not in unit
+    assert "ExecStart=$state/source-link connector" in unit
+
+
 def test_install_script_404_when_no_release(app: FastAPI) -> None:
     client: Final = TestClient(app)
     response: Final = client.get("/install/source-agent")

@@ -1,14 +1,16 @@
 """Source connector release distribution over RustFS.
 
-Extends the client-distribution slice for the MCP source broker's reverse-h2
-connector (the Go `source-link` binary): the broker operator publishes a
+Extends the client-distribution slice for the MCP source broker's connector
+(the Go `source-link` binary): the broker operator publishes a
 release pair (binary, release.json) through the admin API, and source hosts
 install through ``/install/source-agent`` with no secrets in any URL and no
 generated per-host scripts. The installer is a fixed script that downloads the
 versioned pair and verifies the SHA-256 checksum of the binary before anything
 executes. The installed user systemd unit runs `source-link connector` with the
 environment sourced from `~/.config/source-agent/connector.env`
-(MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG).
+(MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG). The connector
+has a single transport, so the unit sets no transport variable; the connector
+holds a team-scoped virtual key in that env file rather than a claim token.
 
 Reuse rules: connection parameters, bucket handling and key normalization all
 come from :mod:`litellm.proxy.client_distribution.storage`. Only the
@@ -187,12 +189,11 @@ actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
 chmod 500 "$state/source-link"
 cat > "$HOME/.config/systemd/user/source-agent.service" <<'UNIT'
 [Unit]
-Description=ADEO MCP source connector (reverse-h2)
+Description=ADEO MCP source connector (tunnel)
 
 [Service]
 Restart=always
 RestartSec=2s
-Environment=MCP_SOURCE_LINK_TRANSPORT=reverse-h2
 EnvironmentFile=-$HOME/.config/source-agent/connector.env
 ExecStart=$state/source-link connector
 NoNewPrivileges=yes
