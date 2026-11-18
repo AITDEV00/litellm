@@ -82,11 +82,12 @@ type Server struct {
 // NewServer builds a dispatch server over the given origin transport.
 //
 // authority is the Host header the origin should receive. It is the target's own
-// host (an IP literal, or a Kubernetes service DNS name), so an origin behind a
+// host:port (an IP literal, or a Kubernetes service DNS name), so an origin behind a
 // service router sees the name it is deployed under rather than an unrelated
-// placeholder. kind and path identify what the origin serves: an OpenAPI source
-// exposes its spec at /openapi.json, while an MCP source serves JSON-RPC at its
-// configured path.
+// placeholder, and an MCP origin that validates its Host header for DNS-rebinding
+// protection sees the port its allowlist expects. kind and path identify what the
+// origin serves: an OpenAPI source exposes its spec at /openapi.json, while an MCP
+// source serves JSON-RPC at its configured path.
 func NewServer(origin http.RoundTripper, authority, kind, path string) *Server {
 	return &Server{origin: origin, authority: authority, kind: kind, path: path}
 }

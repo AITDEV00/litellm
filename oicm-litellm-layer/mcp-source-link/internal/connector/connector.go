@@ -61,7 +61,7 @@ func Run(ctx context.Context, source state.Source, gateway string) error {
 		Kind:       source.Kind,
 		Path:       source.Path,
 	}
-	return RunTunnel(ctx, identity, gateway, tlsConfig, transport, origin.Authority())
+	return RunTunnel(ctx, identity, gateway, tlsConfig, transport, origin.String())
 }
 
 // RunAll serves every registered, enabled source concurrently until ctx ends.

@@ -60,30 +60,34 @@ func (r *Runtime) release(m Member) {
 	r.mu.Unlock()
 }
 
-// hasActive reports whether any member could serve a stream for this source.
-func (r *Runtime) hasActive(sourceID string) bool {
-	for _, session := range r.eligible(sourceID, "") {
-		return session != nil
-	}
-	return false
-}
-
 // Forward serves one gateway request from an eligible member.
+//
+// A stateful MCP source carries its session on one member's origin: the
+// Mcp-Session-Id a client echoes after initialize, or the SSE stream a
+// tools/call keeps open, is only meaningful on the member that opened it.
+// Routing either to a different member would hit an origin that never saw the
+// session, so they are served only when exactly one member can serve the
+// source. With a single member the destination is unambiguous; with several the
+// request is refused rather than silently mis-routed.
 func (r *Runtime) Forward(w http.ResponseWriter, req *http.Request) {
 	if !control.SameSecret(r.state.TokenDigest(), control.Bearer(req)) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	sourceID, path := req.PathValue("source"), "/"+req.PathValue("path")
-	if sourceID == "" || !CleanSourcePath(path) || req.Header.Get("Upgrade") != "" || req.Header.Get("Mcp-Session-Id") != "" || req.Method == http.MethodConnect {
+	if sourceID == "" || !CleanSourcePath(path) || req.Header.Get("Upgrade") != "" || req.Method == http.MethodConnect {
 		http.Error(w, "unsupported source request", http.StatusBadRequest)
 		return
 	}
-	if (req.Header.Get("Last-Event-Id") != "" || strings.Contains(strings.ToLower(req.Header.Get("Accept")), "text/event-stream")) && !r.hasActive(sourceID) {
-		http.Error(w, "stream routing requires a connected member", http.StatusBadRequest)
+	eligible := r.eligible(sourceID, "")
+	stateful := req.Header.Get("Mcp-Session-Id") != "" ||
+		req.Header.Get("Last-Event-Id") != "" ||
+		strings.Contains(strings.ToLower(req.Header.Get("Accept")), "text/event-stream")
+	if stateful && len(eligible) > 1 {
+		http.Error(w, "stateful mcp routing requires a single connected member", http.StatusConflict)
 		return
 	}
-	if len(r.eligible(sourceID, "")) > 1 && req.Method != http.MethodGet && req.Method != http.MethodHead {
+	if len(eligible) > 1 && req.Method != http.MethodGet && req.Method != http.MethodHead {
 		http.Error(w, "multi-member write routing requires an explicit tool policy", http.StatusConflict)
 		return
 	}

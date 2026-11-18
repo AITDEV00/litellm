@@ -52,14 +52,25 @@ func (r *Runtime) eligible(sourceID string, exclude string) []Member {
 
 // admitted reports whether a session may currently serve executed calls:
 // the peer still exists, is active, is not fenced by a generation change or
-// revocation, has a catalog fingerprint matching what the control plane
-// expects, has probed recently, and advertises the execute capability.
+// revocation, has a recent successful probe, and advertises the execute
+// capability. A peer must additionally prove its origin matches the pinned
+// catalog, but only an OpenAPI source has a catalog: an MCP source publishes no
+// OpenAPI document, so a recent probe is the whole proof for it.
 func admitted(session Member, worker config.Peer, exists bool) bool {
 	return exists &&
 		worker.Phase == "active" &&
 		!session.Fenced(worker, exists) &&
-		worker.CatalogFingerprint != nil &&
-		*worker.CatalogFingerprint == worker.ExpectedCatalog &&
+		provenCatalog(worker) &&
 		session.Ready(worker.SourceID) &&
 		session.Capable("execute")
+}
+
+// provenCatalog reports whether the worker has proven the origin it serves. An
+// MCP peer carries no catalog fingerprint, so its recent probe stands as proof;
+// an OpenAPI peer must present the digest the control plane expects.
+func provenCatalog(worker config.Peer) bool {
+	if worker.IsMCP() {
+		return worker.CatalogFingerprint == nil
+	}
+	return worker.CatalogFingerprint != nil && *worker.CatalogFingerprint == worker.ExpectedCatalog
 }

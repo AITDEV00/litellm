@@ -50,6 +50,41 @@ func peerFor(id, source string, fingerprint string) config.Peer {
 	return worker
 }
 
+// peerMCP is an active MCP peer. It carries no catalog fingerprint, because an
+// MCP source publishes no OpenAPI document, so its recent probe is its proof.
+func peerMCP(id, source string) config.Peer {
+	return config.Peer{
+		WorkerID: id, SourceID: source, Phase: "active", Generation: 1,
+		Kind:             "mcp",
+		ExpectedCatalog:  "",
+		CredentialDigest: strings.Repeat("0", 64),
+	}
+}
+
+// recordingMember is a fakeMember that records the request it was asked to
+// serve, so a Forward test can prove which member the request reached.
+type recordingMember struct {
+	fakeMember
+	served *http.Request
+}
+
+func (m *recordingMember) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.served = req
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+}
+
+func forwardRequest(t *testing.T, sourceID, path string, headers map[string]string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/sources/"+sourceID+"/"+path, nil)
+	req.SetPathValue("source", sourceID)
+	req.SetPathValue("path", path)
+	req.Header.Set("Authorization", "Bearer "+token)
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	return req
+}
+
 // The eligibility predicate is the contract every routing decision shares.
 // These cases pin each clause, so dropping any one of them fails a test.
 func TestAdmittedRequiresEveryCondition(t *testing.T) {
@@ -95,6 +130,71 @@ func TestAdmittedRequiresEveryCondition(t *testing.T) {
 	staleFingerprint.CatalogFingerprint = &wrong
 	if admitted(base(), staleFingerprint, true) {
 		t.Fatal("peer whose catalog does not match the expected one still admitted")
+	}
+}
+
+// An MCP peer has no catalog fingerprint by design, so it must be admitted on
+// the strength of its recent probe alone. If it were held to the OpenAPI rule it
+// would never be dispatchable and every MCP tool call would 503.
+func TestAdmittedMCPPeerDoesNotNeedACatalogFingerprint(t *testing.T) {
+	member := &fakeMember{id: "w1", source: "s1", ready: true, capable: true}
+	if !admitted(member, peerMCP("w1", "s1"), true) {
+		t.Fatal("a healthy MCP peer without a catalog fingerprint was rejected")
+	}
+	notReady := &fakeMember{id: "w1", source: "s1", ready: false, capable: true}
+	if admitted(notReady, peerMCP("w1", "s1"), true) {
+		t.Fatal("an MCP peer that has not probed recently was admitted")
+	}
+	// An MCP peer carrying a stray fingerprint is not the shape the control plane
+	// publishes, so it is not trusted.
+	stray := peerMCP("w1", "s1")
+	digest := "catalog-digest"
+	stray.CatalogFingerprint = &digest
+	if admitted(member, stray, true) {
+		t.Fatal("an MCP peer with a catalog fingerprint was admitted")
+	}
+}
+
+// A stateful MCP request carries the Mcp-Session-Id the client got at
+// initialize. With one member the destination is unambiguous, so it must reach
+// the member rather than be refused as an unsupported request.
+func TestForwardServesStatefulMCPRequestOnSingleMember(t *testing.T) {
+	client := mustClient(t, peerMCP("w1", "s1"))
+	runtime := New(client)
+	member := &recordingMember{fakeMember: fakeMember{id: "w1", source: "s1", ready: true, capable: true}}
+	runtime.AddSession(member)
+
+	recorder := httptest.NewRecorder()
+	runtime.Forward(recorder, forwardRequest(t, "s1", "mcp", map[string]string{"Mcp-Session-Id": "session-1"}))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if member.served == nil {
+		t.Fatal("the stateful request never reached the member")
+	}
+	if got := member.served.Header.Get("Mcp-Session-Id"); got != "session-1" {
+		t.Fatalf("member saw Mcp-Session-Id %q, want session-1", got)
+	}
+}
+
+// With two members the session lives on exactly one origin, so routing it to the
+// wrong member would break the session. The relay must refuse rather than guess.
+// A GET is used so the multi-member write guard cannot mask this one.
+func TestForwardRefusesStatefulMCPRequestWithMultipleMembers(t *testing.T) {
+	client := mustClient(t, peerMCP("w1", "s1"), peerMCP("w2", "s1"))
+	runtime := New(client)
+	runtime.AddSession(&fakeMember{id: "w1", source: "s1", ready: true, capable: true})
+	runtime.AddSession(&fakeMember{id: "w2", source: "s1", ready: true, capable: true})
+
+	for _, header := range []string{"Mcp-Session-Id", "Last-Event-Id"} {
+		req := forwardRequest(t, "s1", "mcp", map[string]string{header: "x"})
+		req.Method = http.MethodGet
+		recorder := httptest.NewRecorder()
+		runtime.Forward(recorder, req)
+		if recorder.Code != http.StatusConflict {
+			t.Fatalf("%s with two members: status = %d, want 409", header, recorder.Code)
+		}
 	}
 }
 

@@ -163,3 +163,20 @@ func TestExecuteRejectsOversizeBody(t *testing.T) {
 		t.Fatal("origin was reached with an oversize body")
 	}
 }
+
+// The origin must see the target's host:port in its Host header. A stateful MCP
+// server validates Host against host:port allowlist patterns, so a bare host
+// without the port is rejected as a misdirected request.
+func TestExecuteSendsHostPortAsOriginHostHeader(t *testing.T) {
+	var seenHost string
+	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seenHost = req.Host
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(nil))}, nil
+	}), "127.0.0.1:18203", "mcp", "")
+	if _, err := server.Execute(context.Background(), &dispatchpb.DispatchRequest{Method: http.MethodPost, Path: "/mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if seenHost != "127.0.0.1:18203" {
+		t.Fatalf("origin saw Host %q, want 127.0.0.1:18203", seenHost)
+	}
+}
