@@ -2,8 +2,10 @@ package tunnel_test
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -144,4 +146,69 @@ func TestTunnelProbeFencesRevokedGeneration(t *testing.T) {
 
 	f.RevokePeer(harness.WorkerA)
 	harness.Eventually(t, func() bool { return f.Runtime.Existing(harness.WorkerA) == nil })
+}
+
+// The admission log is the only place an operator can see which fleet versions
+// are connected and what each one can do, so a tunnel that admits member A with
+// capabilities {execute, probe} must say so, with the generation it admitted.
+func TestAdmissionLogsWorkerGenerationAndCapabilities(t *testing.T) {
+	pub, signing := harness.Key(t)
+	origin, digest := harness.SignedOrigin(t, "A", signing)
+	f := harness.New(t)
+	target := f.TunnelServer(t)
+	peer := harness.Peer(harness.WorkerA, 7, pub)
+	peer.Target = strings.TrimPrefix(origin.URL, "http://")
+	peer.ExpectedCatalog = digest
+	f.SetPeer(peer, "")
+
+	captured := &captureWriter{}
+	previous := log.Writer()
+	log.SetOutput(captured)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go harness.RunTunnelConnector(ctx, t, target, peer, nil)
+	harness.Eventually(t, func() bool { return f.ReadyTunnel(t, harness.WorkerA) })
+
+	line := captured.lineContaining("tunnel admitted worker=" + harness.WorkerA)
+	if line == "" {
+		t.Fatalf("no admission log line for worker %s; captured:\n%s", harness.WorkerA, captured.String())
+	}
+	for _, want := range []string{"generation=7", "capabilities=", "execute", "probe"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("admission log line %q is missing %q", line, want)
+		}
+	}
+}
+
+// captureWriter collects log output so a test can assert on it without a race
+// against the goroutines that write.
+type captureWriter struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (c *captureWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lines = append(c.lines, strings.TrimSpace(string(p)))
+	return len(p), nil
+}
+
+func (c *captureWriter) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.Join(c.lines, "\n")
+}
+
+func (c *captureWriter) lineContaining(sub string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, line := range c.lines {
+		if strings.Contains(line, sub) {
+			return line
+		}
+	}
+	return ""
 }

@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,6 +95,17 @@ func (m *Member) Ready(sourceID string) bool {
 func (m *Member) Capable(rpc string) bool {
 	_, ok := m.capabilities[rpc]
 	return ok
+}
+
+// capabilitiesList returns the admitted capability set in sorted order, so the
+// admission log line is stable across runs.
+func (m *Member) capabilitiesList() []string {
+	names := make([]string, 0, len(m.capabilities))
+	for name := range m.capabilities {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Fenced implements pool.Member.
@@ -292,6 +304,8 @@ func (tr *Runtime) onOpen(ch grpctunnel.TunnelChannel) {
 	}
 	tr.members[member.workerID] = member
 	tr.mu.Unlock()
+	log.Printf("tunnel admitted worker=%s source=%s generation=%d capabilities=%v",
+		member.workerID, member.sourceID, member.generation, member.capabilitiesList())
 	tr.pool.AddSession(member)
 	go tr.probeLoop(member)
 }
