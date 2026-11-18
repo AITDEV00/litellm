@@ -20,32 +20,27 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 6. Post-revoke recovery tooling | DECIDED (manual revoke) | step 6, this doc |
 | 7. WSS/remotedialer removal | DONE | step 7, this doc |
 | 8. Production overlay | PARKED BY DESIGN | step 8, this doc |
-| 9. Transport standardization on `jhump/grpctunnel` | IN PROGRESS | step 9, this doc |
+| 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
-| Connector-version compatibility gate | NOT BUILT | see "Known gaps" below |
+| Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
 | Bootstrap credential exchange | UNDECIDED | `../decisions/approaches/lifecycle-and-pooling-questions.md` §2 |
-| Admitted-capability logging | NOT BUILT | see "Known gaps" below |
+| Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
 ## Known gaps
 
 These are not steps; they are things the design called for that the tree does not yet contain. Each is a real, verifiable absence, not a suspicion
 
-**Connector-version compatibility gate.** Step 9 requires that a broker release run against the previously published connector binary and that both upgrade directions be demonstrated. No test, CI job, or script does this. Nothing has ever been run old-connector-against-new-broker. Until it exists, do not describe the connector/broker pair as version-compatible; the mechanism exists (capability set in `dispatch.proto`, additive proto3 rules) but the proof does not
+**Connector-version compatibility gate.** Built. `make -C oicm-litellm-layer mcp-source-link-compat` builds the connector at the pre-transition revision and the current connector, and runs each against a current broker over a TLS gateway: admit, probe, execute, generation fencing, revoke, and clean degradation when the broker lacks a capability the connector wants. It is a local capability regression check, not a GitHub Actions release gate
 
 **Bootstrap credential exchange.** The installer renders a systemd unit and a checksum-verified binary, but never writes `connector.env`. Its credential is `HMAC(pepper, "remotedialer-credential", grant_id, worker_id, generation)`, which needs the broker-side pepper, so the operator must derive it out of band. `../decisions/approaches/lifecycle-and-pooling-questions.md` §2 states this as an open question and it is still open. The `redeemed_at` columns in the schema are shaped for a claim flow that has no endpoint
 
-**Admitted-capability visibility.** The sidecar learns each connector's capability set on every tunnel open but does not log it, so which fleet versions are connected is only knowable by live inspection. `internal/tunnel` `Runtime.onOpen` is where that log line would go
+**Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
 ## What this system is today
 
 One Go binary, two modes. As `worker` it runs as a sidecar beside the Python broker and owns two listeners. As `connector` it runs on a source host and dials out. All three files below are the same binary at `mcp-source-link/`
 
-Two transports coexist, both served by every worker build:
-
-- `tunnel` (preferred going forward, step 9): one long-lived `TunnelService/OpenReverseTunnel` gRPC stream over the 8093 listener, with typed `DispatchService/{Admit,Probe,Execute}` RPCs multiplexed inside it by `github.com/jhump/grpctunnel`
-- `reverse-h2` (the current dev default): a four-route dispatch long-poll on the same 8093 listener, carrying `POST /mcp-source-link-{reverse,hold,dispatch,respond}`
-
-Neither is deprecated. Replacing `reverse-h2` requires the compatibility gate above, which does not exist
+One transport: `tunnel`, one long-lived `TunnelService/OpenReverseTunnel` gRPC stream over the 8093 listener, with typed `DispatchService/{Admit,Probe,Execute}` RPCs multiplexed inside it by `github.com/jhump/grpctunnel`. The reverse-h2 data plane was deleted along with `internal/reverseh2/`, its long-poll routes, and the wire limits only it used. `MCP_SOURCE_LINK_TRANSPORT` is connector-only and vestigial: the worker has one plane and ignores it, and an empty value means tunnel
 
 Port map, from `deploy/overlays/dev/mcp-source-broker/source-link-patch.yaml`:
 
@@ -53,7 +48,7 @@ Port map, from `deploy/overlays/dev/mcp-source-broker/source-link-patch.yaml`:
 |---|---|---|---|---|
 | 9091 | `remote-control` | HTTP | Python broker | `/v1/source-link/{peers,report,revoke}` and admin routes |
 | 9092 | `link-data` | HTTP/1.1 **and** h2c | Go sidecar | `/readyz`, `/sources/{id}/{path}`, `/v1/source-link/revoke` |
-| 8093 | `link-reverse` | h2c only | Go sidecar | reverse-h2 routes and `/grpctunnel.v1.TunnelService/*` |
+| 8093 | `link-reverse` | h2c only | Go sidecar | `/grpctunnel.v1.TunnelService/*` only |
 | 8888 | Service `data` | — | Service → 9092 | the URL the gateway is registered with |
 
 The two containers share a pod network namespace deliberately: the broker reaches the sidecar's revoke endpoint over `127.0.0.1:9092`, and that endpoint accepts loopback callers only
@@ -68,7 +63,7 @@ The Go sidecar is split into one package per behavior under `mcp-source-link/int
 |---|---|
 | Caller request routing, admission cap, header stripping | `internal/pool` |
 | Tunnel plane, admission, probe loop, fencing | `internal/tunnel` |
-| Reverse-h2 session and dispatch correlation | `internal/reverseh2` |
+| Listener construction (h2c and data mux) | `internal/listen` |
 | Catalog canonicalization and proof verification | `internal/catalog` |
 | Connector side: origin round trip, reconnect loop | `internal/connector` |
 | Broker peer list, health report, service auth | `internal/control` |
@@ -78,48 +73,79 @@ The Go sidecar is split into one package per behavior under `mcp-source-link/int
 | Gateway registration and data-plane URL | `litellm/proxy/mcp_source_broker/gateway.py` |
 | Connector installer and release publishing | `litellm/proxy/client_distribution/source_agent_distribution.py` |
 
-## Reverse-h2 transport (second data plane)
+## Tunnel transport (the only data plane)
 
-The same Go worker binary carries a `reverse-h2` transport selected by `MCP_SOURCE_LINK_TRANSPORT=reverse-h2`. The websocket remotedialer transport this section originally compared against was deleted in step 7; it no longer exists in the binary. The connector dials one outbound TLS HTTP/2 session to the public gateway and keeps it alive; every forwarded request is an HTTP/2 stream on that session, so a held request costs stream state on the channel instead of a origin TCP socket per request. The protocol is a dispatch long-poll: the connector registers (`POST /mcp-source-link-reverse`), holds (`POST /mcp-source-link-hold`, the stream that carries liveness and generation fencing), polls for work (`POST /mcp-source-link-dispatch`, the relay answers one pending poll per forwarded request), and posts each origin response back (`POST /mcp-source-link-respond`). All four routes ride the reverse listener on port 8093 and are published through the same public host with the nginx `GRPC` backend protocol, which proxies cleartext HTTP/2 to the sidecar so stream multiplexing survives the ingress hop. Per-worker enrollment, catalog-fingerprint gating, generation fencing, revocation, and header stripping are identical across both transports; the dispatch queue is bounded and slow connectors shed to HTTP 503 rather than buffering unboundedly
+The connector dials one long-lived `TunnelService/OpenReverseTunnel` gRPC stream to the
+public gateway over the 8093 listener and keeps it alive. Typed
+`DispatchService/{Admit,Probe,Execute}` RPCs are multiplexed inside that single stream by
+`github.com/jhump/grpctunnel`, so a forwarded request is a tunnel stream rather than an
+origin TCP socket per request. nginx publishes the route with
+`nginx.ingress.kubernetes.io/backend-protocol: GRPC`, which proxies cleartext HTTP/2 to
+the sidecar so stream multiplexing survives the ingress hop. Per-worker enrollment,
+catalog-fingerprint gating, generation fencing, revocation, header stripping, and the
+bounded dispatch queue (slow connectors shed to HTTP 503 rather than buffering) all live
+in `internal/tunnel` and `internal/pool`
 
-## Live reverse-h2 verification (2026-11-16)
+The reverse-h2 long-poll plane that used to sit beside it (`POST
+/mcp-source-link-{reverse,hold,dispatch,respond}`) is deleted, along with
+`internal/reverseh2/` and the wire limits only it used. There is no fallback and no
+dual-plane soak: the worker serves only the tunnel on 8093, and
+`MCP_SOURCE_LINK_TRANSPORT` is connector-only and vestigial, since the worker has one
+plane and an empty value means tunnel
 
-The reverse data plane was verified end to end on the dev cluster with a scratch origin fixture on the source host (fresh Ed25519 proof key, port 18084) and two enrolled workers (`reverse-h2`, `reverse-h2-b`) for source `f804e8c9-a9c7-5824-a90a-837262788be8`. All of the following were observed live, each through the public ingress `https://litellm.ecouncil.ae/mcp-remotedialer-*` (nginx to h2c `grpc_pass` to sidecar 8093):
+## Live tunnel verification (2026-11-18)
 
-- Registration and liveness: the connector registered, held its session, and the probe loop admitted it with `catalog_fingerprint` equal to the enrollment's expected fingerprint; the broker's peers view showed the worker `healthy`
-- Auth gating: no-credential and wrong-credential calls to all four reverse routes returned 401, through the ingress and directly on 8093 (`curl --http2-prior-knowledge`, since the listener is h2c-only and correctly gives HTTP/1.1 an empty reply)
-- Data plane: `GET /sources/{id}/source.json` and `POST /sources/{id}/echo.json?channel=...` through the private dispatch port returned origin data with `credentials_seen=false` and `cookies_seen=false`
-- Concurrency: 8 parallel reads through one reverse session all returned 200 in under 0.62s wall
-- Fencing and lifecycle: `revoke` locked the connector out immediately (re-register 401, dispatch 503 with `Retry-After: 1`); `drain` stopped dispatch; `recover` minted a new generation and the connector rejoined with a freshly derived generation-matching credential; duplicate registration for a worker with a live session was rejected with 401 while the original session kept serving
-- User path: a virtual key scoped to the source's `mcp_access_groups` called `read_source` and `echo_source` through `POST /mcp-rest/tools/call` on the dev gateway and received origin data (`isError: false`), exercising gateway auth, MCP tool dispatch, the data-plane pool URL, the reverse long-poll, and the origin round trip
+Verified end to end on the dev cluster with a connector built from this tree, a scratch
+origin fixture on loopback (`127.0.0.1:18099`, fresh Ed25519 proof key), and one enrolled
+worker for a self-service source. The connector dialed `https://litellm.ecouncil.ae`, so
+the whole path ran through the public ingress:
 
-Two latent defects surfaced and were fixed during the live run. The worker-enrollment INSERT bound its `expires_at` parameter without a `::timestamptz` cast, so Prisma sent text and PostgreSQL rejected the insert (the enrollment route 500ed); both worker and enrollment inserts now cast explicitly. A pre-existing source row also carried the retired `chisel` value in `remote_transport`, which `selection()` correctly rejected; re-pointing the source with `PUT /mcp-source-link-sources/{id}/selection` `{"transport":"remotedialer"}` refreshed both the stored transport and the registered pool URL to the data-plane Service port
+- Admission and capability log: the worker logged `tunnel admitted worker=... source=...
+  generation=1 capabilities=[execute probe]`
+- Probe and fingerprint: the peer reached `phase=active`, `healthy=True`, with
+  `catalog_fingerprint` equal to the enrollment's `expected`
+- Data plane and header stripping: `GET /sources/{id}/read` on the broker data port
+  returned the origin payload, and an origin that echoed its received headers reported
+  `authorization_seen=false`, `cookie_seen=false`, and no internal nonce, so caller
+  credentials and cookies never reach the source
+- Enrollment and approval, recorded separately: a non-admin team key self-enrolled and got
+  `201 {"status": "pending_review"}`, read its own row back, was absent from
+  `GET /v1/mcp/server` while pending, and appeared only after an admin approved it
 
-A follow-up review pass tightened the reverse-h2 protocol itself. A forwarded request now carries a 90-second response deadline, so a lost respond can no longer leave the caller hanging until the session dies. Oversize dispatch payloads fail fast with 502 instead of being silently truncated, and origin bodies are capped at 760 KiB so the base64-inflated respond envelope always fits the 1 MiB wire limit; before that cap, a just-under-1-MiB echo wedged the connector dispatcher permanently because the relay refused the oversized respond without draining it (the handler now drains rejected uploads). Framing headers (`Content-Length`, `Transfer-Encoding`, hop-by-hop fields) are stripped from relayed responses so truncated bodies can never corrupt response framing, and the connector treats a non-204 respond as a lost session. All of this was re-verified live after redeployment: 8/8 concurrent reads in 0.5s, POST with `credentials_seen=false cookies_seen=false`, 401 auth negatives, near-limit and over-limit echoes failing fast (502 in under 1s) with the connector surviving and the session still serving, revoke lockout, and the gateway MCP user path (`read_source`, `echo_source`) returning origin data through a scoped virtual key
+Three defects surfaced under this real traffic and each has a regression test. The
+enrollment anchor row had been skipped once the claim token was gone, which broke every
+later worker registration through
+`OicmMcpRemoteWorker.enrollment_id_fkey`. The enroll alias pattern allowed `-`, which
+`MCP_TOOL_PREFIX_SEPARATOR` forbids downstream, so no alias could satisfy both. A
+submitter got a 403 reading the row enrollment had just handed them
+
 
 ## Enrollment
 
-A proxy administrator posts a `SourceCreate` to `POST /mcp-sources`:
-
+Any authenticated user holding a team-scoped key posts a `SourceCreate` to
+`POST /mcp-sources`. No administrator role is required, and the owner is derived from the
+key's user id rather than from the body:
 
 ```json
 {
-  "owner": "source-owner",
-  "alias": "private-openapi",
-  "key": "admin-generated-at-least-16-chars",
-  "expires_at": "2027-01-01T00:00:00Z",
+  "alias": "private_openapi",
   "target": {"host": "127.0.0.1", "port": 18080},
   "spec": "{\"openapi\":\"3.1.0\",\"paths\":{\"/source.json\":{\"get\":{}}}}"
 }
 ```
 
+`alias` excludes `-`, which is `MCP_TOOL_PREFIX_SEPARATOR`: the alias becomes the MCP
+server name and that name prefixes every tool name. The response is
+`201 {"server_id": ..., "status": "pending_review"}`. The submitter can read that row
+back, and nobody else sees it until an administrator approves it
+
 The source target allows loopback only and requires an explicit local service. An ordinary source membership stays in the authenticated relay authfile even when unhealthy; quarantine prevents tool dispatch, not subsequent recovery. Administrators can retrieve the existing connector installer whenever the source has been catalog-quarantined
 
-The source target is only a loopback host and port. Source identity is derived from `owner` and `alias`. The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a stable private pool URL with LiteLLM, and grants that source its own MCP access group. Re-enrollment keeps its source, enrollment, connector lease, and relay credentials; it updates the target and expected canonical catalog fingerprint. It does not return another one-time token
+The source target is only a loopback host and port. Source identity is derived from the authenticated user id and `alias`. The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a stable private pool URL with LiteLLM, and grants that source its own MCP access group. Re-enrollment keeps its source, enrollment, connector lease, and relay credentials; it updates the target and expected canonical catalog fingerprint. It does not return another one-time token
 
-The connector transport is the hand-rolled reverse-h2 path in `mcp-source-link/`: the connector on the source host dials in (the gateway cannot make outbound connections, so an agent-initiated session is the only way back), the sidecar accepts it, and dispatch rides back over that session. There is no in-flight admission cap (`dispatchInFlightCap = 0` as of step 10) and each connector runs 8 concurrent origin round trips. The 64 in-flight figure quoted here and in step 4 describes behavior before step 10 and no longer holds. This path is fully verified live (steps 2, 3, 4, 7 below) but its wire contract is implicit Go structs on both ends, which is why step 9 spikes `jhump/grpctunnel`: any version of either side must keep connecting, degrading to less functionality rather than breaking, and that contract must be enforced by a versioned proto, not implied by struct layout. That compatibility requirement is not yet verified across versions; see Known gaps
+The connector transport is the grpctunnel stream in `mcp-source-link/`: the connector on the source host dials in (the gateway cannot make outbound connections, so an agent-initiated session is the only way back), the sidecar accepts it, and dispatch rides back over that session. There is no in-flight admission cap (`dispatchInFlightCap = 0` as of step 10) and each connector runs 8 concurrent origin round trips. The 64 in-flight figure quoted here and in step 4 describes behavior before step 10 and no longer holds. This path is fully verified live (steps 2, 3, 4, 7 below) but its wire contract is implicit Go structs on both ends, which is why step 9 spikes `jhump/grpctunnel`: any version of either side must keep connecting, degrading to less functionality rather than breaking, and that contract must be enforced by a versioned proto, not implied by struct layout. That compatibility requirement is verified across versions by `make -C oicm-litellm-layer mcp-source-link-compat`
 
-Connector installation no longer has a per-source token installer; the Chisel relay text below is retained only as the 2026-11-13 historical record. The current contract is the client-distribution slice `litellm/proxy/client_distribution/source_agent_distribution.py`: an admin publishes a release pair (binary, `release.json`) through `PUT /install/admin/v1/source-agent/release`, and any source host runs the fixed script from `GET /install/source-agent`, which downloads the versioned pair, verifies the binary against the SHA-256 checksum embedded in the script, writes `source-link` mode 500, and renders a user systemd unit `source-agent.service` running `source-link connector` with environment from `~/.config/source-agent/connector.env` (`MCP_SOURCE_LINK_PUBLIC_URL`, `MCP_SOURCE_LINK_CONNECTOR_CONFIG`). The unit only starts once the config exists; without it the installer leaves the binary installed and prints the gating message. There is no release signature and no signing key: releases were briefly signed with an Ed25519 key and the installer briefly verified that signature on 2026-11-17, and both were removed the same day as over-engineering. The publish route is admin-only and the checksum the installer enforces is derived from what the gateway itself published, so the signature protected nothing the admin gate and checksum do not already cover. A substituted binary that cannot speak reverse-h2 or present a valid enrollment credential fails at the broker regardless. The old `release.sig.b64` objects from the signed era remain in the bucket as inert legacy bytes; the asset route no longer serves them
+Connector installation no longer has a per-source token installer; the Chisel relay text below is retained only as the 2026-11-13 historical record. The current contract is the client-distribution slice `litellm/proxy/client_distribution/source_agent_distribution.py`: an admin publishes a release pair (binary, `release.json`) through `PUT /install/admin/v1/source-agent/release`, and any source host runs the fixed script from `GET /install/source-agent`, which downloads the versioned pair, verifies the binary against the SHA-256 checksum embedded in the script, writes `source-link` mode 500, and renders a user systemd unit `source-agent.service` running `source-link connector` with environment from `~/.config/source-agent/connector.env` (`MCP_SOURCE_LINK_PUBLIC_URL`, `MCP_SOURCE_LINK_CONNECTOR_CONFIG`). The unit only starts once the config exists; without it the installer leaves the binary installed and prints the gating message. There is no release signature and no signing key: releases were briefly signed with an Ed25519 key and the installer briefly verified that signature on 2026-11-17, and both were removed the same day as over-engineering. The publish route is admin-only and the checksum the installer enforces is derived from what the gateway itself published, so the signature protected nothing the admin gate and checksum do not already cover. A substituted binary that cannot speak the tunnel or present a valid enrollment credential fails at the broker regardless. The old `release.sig.b64` objects from the signed era remain in the bucket as inert legacy bytes; the asset route no longer serves them
 
 Release `0.2.0` (2026-11-17) is the first reverse-h2 release and stays in the bucket as immutable history (SHA-256 `03c607b6...702d00c`). Its assets include a `release.sig.b64` from the signed era that nothing reads any more. The pre-rename `0.1.0` release (retired WSS-era source-agent) also stays in the bucket as harmless legacy
 
@@ -156,10 +182,10 @@ The broker Service `litellm-mcp-broker-dev` is the only gateway-facing address. 
 | Service port | Service name | Container port | Listener | Who calls it |
 |---|---|---|---|---|
 | 8888 | `data` | 9092 (`link-data`) | Go sidecar private dispatch: `/sources/{id}/{path}`, `/v1/source-link/revoke` | The gateway's MCP pool URL, `MCP_SOURCE_BROKER_DATA_PLANE_URL` |
-| 8093 | `link-reverse` | 8093 | Go sidecar reverse-h2 routes `/mcp-source-link-{reverse,hold,dispatch,respond}` and `/grpctunnel.v1.TunnelService/*` | Source connector, via either the `reverse-h2` long-poll or the `tunnel` gRPC plane |
+| 8093 | `link-reverse` | 8093 | Go sidecar `/grpctunnel.v1.TunnelService/*` only | Source connector, over the `tunnel` gRPC plane |
 | 9091 | `remote-control` | 9091 | FastAPI broker process (remote control) | Administrator via port-forward |
 
-8888 is the standard gateway-facing data-plane port: the gateway's registered pool URL is always `http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888/sources/{id}`, from the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var. The connector routes ride the shared 443 ingress, unchanged. The NetworkPolicy matches pod ports after Service DNAT, so it keeps listing the container ports. The 8092 WSS listener and its `rd-worker` Service port and Ingress were removed on 2026-11-17. Both `reverse-h2` and `tunnel` are served by every worker build on 8093; neither has been retired
+8888 is the standard gateway-facing data-plane port: the gateway's registered pool URL is always `http://litellm-mcp-broker-dev.adeo-litellm.svc.cluster.local:8888/sources/{id}`, from the `MCP_SOURCE_BROKER_DATA_PLANE_URL` env var. The connector routes ride the shared 443 ingress, unchanged. The NetworkPolicy matches pod ports after Service DNAT, so it keeps listing the container ports. The 8092 WSS listener and its `rd-worker` Service port and Ingress were removed on 2026-11-17. The worker serves only `tunnel` on 8093; `reverse-h2` and its four long-poll routes were deleted on 2026-11-18
 
 ## Verification
 
@@ -216,7 +242,7 @@ The rename covers every published surface, not just the directory: the connector
 
 Three strings deliberately keep the old name because each is stored state, so renaming it would silently invalidate live records: the `remotedialer-credential` HMAC domain in `keys.py` (it derives every enrolled worker's stored credential digest), and the `remote_transport` column's legacy `'remotedialer'` value, which `selection()` maps to `reverse-h2` at read time rather than rewriting rows at boot. New rows default to `reverse-h2`. Because the installed connector's env vars moved, a connector upgraded to a build before this rename keeps working against the old route names only if its broker also predates the rename; the two must be rolled together, which is why release 0.4.0 ships both
 
-9. Transport standardization on `jhump/grpctunnel` (IN PROGRESS, started 2026-11-17). The broker-to-connector pair must keep working across independent upgrades of either side: any client version connects to any server version, degrades to less functionality rather than breaking. The current hand-rolled reverse-h2 framing makes that contract unenforceable, and the bugs fixed in the 2026-11-17 smell pass (round-trip ignoring caller cancellation, shutdown deadlock while holding the runtime mutex) are exactly the classes of defect the library handles natively. Evaluation of six candidates (scratch clones in `evaluate-delete-later/`, 2026-11-17): `rancher/remotedialer` is the closest API match but is WebSocket-based, offers the server a general `net.Dial` into the agent's namespace, has an open concurrency-issue PR, and this repo already ran it in the WSS era and paid to remove it (commit `34aee32e104` built on it; step 7 records the removal); `apiserver-network-proxy` says in its README it should not be imported as a library; `frp` is standalone binaries; `openconfig/grpctunnel` is TCP-proxy-focused and explicitly not an official Google product; `yamux` is only a multiplexer and we already multiplex via HTTP/2. `jhump/grpctunnel` is the fit: reverse tunnel is precisely agent-dials-home, the server pushes typed RPCs down the agent-initiated stream, windowed flow control, per-RPC cancellation native, tunnel revision negotiation built in; single-maintainer risk noted. Spike scope: a `dispatch.proto` defining the RPCs the broker pushes (admission/probe/dispatch with a capability set exchanged at registration so old binaries degrade to less functionality instead of breaking), generated stubs pinned in the repo, sidecar hosting the tunnel handler and the Python broker dialing into it, and a compatibility soak gate: every broker release runs against the previously published connector binary. Two binding rules for the dispatch proto, decided before the first `.proto` exists: additive-only evolution (never renumber, never repurpose, never remove), and breaking changes require a deliberate new connector release, never a silent one. Reconnection does not resurrect in-flight requests; retry safety remains application logic because only the broker knows which origin operations are idempotent. Ingress carries gRPC over the shared 443 route with the `backend-protocol: GRPC` annotation on the backend leg. Acceptance for the spike: tunnel regression suite passes under `go test -race`, head-to-head benchmark against reverse-h2 at the step-4 load profile (50-1000 RPS, held streams, failover), and both-direction compatibility demonstrated (old stubs against new broker and new stubs against old broker) before any decision to replace the reverse-h2 path
+9. Transport standardization on `jhump/grpctunnel` (DONE 2026-11-18, started 2026-11-17; reverse-h2 deleted). The broker-to-connector pair must keep working across independent upgrades of either side: any client version connects to any server version, degrades to less functionality rather than breaking. The current hand-rolled reverse-h2 framing makes that contract unenforceable, and the bugs fixed in the 2026-11-17 smell pass (round-trip ignoring caller cancellation, shutdown deadlock while holding the runtime mutex) are exactly the classes of defect the library handles natively. Evaluation of six candidates (scratch clones in `evaluate-delete-later/`, 2026-11-17): `rancher/remotedialer` is the closest API match but is WebSocket-based, offers the server a general `net.Dial` into the agent's namespace, has an open concurrency-issue PR, and this repo already ran it in the WSS era and paid to remove it (commit `34aee32e104` built on it; step 7 records the removal); `apiserver-network-proxy` says in its README it should not be imported as a library; `frp` is standalone binaries; `openconfig/grpctunnel` is TCP-proxy-focused and explicitly not an official Google product; `yamux` is only a multiplexer and we already multiplex via HTTP/2. `jhump/grpctunnel` is the fit: reverse tunnel is precisely agent-dials-home, the server pushes typed RPCs down the agent-initiated stream, windowed flow control, per-RPC cancellation native, tunnel revision negotiation built in; single-maintainer risk noted. Spike scope: a `dispatch.proto` defining the RPCs the broker pushes (admission/probe/dispatch with a capability set exchanged at registration so old binaries degrade to less functionality instead of breaking), generated stubs pinned in the repo, sidecar hosting the tunnel handler and the Python broker dialing into it, and a compatibility soak gate: every broker release runs against the previously published connector binary. Two binding rules for the dispatch proto, decided before the first `.proto` exists: additive-only evolution (never renumber, never repurpose, never remove), and breaking changes require a deliberate new connector release, never a silent one. Reconnection does not resurrect in-flight requests; retry safety remains application logic because only the broker knows which origin operations are idempotent. Ingress carries gRPC over the shared 443 route with the `backend-protocol: GRPC` annotation on the backend leg. Acceptance for the spike: tunnel regression suite passes under `go test -race`, head-to-head benchmark against reverse-h2 at the step-4 load profile (50-1000 RPS, held streams, failover), and both-direction compatibility demonstrated (old stubs against new broker and new stubs against old broker) before any decision to replace the reverse-h2 path
 
 Step 9 first live result (2026-11-17). The tunnel plane now connects and serves end to end. The connector's first bug was silent: `runTunnelConnector` built the dial address with string surgery, so the scheme survived into the target (`https://litellm.ecouncil.ae:443`) and gRPC could not parse it, which killed every attempt on the dial timeout without a single server-side log line. `grpcDialTarget` now parses the URL, joins host and port, and defaults to 443, with a regression test that fails on the old scheme-keeping form. Diagnosis took three separate traps worth recording: the sidecar is `FROM scratch` so `kubectl exec` has no shell, the ingress access log never shows `/grpctunnel.v1.TunnelService/` traffic because gRPC streams log at completion, and `grpctunnel`'s `Serve` returns `started=true` once the reverse stream opens, so a healthy tunnel is indistinguishable from a stuck one unless the broker-side `healthy_at` moves. Live proofs with transport `tunnel`: worker reaches `phase active` with `healthy_at` set and `catalog_fingerprint` equal to `expected_catalog`; data-plane `GET /sources/{id}/source.json` returns 200; the origin marker reports `credentials_seen=false` and `cookies_seen=false`; 8 parallel reads all 200; no token and bad token both 401; unknown source 503. The probe also needs the origin to sign `nonce + "\n" + source_id + "\n" + dataset_id + "\n" + canonical_catalog` with the Ed25519 key whose public half is the enrolled `proof_key`, so a fixture that serves the right bytes but no `X-Source-Signature` leaves `healthy_at` null forever; that is production behaviour, not a bug
 
