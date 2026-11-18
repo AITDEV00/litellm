@@ -115,6 +115,9 @@ async def authorize_mcp_server(
     if is_admin_view:
         return resolved
 
+    if _caller_submitted(resolved.table, user_api_key_dict):
+        return resolved
+
     if resolved.source == "temp" or (
         not allow_catalog_view
         and not await can_access_mcp_server(
@@ -127,6 +130,19 @@ async def authorize_mcp_server(
         )
 
     return resolved
+
+
+def _caller_submitted(server: LiteLLM_MCPServerTable, user_api_key_dict: UserAPIKeyAuth) -> bool:
+    """Whether this caller is the user who submitted the server for review.
+
+    A self-service submitter has to be able to see what they submitted while it
+    waits for approval; otherwise enrollment returns an id that the enrolling
+    user cannot read back. Visibility stops at the submitter: access control
+    for everyone else, and serving, still come from the normal group checks.
+    """
+    caller: Final = user_api_key_dict.user_id
+    submitter: Final = getattr(server, "submitted_by", None)
+    return bool(caller) and submitter is not None and submitter == caller
 
 
 @dataclass(frozen=True, slots=True)

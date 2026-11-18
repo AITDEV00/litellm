@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -566,3 +565,45 @@ async def test_catalog_without_listing_dependency_fails_explicitly():
     catalog = MCPServerTargetCatalog(MCPServerManager())
     with pytest.raises(RuntimeError, match="listing dependency"):
         await catalog.list(OperationContext(_caller=None), ListToolsRequest())
+
+
+@pytest.mark.asyncio
+async def test_submitter_reads_own_pending_submission_but_nobody_elses() -> None:
+    """A self-service submitter must be able to read back what they submitted.
+
+    Enrollment returns a server id to the user who created it, so denying that
+    user visibility makes the id useless. Visibility is submitter-only: a second
+    non-admin is still refused and the access helper still runs for them.
+    """
+    server: Final = _runtime_server("submitted-server")
+    manager: Final = _manager(allowed_server_ids=())
+    table: Final = manager.build_mcp_server_table(server).model_copy(
+        update={"submitted_by": "resolver-test-user", "approval_status": "pending_review"}
+    )
+    resolved: Final = ResolvedMCPServer(table=table, runtime=server, source="db")
+
+    authorized: Final = await authorize_mcp_server(
+        resolved,
+        _auth(),
+        manager=manager,
+        is_admin_view=False,
+        not_found_detail={"error": "not found"},
+        forbidden_detail={"error": "forbidden"},
+        non_admin_missing="not_found",
+    )
+    assert authorized is resolved
+    manager.allowed_servers_spy.assert_not_called()
+
+    other: Final = _auth().model_copy(update={"user_id": "somebody-else"})
+    with pytest.raises(HTTPException) as exc_info:
+        await authorize_mcp_server(
+            resolved,
+            other,
+            manager=manager,
+            is_admin_view=False,
+            not_found_detail={"error": "not found"},
+            forbidden_detail={"error": "forbidden"},
+            non_admin_missing="not_found",
+        )
+    assert exc_info.value.status_code == 403
+    manager.allowed_servers_spy.assert_called_once()
