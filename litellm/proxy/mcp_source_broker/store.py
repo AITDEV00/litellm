@@ -169,6 +169,10 @@ class SourceStore:
                redeemed_at TIMESTAMPTZ, healthy_at TIMESTAMPTZ, catalog_fingerprint TEXT,
                status TEXT NOT NULL, generation BIGINT NOT NULL,
                UNIQUE(source_id,label))""",
+            # Lifecycle addition, not a rewrite: the first time a worker proves it
+            # holds its credential, delivery is acknowledged, which is what lets
+            # resume distinguish a lost first response from later re-issuance.
+            """ALTER TABLE "OicmMcpRemoteWorker" ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ""",
         )
         for sql in ordered:
             await self.db.execute_raw(sql)

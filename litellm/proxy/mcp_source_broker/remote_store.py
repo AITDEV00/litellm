@@ -37,6 +37,7 @@ class RemoteWorkerRow(BaseModel):
     status: Literal["pending", "active", "draining", "revoked"]
     generation: int
     enrollment_id: str
+    delivered_at: datetime | None = None
 
 
 REMOTE_WORKERS: Final = TypeAdapter(tuple[RemoteWorkerRow, ...])
@@ -62,7 +63,7 @@ class RemoteSources(Protocol):
 
 REMOTE_COLUMNS: Final = (
     "worker_id,source_id,label,target_host,target_port,dataset_id,proof_key,token_hash,expires_at,"
-    "redeemed_at,healthy_at,catalog_fingerprint,status,generation,enrollment_id"
+    "redeemed_at,healthy_at,catalog_fingerprint,status,generation,enrollment_id,delivered_at"
 )
 
 
@@ -257,6 +258,12 @@ class RemoteStore:
                 generation,
             )
             if good:
+                await tx.execute_raw(
+                    "UPDATE \"OicmMcpRemoteWorker\" SET delivered_at=COALESCE(delivered_at, NOW()) "
+                    "WHERE worker_id=$1 AND generation=$2",
+                    worker_id,
+                    generation,
+                )
                 await tx.execute_raw(
                     "UPDATE \"OicmMcpSource\" SET status='active' WHERE source_id=$1 AND status IN ('pending','quarantined')",
                     worker.source_id,

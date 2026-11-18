@@ -86,6 +86,12 @@ class RemoteMemoryDatabase:
     async def execute_raw(self, sql: str, *args: object) -> int:
         if "CREATE TABLE" in sql or "ADD COLUMN" in sql or "pg_advisory_xact_lock" in sql:
             return 0
+        if "SET delivered_at=COALESCE(delivered_at, NOW())" in sql:
+            worker = self._worker_by_id(str(args[0]))
+            if worker is not None and worker.generation == self._int(args[1]):
+                self._replace(worker, worker.model_copy(update={"delivered_at": worker.delivered_at or self.now}))
+                return 1
+            return 0
         if "SET generation=$2,status=$3" in sql:
             worker = self._worker_by_id(str(args[0]))
             if worker is not None:
@@ -451,3 +457,39 @@ async def test_control_app_peers_requires_bearer_header_not_query() -> None:
         assert reported.status_code == 200 and reported.json() == {"admitted": True}
         probe: Final = await client.get("/health")
         assert probe.status_code == 200, "kubelet probes must not need the service token"
+
+
+@pytest.mark.asyncio
+async def test_first_delivery_is_acknowledged_when_the_worker_proves_its_credential() -> None:
+    """R8: delivery is recorded from evidence, not from a guess.
+
+    A worker that reports a matching catalog fingerprint has demonstrably received
+    and used its credential, which is the only trustworthy signal that delivery
+    happened. Recording it at issue time or from a process User-Agent would be
+    guessing.
+    """
+    broker: Final = make_broker()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+    assert broker.worker.delivered_at is None, "nothing has proven delivery yet"
+
+    admitted: Final = await broker.store.report(created.worker_id, 1, "f" * 64)
+
+    assert admitted
+    assert broker.worker.delivered_at is not None, "a successful credential use is the acknowledgement"
+
+
+@pytest.mark.asyncio
+async def test_delivery_acknowledgement_is_recorded_once_and_is_not_reset_by_a_later_report() -> None:
+    """The timestamp is set with COALESCE, so a second good report keeps the first
+    delivery time rather than moving it, which is what makes it a delivery record
+    instead of a last-seen clock."""
+    broker: Final = make_broker()
+    created: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", peer())
+    assert created is not None
+
+    await broker.store.report(created.worker_id, 1, "f" * 64)
+    first: Final = broker.worker.delivered_at
+    await broker.store.report(created.worker_id, 1, "f" * 64)
+
+    assert broker.worker.delivered_at == first
