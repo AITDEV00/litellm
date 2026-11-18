@@ -104,6 +104,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | OmniVoice TTS guide | `docs/usage-guides/OMNIVOICE_TTS_GUIDE.md` |
 | Fish Audio Drama 3 TTS guide | `docs/usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md` |
 | VibeVoice ASR guide | `docs/usage-guides/VIBEVOICE_ASR_GUIDE.md` |
+| Nemotron Transcribe guide (including gateway caveats and concurrency) | `docs/usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md` |
 | Pyannote diarization guide | `docs/usage-guides/PYANNOTE_DIARIZATION_GUIDE.md` |
 | Qwen image generation & editing guide | `examples/usage/image-generation/README.md` (included into `docs/usage-guides/QWEN_IMAGE_GUIDE.md`) |
 | Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
@@ -116,6 +117,8 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Single-image generation with an editable prompt | `examples/usage/image-generation/gen_image.sh` |
 | Input images used by the image harness | `examples/usage/image-generation/inputs/` |
 | HAMSA STT WebSocket test page | `examples/usage/hamsa-stt/hamsa-stt-realtime-test-ws.html` |
+| Nemotron functional route/timestamp/chat validation + unique-WAV burst | `examples/usage/nemotron-transcribe/test_gateway.py`, `benchmark_gateway.py` |
+| Nemotron complete streaming-chat text reconstruction | `examples/usage/nemotron-transcribe/transcribe_chat_stream.py` |
 | OpenRouter `/api/v1/models` demo | `examples/usage/openrouter/demo_openrouter_models.py` |
 
 ## Dashboard / frontend

@@ -205,6 +205,7 @@ nav:
       - Qwen Image Guide: usage-guides/QWEN_IMAGE_GUIDE.md
       - Qwen Vision Guide: usage-guides/QWEN_VISION_GUIDE.md
       - VibeVoice ASR Guide: usage-guides/VIBEVOICE_ASR_GUIDE.md
+      - Nemotron Transcribe Guide: usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md
       - Pyannote Diarization Guide: usage-guides/PYANNOTE_DIARIZATION_GUIDE.md
       - Cloudflare clef-flash (SystemOne) Guide: usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE.md
   - Dashboard & Planning:
