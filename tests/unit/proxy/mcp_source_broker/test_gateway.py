@@ -4,9 +4,8 @@ from typing import Final
 
 import httpx
 import pytest
-from respx import MockRouter
-
 from fastapi import FastAPI
+from respx import MockRouter
 
 from litellm.proxy._types import MCPApprovalStatus, NewMCPServerRequest
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
@@ -183,7 +182,7 @@ async def test_pending_source_resume_rejects_any_row_not_pending(monkeypatch: py
     import litellm.proxy.mcp_source_broker.gateway as gateway_module
 
     def row(owner: str, approval: str) -> object:
-        return type("Server", (), {"mcp_info": {"owner": owner, "approval_status": approval}})()
+        return type("Server", (), {"submitted_by": owner, "approval_status": approval, "mcp_info": {}})()
 
     async def decision(found: object | None) -> bool:
         async def lookup(_prisma: object, _source_id: str) -> object | None:

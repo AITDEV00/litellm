@@ -235,8 +235,17 @@ def _catalog_config() -> CatalogConfig:
 
 class _ReviewStamp(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
-    owner: str = ""
-    approval_status: str = ""
+    submitted_by: str | None = None
+    approval_status: str | None = None
+
+    @classmethod
+    def from_row(cls, row: object) -> _ReviewStamp:
+        return cls.model_validate(
+            {
+                "submitted_by": getattr(row, "submitted_by", None),
+                "approval_status": getattr(row, "approval_status", None),
+            }
+        )
 
 
 def pending_source_resume(prisma: PrismaClient) -> ResumeSource:
@@ -248,14 +257,18 @@ def pending_source_resume(prisma: PrismaClient) -> ResumeSource:
     that lost the earlier response. A retry is only resumable when the row is
     still the same owner's and still awaiting review, so an approved, rejected, or
     foreign row stays a hard 409 and nothing is moved out of review.
+
+    Ownership and status live in the ``submitted_by`` and ``approval_status``
+    columns, which ``submit_for_review`` stamps. ``mcp_info`` is an empty object
+    for these rows, so reading it here would refuse every legitimate retry.
     """
 
     async def resumable(*, source_id: str, owner: str) -> bool:
         found: Final = await get_mcp_server(prisma, source_id)
-        if found is None or found.mcp_info is None:
+        if found is None:
             return False
-        stamp: Final = _ReviewStamp.model_validate(found.mcp_info)
-        return stamp.owner == owner and stamp.approval_status == MCPApprovalStatus.pending_review.value
+        stamp: Final = _ReviewStamp.from_row(found)
+        return stamp.submitted_by == owner and stamp.approval_status == MCPApprovalStatus.pending_review.value
 
     return resumable
 
