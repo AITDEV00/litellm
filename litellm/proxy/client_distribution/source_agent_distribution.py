@@ -122,7 +122,16 @@ class _Store(Protocol):
 
     def get_object(self, *, Bucket: str, Key: str) -> _StoredObject: ...
 
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> object: ...
+    def put_object(
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        Body: bytes,
+        ContentType: str,
+        IfMatch: str | None = None,
+        IfNoneMatch: str | None = None,
+    ) -> object: ...
 
 
 def _storage() -> tuple[RustFSConfig, _Store]:
@@ -295,6 +304,25 @@ async def _read_optional(config: RustFSConfig, s3: _Store) -> tuple[bytes, str]:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
 
 
+async def _read_pointer_state(config: RustFSConfig, s3: _Store) -> tuple[bytes, str, str | None]:
+    """Pointer bytes, its content digest, and the object's ETag (``None`` if absent).
+
+    The digest is the caller-facing token. The ETag is what a conditional write
+    needs: the token check alone is read-then-write, so two publishers holding the
+    same token both pass it. Passing this ETag as ``IfMatch`` on the write turns
+    the exchange into one atomic conditional put instead of a check with a window.
+    """
+    try:
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=MANIFEST_KEY)
+        raw: Final = response["Body"].read()
+        etag: Final = cast("str | None", response.get("ETag"))
+        return raw, hashlib.sha256(raw).hexdigest(), etag
+    except ClientError as exc:
+        if _is_missing(exc):
+            return b"", "", None
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
+
+
 async def _head_digest(config: RustFSConfig, s3: _Store, key: str) -> str | None:
     """The digest of an already-stored object, or None when it is absent."""
     try:
@@ -362,7 +390,7 @@ async def admin_activate_release(
             detail=f"release {data.version} has no release.json; upload the complete pair before activating",
         )
 
-    _, current_token = await _read_optional(config, s3)
+    _, current_token, current_etag = await _read_pointer_state(config, s3)
     if data.expected_current is not None:
         expected: Final = "" if data.expected_current == "absent" else data.expected_current
         if current_token != expected:
@@ -373,7 +401,22 @@ async def admin_activate_release(
 
     pointer: Final = SourceAgentManifest(version=data.version, sha256=data.sha256)
     body: Final = pointer.model_dump_json().encode()
-    await asyncio.to_thread(s3.put_object, Bucket=config.bucket, Key=MANIFEST_KEY, Body=body, ContentType="application/json")
+    try:
+        await asyncio.to_thread(
+            s3.put_object,
+            Bucket=config.bucket,
+            Key=MANIFEST_KEY,
+            Body=body,
+            ContentType="application/json",
+            **({"IfMatch": current_etag} if current_etag else {"IfNoneMatch": "*"}),
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code", "") in {"PreconditionFailed", "412", "ConditionalRequestConflict"}:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="active release changed between read and write; re-read and retry the activation",
+            ) from exc
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="object store error") from exc
     return {"ok": True, "version": pointer.version, "sha256": pointer.sha256, "previous": current_token or "absent"}
 
 

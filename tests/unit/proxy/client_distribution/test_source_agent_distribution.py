@@ -12,11 +12,13 @@ from __future__ import annotations
 import hashlib
 import io
 import pathlib
-from typing import Any, Final
+from typing import Any, Callable, Final
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import ASGITransport
 
 import litellm.proxy.client_distribution.source_agent_distribution as dist_mod
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
@@ -29,23 +31,52 @@ _VERSION: Final = "0.5.0"
 
 
 class _FakeS3Client:
-    """In-memory store matching the boto3 surface this slice uses."""
+    """In-memory store matching the boto3 surface this slice uses.
+
+    ETags are content digests and conditional writes are enforced, because the
+    activation race is only observable when the fake honours ``IfMatch`` and
+    ``IfNoneMatch`` the way the real store does. A fake that accepted every put
+    would let a read-then-write race pass.
+    """
 
     def __init__(self) -> None:
         self.store: Final[dict[str, bytes]] = {}
+        self.puts: Final[list[dict[str, str]]] = []
+        self.before_put: Callable[[str], None] | None = None
 
     def _missing(self, key: str, operation: str) -> None:
         from botocore.exceptions import ClientError
 
         raise ClientError({"Error": {"Code": "NoSuchKey", "Message": f"missing {key}"}}, operation)
 
+    def _etag(self, key: str) -> str:
+        return '"%s"' % hashlib.sha256(self.store[key]).hexdigest()
+
     def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
         if Key not in self.store:
             self._missing(Key, "GetObject")
         data: Final = self.store[Key]
-        return {"Body": io.BytesIO(data), "ContentLength": len(data)}
+        return {"Body": io.BytesIO(data), "ContentLength": len(data), "ETag": self._etag(Key)}
 
-    def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str = "") -> None:
+    def put_object(
+        self,
+        Bucket: str,
+        Key: str,
+        Body: bytes,
+        ContentType: str = "",
+        IfMatch: str | None = None,
+        IfNoneMatch: str | None = None,
+    ) -> None:
+        from botocore.exceptions import ClientError
+
+        self.puts.append({"Key": Key, "IfMatch": IfMatch or "", "IfNoneMatch": IfNoneMatch or ""})
+        if self.before_put is not None:
+            self.before_put(Key)
+        exists: Final = Key in self.store
+        if IfNoneMatch == "*" and exists:
+            raise ClientError({"Error": {"Code": "PreconditionFailed", "Message": "exists"}}, "PutObject")
+        if IfMatch is not None and (not exists or self._etag(Key) != IfMatch):
+            raise ClientError({"Error": {"Code": "PreconditionFailed", "Message": "stale"}}, "PutObject")
         self.store[Key] = Body
 
 
@@ -217,6 +248,43 @@ def test_concurrent_activations_cannot_both_win(app: FastAPI, store: _FakeS3Clie
     assert store.store[dist_mod.MANIFEST_KEY] == b'{"version":"0.5.0","sha256":"%s","size":0}' % (
         first_sha.encode(),
     )
+
+
+@pytest.mark.asyncio
+async def test_activation_race_without_a_shared_token_is_caught_by_the_conditional_write(
+    app: FastAPI, store: _FakeS3Client
+) -> None:
+    """Two publishers that both read the pointer before either writes must not both win.
+
+    The token check alone is read-then-write: when neither caller passes
+    ``expected_current``, two requests can both observe the same pointer and both
+    proceed, which is the ``[200, 200]`` the review reproduced. The conditional put
+    on the ETag read during validation is what makes the exchange atomic. This
+    forces the interleaving by landing a competing activation between this
+    request's read and its write, so the request fails unless its write is
+    conditional.
+    """
+    first_sha: Final = _publish(store)
+    second_binary: Final = _BINARY + b"-next"
+    second_sha: Final = _publish(store, version="0.6.0", binary=second_binary)
+    landed: Final = []
+
+    def land_a_competing_activation(key: str) -> None:
+        if key != dist_mod.MANIFEST_KEY or landed:
+            return
+        landed.append(True)
+        store.store[dist_mod.MANIFEST_KEY] = b'{"version":"0.5.0","sha256":"%s","size":0}' % first_sha.encode()
+
+    store.before_put = land_a_competing_activation
+    transport: Final = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
+        response = await client.put(
+            "/install/admin/v1/source-agent/activate",
+            json={"version": "0.6.0", "sha256": second_sha},
+        )
+
+    assert response.status_code == 409, "the interleaved publish must be refused, not overwrite the first release"
+    assert b'"0.5.0"' in store.store[dist_mod.MANIFEST_KEY]
 
 
 def test_rollback_reactivates_a_previous_complete_release(app: FastAPI, store: _FakeS3Client) -> None:
