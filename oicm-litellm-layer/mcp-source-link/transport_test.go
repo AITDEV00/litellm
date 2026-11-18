@@ -5,16 +5,20 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 const (
@@ -26,6 +30,16 @@ const (
 )
 
 var notSecret = fmt.Sprintf("%064d", 0)
+
+// fixtureHTTP2Client speaks the h2c protocol the data plane now requires; a
+// plain HTTP/1.1 client is rejected by the fixture server, matching the
+// product listener's protocol set.
+var fixtureHTTP2Client = &http.Client{Transport: &http2.Transport{
+	AllowHTTP: true,
+	DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
+	},
+}}
 
 type fixture struct {
 	control *control
@@ -88,7 +102,15 @@ func setupFixture(t *testing.T) *fixture {
 	dataMux := http.NewServeMux()
 	dataMux.HandleFunc("/sources/{source}/{path...}", f.runtime.forward)
 	dataMux.HandleFunc("POST /v1/source-link/revoke", f.runtime.revokeHTTP)
-	f.data = httptest.NewServer(dataMux)
+	dataServer := &http.Server{Handler: dataMux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: h2cProtocols()}
+	dataListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.data = httptest.NewUnstartedServer(dataMux)
+	f.data.Config = dataServer
+	f.data.Listener = dataListener
+	f.data.Start()
 	t.Cleanup(func() {
 		for _, client := range []*httptest.Server{state, f.data} {
 			client.CloseClientConnections()
@@ -165,7 +187,7 @@ func read(t *testing.T, url string, method string, headers http.Header) (int, st
 			req.Header.Add(name, value)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fixtureHTTP2Client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +296,7 @@ func TestReversePeerReadSharingAndRevoke(t *testing.T) {
 	request.Header.Set("X-Source-Member", workerB)
 	request.Header.Set("X-Source-Id", sourceID)
 	f.revokePeer(workerB)
-	response, err := http.DefaultClient.Do(request)
+	response, err := fixtureHTTP2Client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

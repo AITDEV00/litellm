@@ -66,12 +66,9 @@ func run(mode string) error {
 	reverseMux.HandleFunc("POST /mcp-source-link-dispatch", runtime.reverseDispatch)
 	reverseMux.HandleFunc("POST /mcp-source-link-respond", runtime.reverseRespond)
 	reverse.Handler = tunnelHTTPHandler(tunnels.grpcServer(), reverseMux)
-	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
-	protocols.SetHTTP1(false)
-	reverse.Protocols = protocols
+	reverse.Protocols = h2cProtocols()
 	servers := []*http.Server{
-		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10},
+		{Addr: cfg.DataListen, Handler: data, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, HTTP2: reverseHTTP2Config(), Protocols: h2cProtocols()},
 		reverse,
 	}
 	for _, server := range servers {

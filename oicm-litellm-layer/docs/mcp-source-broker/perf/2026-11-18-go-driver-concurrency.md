@@ -87,3 +87,20 @@ Second, the local soak reproduced the exact public failure pattern without nginx
 Third, once the soak ran under the ceiling (24000 concurrent, the maximum loopback physically supports), the tunnel data plane was perfectly clean: 24000/24000 twice, zero 502s, zero cancellations, zero tunnel teardowns, and at lower scales (4096, 16384) three-round repeats were also flawless.
 
 Revised interpretation of the public rows: the partial 502s in the 32768 and 65536 runs track ephemeral-port pressure and its knock-on effects (adapter dial failures, plus two mid-run outer-stream RSTs plausibly caused by error-path teardown while the overloaded leg was thrashing), and the later clean 65536 run passed because connection recycling stayed ahead of the port ceiling that time. The 503s appeared only in the two runs whose outer stream died, when eligibility was lost during the teardown window. No evidence remains of a tunnel, broker, or ingress defect: the data plane passed every controlled run at the maximum concurrency the client leg could physically generate. A 65536 genuinely-simultaneous test needs an h2c load adapter that multiplexes over HTTP/2 to the data plane, or multiple load pods distributing the connection load across nodes
+
+## Genuine HTTP/2-multiplexed load: 65536 simultaneous, repeatedly clean
+
+The load-leg ceiling is now removed at the source: the data-plane listener itself accepts unencrypted HTTP/2 (`h2cProtocols()`: h2c only, no HTTP/1.1 fallback, sharing the reverse listener's tuned `HTTP2` config with `MaxConcurrentStreams` 131072). The standalone h2c-to-HTTP/1.1 adapter is retired from testing; a load client now multiplexes directly over HTTP/2 to the data plane on one connection, so per-request TCP dials, and their port ceiling, no longer exist in the measurement path.
+
+With that leg, the gated soak (`MCP_TUNNEL_SOAK=1`, simultaneous-release barrier, 2s origin delay per request, exact-body verification) ran the previously-impossible tier fully in-process:
+
+| Simultaneous dispatches | Rounds | Result | Wall per round | Failures |
+| ---: | ---: | --- | ---: | ---: |
+| 65536 | 3 separate invocations, 5 rounds total | 65536/65536 every round | 13.81-15.64 s | 0 |
+| 65536 under `-race` | 1 | 56795 ok, 8741 x 503 `no eligible connector` | 44.078 s | race-instrumentation slowdown, see below |
+
+The 65k rows are genuinely simultaneous: one release barrier frees all 65536 goroutines at once, every request carries the 2s origin delay, and every response body is verified. Zero 502s, zero cancellations, zero tunnel teardowns across all five rounds. The data plane's true simultaneous-dispatch capacity is at least 65536.
+
+The `-race` row is not a defect: the detector stretches the run to 44s, the 2s probe deadline lapses under instrumentation, and the health gate correctly sheds to 503 until probes recover. No `DATA RACE` report was produced; the full race suite passes clean. It is recorded here because an operator repeating the soak under `-race` will see it.
+
+Deploy note: the dev sidecar must be rebuilt and rolled for the live broker to accept an h2c load leg, since the running `probe-health-20261118` image predates `h2cProtocols()` on the data listener. The product change is additive for in-cluster callers, which already speak HTTP/2 or gRPC over h2c on 8093 and now have the same option on the 9092 data plane; an HTTP/1.1 client hitting the data plane directly is no longer a supported probe path

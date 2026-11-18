@@ -51,7 +51,20 @@ func reverseServer() *http.Server {
 		ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 		HTTP2:             reverseHTTP2Config(),
+		Protocols:         h2cProtocols(),
 	}
+}
+
+// h2cProtocols is the shared protocol set for in-cluster plaintext listeners:
+// h2c only, no HTTP/1.1 fallback, so a multiplexed HTTP/2 load leg can drive
+// the data plane over one connection instead of one TCP dial per request,
+// which exhausts the node's ephemeral port range near ~28k concurrent
+// requests. HTTP/1.1 probing of these ports is not a supported client.
+func h2cProtocols() *http.Protocols {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	protocols.SetHTTP1(false)
+	return protocols
 }
 
 // dispatchRequest is one forwarded HTTP request, serialized by the relay

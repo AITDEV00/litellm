@@ -115,7 +115,7 @@ func readBench(t *testing.T, url string, headers http.Header) (int, string) {
 			req.Header.Add(name, value)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fixtureHTTP2Client.Do(req)
 	if err != nil {
 		return 0, ""
 	}

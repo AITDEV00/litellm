@@ -19,42 +19,13 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
-// startSoakH2CFrontend mirrors the real load-pod h2c adapter: one cleartext
-// HTTP/2 listener multiplexing all driver requests onto pooled HTTP/1.1
-// connections to the data plane, removing client-side ephemeral-port
-// exhaustion from the measurement.
-func startSoakH2CFrontend(t *testing.T, upstream string) string {
-	t.Helper()
-	transport := &http.Transport{
-		MaxIdleConns:        65536,
-		MaxIdleConnsPerHost: 65536,
-		IdleConnTimeout:     90 * time.Second,
-		DisableCompression:  true,
+func envOr(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	server := httptest.NewServer(h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		request := r.Clone(r.Context())
-		request.RequestURI = ""
-		request.URL.Scheme = "http"
-		request.URL.Host = strings.TrimPrefix(upstream, "http://")
-		response, err := transport.RoundTrip(request)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer response.Body.Close()
-		for key, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
-	}), &http2.Server{MaxConcurrentStreams: 131072}))
-	t.Cleanup(server.Close)
-	return server.URL
+	return fallback
 }
 
 // TestTunnelSoakReproducesPublicFailure runs the same traffic shape as the
@@ -115,9 +86,6 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 	eventually(t, func() bool { return readyTunnel(t, f, workerA) })
 
 	url := f.data.URL + "/sources/" + sourceID + "/read"
-	if os.Getenv("MCP_TUNNEL_SOAK_H2C") == "1" {
-		url = startSoakH2CFrontend(t, f.data.URL) + "/sources/" + sourceID + "/read"
-	}
 	headers := http.Header{"Authorization": {"Bearer " + serviceKey}}
 	var outerFailures atomic.Int64
 	t.Cleanup(func() {
@@ -125,22 +93,18 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 			t.Errorf("outer tunnel torn down during soak: %d events", outerFailures.Load())
 		}
 	})
-	var loadClient *http.Client
-	if os.Getenv("MCP_TUNNEL_SOAK_H2C") == "1" {
-		h2 := &http2.Transport{
-			StrictMaxConcurrentStreams: false,
-			AllowHTTP:                  true,
-			DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
-				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
-			},
-		}
-		defer h2.CloseIdleConnections()
-		loadClient = &http.Client{Transport: h2}
-	} else {
-		loadTransport := &http.Transport{MaxIdleConns: concurrency, MaxIdleConnsPerHost: concurrency, MaxConnsPerHost: 0}
-		defer loadTransport.CloseIdleConnections()
-		loadClient = &http.Client{Transport: loadTransport}
+	h2 := &http2.Transport{
+		StrictMaxConcurrentStreams: false,
+		AllowHTTP:                  true,
+		DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
+		},
 	}
+	defer h2.CloseIdleConnections()
+	loadClient := &http.Client{Transport: h2}
+	release := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(concurrency)
 
 	for round := 1; round <= rounds; round++ {
 		started := time.Now()
@@ -151,6 +115,8 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				ready.Done()
+				<-release
 				req, err := http.NewRequest(http.MethodGet, url, nil)
 				if err != nil {
 					codes <- 0
@@ -174,6 +140,8 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 				}
 			}()
 		}
+		ready.Wait()
+		close(release)
 		wg.Wait()
 		close(codes)
 		close(results)
@@ -198,12 +166,7 @@ func TestTunnelSoakReproducesPublicFailure(t *testing.T) {
 			t.Logf("round %d: saw 502 responses, the public failure signature", round)
 		}
 		time.Sleep(2 * time.Second)
+		release = make(chan struct{})
+		ready.Add(concurrency)
 	}
-}
-
-func envOr(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }
