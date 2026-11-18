@@ -188,9 +188,25 @@ Use the repo proof standard: curl against a live dev gateway on localhost:4000 o
 real ingress, show the commands and output. Keep the approval-gate proof (pending row
 gets no tool call) separate from the transport proof (approved row serves over tunnel).
 
-## Decisions already made by the owner (2026-11-18)
+## Follow-up requirements after the transport slice
 
-These are settled. Do not re-ask.
+The following work order is superseded by tester feedback recorded on the same day
+after the transport proofs. It retains the correct deviations found during that slice
+(e.g. connectivity status) but its remaining bootstrap wording is not the current
+requirement. [`connector-owned-enrollment.md`](../docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md)
+now owns enrollment and worker identity provisioning: no team-membership gate, the
+connector rather than a cluster-access operator assembles its identity, and the
+origin proof/installer payload requires the decisions recorded there. The original
+requirement of using ordinary user credentials survives, but the constraint must also
+account for the existing `ReadConnector` schema and the missing user-authorize worker
+response. Verify that document before coding any new enrollment behavior.
+
+For archival work-plan context only, the earlier semantic decisions follow. Do not
+generate a second transition implementation from these older statements.
+
+## Decisions already made by the owner (2026-11-18, semantic decisions for the completed transport slice)
+
+These are settled. Do not re-ask for the completed transport slice.
 
 - Q1 compat gate: e2e for fidelity plus a local Makefile check, not a GH Actions gate.
 - Q2 installer: tunnel only, no reverse-h2 fallback.

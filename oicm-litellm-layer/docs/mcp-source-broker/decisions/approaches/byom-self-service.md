@@ -52,18 +52,24 @@ The connector reuses the existing gateway endpoints. No new public registration 
    creates every other user account. It creates one ordinary user account per person who will
    expose a source, and that account's own virtual key is the only credential the source host
    ever needs. The admin key never leaves the admin's hands.
-1. The source host has the connector installed and configured with that user account's own key.
-2. source-link register --alias reports --spec ./openapi.json
-     connector computes owner=user_id, alias, and sid locally (uuid5 above).
+1. The source host has the connector installed and configured once with the ordinary
+   user account's own key, in owner-only persisted configuration. No separate
+   interactive login is needed on reconnect; see connector-owned-enrollment.md for
+   the actual automatic bootstrap flow and its origin-proof prerequisite.
+2. source-link connector
      connector calls POST /mcp-sources with {alias, target, spec}, sending the user's key.
-     This call is the connector's job, not the human's; see connector-owned-enrollment.md. No
-     team membership is required, and the admin key never reaches the source host.
+     The gateway returns the server-authenticated owner and source_id; the key is not
+     decoded as an identity document. No team membership is required. A connector does
+     not need an extra human register invocation before starting.
 3. The existing gateway route `POST /mcp-sources` is re-purposed: drop the PROXY_ADMIN gate, and inside
    `enroll()`:
      a. Write the broker lease rows idempotently (existing advisory lock + upsert path).
-     b. Build the `NewMCPServerRequest` exactly as today, but call the BYOM function
-        `register_mcp_server` directly instead of `default_registration`, passing submitted_by,
-        submitted_at, approval_status=pending_review through.
+     b. Build the `NewMCPServerRequest` exactly as today. The shipped local register
+        wrapper is `submit_for_review`, which calls existing create-only BYOM
+        machinery with submitted_by, submitted_at, and pending review. It is deliberately
+        not the update-or-create default_registration. Connector worker issuance and
+        credential delivery are built as of 2026-11-18; see connector-owned-enrollment.md
+        for what is proven and what dev still cannot serve.
    Return {"server_id": sid, "status": "pending_review"} and the lease facts.
 4. Admin reviews via GET /v1/mcp/server/submissions, approves via PUT /v1/mcp/server/{id}/approve,
    edits guardrails, or rejects.
@@ -150,9 +156,16 @@ admin gate. Active rows stay admin-only. One predicate in one place, not a famil
   `/reject`: untouched.
 - `get_runtime_mcp_server_rows`: untouched, that filter is the load-bearing dispatch gate.
 - `get_active_submitted_mcp_server_ids_for_user`: untouched, already creator-grant-aware.
-- The sidecar pool (`pool.pick`), reverse-h2 / grpctunnel, `keys.py` credential derivation: untouched.
-- The release installer (checksum-verified binary + systemd unit): untouched; it now points the connector
-  at the user's credential file rather than a claim token.
+- The sidecar pool (`pool.pick`) and the grpctunnel wire contract: unchanged.
+- `keys.py` credential derivation: the same HMAC stays. What changes is that a gateway
+  worker response issues the derived credential to the owner-authorized connector, so
+  no human derives it from the pepper. That issuance is built as of 2026-11-18;
+  `connector-owned-enrollment.md` records what is proven.
+- The release publish/checksum convention stays. The installer still starts
+  `source-link connector` without an enrollment token. Accepting the user's ordinary key
+  and persisting the issued connector identity is built: `connector.LoadIdentity` does
+  both, atomically at mode 0600. Encouraging the installer to render that key file is
+  the remaining nicety, not a missing capability.
 
 ## Smallest concrete diff
 
@@ -202,7 +215,8 @@ endpoint rather than the unit tests:
 
 - `../../running-system/README.md`: broker behaviour today, including the bootstrap gap this closes by
   replacing claim tokens with an authenticated call.
-- `approaches/lifecycle-and-pooling-questions.md` §2: the open question this resolves.
+- `approaches/lifecycle-and-pooling-questions.md` §2: the open question this addresses; the missing worker issuance and connector bootstrap
+belong to connector-owned-enrollment.md.
 - `approaches/multi-replica-scaling.md`: the independent membership debate.
 - `litellm/proxy/mcp_source_broker/gateway.py`: home of `enroll()` and the `NewMCPServerRequest` builder.
 - `litellm/proxy/mcp_source_broker/store.py`: the two-table layout this design clarifies.

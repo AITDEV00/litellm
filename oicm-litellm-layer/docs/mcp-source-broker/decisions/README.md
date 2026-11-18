@@ -9,8 +9,8 @@ Design reasoning that is either still open or already decided against. Nothing h
 | File | Kind | State |
 |---|---|---|
 | [`approaches/byom-self-service.md`](approaches/byom-self-service.md) | Design | SHIPPED 2026-11-18; kept for the reasoning and the record of where the code departed |
-| [`approaches/connector-owned-enrollment.md`](approaches/connector-owned-enrollment.md) | Requirement | OPEN BLOCKER, recorded 2026-11-18: user identity, not a team key, and the connector owns the registration calls |
-| [`approaches/lifecycle-and-pooling-questions.md`](approaches/lifecycle-and-pooling-questions.md) | Open questions | Mostly closed: §2 credential bootstrap shipped as BYOM self-service; the rest still open |
+| [`approaches/connector-owned-enrollment.md`](approaches/connector-owned-enrollment.md) | Requirement | IMPLEMENTED 2026-11-18: user identity, not a team key, and the connector owns the registration calls; approved live read on dev still blocked |
+| [`approaches/lifecycle-and-pooling-questions.md`](approaches/lifecycle-and-pooling-questions.md) | Open questions | Mostly closed with §2 partly answered; identity/bootstrap remains in `connector-owned-enrollment.md` |
 | [`approaches/multi-replica-scaling.md`](approaches/multi-replica-scaling.md) | Debate record | UNFINALIZED, parked by design |
 
 ## How to read these

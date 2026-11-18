@@ -11,14 +11,16 @@ environment sourced from `~/.config/source-agent/connector.env`
 (MCP_SOURCE_LINK_PUBLIC_URL, MCP_SOURCE_LINK_CONNECTOR_CONFIG). The connector
 has a single transport, so the unit sets no transport variable.
 
-Credential shape is not settled. The connector is meant to authenticate as an
-ordinary gateway user account, and to perform its own enrollment, so that no
-human calls the gateway's registration routes and nobody needs the broker
-pepper. A single admin account, the one the gateway is deployed with, creates
-every other gateway user account, and each of those is used by that person's
-client binary; the admin key never reaches the host. Neither half is
-implemented, and the installer still expects the operator to place a key in
-that env file by hand. See
+Credential and registration behavior follow ``connector-owned-enrollment.md``.
+One admin account creates ordinary user accounts. An ordinary user key with no
+team is enough: ``POST /mcp-sources`` accepts it and returns the gateway-derived
+owner, and the connector registers itself with that key and persists the
+server-issued worker identity at mode 0600 (see ``internal/bootstrap`` and
+``connector.LoadIdentity`` in the Go module). An ordinary user key must never be
+confused with the sidecar/service token or the pepper, which never reach a
+source host. What is still blocked is the approved live read on dev, because dev
+has no public host serving both the broker REST routes and the tunnel; that is a
+deployment gap, not this installer. See
 ``oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md``.
 
 Reuse rules: connection parameters, bucket handling and key normalization all
