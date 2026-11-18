@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"oicm-litellm-layer/mcp-source-link/internal/target"
@@ -132,21 +134,51 @@ func TestDeriveNameStableAndScoped(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			got := DeriveName(testCase.account, testCase.target)
-			want := map[string]string{
-				"first":         "alpha.127.0.0.1.18201",
-				"repeat":        "alpha.127.0.0.1.18201",
-				"other port":    "alpha.127.0.0.1.18202",
-				"other account": "beta.127.0.0.1.18201",
-			}[testCase.name]
-			if got != want {
-				t.Fatalf("DeriveName(%s,%v) = %q, want %q", testCase.account, testCase.target, got, want)
-			}
-			// The gateway's alias grammar must accept the derived name, or the
-			// registration it is sent to would be rejected as a 422.
+			// The name must satisfy the gateway alias grammar regardless of the
+			// readable prefix, because the gateway rejects a mismatch as a 422.
 			if !sourceAliasPattern.MatchString(got) {
 				t.Fatalf("DeriveName(%s,%v) = %q violates the gateway alias grammar", testCase.account, testCase.target, got)
 			}
+			// A stable digest suffix makes the name collision-resistant and unique.
+			if digest := got[len(got)-10:]; !regexp.MustCompile(`^[0-9a-f]{10}$`).MatchString(digest) {
+				t.Fatalf("DeriveName(%s,%v) = %q does not end in a 10-char hex digest", testCase.account, testCase.target, got)
+			}
 		})
+	}
+
+	// Repeating the same (account, target) must be byte-identical, and a different
+	// port or account must differ, or two sources would collide on one name.
+	repeat := DeriveName("alpha", first)
+	if repeat != DeriveName("alpha", first) {
+		t.Fatal("DeriveName is not deterministic for the same (account, target)")
+	}
+	if DeriveName("alpha", first) == DeriveName("alpha", second) {
+		t.Fatal("two different ports produced the same derived name")
+	}
+	if DeriveName("alpha", first) == DeriveName("beta", first) {
+		t.Fatal("two different accounts produced the same derived name")
+	}
+}
+
+// A maximum-length valid Kubernetes target must still derive a name the gateway
+// accepts. The earlier derivation embedded the whole readable slug and overflowed
+// the 128-character grammar on a long service name.
+func TestDeriveNameStaysWithinGatewayGrammarForLongTargets(t *testing.T) {
+	// A maximum-length two-label service name under a long account alias pushes the
+	// readable derivation past 128 characters, which the old formula produced
+	// verbatim and the gateway rejected.
+	long := mustTarget(t, strings.Repeat("a", 63)+".namespace-svc-name-that-is-long.svc:9001")
+	got := DeriveName("a-rather-long-account-alias", long)
+	if !sourceAliasPattern.MatchString(got) {
+		t.Fatalf("DeriveName for a long target = %q (len %d) violates the gateway grammar", got, len(got))
+	}
+	if len(got) > 128 {
+		t.Fatalf("DeriveName for a long target is %d chars, want <= 128", len(got))
+	}
+	// Two distinct long targets that share a readable prefix must not collide.
+	other := mustTarget(t, strings.Repeat("a", 62)+"b.namespace-svc-name-that-is-long.svc:9001")
+	if DeriveName("a-rather-long-account-alias", long) == DeriveName("a-rather-long-account-alias", other) {
+		t.Fatal("distinct long targets collapsed to one derived name")
 	}
 }
 
@@ -265,5 +297,32 @@ func TestTamperedPermissionsRefused(t *testing.T) {
 		t.Fatal("read a world-readable key file")
 	} else if !errors.Is(err, os.ErrPermission) && err.Error() == "" {
 		t.Fatalf("unexpected error text: %v", err)
+	}
+}
+
+// Two accounts writing the same source name must not overwrite each other. The
+// store keys on (account, name), so an explicit or colliding name under beta
+// cannot replace alpha's row.
+func TestPutSourceIsScopedToAccount(t *testing.T) {
+	store := open(t)
+	shared := "shared.name.test"
+	if err := store.PutSource(Source{Name: shared, Account: "alpha", Target: "127.0.0.1:9001", Enabled: true}); err != nil {
+		t.Fatalf("put alpha: %v", err)
+	}
+	if err := store.PutSource(Source{Name: shared, Account: "beta", Target: "127.0.0.1:9002", Enabled: true}); err != nil {
+		t.Fatalf("put beta: %v", err)
+	}
+	sources, err := store.Sources()
+	if err != nil {
+		t.Fatalf("sources: %v", err)
+	}
+	if len(sources) != 2 {
+		t.Fatalf("expected 2 rows, got %d: %+v", len(sources), sources)
+	}
+	for _, source := range sources {
+		want := map[string]string{"alpha": "127.0.0.1:9001", "beta": "127.0.0.1:9002"}[source.Account]
+		if source.Target != want {
+			t.Fatalf("account %s target = %q, want %q (cross-account overwrite)", source.Account, source.Target, want)
+		}
 	}
 }

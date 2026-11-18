@@ -182,7 +182,7 @@ func TestAddSourceReusesAccountWithoutLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
-	if source.Account != "alpha" || source.Name != "alpha.127.0.0.1.18201" {
+	if source.Account != "alpha" || !strings.HasPrefix(source.Name, "alpha.127.0.0.1.18201.") {
 		t.Fatalf("unexpected source: %+v", source)
 	}
 	if len(login.calls) != 1 {

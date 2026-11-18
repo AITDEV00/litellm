@@ -18,6 +18,7 @@ package state
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -294,7 +295,12 @@ func (s *Store) Source(name string) (Source, bool, error) {
 	return Source{}, false, nil
 }
 
-// PutSource inserts or replaces one source by name.
+// PutSource inserts or replaces one source, keyed by (account, name).
+//
+// The key is the scoped pair, not the name alone: a source belongs to an account,
+// so registration under account B must never silently replace a same-named source
+// under account A. The derived name already folds the account in, but keying on
+// the pair keeps that invariant even if a caller supplies an explicit name.
 func (s *Store) PutSource(source Source) error {
 	all, err := s.Sources()
 	if err != nil {
@@ -302,7 +308,7 @@ func (s *Store) PutSource(source Source) error {
 	}
 	replaced := false
 	for index, existing := range all {
-		if existing.Name == source.Name {
+		if existing.Account == source.Account && existing.Name == source.Name {
 			all[index] = source
 			replaced = true
 			break
@@ -342,8 +348,26 @@ func (s *Store) RemoveSource(name string) error {
 // digits, dots and underscores, starting with a letter. Hyphens are not allowed,
 // so the host's dots are preserved as separators and every other run of unsafe
 // characters collapses to a single dot.
+//
+// The result is bounded to sourceAliasPattern's 128 characters and always ends
+// with a stable digest of the canonical (account, target). A long valid target
+// (a full `name.namespace.svc.cluster.local` under a long account alias) would
+// otherwise exceed the grammar and be rejected by the gateway; two distinct long
+// targets could also collapse to the same truncated slug. The digest suffix keeps
+// the name legal at any length and makes two different targets differ even when
+// their readable prefixes collide.
 func DeriveName(accountAlias string, parsed target.Target) string {
-	return normalizeName(accountAlias + "." + parsed.Host + "." + portText(parsed.Port))
+	canonical := accountAlias + "." + parsed.Host + "." + portText(parsed.Port)
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(canonical)))[:10]
+	slug := normalizeName(canonical)
+	const maxSlug = 128 - 11 // room for "." + the 10-char digest
+	if len(slug) > maxSlug {
+		slug = strings.TrimRight(slug[:maxSlug], ".")
+	}
+	if slug == "" || slug[0] < 'a' || slug[0] > 'z' {
+		slug = "s" + slug
+	}
+	return slug + "." + digest
 }
 
 var nameSeparator = regexp.MustCompile(`[^a-z0-9]+`)
