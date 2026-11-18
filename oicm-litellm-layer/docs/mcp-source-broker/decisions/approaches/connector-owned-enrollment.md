@@ -16,17 +16,20 @@ the current, deficient reality.
 
 ## Who the accounts are, and where they come from
 
-Gateway user accounts are created when the gateway is deployed, from the user and key entries in
-the kube manifests for the environment. That is the deployment phase's job and it already happens
-there, so nothing in this requirement asks anyone to create accounts as part of a source flow.
+There is one administrator account. It is the `admin` account the gateway is deployed with, and it
+is the only account that creates other accounts. Every gateway user account that a source is
+exposed under is created by that admin account.
 
-What the requirement does fix is whose account a source belongs to. Each person who exposes a
-source uses their own deployed gateway user account, and that account's own virtual key is the
-credential the connector is configured with. Every gateway call the connector makes carries that
-key, so the gateway sees the calls arriving as that user and the source owner is that user.
+The accounts it creates are ordinary user accounts, one per person who will expose a source. They
+are not admins, they are not team-scoped, and they need no team membership. Each one is used by
+that person's client binary: the connector is configured with that user's own virtual key, and
+every gateway call it makes carries that key, so the gateway sees the calls arriving as that user
+and the source owner is that user.
 
-The admin and master key belong to the gateway administrator for administration. Neither is
-handed to a source host, and the connector must never hold, receive, or be configured with them.
+So there are exactly two roles here. The admin account creates accounts and approves what users
+submit. The created user accounts are what the client binaries authenticate with. The admin
+account is never handed to a source host, and a connector must never hold, receive, or be
+configured with it.
 
 ## Requirement 1: the identity is the user account, not a team-scoped key
 
@@ -89,9 +92,9 @@ What is required:
   admin action, and should be authorised as one rather than being reachable by any user with a
   key.
 
-The two requirements fit together like this. The account comes from the deployment manifests, and
-its virtual key reaches the source host as the connector's configuration, which is the one thing
-an operator does hand over. Everything after
+The two requirements fit together like this. The admin account creates the user account once, and
+that account's virtual key reaches the source host as the connector's configuration, which is the
+one thing an operator does hand over. Everything after
 that is the connector's job: it enrolls with the user's key, registers its worker, obtains its
 connector identity from the gateway rather than from the pepper, and dials the tunnel. The user
 never calls a route, never sees the pepper, and never learns a second credential.
@@ -108,11 +111,11 @@ corrected in place as of this record; they are listed so a reader of an older re
   key" and the claim that the bootstrap question is closed by that. Corrected.
 - `running-system/README.md`: the Status register row for bootstrap credential exchange marked
   DONE, and the paragraph describing the team-scoped key as the answer. Corrected, and the
-  enrollment section now names the deployed user account as the identity.
+  enrollment section now names the admin-created user account as the identity.
 - `lifecycle-and-pooling-questions.md`: §2 declared closed on a team-scoped key. Corrected to
   partly answered and still open.
 - `source_agent_distribution.py` module docstring, which stated the team-scoped key shape.
-  Corrected; it now says the account comes from deployment and the connector uses that user's key.
+  Corrected; it now says the single admin account creates the user accounts the binaries use.
 - `route_checks.py`, whose `/mcp-sources` comment named a team-scope requirement that does not
   and must not exist. Corrected.
 
@@ -157,9 +160,9 @@ requirements.
 
 ## Acceptance for these requirements
 
-A deployed user account, on a host the cluster cannot reach and with no cluster access and no team
-membership, is configured with that account's own key and runs the connector. Without an
-administrator touching the cluster, and
+A user account the admin created, on a host the cluster cannot reach and with no cluster access
+and no team membership, is configured with that account's own key and runs the connector. Without
+an administrator touching the cluster during the run, and
 without the user calling any gateway route by hand, the source appears for review owned by
 that user account, opens its tunnel, and after approval serves a real read. The user never sees
 the pepper, never writes `connector.env` by hand, and never derives a credential. The connector

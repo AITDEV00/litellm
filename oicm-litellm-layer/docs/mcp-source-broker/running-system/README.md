@@ -124,11 +124,11 @@ submitter got a 403 reading the row enrollment had just handed them
 
 ## Enrollment
 
-Gateway user accounts are created when the gateway is deployed, from the user and key entries in
-the kube manifests for the environment. Account creation is a deployment concern and is not part
-of this flow. Each person who exposes a source uses their own deployed user account, and that
-account's own virtual key is what the connector carries. No team membership is needed and no
-admin role on the source host is implied
+There is one administrator account, the `admin` account the gateway is deployed with, and it
+creates every other gateway user account. It creates one ordinary user account per person who
+will expose a source. Those accounts are not admins, are not team-scoped, and need no team
+membership. Each is used by that person's client binary: the connector carries that user's own
+virtual key, so the gateway sees its calls arriving as that user
 
 The connector posts a `SourceCreate` to `POST /mcp-sources` with the user's own key, so the
 gateway sees the call arriving as that user. The owner is derived from the key's user id rather

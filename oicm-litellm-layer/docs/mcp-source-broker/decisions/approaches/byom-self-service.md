@@ -48,9 +48,10 @@ good probe, so it keeps its `pending` write. Lease/revision fields stay.
 The connector reuses the existing gateway endpoints. No new public registration endpoint exists.
 
 ```
-0. Gateway user accounts exist already, created from the user and key entries in the kube
-   manifests when the gateway was deployed. Each person who exposes a source uses their own such
-   account, and that account's own virtual key is the only credential the source host ever needs.
+0. One administrative account exists, the `admin` account the gateway is deployed with, and it
+   creates every other user account. It creates one ordinary user account per person who will
+   expose a source, and that account's own virtual key is the only credential the source host
+   ever needs. The admin key never leaves the admin's hands.
 1. The source host has the connector installed and configured with that user account's own key.
 2. source-link register --alias reports --spec ./openapi.json
      connector computes owner=user_id, alias, and sid locally (uuid5 above).

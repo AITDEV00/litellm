@@ -14,11 +14,11 @@ has a single transport, so the unit sets no transport variable.
 Credential shape is not settled. The connector is meant to authenticate as an
 ordinary gateway user account, and to perform its own enrollment, so that no
 human calls the gateway's registration routes and nobody needs the broker
-pepper. Gateway user accounts are created at deployment, from the user and key
-entries in the kube manifests, and the user's own virtual key is the one
-credential the source host holds; the admin key never reaches the host. Neither
-half is implemented, and the installer still expects the operator to place a key
-in that env file by hand. See
+pepper. A single admin account, the one the gateway is deployed with, creates
+every other gateway user account, and each of those is used by that person's
+client binary; the admin key never reaches the host. Neither half is
+implemented, and the installer still expects the operator to place a key in
+that env file by hand. See
 ``oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md``.
 
 Reuse rules: connection parameters, bucket handling and key normalization all
