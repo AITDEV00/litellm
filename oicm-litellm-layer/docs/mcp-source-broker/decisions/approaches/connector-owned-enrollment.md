@@ -27,8 +27,12 @@ here is marked SHIPPED until it runs
 > excluded mechanism is persisting a UI cookie as a connector credential, not CLI authentication.
 > B6 separates RustFS artifacts from gateway code: binaries and manifests already fetch from
 > RustFS, while the installer script must also become an upload-managed artifact. Each update
-> uses a new immutable version and moves the active manifest after validating its artifacts
-
+> uses a new immutable version and moves the active manifest after validating its artifacts>
+> The newer [multi-account work order](../../../../mcp-source-link/MULTI-ACCOUNT-SOURCE-GAPS.md)
+> supersedes the subsequent six-field, one-source-per-state-directory contract. It requires
+> reusable local account aliases, concurrent multi-source operation, derived collision-safe source
+> names, no opaque proof/dataset prompt, and K8s-aware origin targets. Preserve the gateway auth,
+> approval and RustFS mechanisms that already have proof while redesigning that client experience.
 ## Why this file exists
 
 A walkthrough of the broker was started on 2026-11-18 against the dev cluster, intending to
