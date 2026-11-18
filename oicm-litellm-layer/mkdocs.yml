@@ -94,6 +94,7 @@ nav:
       - Spend-Log Cleanup Not Running (2026-09-21): incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
       - Gateway Token-Limits Misreported (2026-11-03): incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
       - Gateway Vision Capability Undeclared (2026-11-03): incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
+      - Nemotron Gateway Transcription Latency (2026-11-18): incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
   - Components:
       - Discovery Controller: components/controller.md
       - Config: components/config.md
@@ -105,7 +106,7 @@ nav:
       - OICM Custom Code (Vertical Slices): oicm-slices.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
-      - Production Configuration Rollback: rollback.md
+      - Production Configuration Rollback: runbooks/rollback.md
       - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
       - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
@@ -239,5 +240,5 @@ nav:
       - Logic Map (Health Table 2026-10-07): oicm-status/LOGIC-MAP-2026-10-07-health-table.md
       - Code Smell Pass (2026-10-06): oicm-status/CODE-SMELL-PASS-2026-10-06.md
       - OICM API Catalog: oicm-status/OICM-API-CATALOG.md
-      - OICM Write Access Blocked (403): oicm-write-access-blocked.md
+      - OICM Write Access Blocked (403): oicm-status/oicm-write-access-blocked.md
   - Docs Map: docs-map.md

@@ -76,7 +76,7 @@ kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller --ti
 Review the complete diff first. Do not add `--prune`. Later-created resources
 need explicit review and deletion. Database records, persistent volumes,
 object-store contents and completed Jobs are not restored. The full
-[rollback runbook](rollback.md) has the inventory, limitations, and commands.
+[rollback runbook](runbooks/rollback.md) has the inventory, limitations, and commands.
 
 ## Apply
 

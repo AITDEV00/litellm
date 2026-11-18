@@ -42,7 +42,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | litellm-to-`/endpoints` field mapping | `docs/openrouter/MAPPING-litellm-to-endpoints.md` |
 | usage/telemetry sources + accuracy audit | `docs/openrouter/MAPPING-usage-metrics.md` |
 | OpenRouter-compatible design | `docs/openrouter/litellm_openrouter_models_design.md` |
-| Write-access blocker (resolved) | `docs/oicm-write-access-blocked.md` |
+| Write-access blocker (resolved) | `docs/oicm-status/oicm-write-access-blocked.md` |
 
 ## Incidents
 
