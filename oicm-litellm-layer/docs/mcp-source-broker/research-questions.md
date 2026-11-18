@@ -2,6 +2,10 @@
 
 Status: open research questions, not an implementation or delivery commitment. Written 2026-11-13 after the dev single-source delivery. Answers should come from the dedicated research agent. Current dev tunnel, connector, gateway, and production stay untouched until decisions are approved
 
+> **Partly superseded.** This was written before the reverse-h2 transport, the Chisel removal, and the tunnel plane existed, so its "what works today" section describes Chisel and a single-source deployment that no longer match the tree. For current behavior read [dev-implementation.md](dev-implementation.md), which is the owning implementation record and carries the authoritative list of what is still open in its Status register and Known gaps sections
+>
+> The one question here that is still a live blocker is §2, how a bootstrap credential reaches a source host without leaking. Everything the broker currently does is admin-managed, and the installer never writes `connector.env`, so that exchange is still undecided
+
 ## What works today
 
 The gateway renders a per-connector installer that carries source-scoped relay credentials and an assigned loopback listener lease. It downloads the pinned Chisel 1.12.0 archive from the gateway HTTPS mirror, verifies SHA-256, stores secrets in a mode-600 environment file, and enables a user-systemd unit with `Restart=always`. Chisel retries indefinitely, so the same reverse mapping returns after a process, network, or pod failure. After a host reboot the enabled unit returns under user systemd with linger

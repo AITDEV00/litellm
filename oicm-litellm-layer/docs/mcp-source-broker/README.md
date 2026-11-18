@@ -1,6 +1,8 @@
 # MCP Source Broker: design logic map and implementation plan
 
 Status: superseded as a proposal; the shipped design is recorded in [dev-implementation.md](dev-implementation.md). This document is the original design plan, kept for its logic map and decision history. Three of its mechanisms were retired during implementation: the Chisel transport was replaced by the reverse-h2 dispatch long-poll (the WSS/Chisel paths are deleted), the pod-hosted Chisel relay became the Go sidecar's reverse listener, and the client installer now provisions the reverse-h2 connector instead of a Chisel client. The enrollment, pooling, catalog-fingerprint gating, and access-group model shipped as designed
+
+> **Read this for history, not for current behavior.** Everything below is the pre-build plan as written. Do not implement from §3, §5.1, §6, or §7: the routes, ports, and transport named there (Chisel, `8088`, `8089`, `/mcp-worker`, `/v1/mcp/source-broker/enrollments`) do not exist in the tree. In particular §5.1 specifies a one-time enrollment-token flow that was never built; credential delivery to a source host is still an open question, tracked in [research-questions.md](research-questions.md) §2 and in the Known gaps section of [dev-implementation.md](dev-implementation.md). The actual routes are `POST /mcp-sources` and `POST /mcp-source-link-sources/{source_id}/workers`, the actual installer is `GET /install/source-agent`, and the actual transport is `reverse-h2` or `tunnel`, both on port 8093
 Baseline: upstream LiteLLM **v1.108.5 LTS**, release commit `2a61f21`
 Pattern: **modular vertical slice**, as required by [the OICM slice pattern](../oicm-slices.md)
 Method: [Trace-Through-Before-You-Build](../techniques/logic_mapping_technique.md)
