@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType, TracebackType
 from typing import Final, Literal, Protocol
 
@@ -223,17 +223,16 @@ class SourceStore:
                 row.status,
                 row.revision,
             )
-            # The claim-token envelope is obsolete: a connector authenticates as
-            # its own user, so there is no one-time token to record. The insert
-            # only runs when a legacy caller still supplies an expiry, which
-            # keeps old clients working without making the column required.
-            if value.expires_at is not None:
-                await tx.execute_raw(
-                    'INSERT INTO "OicmMcpEnrollment" (id,source_id,token_hash,expires_at,redeemed_at) '
-                    "VALUES ($1,$2,$3::bytea,$4::timestamptz,NOW())",
-                    grant,
-                    sid,
-                    "\\x" + self.keyring.token_hash(grant, self.keyring.mint_token()).hex(),
-                    value.expires_at,
-                )
+            # The source's enrollment row is the anchor every worker row hangs
+            # off (OicmMcpRemoteWorker.enrollment_id is a foreign key), so it is
+            # written even though nothing redeems it any more. The expiry is
+            # server-derived because the connector no longer supplies one.
+            await tx.execute_raw(
+                'INSERT INTO "OicmMcpEnrollment" (id,source_id,token_hash,expires_at,redeemed_at) '
+                "VALUES ($1,$2,$3::bytea,$4::timestamptz,NULL) ON CONFLICT (id) DO NOTHING",
+                grant,
+                sid,
+                "\\x" + self.keyring.token_hash(grant, self.keyring.mint_token()).hex(),
+                value.expires_at or datetime.now(timezone.utc) + timedelta(days=3650),
+            )
             return row.value()

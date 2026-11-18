@@ -106,14 +106,17 @@ async def test_selection_missing_source_raises_keyerror(store: SourceStore) -> N
 
 
 @pytest.mark.asyncio
-async def test_enroll_without_claim_token_writes_no_enrollment_row(store: SourceStore, source: SourceCreate) -> None:
-    """Self-service enrollment carries no claim token.
+async def test_enroll_without_claim_token_still_writes_the_enrollment_anchor(
+    store: SourceStore, source: SourceCreate
+) -> None:
+    """A self-enrolled source has no claim token, but still needs its anchor row.
 
-    The one-time token envelope is obsolete, so an enrollment that omits
-    expires_at must not attempt an insert into "OicmMcpEnrollment". A required
-    column there turned every such enroll into a 500 in dev.
+    "OicmMcpRemoteWorker".enrollment_id is a foreign key onto
+    "OicmMcpEnrollment", so skipping the anchor makes every later worker
+    registration fail. The expiry is therefore server-derived rather than
+    required from the caller.
     """
     tokenless: Final = source.model_copy(update={"expires_at": None})
     result = await store.enroll(tokenless, "alice")
     assert result.source_id == source.source_id
-    assert store.db.enrollments == []
+    assert len(store.db.enrollments) == 1
