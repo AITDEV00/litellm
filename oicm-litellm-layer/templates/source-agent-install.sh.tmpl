@@ -55,15 +55,31 @@ UNIT
 
 export MCP_SOURCE_LINK_STATE_DIR="$state"
 
-echo "Step 1: add the gateway account (asked once)."
-"$state/source-link" account add
+# account add and source add prompt for a gateway, a login and a target, so they
+# need a terminal. Piping the installer into sh (curl ... | sh) leaves stdin as
+# the consumed pipe, never a tty, so running them here would fail and leave a
+# half-configured agent. In that case install the binary and print the next
+# commands instead of running them.
+if [ -t 0 ]; then
+  echo "Step 1: add the gateway account (asked once)."
+  "$state/source-link" account add
 
-echo "Step 2: add a source under that account."
-"$state/source-link" source add
+  echo "Step 2: add a source under that account."
+  "$state/source-link" source add
 
-systemctl --user daemon-reload
-systemctl --user enable --now source-agent.service
+  systemctl --user daemon-reload
+  systemctl --user enable --now source-agent.service
+  echo "Source connector installed. Service: source-agent.service"
+else
+  echo "Source connector installed. The account and source steps need a terminal, so run them yourself:"
+  echo
+  echo "  export MCP_SOURCE_LINK_STATE_DIR=$state"
+  echo "  $state/source-link account add"
+  echo "  $state/source-link source add"
+  echo
+  echo "Then start the service:"
+  echo "  systemctl --user daemon-reload && systemctl --user enable --now source-agent.service"
+fi
 
-echo "Source connector installed. Service: source-agent.service"
 echo "State directory: $state"
 echo "Add another source later with: $state/source-link source add"

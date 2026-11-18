@@ -53,24 +53,35 @@ continue until you have both.
 ## Phase 1: install the connector binary
 
 The assistant publishes the binary the installer fetches, then hands you the
-install command. The dev gateway serves the connector through its install endpoint,
-so installing against dev is one `curl | bash` from a published release.
+install command. The dev gateway serves the connector through its install
+endpoint, so installing against dev is one `curl | sh` from the published
+release.
 
-The connector binary and its installer are released together and checksum
-verified:
+The installer and the binary it fetches are released together and checksum
+verified. It does not itself prompt: `account add` and `source add` need a
+terminal, and the pipe into `sh` has none, so the installer prints those
+commands instead of running them.
 
 ```
-VERSION=v0.4.0-dev
-BASE=https://localhost:14443/install/source-agent/$VERSION
-curl -kfsSL "$BASE/install.sh" | sh
+curl -fsSL http://localhost:14010/install/source-agent | sh
 ```
 
-Success: `Source connector installed` plus `State directory: ...`, and
-`source-link --help` shows the `account` and `source` command families.
+Success: `Source connector installed`, the three follow-up commands to run, and
+`State directory: ...`. The binary lands at `~/.config/source-agent/source-link`
+(mode `-r-x`), and `--help` shows the `account` and `source` command families,
+including `--kind openapi` and `--kind mcp`.
 
-If the dev release endpoint is not yet published (the publisher is an admin
-artifact upload, and `install.sh` verifies a SHA that must match the uploaded
-bytes), the assistant falls back to installing the already-built binary directly:
+The installer reads its asset base from the release, which is the dev proxy the
+port-forward exposes as `14001`. If that forward is down the asset download fails;
+bring it up first:
+
+```
+kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000
+```
+
+If the release endpoint is not published at all (the publisher is an admin
+artifact upload, and the installer verifies a SHA that must match the uploaded
+bytes), install the already-built binary directly instead:
 
 ```
 install -m 0755 <built-source-link> ~/.local/bin/source-link
@@ -80,7 +91,7 @@ install -m 0755 <built-source-link> ~/.local/bin/source-link
 A fresh install has no accounts and no sources. Confirm:
 
 ```
-source-link account list   # "no accounts configured; run: source-link account add <alias>"
+~/.config/source-agent/source-link account list   # "no accounts configured; run: source-link account add <alias>"
 ```
 
 ## Phase 2: log in and connect with the binary
