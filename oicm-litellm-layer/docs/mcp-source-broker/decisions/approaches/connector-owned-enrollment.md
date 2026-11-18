@@ -1,8 +1,9 @@
 # Connector-owned enrollment, recorded 2026-11-18
 
-Status: OPEN REQUIREMENTS. These are blockers for developer acceptance testing of the broker.
-Nothing in this document describes shipped behaviour. Two required behaviours are absent from
-the tree, and today's substitutes are wrong in ways this file records.
+Status: IMPLEMENTED, partially accepted. Both requirements are built and covered by tests. The
+user-without-team half and the connector-owns-bootstrap half are proven live against the dev
+cluster, except for the one live step that dev cannot currently serve; see "Implementation and
+acceptance record" at the end. Nothing here is marked SHIPPED until that last step runs.
 
 ## Why this file exists
 
@@ -46,6 +47,15 @@ What the code does today:
   belonging to no team cannot enroll at all. Deployed user accounts are not team members, which
   makes this the exact case that breaks. The owner is already
   derived from `user.user_id`, which is the correct half; the `team_id` gate is the defect.
+- Install-time configuration and origin signing are prerequisites, not an alternative
+  human gateway workflow. `internal/config/config.go` `ReadConnector` requires an
+  owner-only JSON identity file with `worker_id`, `source_id`, numeric-loopback
+  `target`, `generation`, and a 64-character hex `credential`. The connector does not
+  generate that identity. `RemotePeer` additionally requires `label`, `dataset_id`, a
+  loopback `target`, and an Ed25519 `proof_key`; the origin must sign the catalog probe
+  with the corresponding private key. The binary cannot infer a dataset identity or
+  make an existing arbitrary origin produce its signature automatically (see unresolved
+  decisions below).
 - `route_checks.py` comments its `/mcp-sources` exemption with "the team-scope requirement is
   enforced in the handler". There is no such requirement, and the comment teaches the next
   reader something false.
@@ -90,7 +100,33 @@ What is required:
   must never hand-assemble `connector.env` or the connector identity file.
 - The gateway registration routes stop being a human-facing surface. Direct invocation is an
   admin action, and should be authorised as one rather than being reachable by any user with a
-  key.
+  key. This is a product-UX policy, not a claim that HTTP can identify the client process;
+  actual non-admin connector requests are explicitly owner-authorized under D1 below.
+
+### Correction: HTTP cannot identify a process
+
+That last sentence is not implementable as written. The gateway sees a bearer key and an
+HTTP request, not whether the caller is this binary or a person using curl with the same
+key. The existing worker, selection and lifecycle routes in `remote_gateway.py` already
+require a Proxy Admin. Any ordinary-user connector authorization must name **which**
+requests the same user key is allowed to make (owner/source/action), not rely on a client
+User-Agent header, a private route suffix, an additional client secret, or a claimed
+process identity. Those are not authentication.
+
+The owning authorization rule is therefore:
+
+- Direct source enrollment and worker bootstrap on existing routes may be
+  Proxy-Admin-only. A Proxy Admin may enroll for a user.
+- The user's key permits only requests on sources owned by that user
+  (`OicmMcpSource.tenant == user.user_id`), and only on resources tied to that source.
+  Worker registration cannot rely solely on the generic pending-row edit permission.
+- The connector and a person using its user key pass exactly the same authorization
+  predicate. "A user may self-enroll but curl must be admin-only" is excluded.
+- Selection and lifecycle actions on other users' sources stay admin-only. Revocation is
+  governance, not a substitute for self-renewal.
+
+See unresolved decisions below for whether the same existing worker route is opened to
+the source owner, under this predicate, rather than adding an alternate route.
 
 The two requirements fit together like this. The admin account creates the user account once, and
 that account's virtual key reaches the source host as the connector's configuration, which is the
@@ -161,17 +197,250 @@ requirements.
 ## Acceptance for these requirements
 
 A user account the admin created, on a host the cluster cannot reach and with no cluster access
-and no team membership, is configured with that account's own key and runs the connector. Without
-an administrator touching the cluster during the run, and
-without the user calling any gateway route by hand, the source appears for review owned by
-that user account, opens its tunnel, and after approval serves a real read. The user never sees
-the pepper, never writes `connector.env` by hand, and never derives a credential. The connector
-authenticates the whole exchange with the user's own key, and the gateway audit trail shows the
-calls arriving as that user, not as the admin.
+and no team membership, has its own key present in an owner-only installer/runtime
+configuration file. The binary reads it; a human never derives a connector credential, never
+manually assembles a worker identity, and does not need the broker pepper or a cluster
+credential. `connector.env` remains a **file the installer owns**, not a forbidden persistence
+location: the intended prohibition is hand-authoring identity/HMAC fields. The user's long-lived
+key is distinct from the per-worker HMAC tunnel identity and the gateway-to-sidecar service
+token. The latter two must never confuse the installer docs or leakage boundary.
+
+The connector then enrolls and registers its worker over existing gateway routes, persists the
+issued mode-0600 identity across restarts, and redials after a broker restart without a new
+source or manual renewal. Its logs must authenticate as the issuing user, not an admin. While
+its source is pending/rejected, its tunnel being open gives it no tool access. After approval a
+real read succeeds with gateway credentials/cookies stripped. The same direct REST call under
+the same user's key undergoes the same owner/source authz check (no process-identity fiction).
 
 The same run must also show the approval gate unchanged: after the connector enrolls and its
 tunnel is up, the source is still absent from the MCP registry and a tool call against it still
 fails, and only an administrator approving it makes the read succeed. A run that serves before
 approval has regressed the gate and does not count as passing.
 
+Unless the decisions below say otherwise, the minimum implementation contract is as
+follows. It changes **who calls existing routes and what those routes return**, rather
+than inventing a second registration protocol.
+
+1. Accept an authenticated user's key for `POST /mcp-sources` regardless of `team_id`.
+   The server determines `owner`; the source request still has the existing strict
+   alias, loopback target and OpenAPI catalog contract.
+2. Remove **the broker-specific** team-scope check only. Do not silently weaken
+   authorization on the shared BYOM `/v1/mcp/server` surface,
+   which has its own account and key checks.
+   User-id lookup and worker control are for the binary, not interactive operator
+   endpoints. It must not need the owner ID from the user (an opaque key does not expose
+   it). `POST /mcp-sources` returns the authenticated `owner` together with the
+   deterministic server-side `source_id` already returned today. The connector must not
+   compute ownership by decoding an opaque credential or trust a caller-provided owner.
+3. The existing service path performs two separate steps:
+   - `POST /mcp-sources` registers the source with the review system and returns an
+     `owner` determined by the gateway, not the caller. Its `source_id` remains
+     `uuid5(NAMESPACE, "source:{owner}:{alias}")`, already computed server-side.
+   - `POST /mcp-source-link-sources/{source_id}/workers` creates an identity record for
+     one connector instance. Full proof input still comes from the source host; this
+     step does not create the user or grant approval.3a. Authorize `OicmMcpSource.tenant == user.user_id` for a non-admin worker
+    creation (or Proxy Admin for admin workflows). The response must include the
+    connector runtime identity: `worker_id`, `source_id`, target, generation, and
+    the plaintext HMAC from
+    `Keys.remote_credential(enrollment_id,worker_id,generation)`. Compute
+    `enrollment_id = Keys.enrollment_id(source_id)` on the gateway. No pepper,
+    gateway-to-sidecar service token, `token_hash`, gateway auth ciphertext or
+    unrelated peer state leaves the gateway. `RemotePeerResponse` today lacks the
+    credential, target and generation and therefore cannot bootstrap the binary.
+
+4. Add the connector registration flow and execute it before tunnel dialing. It must
+   use HTTP(S) REST only: a user enrollment and worker credential issuance, not
+   `MCP_SOURCE_BROKER_SERVICE_TOKEN` or a private control endpoint. Use
+   `MCP_SOURCE_LINK_PUBLIC_URL` as the fixed gateway base, allow HTTPS plus the
+   existing CA override, reject other schemes, and join paths without introducing
+   `//`. The existing public base is HTTPS and the tunnel's `DialTarget` is gRPC's
+   different endpoint contract; do not reuse it for REST. Atomic install writing of
+   an owner-only identity is required for persistence.
+   The `--config` installer flag/environment should accept an ordinary user-key
+   configuration, not make a private HMAC grant a manual precondition.
+5. The long-running `connector` command bootstraps lazily on absent identity. An admin/user
+   is not expected to invoke a separate registration command before starting it, and
+   the installer need not teach such a command. Maintain the implementation internally as
+   one registration step, loaded first only when persisted identity needs creating.
+   If a diagnostics/admin `register` is added it must be a thin wrapper on the same path,
+   not a separate uncompared security behavior.
+6. Requests and one-time worker identity responses must not be logged. Do not log HTTP
+   Authorization, the user key, or the plaintext connector credential. A response that
+   issues identity is carried over TLS and consumed by this registered device only.
+   Restricting subsequent API reads other than the connector's own worker results
+   remains necessary.
+7. Persist enough registration input to make restart and reconnect unambiguous, while
+   keeping the source alias/owner immutable. Existing worker registration is
+   deterministic per `source_id, label`. A repeat call currently 409s. Reuse of an
+   existing label cannot be silently transformed into re-minting the same active
+   identity, because that destroys duplicate-session fencing. Re-enrollment requires a
+   deliberate explicit-generation/reissue path or a fresh label. Boot daemon restart
+   must reuse the saved identity, not create another worker. This requirement does
+   not expose worker revocation to a source host.
+8. Do not blur `MCP_SOURCE_BROKER_SERVICE_TOKEN` with the connector credential. The
+   service token is for the internal sidecar/control app (`Authorization: Bearer`),
+   whereas the connector presents raw per-worker credential metadata over the
+   Issues per-worker credentials only when source and worker state is finalized. Do not
+   or report endpoints. `Keys.enrollment_id(source_id)` is server-only computation.
+
+## Approval and re-enrollment hazards, not new scope
+
+These are not additional product requirements. The two above requirements are to be
+implemented minimally without accidentally breaking review isolation.
+
+Real code mutates the broker source (and uploads a new artifact) before the existing
+create-only `submit_for_review` may 409 for an already-known identifier. `OicmMcpSource`
+connectivity could therefore become active while the known gateway row is still
+approved. Do not self-re-enroll into that behavior while adding the client flow. If implementation touches re-enrollment, choose whether to prevent this
+conflict now or record a separate issue. Do not silently claim every content change
+re-pends when that proof has not been run. A new-source acceptance journey alone does
+not verify it.
+
+`owner_may_mutate` permits owner deletion of a pending/rejected gateway row, but does
+not delete broker lease rows or revoke an existing worker. This bootstrap change is
+not license to implement cleanup, owner-cancellation of approved live connectivity,
+or a new recovery UI.
+
+Targeted negative tests:
+- User identity with `team_id=None` can self-enroll and bootstrap. An explicit `owner`
+  field in the POST body cannot redirect ownership away from the authenticated user.
+  No response contains pepper, the gateway-to-sidecar service token, or secret admin
+  state.
+- A user cannot create or mutate a worker on an unowned source, access arbitrary source
+  IDs, rename identity through the registration response, register a non-loopback target,
+  inject invalid proof catalogs, or revoke arbitrary workers.
+- Connector startup without a hand-assembled static identity now succeeds through the
+  real API (in-process fake TLS gateway); persisted identity survives restart.
+- Pending/rejected source has a healthy, admitted tunnel yet gets no registry/dispatch
+  session; approval alone opens this already-connected data path.
+- The compat `mcp-source-link-compat` check remains green and continues pinning tunnel
+  semantics across broker/connector versions.
+- Users without a team can still only modify their own submissions under the existing
+  pending/rejected-only owner predicate. Active rows stay admin-only, and approval
+  stays with the administrator.
+
+## Decisions confirmed after clarifying terminology
+
+These are straightforward semantics of the owner model; they do not authorize new
+registration protocols or repositories. Use them instead of inventing a process-identity
+check or a new signer.
+
+- **D1, user authorization:** The ordinary user key authorizes self-enrollment and
+  worker bootstrap, but only when `OicmMcpSource.tenant == user.user_id`. There is no
+  route that tests whether a client is a binary instead of a person. Such a test would
+  falsely claim to identify a process from identical HTTP requests. "Direct calls are
+  admin actions" is equivalent to meaningful role/source authorization here, not
+  rejecting the user's own key for that user's enrollment.
+- **D2, origin proof:** Existing acceptance fixtures already supply the source-origin
+  Ed25519 proof key and signing response. On enrollment the connector gets/passes the
+  public half, and the source origin independently holds the corresponding private key.
+  No automatic arbitrary key generation or local signing proxy is part of these two
+  requirements. Document this input as the source host's trusted proof configuration,
+  fixture-compatible with the existing signed-catalog contract. If there is no signing
+  implementation on an origin yet, that is a separate host prerequisite, not a license to
+  skip the catalog proof.
+- **D3, route expansion:** Reuse `POST /mcp-source-link-sources/{id}/workers` under a
+  Proxy-Admin-or-real-owner predicate, not a second client-specific endpoint. "Worker"
+  is the DB identity of one connector instance; it is not the source-host user account or
+  a new authorization principal. Registration uses the ordinary user's own key, the
+  resulting tunnel identity is a separate per-connector credential, and the source
+  ownership is checked by the gateway before creation.
+- **D4, single initialization:** `source-link connector` receives the ordinary user's
+  key **once** through the installer's locally persisted mode-0600 configuration and
+  performs enrollment/worker issuance automatically. It then persists the issued
+  connector identity locally and reuses all of that on subsequent starts/reconnects.
+  The user does not re-login on every tunnel establishment, does not call `/login`, and
+  does not need HTTP dashboard session/password cookies. No normal extra `register`
+  command is required.
+
+## Required go/no-go acceptance
+
+The phrase "user never sees the pepper, never writes `connector.env` by hand,
+never derives a credential" refers to not crafting the HMAC worker identity, not
+an absence of secure credential persistence. The intended state is the
+admin-provided user key being read by the connector while it registers and
+persists issued identity. No manual HMAC or enrollment-ID calculation is needed.
+
+Acceptance must include proof of key permissions (non-team user's key), issuance (no
+human pepper derivation), restart (persisted identity), and approval isolation; also
+confirm target/proof/test fixtures do not stand in for product features by manual fixture
+administration.
+
 Until that is demonstrated, developer acceptance testing of this broker is blocked.
+
+## Implementation and acceptance record, 2026-11-18
+
+### What was built
+
+Python, `litellm/proxy/mcp_source_broker`:
+
+- `gateway.py::enroll` no longer requires `team_id`. Ownership is still `user.user_id`, never the
+  request body. The response is a typed `SourceEnrolled` carrying `source_id`, `owner` and
+  `status`, so the connector never needs a pasted owner UUID: a virtual key is opaque.
+- `remote_gateway.py` authorizes worker bootstrap as Proxy Admin or the real owner, reading
+  `tenant` from the stored source row via `store.source(source_id)`. A non-owner is 403 and the
+  store is never reached.
+- `remote_store.py::create_peer` returns the complete identity: `worker_id`, `source_id`,
+  `target`, `generation`, and the plaintext `credential` from
+  `Keys.remote_credential(enrollment_id, worker_id, generation)`. The generation in the INSERT
+  and the one in the response now come from a single constant, so the credential can never
+  describe a generation that was not stored.
+- `route_checks.py` exempts only `.../workers` for the owner path. `selection` and `lifecycle`
+  stay Proxy-Admin-only.
+- `route_source`'s default transport is `tunnel`, matching `TransportName`.
+
+Go, `oicm-litellm-layer/mcp-source-link`:
+
+- `internal/bootstrap` is a narrow REST client. It enrolls with `POST /mcp-sources` and registers
+  with `POST /mcp-source-link-sources/{id}/workers`, both over the HTTPS base with the ordinary
+  user's key as bearer. It never sends an owner field, never touches the service token or the
+  pepper, and never logs the key or the credential.
+- `connector.LoadIdentity` prefers a persisted identity and otherwise bootstraps with bounded
+  backoff (500ms doubling to 30s) until the gateway and the user key are available, then persists
+  atomically at mode 0600 (`config.WriteConnectorIdentity`: temp file, fsync, rename).
+- `WorkerLabel` derives a gateway-valid label from the alias. The label pattern is
+  `^[a-z][a-z0-9-]{1,31}$`, which forbids the underscores an alias may contain; a verbatim alias
+  was rejected with 422. Aliases that already fit are unchanged.
+- `main.go` connector mode bootstraps, then hands off to the unchanged `connector.Run` tunnel loop.
+
+### Credentials stay separate
+
+The user key is only a bearer for user-authorized REST. The per-worker HMAC is the tunnel
+credential, sent with member/generation metadata, and the sidecar sees only its digest. The
+service token and pepper never reach a source host. An owner-authorized worker response contains
+no pepper, service token, `token_hash`, `credential_digest` or gateway ciphertext, and a test
+asserts that.
+
+### Proven live on the dev cluster
+
+1. A no-team ordinary account, created by the admin account with the admin credential, enrolled
+   its own source: `POST /mcp-sources` with that user's key returned
+   `201 {"source_id": ..., "owner": "connector-owner-acc2", "status": "pending_review"}`.
+2. The connector, given only that user key plus an owner-only bootstrap input file, enrolled and
+   registered itself with no human calling either route and no pepper: identity persisted at
+   `-rw-------` with `generation: 1` and a 64-character credential, and the tunnel loop started.
+3. Restart reused the persisted identity byte-for-byte, with zero re-registration (no 201, no 409).
+4. The pending source stayed absent from `GET /v1/mcp/server`. Approval isolation held: being
+   enrolled, with a worker registered, did not put the source in the registry.
+
+### The step dev cannot currently serve
+
+Steps 5 of the acceptance (an approved real read through the public gateway) and reaching
+`active`/`healthy` were not run. Reaching admitted/healthy needs the gRPC tunnel to the broker,
+and the public host `litellm.ecouncil.ae` routes `/grpctunnel.v1.TunnelService/` to the **dev**
+broker but routes `/mcp-sources` to **prod**, which has no such route (404). So there is no single
+public host that serves both the REST bootstrap and the tunnel for dev. A local TLS relay cannot
+substitute for it: the tunnel needs HTTP/2, and a simple terminating proxy cannot carry gRPC.
+
+This is a deployment gap, not a code gap. It is recorded here rather than worked around by
+editing prod. The fix is either an ingress rule on the public host routing `/mcp-sources` and the
+other broker REST routes to the dev gateway (mirroring the existing tunnel-path rule), or running
+the acceptance against a host that reaches the dev gateway directly. Until one of those exists,
+the "approved real read" half of acceptance is blocked, and nothing here is marked SHIPPED.
+
+### Re-enrollment
+
+Not implemented, and deliberately not claimed. A re-enroll of an existing alias returns 409 at
+`submit_for_review` after the broker store and artifact upload have already run, which is the
+hazard the task called out. This change restricts itself to fresh-source acceptance and does not
+touch that path; see the hazard section above.

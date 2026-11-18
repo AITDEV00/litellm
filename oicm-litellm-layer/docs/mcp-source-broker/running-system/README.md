@@ -23,7 +23,7 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
-| Bootstrap credential exchange | OPEN BLOCKER | `../decisions/approaches/connector-owned-enrollment.md` |
+| Bootstrap credential exchange | IMPLEMENTED, live read blocked | `../decisions/approaches/connector-owned-enrollment.md` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
 ## Known gaps
@@ -32,9 +32,29 @@ These are not steps; they are things the design called for that the tree does no
 
 **Connector-version compatibility gate.** Built. `make -C oicm-litellm-layer mcp-source-link-compat` builds the connector at the pre-transition revision and the current connector, and runs each against a current broker over a TLS gateway: admit, probe, execute, generation fencing, revoke, and clean degradation when the broker lacks a capability the connector wants. It is a local capability regression check, not a GitHub Actions release gate
 
-**Bootstrap credential exchange.** Reopened 2026-11-18 as an open blocker. An earlier entry here marked this done, on the theory that a team-scoped virtual key in `connector.env` answered it. It does not. Two requirements are unmet: the connector must authenticate as an ordinary gateway **user account** rather than a team-scoped key, and the connector binary must perform enrollment itself so that no human calls the gateway's registration routes and nobody needs the broker-side pepper. Today the binary has only `worker` and `connector` modes, makes no gateway REST calls at all, and the connector identity (`MCP_SOURCE_LINK_CONNECTOR_CONFIG`) is derived by hand from the pepper. The owning record for the requirement is [`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md)
+**Bootstrap credential exchange.** Implemented 2026-11-18 on
+[`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md).
+An ordinary gateway user account key with no team is now enough: `POST /mcp-sources` accepts it
+and returns the gateway-derived `owner` plus the deterministic `source_id`. Worker bootstrap on
+`POST /mcp-source-link-sources/{id}/workers` accepts Proxy Admin or the real owner, and issues the
+complete connector identity (`worker_id`, `source_id`, `target`, `generation`, `credential`). The
+connector in `internal/bootstrap` performs both calls itself with the user's key, persists the
+identity atomically at mode 0600, and reuses it on restart. The pepper and the service token never
+reach a source host
 
-Neither requirement changes the approval gate. A newly registered entry still lands in `pending_review` and serves nothing until an administrator approves it, whatever process made the registration call and whoever it authenticated as. Approval, guardrail edits and rejection stay administrator actions
+Proven live on dev: a no-team account enrolled its own source, the connector registered itself
+with no human touching a route, restart reused the identity with zero re-registration, and the
+pending source stayed out of the MCP registry
+
+Not yet proven: the approved real read, and reaching admitted/healthy, because no single public
+host currently serves both the broker REST routes and the tunnel for dev. `litellm.ecouncil.ae`
+routes the tunnel path to the dev broker but `/mcp-sources` to prod. That is a deployment gap, and
+the fix is an ingress rule, not a code change. Nothing here is marked SHIPPED until that runs
+
+Neither requirement changes the approval gate. A newly registered entry still lands in
+`pending_review` and serves nothing until an administrator approves it, whatever process made the
+registration call and whoever it authenticated as. Approval, guardrail edits and rejection stay
+administrator actions
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
 
