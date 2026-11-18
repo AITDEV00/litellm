@@ -13,8 +13,6 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | `docs/Makefile-reference.md` | Makefile variables, primitives, and compositions |
 | `docs/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
 | `docs/components/*.md` | Per-component navigation |
-| `edge-litellm/docs/POSTGRES-IN-IMAGE.md` | Bundled-Postgres edge image (outside `docs/`, so not published to this site) |
-| `edge-litellm/docs/EDGE-VM-DEPLOY.md` | Edge VM deployment runbook (outside `docs/`, so not published to this site) |
 
 ## Discovery Controller
 
