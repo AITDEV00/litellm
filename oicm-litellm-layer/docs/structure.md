@@ -101,7 +101,6 @@ oicm-litellm-layer/
 │   ├── credentials.md
 │   ├── deployment.md
 │   ├── docs-map.md
-│   ├── oicm-slices.md
 │   ├── components/
 │   │   ├── controller.md
 │   │   ├── config.md
@@ -124,9 +123,8 @@ oicm-litellm-layer/
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource
 │   │                          validation, postgres backup, postgres-in-image)
-│   ├── architecture/       ← integration-layer implementation plan
+│   ├── architecture/       ← integration-layer implementation plan + OICM vertical-slice map
 │   ├── cache-invalidation/  ← cache invalidation design + testing
-│   ├── oicm-slices.md       ← OICM vertical-slice locations & pattern (see below)
 │
 ├── ../ (upstream litellm source tree, co-located OICM slices live there)
 │   ├── litellm/proxy/voice_routes.py                          ← voice routes slice

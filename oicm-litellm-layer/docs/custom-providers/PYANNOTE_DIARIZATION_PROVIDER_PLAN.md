@@ -177,7 +177,7 @@ zero cost and a follow-up ticket if billing matters. (coro's `/v1/listen` and
 `/v1/audio/transcriptions` surfaces keep their existing paths; this slice
 touches only `/v1/diarize`.)
 
-### C8. Slice placement per `oicm-slices.md`
+### C8. Slice placement per `oicm-slices.md` (now `docs/architecture/oicm-slices.md`)
 
 - Routes: new sibling slice `litellm/proxy/diarization_routes.py` (NOT inline
   in `proxy_server.py`), mounted next to the existing OICM router mounts at

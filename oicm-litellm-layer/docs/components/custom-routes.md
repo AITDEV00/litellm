@@ -7,7 +7,7 @@ The OICM voice routes (`/v1/audio/speech/clone`, `/v1/audio/voices`,
 `/v1/voices`, `/v1/voices/profiles` CRUD, `/v1/audio/script`, `/v1/audio/models`,
 `/v1/audio/health`, `/v1/audio/metrics`) live in the LiteLLM source tree as a
 vertical slice: `litellm/proxy/voice_routes.py` (mounted on the app from
-`proxy_server.py`). See [OICM Custom Code](../oicm-slices.md).
+`proxy_server.py`). See [OICM Custom Code](../architecture/oicm-slices.md).
 
 ## Files
 

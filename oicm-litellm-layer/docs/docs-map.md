@@ -190,7 +190,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 
 | Doc | Location |
 |-----|----------|
-| OICM vertical-slice locations & pattern | `docs/oicm-slices.md` |
+| OICM vertical-slice locations & pattern | `docs/architecture/oicm-slices.md` |
 | Drop-detection wiring tests | `tests/unit/proxy/test_oicm_drop_detection.py` |
 | Live smoke suite (post-merge, against a deployed gateway) | `tests/smoke/AGENTS.md` |
 

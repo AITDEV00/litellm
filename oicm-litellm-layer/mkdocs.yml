@@ -103,7 +103,7 @@ nav:
       - Custom Routes — Clone Logic Map: custom-routes-plans/CLONE-LOGIC-MAP.md
       - Custom Routes — VSA Plan: custom-routes-plans/VSA-PLAN.md
       - Patches: components/patches.md
-      - OICM Custom Code (Vertical Slices): oicm-slices.md
+      - OICM Custom Code (Vertical Slices): architecture/oicm-slices.md
   - Architecture & Deployment:
       - Deployment & Cluster: deployment.md
       - Production Configuration Rollback: runbooks/rollback.md

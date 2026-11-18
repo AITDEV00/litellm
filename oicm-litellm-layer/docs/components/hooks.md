@@ -31,7 +31,7 @@ litellm_settings:
 The two `litellm_hooks.*` names are mounted from the `litellm-hooks` ConfigMap
 (declared at `deploy/base/shared/litellm-hooks.yaml`) into `/app/litellm_hooks`
 on the proxy pod. `dynamic_rate_limiter_v3_htb` is a LiteLLM in-tree hook (see
-[OICM Custom Code](../oicm-slices.md)); `prometheus` and the session-identity
+[OICM Custom Code](../architecture/oicm-slices.md)); `prometheus` and the session-identity
 resolver are in-tree too.
 
 !!! note
