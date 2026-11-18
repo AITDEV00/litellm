@@ -101,6 +101,7 @@ oicm-litellm-layer/
 │   ├── credentials.md
 │   ├── deployment.md
 │   ├── docs-map.md
+│   ├── additional-features-origin.md  ← every OICM custom feature and where it lives
 │   ├── components/
 │   │   ├── controller.md
 │   │   ├── config.md
@@ -123,7 +124,7 @@ oicm-litellm-layer/
 │   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
 │   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource
 │   │                          validation, postgres backup, postgres-in-image)
-│   ├── architecture/       ← integration-layer implementation plan + OICM vertical-slice map
+│   ├── architecture/       ← integration-layer implementation plan
 │   ├── cache-invalidation/  ← cache invalidation design + testing
 │
 ├── ../ (upstream litellm source tree, co-located OICM slices live there)

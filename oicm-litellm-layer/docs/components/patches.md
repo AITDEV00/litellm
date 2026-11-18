@@ -7,7 +7,7 @@ minimal changes this layer makes on top of unmodified upstream LiteLLM.
 
 No active patches. There is no `patches/` directory in this repo; OICM
 customizations now live as vertical slices inside the LiteLLM source tree (see
-[OICM Custom Code](../architecture/oicm-slices.md)) rather than as `.patch` files.
+[OICM Custom Code](../additional-features-origin.md)) rather than as `.patch` files.
 
 ## Superseded: embedding extra_body
 

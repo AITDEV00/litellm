@@ -1,4 +1,6 @@
-# OICM Custom Code — Vertical Slice Locations & Pattern
+# Additional Features — Origin: Where OICM Custom Code Lives
+
+> **What this document is.** The map of every OICM custom feature added on top of upstream LiteLLM: which file or package holds it, which pattern it follows, and how the runtime wiring is pinned by tests. It answers "where does this fork add behavior" and "where must new custom code go". It is a record of this repository, not a reusable technique; for the reusable method see [`techniques/`](techniques/).
 
 > **Problem**: OICM custom features (voice routes, voice/script SDK, custom
 > provider config, Prometheus in-flight gauge, HTB rate limiter, team cache
