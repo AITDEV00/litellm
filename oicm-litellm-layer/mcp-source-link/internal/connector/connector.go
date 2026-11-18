@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,49 @@ func originTransport(target string, maxIdle int) *http.Transport {
 		IdleConnTimeout: 90 * time.Second, DisableCompression: true, ResponseHeaderTimeout: 30 * time.Second,
 	}
 }
+
+// WorkerLabel is the deterministic worker label for a source alias.
+//
+// The gateway's worker label pattern is `^[a-z][a-z0-9-]{1,31}$`: no underscores,
+// at most 32 characters. The source alias allows underscores and 128 characters,
+// so passing it straight through is rejected. Aliases that already fit are used
+// verbatim, which keeps the existing deterministic label for them; others are
+// normalized the same way every time so a restart derives the same label.
+func WorkerLabel(alias string) string {
+	if workerLabelPattern.MatchString(alias) {
+		return alias
+	}
+	normalized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, alias)
+	trimmed := strings.Trim(normalized, "-")
+	if trimmed == "" {
+		trimmed = "connector"
+	}
+	if len(trimmed) > 32 {
+		trimmed = strings.TrimRight(trimmed[:32], "-")
+	}
+	if trimmed[0] < 'a' || trimmed[0] > 'z' {
+		trimmed = "s" + trimmed
+		if len(trimmed) > 32 {
+			trimmed = trimmed[:32]
+		}
+	}
+	// The gateway pattern requires at least two characters.
+	if len(trimmed) < 2 {
+		trimmed += "-1"
+	}
+	return trimmed
+}
+
+var workerLabelPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 
 // Run dials out and serves the tunnel until the context ends.
 func Run(ctx context.Context, cfg config.ConnectorConfig) error {
@@ -119,7 +163,7 @@ func enrollOnce(
 	}
 	issued, err := client.IssueWorker(ctx, enrolled.SourceID, bootstrap.EnrollmentInput{
 		Alias: input.Alias, DatasetID: input.DatasetID, ProofKey: input.ProofKey, Spec: input.Spec,
-	}, target, input.Alias)
+	}, target, WorkerLabel(input.Alias))
 	if err != nil {
 		return config.ConnectorConfig{}, err
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -146,5 +147,26 @@ func writeJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestWorkerLabelMatchesGatewayPattern proves the derived label always satisfies
+// the gateway's worker-label rule, and that aliases which already fit are unchanged.
+func TestWorkerLabelMatchesGatewayPattern(t *testing.T) {
+	pattern := regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
+	for _, alias := range []string{
+		"pets", "pets-api", "warehouse_inventory", "Warehouse_Inventory", "a",
+		"9lives", "---", strings.Repeat("x", 60), "with.dot.and_underscore",
+	} {
+		label := WorkerLabel(alias)
+		if !pattern.MatchString(label) {
+			t.Errorf("alias %q produced invalid label %q", alias, label)
+		}
+		if WorkerLabel(alias) != label {
+			t.Errorf("alias %q is not deterministic", alias)
+		}
+	}
+	if got := WorkerLabel("pets-api"); got != "pets-api" {
+		t.Errorf("an already-valid alias must pass through verbatim, got %q", got)
 	}
 }
