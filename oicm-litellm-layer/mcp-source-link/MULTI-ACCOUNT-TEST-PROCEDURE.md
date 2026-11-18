@@ -1,6 +1,6 @@
 # Multi-account connector: guided end-to-end procedure
 
-This is the hands-on procedure for proving the multi-account `source-link` client
+This is the hands-on procedure for proving the multi-account `adma` client
 against the live dev gateway. It is written as a guided session: the assistant sets
 up state and hands you the exact commands, you run the interactive ones yourself,
 and the assistant verifies each phase before the next begins. Run it top to bottom.
@@ -67,9 +67,9 @@ curl -fsSL http://localhost:14010/install/source-agent | sh
 ```
 
 Success: `Source connector installed`, the three follow-up commands to run, and
-`State directory: ...`. The binary lands at `~/.config/source-agent/source-link`
-(mode `-r-x`), and `--help` shows the `account` and `source` command families,
-including `--kind openapi` and `--kind mcp`.
+`State directory: ...`. The binary lands at `~/.local/bin/adma`, which is on
+PATH, so the command is just `adma`, and `--help` shows the `account` and
+`source` command families, including `--kind openapi` and `--kind mcp`.
 
 The installer reads its asset base from the release, which is the dev proxy the
 port-forward exposes as `14001`. If that forward is down the asset download fails;
@@ -84,14 +84,14 @@ artifact upload, and the installer verifies a SHA that must match the uploaded
 bytes), install the already-built binary directly instead:
 
 ```
-install -m 0755 <built-source-link> ~/.local/bin/source-link
-~/.local/bin/source-link --help
+install -m 0755 /tmp/source-link-static ~/.local/bin/adma
+~/.local/bin/adma --help
 ```
 
 A fresh install has no accounts and no sources. Confirm:
 
 ```
-~/.config/source-agent/source-link account list   # "no accounts configured; run: source-link account add <alias>"
+~/.local/bin/adma account list   # "no accounts configured; run: adma account add <alias>"
 ```
 
 ## Phase 2: log in and connect with the binary
@@ -100,7 +100,7 @@ You run this. It is interactive: three questions per account, once each.
 
 ```
 export MCP_SOURCE_LINK_INSECURE=1
-source-link account add alpha
+adma account add alpha
 ```
 
 Answer: gateway `https://localhost:14443`, username
@@ -109,7 +109,7 @@ Answer: gateway `https://localhost:14443`, username
 Then the second account:
 
 ```
-source-link account add beta
+adma account add beta
 ```
 
 Answer with `accept-owner-2@example.invalid` and `/tmp/accept2.pw`.
@@ -159,10 +159,10 @@ two under `beta`, so a later phase can compare them. No command here re-prompts
 for a password: each reuses the selected account's stored key.
 
 ```
-source-link source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
-source-link source add --account alpha --target 127.0.0.1:18203 --kind mcp
-source-link source add --account beta  --target 127.0.0.1:18202 --kind openapi --spec /tmp/test/spec-18202.json
-source-link source add --account beta  --target 127.0.0.1:18204 --kind mcp
+adma source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
+adma source add --account alpha --target 127.0.0.1:18203 --kind mcp
+adma source add --account beta  --target 127.0.0.1:18202 --kind openapi --spec /tmp/test/spec-18202.json
+adma source add --account beta  --target 127.0.0.1:18204 --kind mcp
 ```
 
 `--kind` defaults to `openapi`, and `--path` defaults to `/mcp`, so an MCP source
@@ -182,7 +182,7 @@ two MCP rows carrying `kind=mcp` and `mcp_path=/mcp`, and no duplicate. Also
 re-run one registration verbatim to show it is idempotent:
 
 ```
-source-link source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
+adma source add --account alpha --target 127.0.0.1:18201 --kind openapi --spec /tmp/test/spec-18201.json
 # MCP source already exists as alpha.127.0.0.1.18201; nothing new was created.
 ```
 
@@ -192,7 +192,7 @@ The registered sources are inert until the agent runs. Start it so all four
 connect:
 
 ```
-source-link connector
+adma connector
 ```
 
 Success: `serving 4 source(s) across 2 account(s)`, then four tunnel connections.

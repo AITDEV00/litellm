@@ -1,6 +1,6 @@
 """Source connector release distribution over RustFS, using the shared artifact channel.
 
-The Go ``source-link`` connector ships from the same bucket as the cc-switch client,
+The Go ``adma`` connector ships from the same bucket as the cc-switch client,
 uploaded the same way: an administrator PUTs raw bytes to the gateway, the gateway
 writes them to RustFS with its own store credentials, and clients download them back
 through the same proxy. There is no second transport, no base64-in-JSON bundle, and
@@ -9,7 +9,7 @@ no store credential on an operator machine.
 Layout (see ``docs/client-distribution/source-agent-releases.md``):
 
     templates/source-agent-install.sh.tmpl   operator-owned installer logic
-    source-agent/<version>/source-link       immutable binary bytes
+    source-agent/<version>/adma             immutable binary bytes
     source-agent/<version>/release.json      version/sha256/compat metadata
     source-agent/manifest.json               active-release pointer
 
@@ -267,7 +267,7 @@ def digest(body: bytes) -> str:
 @router.get("/install/source-agent/{version}/{asset}")
 async def source_agent_asset(version: str, asset: str) -> StreamingResponse:
     """Proxy one immutable release asset. Versioned paths only."""
-    if asset not in {"source-link", "release.json"} or "/" in version or version.startswith(".") or ".." in version:
+    if asset not in {"adma", "release.json"} or "/" in version or version.startswith(".") or ".." in version:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown release asset")
     config, s3 = _storage()
     key: Final = f"{AGENT_PREFIX}/{version}/{asset}"
@@ -371,7 +371,7 @@ async def admin_activate_release(
     _require_admin(user_api_key_dict)
     config, s3 = _storage()
 
-    binary_key: Final = f"{AGENT_PREFIX}/{data.version}/source-link"
+    binary_key: Final = f"{AGENT_PREFIX}/{data.version}/adma"
     binary_digest: Final = await _head_digest(config, s3, binary_key)
     if binary_digest is None:
         raise HTTPException(

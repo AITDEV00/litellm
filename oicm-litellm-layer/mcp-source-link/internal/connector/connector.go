@@ -100,7 +100,7 @@ func RunAll(ctx context.Context, store *state.Store) error {
 		}(source, gateway)
 	}
 	if started == 0 {
-		return fmt.Errorf("no registered sources to serve; run: source-link source add")
+		return fmt.Errorf("no registered sources to serve; run: adma source add")
 	}
 	log.Printf("serving %d source(s) across %d account(s)", started, len(accounts))
 	<-ctx.Done()

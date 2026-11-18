@@ -26,7 +26,7 @@ from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_au
 _REPO_ROOT: Final = pathlib.Path(__file__).resolve().parents[4]
 _TEMPLATE_PATH: Final = _REPO_ROOT / "oicm-litellm-layer" / "templates" / "source-agent-install.sh.tmpl"
 
-_BINARY: Final = b"\x7fELF" + b"source-link-binary-bytes" * 64
+_BINARY: Final = b"\x7fELF" + b"adma-binary-bytes" * 64
 _VERSION: Final = "0.5.0"
 
 
@@ -111,7 +111,7 @@ def app(monkeypatch: pytest.MonkeyPatch, store: _FakeS3Client) -> FastAPI:
 def _publish(store: _FakeS3Client, version: str = _VERSION, binary: bytes = _BINARY) -> str:
     """Upload one immutable release pair and the template, exactly as a publisher would."""
     sha256: Final = hashlib.sha256(binary).hexdigest()
-    store.store[f"source-agent/{version}/source-link"] = binary
+    store.store[f"source-agent/{version}/adma"] = binary
     store.store[f"source-agent/{version}/release.json"] = (
         b'{"version":"%s","sha256":"%s","size":%d}' % (version.encode(), sha256.encode(), len(binary))
     )
@@ -145,7 +145,8 @@ def test_installer_is_rendered_from_the_stored_template(app: FastAPI, store: _Fa
     assert 'base="https://gateway.example"' in body
     assert f'version="{_VERSION}"' in body
     assert f'expected="{sha256}"' in body
-    assert "ExecStart=${state}/source-link connector" in body
+    assert "install -m 0755" in body and "adma" in body
+    assert "ExecStart=" in body and "connector" in body
 
 
 def test_installer_fails_loudly_when_pointer_disagrees_with_the_release(app: FastAPI, store: _FakeS3Client) -> None:
@@ -180,7 +181,7 @@ def test_binary_asset_downloads_bytes_that_match_the_advertised_checksum(app: Fa
     client: Final = TestClient(app)
 
     installer: Final = client.get("/install/source-agent").text
-    downloaded: Final = client.get(f"/install/source-agent/{_VERSION}/source-link")
+    downloaded: Final = client.get(f"/install/source-agent/{_VERSION}/adma")
 
     assert downloaded.status_code == 200
     assert hashlib.sha256(downloaded.content).hexdigest() == sha256

@@ -46,7 +46,7 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
-const usage = `usage: source-link <command> [options]
+const usage = `usage: adma <command> [options]
 
 The agent keeps a local set of accounts and sources, so a second source never
 asks for your password again.

@@ -343,7 +343,7 @@ func ListAccounts(store *state.Store) (string, error) {
 		return "", err
 	}
 	if len(accounts) == 0 {
-		return "no accounts configured; run: source-link account add <alias>\n", nil
+		return "no accounts configured; run: adma account add <alias>\n", nil
 	}
 	var builder strings.Builder
 	for _, account := range accounts {
@@ -363,7 +363,7 @@ func ListSources(store *state.Store) (string, error) {
 		return "", err
 	}
 	if len(sources) == 0 {
-		return "no sources configured; run: source-link source add\n", nil
+		return "no sources configured; run: adma source add\n", nil
 	}
 	sort.Slice(sources, func(left, right int) bool { return sources[left].Name < sources[right].Name })
 	var builder strings.Builder

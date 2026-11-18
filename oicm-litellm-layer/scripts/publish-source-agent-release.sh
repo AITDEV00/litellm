@@ -120,7 +120,7 @@ PY
 
 if [[ "$dry_run" == 1 ]]; then
   echo "dry run: would publish source-agent $version ($sha, $size bytes) to the $gateway gateway"
-  echo "dry run: binary -> source-agent/$version/source-link"
+  echo "dry run: binary -> source-agent/$version/adma"
   echo "dry run: metadata -> source-agent/$version/release.json"
   echo "dry run: template -> templates/source-agent-install.sh.tmpl"
   echo "dry run: pointer -> source-agent/manifest.json (last)"
@@ -131,7 +131,7 @@ admin_key=${LITELLM_PROXY_ADMIN_KEY:-}
 [[ -n "$admin_key" ]] || { echo "set LITELLM_PROXY_ADMIN_KEY to a Proxy Admin key for $gateway" >&2; exit 2; }
 
 echo "publishing source-agent $version to $gateway"
-put_artifact "$binary" "source-agent/$version/source-link"
+put_artifact "$binary" "source-agent/$version/adma"
 put_artifact "$manifest" "source-agent/$version/release.json"
 
 template_sha=$(sha256sum "$template" | cut -d' ' -f1)

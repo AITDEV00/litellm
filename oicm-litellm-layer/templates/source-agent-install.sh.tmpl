@@ -17,36 +17,41 @@
 set -eu
 umask 077
 
+# adma installs into ~/.local/bin, which is on PATH for a normal login shell, so
+# the command is just `adma`. State (accounts, sources, keys) stays separate in
+# ~/.config/source-agent.
 state="${MCP_SOURCE_LINK_STATE_DIR:-$HOME/.config/source-agent}"
-mkdir -p "$state" "$HOME/.config/systemd/user"
+bindir="${ADMA_BIN_DIR:-$HOME/.local/bin}"
+mkdir -p "$state" "$bindir" "$HOME/.config/systemd/user"
 chmod 700 "$state" "$HOME/.config/systemd/user"
 
 base="__BASE__"
 version="__VERSION__"
 expected="__SHA__"
 
-for asset in source-link release.json; do
+for asset in adma release.json; do
   curl --fail --location --silent --show-error \
     --output "$state/$asset.new" "$base/install/source-agent/$version/$asset"
   mv -f "$state/$asset.new" "$state/$asset"
 done
 
-actual=$(sha256sum "$state/source-link" | cut -d ' ' -f 1)
+actual=$(sha256sum "$state/adma" | cut -d ' ' -f 1)
 if [ "$actual" != "$expected" ]; then
   echo 'source connector checksum mismatch' >&2
   exit 1
 fi
-chmod 500 "$state/source-link"
+install -m 0755 "$state/adma" "$bindir/adma"
+bin="$bindir/adma"
 
 cat > "$HOME/.config/systemd/user/source-agent.service" <<UNIT
 [Unit]
-Description=ADEO MCP source connector (tunnel)
+Description=ADEO MCP client agent (tunnel)
 After=network-online.target
 
 [Service]
 Restart=always
 RestartSec=2s
-ExecStart=__STATE__/source-link connector
+ExecStart=$bin connector
 NoNewPrivileges=yes
 
 [Install]
@@ -62,24 +67,24 @@ export MCP_SOURCE_LINK_STATE_DIR="$state"
 # commands instead of running them.
 if [ -t 0 ]; then
   echo "Step 1: add the gateway account (asked once)."
-  "$state/source-link" account add
+  "$bin" account add
 
   echo "Step 2: add a source under that account."
-  "$state/source-link" source add
+  "$bin" source add
 
   systemctl --user daemon-reload
   systemctl --user enable --now source-agent.service
   echo "Source connector installed. Service: source-agent.service"
 else
-  echo "Source connector installed. The account and source steps need a terminal, so run them yourself:"
+  echo "Source connector installed as $bin. The account and source steps need a terminal, so run them yourself:"
   echo
   echo "  export MCP_SOURCE_LINK_STATE_DIR=$state"
-  echo "  $state/source-link account add"
-  echo "  $state/source-link source add"
+  echo "  $bin account add"
+  echo "  $bin source add"
   echo
   echo "Then start the service:"
   echo "  systemctl --user daemon-reload && systemctl --user enable --now source-agent.service"
 fi
 
 echo "State directory: $state"
-echo "Add another source later with: $state/source-link source add"
+echo "Add another source later with: $bin source add"
