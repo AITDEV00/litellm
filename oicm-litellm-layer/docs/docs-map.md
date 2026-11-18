@@ -226,12 +226,14 @@ than hand-edit; each file states its generation date.
 | Integration-layer implementation plan | `docs/architecture/IMPLEMENTATION_PLAN.md` |
 | Secondary gateway (edge mirror) design exploration | `docs/architecture/EDGE-MIRROR-DESIGN.md` |
 | Agent platform fit assessment: the director's one-layer vision mapped to the implemented layer, with gaps and build order | `docs/architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md` |
-| **MCP source broker: owning implementation record (start here)** | `docs/mcp-source-broker/dev-implementation.md` |
-| MCP source broker: superseded design proposal, kept for decision history only | `docs/mcp-source-broker/README.md` |
-| MCP source lifecycle and pooling research questions (live blocker: §2 credential bootstrap) | `docs/mcp-source-broker/research-questions.md` |
-| Multi-replica broker scaling: UNFINALIZED debate record with positions, corrections, extension seam, and resume conditions | `docs/mcp-source-broker/MULTI-REPLICA-DESIGN-DEBATE.md` |
-| Nginx reverse-tunnel pilot: the lab flow that preceded the broker | `docs/mcp-source-broker/LiteLLM-Reverse-Tunnel-Nginx-Pilot.md` |
-| Unified MCP implementation guide: gateway-owned tool namespace and harness flow | `docs/mcp-source-broker/LiteLLM-v1.108.5-Unified-MCP-Implementation-Guide.md` |
+| **MCP source broker: owning implementation record (start here)** | `docs/mcp-source-broker/running-system/README.md` |
+| MCP source broker: slice index, maps each question to the folder that answers it | `docs/mcp-source-broker/README.md` |
+| MCP source broker: measurements (concurrency batches, proven and inconclusive results) | `docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md` |
+| MCP source lifecycle and pooling research questions (live blocker: §2 credential bootstrap) | `docs/mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md` |
+| Multi-replica broker scaling: UNFINALIZED debate record with positions, corrections, extension seam, and resume conditions | `docs/mcp-source-broker/decisions/approaches/multi-replica-scaling.md` |
+| Nginx reverse-tunnel pilot: the lab flow that preceded the broker | `docs/mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md` |
+| MCP source broker: superseded design proposal, kept for decision history only | `docs/mcp-source-broker/history/superseded-design-proposal.md` |
+| Unified MCP implementation guide: gateway-owned tool namespace and harness flow (different behavior, filed under history) | `docs/mcp-source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md` |
 
 ## Cache invalidation
 
