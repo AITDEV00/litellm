@@ -30,6 +30,23 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/target"
 )
 
+// Source kinds. "openapi" is an HTTP service described by an OpenAPI document the
+// gateway builds tools from. "mcp" is a standard MCP server the gateway connects to
+// over the MCP protocol at the source's path, with no catalog.
+const (
+	KindOpenAPI = "openapi"
+	KindMCP     = "mcp"
+)
+
+// sourceKind normalizes a requested kind, defaulting to openapi. Anything other
+// than an explicit "mcp" is openapi, so the existing behavior is unchanged.
+func sourceKind(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), KindMCP) {
+		return KindMCP
+	}
+	return KindOpenAPI
+}
+
 // Prompter abstracts the terminal so tests can drive it without a TTY.
 type Prompter interface {
 	Line(prompt string) (string, error)
@@ -155,10 +172,16 @@ func AddAccount(
 }
 
 // AddSourceInput carries everything AddSource needs that is not prompted.
+//
+// Kind is "openapi" (default) or "mcp". An openapi source needs a SpecPath; an
+// mcp source needs neither a spec nor a spec file, only an optional Path for its
+// MCP endpoint (default /mcp).
 type AddSourceInput struct {
 	Account   string
 	Name      string
 	DatasetID string
+	Kind      string
+	Path      string
 	Target    string
 	SpecPath  string
 }
@@ -231,15 +254,23 @@ func addSource(
 		return existing, AlreadyExists{Source: existing}
 	}
 	specPath := strings.TrimSpace(input.SpecPath)
-	if specPath == "" {
-		specPath, err = prompt.Line("Path to the origin's OpenAPI document: ")
-		if err != nil {
-			return state.Source{}, err
-		}
+	kind := sourceKind(input.Kind)
+	mcpPath := strings.TrimSpace(input.Path)
+	if mcpPath == "" {
+		mcpPath = "/mcp"
 	}
-	spec, err := os.ReadFile(specPath)
-	if err != nil {
-		return state.Source{}, fmt.Errorf("read OpenAPI document %q: %w", specPath, err)
+	var spec []byte
+	if kind == KindOpenAPI {
+		if specPath == "" {
+			specPath, err = prompt.Line("Path to the origin's OpenAPI document: ")
+			if err != nil {
+				return state.Source{}, err
+			}
+		}
+		spec, err = os.ReadFile(specPath)
+		if err != nil {
+			return state.Source{}, fmt.Errorf("read OpenAPI document %q: %w", specPath, err)
+		}
 	}
 
 	key, err := store.AccountKey(account.Alias)
@@ -258,7 +289,9 @@ func addSource(
 		}
 	}
 
-	enrollment := bootstrap.EnrollmentInput{Name: name, DatasetID: datasetID, Spec: string(spec)}
+	enrollment := bootstrap.EnrollmentInput{
+		Name: name, DatasetID: datasetID, Kind: kind, Path: mcpPath, Spec: string(spec),
+	}
 	identity, err := registerWithRetry(ctx, policy, func() (state.ConnectorConfig, error) {
 		return bootstrap.Register(ctx, client, enrollment, origin)
 	})
@@ -270,6 +303,8 @@ func addSource(
 		Account:    account.Alias,
 		Target:     origin.String(),
 		DatasetID:  datasetID,
+		Kind:       kind,
+		Path:       mcpPath,
 		WorkerID:   identity.WorkerID,
 		SourceID:   identity.SourceID,
 		Generation: identity.Generation,
@@ -340,7 +375,11 @@ func ListSources(store *state.Store) (string, error) {
 				status = "disabled"
 			}
 		}
-		fmt.Fprintf(&builder, "%-40s %-12s %-30s %s\n", source.Name, source.Account, source.Target, status)
+		kind := source.Kind
+		if kind == "" {
+			kind = KindOpenAPI
+		}
+		fmt.Fprintf(&builder, "%-40s %-12s %-8s %-30s %s\n", source.Name, source.Account, kind, source.Target, status)
 	}
 	return builder.String(), nil
 }

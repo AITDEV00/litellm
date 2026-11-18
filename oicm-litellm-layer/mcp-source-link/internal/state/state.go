@@ -64,6 +64,8 @@ type Source struct {
 	Account    string `json:"account"`
 	Target     string `json:"target"`
 	DatasetID  string `json:"dataset_id"`
+	Kind       string `json:"kind"`
+	Path       string `json:"path"`
 	WorkerID   string `json:"worker_id"`
 	SourceID   string `json:"source_id"`
 	Generation uint64 `json:"generation"`

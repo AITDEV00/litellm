@@ -18,6 +18,7 @@ from litellm.proxy.mcp_source_broker.gateway import (
 )
 from litellm.proxy.mcp_source_broker.models import SourceCreate
 from litellm.proxy.mcp_source_broker.store import SourceStore
+from litellm.types.mcp import MCPTransport
 
 
 class Catalog:
@@ -338,3 +339,70 @@ async def test_repeat_enroll_creates_no_new_row_upload_or_submission(
     assert len(submissions) == 1, "a repeat enroll submitted a second MCP row"
     assert len(uploads) == 1, "a repeat enroll uploaded a second artifact"
     assert len(store.db.sources) == 1, "a repeat enroll created a second source"
+
+
+@pytest.mark.asyncio
+async def test_mcp_kind_source_registers_without_a_catalog(
+    store: SourceStore,
+    respx_mock: MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A standard MCP server enrolls with no OpenAPI document.
+
+    The gateway must register it to speak MCP at the source's path (here /mcp)
+    through the same tunnel, with no artifact upload and no spec_path, while an
+    openapi source still gets a catalog. This is the difference the old code
+    could not express: it hardcoded an HTTP/OpenAPI registration for every source.
+    """
+    monkeypatch.setenv("DISABLE_AIOHTTP_TRANSPORT", "True")
+    submissions: list[tuple[NewMCPServerRequest, str]] = []
+    uploads: dict[str, bytes] = {}
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        submissions.append((request, owner))
+
+    async def artifact(key: str, body: bytes) -> None:
+        uploads[key] = body
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
+    payload: Final = {
+        "alias": "inventory.mcp",
+        "kind": "mcp",
+        "path": "/mcp",
+        "target": {"host": "127.0.0.1", "port": 18203},
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        response: Final = await client.post("/mcp-sources", json=payload)
+
+    assert response.status_code == 201
+    request, owner = submissions[0]
+    assert owner == "alice"
+    source_id = response.json()["source_id"]
+    assert request.server_id == source_id
+    assert request.url == f"http://127.0.0.1:9092/sources/{source_id}/mcp", "mcp source must be reached at its /mcp path"
+    assert request.spec_path is None, "an mcp source has no OpenAPI catalog"
+    assert request.transport == MCPTransport.http
+    assert uploads == {}, "an mcp source must not upload an OpenAPI artifact"
+
+
+@pytest.mark.asyncio
+async def test_openapi_kind_still_requires_a_spec() -> None:
+    """An openapi source without a spec is rejected before any network call."""
+    from litellm.proxy.mcp_source_broker.models import SourceCreate
+
+    with pytest.raises(ValueError):
+        SourceCreate(alias="x.y", kind="openapi", target={"host": "127.0.0.1", "port": 1})
+
+
+@pytest.mark.asyncio
+async def test_mcp_kind_rejects_a_spec() -> None:
+    """An mcp source carrying an OpenAPI spec is a contradictory request."""
+    from litellm.proxy.mcp_source_broker.models import SourceCreate
+
+    with pytest.raises(ValueError):
+        SourceCreate(
+            alias="x.y",
+            kind="mcp",
+            spec='{"openapi":"3.1.0","paths":{}}',
+            target={"host": "127.0.0.1", "port": 1},
+        )

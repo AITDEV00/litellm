@@ -17,11 +17,15 @@ from pydantic import (
     JsonValue,
     TypeAdapter,
     field_validator,
+    model_validator,
 )
 
 NAMESPACE: Final = UUID("67a55270-c485-45b4-8f1a-fc89c2e36078")
 HOSTNAME: Final = TypeAdapter(str)
 JSON_OBJECT: Final = TypeAdapter(dict[str, JsonValue])
+
+# A source is either an OpenAPI-described HTTP service or a standard MCP server.
+SourceKind = Literal["openapi", "mcp"]
 
 
 def canonical_spec(document: str | bytes) -> str:
@@ -86,19 +90,36 @@ class SourceCreate(Frozen):
     decoded from an opaque key. These request fields remain accepted-but-ignored
     on this self-service path; see ``connector-owned-enrollment.md`` for the
     owner-facing bootstrap contract.
+
+    A source is one of two kinds. ``openapi`` exposes an HTTP service described by
+    an OpenAPI document, so ``spec`` is required and the gateway builds tools from
+    it. ``mcp`` exposes a standard MCP server (streamable-http) reached at the
+    origin's ``path``, so ``spec`` is empty and the gateway connects to it over the
+    MCP protocol instead of loading a catalog. ``path`` is used only for ``mcp`` and
+    defaults to ``/mcp``.
     """
 
     alias: str = Field(pattern=r"^[a-z][a-z0-9_.]{2,127}$")
     target: Target
-    spec: str = Field(max_length=600_000)
+    kind: SourceKind = "openapi"
+    spec: str = Field(default="", max_length=600_000)
+    path: str = Field(default="/mcp", pattern=r"^(/[A-Za-z0-9._~-]+)+$")
     owner: str = Field(default="", max_length=255)
     key: str = Field(default="", max_length=255)
     expires_at: AwareDatetime | None = None
 
+    @model_validator(mode="after")
+    def validate_kind(self) -> SourceCreate:
+        if self.kind == "openapi" and self.spec == "":
+            raise ValueError("an openapi source requires an OpenAPI spec")
+        if self.kind == "mcp" and self.spec != "":
+            raise ValueError("an mcp source does not take an OpenAPI spec")
+        return self
+
     @field_validator("spec")
     @classmethod
     def validate_spec(cls, value: str) -> str:
-        return canonical_spec(value)
+        return canonical_spec(value) if value != "" else value
 
     @property
     def source_id(self) -> str:
@@ -114,6 +135,12 @@ class SourceCreate(Frozen):
         return hashlib.sha256(f"{self.owner}:{self.alias}".encode()).hexdigest()
 
     def fingerprint(self) -> str:
+        # An openapi source is fingerprinted over its canonical catalog bytes. An
+        # mcp source has no catalog, so its stable content is the kind plus the
+        # endpoint path it serves; hashing that keeps re-enrollment idempotent the
+        # same way without inventing a spec.
+        if self.kind == "mcp":
+            return hashlib.sha256(f"mcp:{self.path}".encode()).hexdigest()
         return hashlib.sha256(self.spec.encode()).hexdigest()
 
     def with_owner(self, owner: str) -> SourceCreate:
@@ -135,6 +162,8 @@ class SourceRecord(Frozen):
     gateway_auth_ciphertext: str
     status: str
     revision: int
+    kind: SourceKind = "openapi"
+    path: str = "/mcp"
 
 
 TransportName = Literal["tunnel"]

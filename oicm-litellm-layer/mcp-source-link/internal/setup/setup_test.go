@@ -291,3 +291,46 @@ func TestAddSourceRejectsBadTarget(t *testing.T) {
 		}
 	}
 }
+
+// An mcp-kind source needs no OpenAPI document: it registers with only a target
+// and a path, and the persisted record records the kind so a later restart knows
+// how the gateway exposes it.
+func TestAddSourceMcpKindNeedsNoSpec(t *testing.T) {
+	store := newStore(t)
+	if _, err := AddAccount(context.Background(), store, &scripted{
+		lines: []string{"https://gw.example", "alice"}, secrets: []string{"pw"},
+	}, &fakeLogin{}, "alpha"); err != nil {
+		t.Fatalf("AddAccount: %v", err)
+	}
+	source, err := AddSource(context.Background(), store, &scripted{}, staticGateway(t, "mcp-1"), AddSourceInput{
+		Kind: "mcp", Target: "127.0.0.1:18203",
+	})
+	if err != nil {
+		t.Fatalf("AddSource(mcp): %v", err)
+	}
+	if source.Kind != "mcp" {
+		t.Fatalf("persisted kind = %q, want mcp", source.Kind)
+	}
+	if source.Path != "/mcp" {
+		t.Fatalf("persisted path = %q, want /mcp", source.Path)
+	}
+	if source.SpecPath != "" {
+		t.Fatalf("an mcp source recorded a spec path %q", source.SpecPath)
+	}
+}
+
+// An openapi-kind source still requires a spec, so a missing one is an error.
+func TestAddSourceOpenApiKindRequiresSpec(t *testing.T) {
+	store := newStore(t)
+	if _, err := AddAccount(context.Background(), store, &scripted{
+		lines: []string{"https://gw.example", "alice"}, secrets: []string{"pw"},
+	}, &fakeLogin{}, "alpha"); err != nil {
+		t.Fatalf("AddAccount: %v", err)
+	}
+	// The scripted prompter returns an empty spec path, so reading it fails.
+	if _, err := AddSource(context.Background(), store, &scripted{}, staticGateway(t, "oas-1"), AddSourceInput{
+		Kind: "openapi", Target: "127.0.0.1:18201",
+	}); err == nil {
+		t.Fatal("an openapi source without a spec was accepted")
+	}
+}

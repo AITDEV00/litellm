@@ -44,6 +44,7 @@ from litellm.proxy.client_distribution.storage import (
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
+    from starlette.types import Message
 
 
 def _is_not_found(exc: ClientError) -> bool:
@@ -51,6 +52,33 @@ def _is_not_found(exc: ClientError) -> bool:
     NoSuchKey subclass, so the typed catch alone misses it."""
     code: str = exc.response.get("Error", {}).get("Code", "")
     return code in ("NoSuchKey", "404", "NotFound")
+
+
+async def _read_request_bytes(request: Request) -> bytes:
+    """Return the full request body from whichever state the request is in.
+
+    ``request.stream()`` raises ``RuntimeError("Stream consumed")`` once anything
+    has drained the ASGI stream, which the proxy auth dependency does before the
+    handler runs, so the old streaming read 500'd on every upload. ``request.body()``
+    returns cached bytes only if the drain happened through it. Reading ``_body``
+    and ``_receive`` directly covers the remaining cases, so the handler gets the
+    body no matter how a prior reader left the request.
+    """
+    cached_body: bytes | None = getattr(request, "_body", None)
+    if cached_body is not None:
+        return cached_body
+    if not getattr(request, "_stream_consumed", False):
+        return await request.body()
+    chunks: list[bytes] = []  # rebind-ok: drained from receive once, then joined
+    while True:
+        message: Message = await request._receive()  # pyright: ignore[reportPrivateUsage]  # no public replay API
+        if message.get("type") != "http.request":
+            break
+        chunks.append(message.get("body", b"") or b"")
+        if not message.get("more_body", False):
+            break
+    return b"".join(chunks)
+
 
 router = APIRouter(tags=["install"])
 
@@ -86,7 +114,6 @@ def _is_immutable(key: str) -> bool:
     return any(key.startswith(prefix) and key.count("/") >= 2 for prefix in _IMMUTABLE_PREFIXES) and not key.endswith(
         "/manifest.json"
     )
-
 
 
 def _require_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -213,9 +240,7 @@ async def _validate_store_references(
         preset_paths: tuple[str, ...] = tuple(
             preset["path"]
             for preset in harnesses.values()
-            if isinstance(preset, dict)
-            and isinstance(preset.get("path"), str)
-            and preset["path"]
+            if isinstance(preset, dict) and isinstance(preset.get("path"), str) and preset["path"]
         )
         missing_presets: list[str] = []
         for path in preset_paths:
@@ -289,9 +314,7 @@ async def admin_put_manifest(
     # later as a 502 render failure on every /install request.
     max_output_tokens: object = data.get("max_output_tokens")
     if max_output_tokens is not None and (
-        isinstance(max_output_tokens, bool)
-        or not isinstance(max_output_tokens, int)
-        or max_output_tokens <= 0
+        isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int) or max_output_tokens <= 0
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -319,7 +342,7 @@ async def admin_put_artifact(
     request: Request,
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
 ) -> dict[str, object]:
-    """Upsert one artifact. Streams to RustFS with sha256 on the fly."""
+    """Upsert one artifact with sha256 verification."""
     _require_admin(user_api_key_dict)
     config, s3 = _get_storage()
 
@@ -330,21 +353,25 @@ async def admin_put_artifact(
 
     # The cap is enforced on the bytes actually read, not on the
     # Content-Length header: a chunked upload sends no Content-Length, and a
-    # mismatched one lies. Accumulating per chunk keeps peak memory at
-    # _MAX_ARTIFACT_BYTES rather than at whatever the client sends.
-    chunks: list[bytes] = []  # rebind-ok: grows while streaming, then joined once
-    total: int = 0
-    async for chunk in request.stream():
-        if not chunk:
-            continue
-        total += len(chunk)
-        if total > _MAX_ARTIFACT_BYTES:
+    # mismatched one lies. So the declared length is rejected up front as a cheap
+    # guard, then the actual length is checked after reading.
+    declared: str | None = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            declared_bytes: int = int(declared)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="bad content-length") from exc
+        if declared_bytes > _MAX_ARTIFACT_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"artifact too large: over {_MAX_ARTIFACT_BYTES} bytes",
             )
-        chunks.append(chunk)
-    body: bytes = b"".join(chunks)
+    body: bytes = await _read_request_bytes(request)
+    if len(body) > _MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"artifact too large: over {_MAX_ARTIFACT_BYTES} bytes",
+        )
     sha256: str = hashlib.sha256(body).hexdigest()
 
     # Compare against the bytes actually stored, not the object's ETag: RustFS ETags
@@ -419,9 +446,7 @@ async def admin_delete_artifact(
 
     # Check manifest references
     try:
-        response = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key="manifest.json"
-        )
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key="manifest.json")
         manifest_data: dict[str, object] = json.loads(response["Body"].read())
         cc_artifacts: object = manifest_data.get("cc_switch_artifacts", {})
         if isinstance(cc_artifacts, dict):
@@ -515,9 +540,7 @@ async def get_manifest() -> Response:
     """Serve the mirror manifest."""
     config, s3 = _get_storage()
     try:
-        response = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key="manifest.json"
-        )
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key="manifest.json")
         raw: bytes = response["Body"].read()
         return Response(content=raw, media_type="application/json")
     except ClientError as exc:
@@ -526,9 +549,7 @@ async def get_manifest() -> Response:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="object store error",
             ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="manifest not found") from exc
     except Exception as exc:
         verbose_proxy_logger.warning("client_distribution: manifest read failed: %s", exc)
         raise HTTPException(
@@ -551,9 +572,7 @@ async def get_harness_preset(provider: str, harness: str, version: int) -> Respo
     config, s3 = _get_storage()
     key: str = f"providers/{provider}/{harness}/v{version}.json"
     try:
-        response = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key=key
-        )
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
         raw: bytes = response["Body"].read()
         return Response(content=raw, media_type="application/json")
     except ClientError as exc:
@@ -587,9 +606,7 @@ async def get_artifact(path: str) -> StreamingResponse:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        response = await asyncio.to_thread(
-            s3.get_object, Bucket=config.bucket, Key=key
-        )
+        response = await asyncio.to_thread(s3.get_object, Bucket=config.bucket, Key=key)
         body = response["Body"]
         content_length: int = response.get("ContentLength", 0)
         content_type: str = _content_type_for(key)

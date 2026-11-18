@@ -368,6 +368,46 @@ class TestAdminPutArtifact:
         )
         assert response.status_code == 413
 
+    def test_succeeds_when_the_stream_was_already_consumed(self, s3: _FakeS3Client) -> None:
+        """Regression: request.stream() raised "Stream consumed" in the proxy.
+
+        The proxy auth dependency drains the request stream before the handler
+        runs, so iterating request.stream() failed with RuntimeError("Stream
+        consumed") and every real artifact upload returned a 500. The handler must
+        recover the body from the receive channel when that happened. This builds
+        a Request that is already marked consumed with the bytes still pending on
+        receive, which is the state the proxy produced.
+        """
+        import anyio
+        from starlette.requests import Request
+
+        content: bytes = b"preset-after-stream-consumed"
+        messages: list = [{"type": "http.request", "body": content, "more_body": False}]
+
+        async def receive() -> dict:
+            return messages.pop(0) if messages else {"type": "http.request", "body": b"", "more_body": False}
+
+        request: Request = Request(scope={"type": "http", "headers": []}, receive=receive)
+        request._stream_consumed = True  # pyright: ignore[reportPrivateUsage]  # the state auth leaves behind
+
+        routes_mod._get_storage = lambda: (_FAKE_CONFIG, s3)  # type: ignore[assignment]
+        try:
+
+            async def _run() -> dict[str, object]:
+                from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth
+
+                return await routes_mod.admin_put_artifact(
+                    "providers/adeo/open-code/v2.json",
+                    request,
+                    UserAPIKeyAuth(user_role="proxy_admin"),
+                )
+
+            result = anyio.run(_run)
+        finally:
+            routes_mod._get_storage = _ORIGINAL_GET_STORAGE  # type: ignore[assignment]
+
+        assert result["sha256"] == hashlib.sha256(content).hexdigest()
+
 
 class TestAdminDeleteArtifact:
     def test_delete_unreferenced(self, admin_app: FastAPI, s3: _FakeS3Client) -> None:

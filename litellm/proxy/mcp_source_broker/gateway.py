@@ -154,13 +154,25 @@ def create_gateway_router(
             # MCP row, no review, no worker, no new generation. The connector adopts
             # the returned source id and resumes its existing registration.
             return SourceEnrolled(source_id=result.record.source_id, owner=owner, status=result.record.status)
-        await put_artifact(result.spec_path, request.spec.encode())
+        # An openapi source is described by a catalog the gateway builds tools from,
+        # so its spec is uploaded as an artifact and referenced by spec_path. An mcp
+        # source is a standard MCP server: it has no catalog, and the gateway talks
+        # to it over the MCP protocol at the origin's path through the same tunnel.
+        is_mcp: Final = result.kind == "mcp"
+        if not is_mcp:
+            await put_artifact(result.spec_path, request.spec.encode())
+        server_url: Final = (
+            f"{data_plane_url}/sources/{result.source_id}{result.path}"
+            if is_mcp
+            else f"{data_plane_url}/sources/{result.source_id}"
+        )
+        spec_url: Final = None if is_mcp else catalog.catalog_url(result.spec_path)
         registration: Final = NewMCPServerRequest(
             server_id=result.source_id,
             server_name=result.alias,
             alias=result.alias,
-            url=f"{data_plane_url}/sources/{result.source_id}",
-            spec_path=catalog.catalog_url(result.spec_path),
+            url=server_url,
+            spec_path=spec_url,
             mcp_access_groups=[f"mcp-source-{result.source_id}"],
             transport=MCPTransport.http,
             auth_type=MCPAuth.bearer_token,

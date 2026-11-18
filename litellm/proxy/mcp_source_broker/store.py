@@ -53,6 +53,8 @@ class SQLRow(BaseModel):
     gateway_auth_ciphertext: str
     status: str
     revision: int
+    kind: str = "openapi"
+    mcp_path: str = "/mcp"
 
     def value(self) -> SourceRecord:
         return SourceRecord(
@@ -66,12 +68,15 @@ class SQLRow(BaseModel):
             gateway_auth_ciphertext=self.gateway_auth_ciphertext,
             status=self.status,
             revision=self.revision,
+            kind=self.kind,  # pyright: ignore[reportArgumentType]  # stored value is the validated SourceKind literal
+            path=self.mcp_path,
         )
 
 
 SOURCES: Final = TypeAdapter(tuple[SQLRow, ...])
 SOURCE_COLUMNS: Final = (
-    "source_id,tenant,key,alias,target_host,target_port,spec_path,expected,gateway_auth_ciphertext,status,revision"
+    "source_id,tenant,key,alias,target_host,target_port,spec_path,expected,gateway_auth_ciphertext,status,revision,"
+    "kind,mcp_path"
 )
 
 
@@ -171,6 +176,7 @@ class SourceStore:
                key TEXT NOT NULL, alias TEXT NOT NULL, target_host TEXT NOT NULL, target_port INT NOT NULL,
                spec_path TEXT NOT NULL, expected TEXT NOT NULL, gateway_auth_ciphertext TEXT NOT NULL,
                status TEXT NOT NULL, revision BIGINT NOT NULL, remote_transport TEXT NOT NULL DEFAULT 'tunnel',
+               kind TEXT NOT NULL DEFAULT 'openapi', mcp_path TEXT NOT NULL DEFAULT '/mcp',
                CONSTRAINT source_owner_alias UNIQUE (tenant,alias))""",
             """CREATE TABLE IF NOT EXISTS "OicmMcpEnrollment" (id TEXT PRIMARY KEY, source_id TEXT NOT NULL UNIQUE
                REFERENCES "OicmMcpSource"(source_id), token_hash BYTEA NOT NULL,
@@ -186,6 +192,11 @@ class SourceStore:
             # holds its credential, delivery is acknowledged, which is what lets
             # resume distinguish a lost first response from later re-issuance.
             """ALTER TABLE "OicmMcpRemoteWorker" ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ""",
+            # Source-kind addition, not a rewrite: a source added before this column
+            # existed is an openapi source, which is the default. Existing rows keep
+            # their behavior with no data migration.
+            """ALTER TABLE "OicmMcpSource" ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'openapi'""",
+            """ALTER TABLE "OicmMcpSource" ADD COLUMN IF NOT EXISTS mcp_path TEXT NOT NULL DEFAULT '/mcp'""",
         )
         for sql in ordered:
             await self.db.execute_raw(sql)
@@ -242,9 +253,11 @@ class SourceStore:
                 # gateway row's approval_status.
                 status="pending",
                 revision=1,
+                kind=value.kind,
+                mcp_path=value.path,
             )
             await tx.execute_raw(
-                'INSERT INTO "OicmMcpSource" (' + SOURCE_COLUMNS + ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                'INSERT INTO "OicmMcpSource" (' + SOURCE_COLUMNS + ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
                 row.source_id,
                 row.tenant,
                 row.key,
@@ -256,6 +269,8 @@ class SourceStore:
                 row.gateway_auth_ciphertext,
                 row.status,
                 row.revision,
+                row.kind,
+                row.mcp_path,
             )
             # The source's enrollment row is the anchor every worker row hangs
             # off (OicmMcpRemoteWorker.enrollment_id is a foreign key), so it is

@@ -59,8 +59,10 @@ account commands:
 source commands:
   source add                   register a source under the selected account
   source add --account <alias> register a source under a specific account
-  source add --target <host:port>
-                               also supply the origin target non-interactively
+  source add --kind openapi --spec <path> --target <host:port>
+                               register an HTTP service from its OpenAPI document
+  source add --kind mcp --target <host:port> [--path /mcp]
+                               register a standard MCP server (no OpenAPI doc)
   source list                  list registered sources
   source remove <name>         forget one source locally
 
@@ -140,6 +142,8 @@ type options struct {
 	target   string
 	name     string
 	spec     string
+	kind     string
+	path     string
 }
 
 func parse(args []string) (command, options, error) {
@@ -183,6 +187,18 @@ func parse(args []string) (command, options, error) {
 				return help, opts, err
 			}
 			opts.spec = parsed
+		case "--kind":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.kind = parsed
+		case "--path":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.path = parsed
 		default:
 			positional = append(positional, arg)
 		}
@@ -306,6 +322,8 @@ func runSourceAdd(ctx context.Context, opts options) error {
 	source, err := setup.AddSource(ctx, store, terminal(), nil, setup.AddSourceInput{
 		Account:  opts.account,
 		Name:     opts.name,
+		Kind:     opts.kind,
+		Path:     opts.path,
 		Target:   opts.target,
 		SpecPath: opts.spec,
 	})

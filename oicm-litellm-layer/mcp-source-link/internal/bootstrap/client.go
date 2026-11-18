@@ -33,9 +33,16 @@ import (
 // source name is derived from the account and target, not supplied here, and the
 // origin proof key the old contract required is gone: it proved nothing a
 // connector controlling both sides could not fabricate.
+//
+// Kind selects how the gateway will expose the origin. "openapi" (the default)
+// describes an HTTP service by an OpenAPI document the gateway builds tools from,
+// so Spec is required. "mcp" exposes a standard MCP server the gateway connects to
+// over the MCP protocol at Path, so Spec is empty and Path is used.
 type EnrollmentInput struct {
 	Name      string
 	DatasetID string
+	Kind      string
+	Path      string
 	Spec      string
 }
 
@@ -43,11 +50,14 @@ type EnrollmentInput struct {
 //
 // The gateway derives the owner from the bearer key, so no owner field is sent.
 // The target is the origin's host and port; the gateway validates and authorizes
-// it, including any non-loopback exposure.
+// it, including any non-loopback exposure. kind selects openapi vs mcp, and path
+// is the MCP endpoint for an mcp source.
 type SourceRequest struct {
 	Alias  string        `json:"alias"`
 	Target TargetRequest `json:"target"`
-	Spec   string        `json:"spec"`
+	Kind   string        `json:"kind"`
+	Path   string        `json:"path,omitempty"`
+	Spec   string        `json:"spec,omitempty"`
 }
 
 // TargetRequest is the origin a source host exposes.
@@ -170,6 +180,8 @@ func (c *Client) Enroll(ctx context.Context, input EnrollmentInput, origin targe
 	body := SourceRequest{
 		Alias:  input.Name,
 		Target: TargetRequest{Host: origin.Host, Port: origin.Port},
+		Kind:   input.kindOrDefault(),
+		Path:   input.Path,
 		Spec:   input.Spec,
 	}
 	if _, err := c.post(ctx, "/mcp-sources", body, &enrolled); err != nil {
@@ -179,6 +191,14 @@ func (c *Client) Enroll(ctx context.Context, input EnrollmentInput, origin targe
 		return enrolled, errors.New("gateway enrollment response is missing source_id or owner")
 	}
 	return enrolled, nil
+}
+
+// kindOrDefault reports the transport kind, defaulting to openapi.
+func (i EnrollmentInput) kindOrDefault() string {
+	if i.Kind == "" {
+		return "openapi"
+	}
+	return i.Kind
 }
 
 // IssueWorker registers this connector instance and returns its issued identity.
