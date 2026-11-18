@@ -190,7 +190,7 @@ func sleepOrDone(ctx context.Context, closed <-chan struct{}) bool {
 		return false
 	case <-closed:
 		return false
-	case <-time.After(2 * time.Second):
+	case <-time.After(probePollCadence):
 		return true
 	}
 }

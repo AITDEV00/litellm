@@ -6,11 +6,13 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/control"
 )
 
-// DispatchInFlightCap bounds how many requests one member may hold in flight
-// at once. It is 0 (unbounded) because the grpctunnel plane multiplexes every
-// dispatch inside one HTTP/2 stream, so the transport has no per-request
-// resource beyond a goroutine and a 64KB flow-control window, and the nginx
-// body cap that used to kill long-lived tunnels has been lifted.
+// DispatchInFlightCap is the per-member ceiling on concurrent dispatches. It is
+// 0, which disables the ceiling: the grpctunnel plane multiplexes every
+// dispatch inside one HTTP/2 stream, so a held request costs only a goroutine
+// and a flow-control window, and the nginx body cap that used to kill
+// long-lived tunnels has been lifted. Disabling the cap does not disable load
+// balancing: pick still prefers the member with the fewest in-flight requests
+// and falls back to round-robin only on a tie.
 const DispatchInFlightCap = 0
 
 // Runtime is the session registry and the routing state for it.

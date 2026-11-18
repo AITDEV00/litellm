@@ -27,10 +27,17 @@ var ErrSessionClosed = errors.New("reverse session closed")
 var ErrSessionExists = errors.New("reverse session exists")
 
 // ResponseDeadline bounds how long a dispatch may wait for its response.
-const ResponseDeadline = wire.ResponseDeadlineSeconds * time.Second
+const ResponseDeadline = wire.ResponseDeadline
 
-// ProbeInterval is how often the hold loop re-proves the origin catalog.
+// ProbeInterval is how often the hold loop re-proves the origin catalog, and
+// sets the readiness window: a session stays ready for two intervals after its
+// last successful probe.
 const ProbeInterval = 15 * time.Second
+
+// probePollCadence is how long the hold loop waits between probe rounds. It is
+// shorter than ProbeInterval so a single slow probe does not consume the whole
+// readiness window.
+const probePollCadence = 2 * time.Second
 
 // Session is one connector's long-poll registration.
 type Session struct {

@@ -14,13 +14,12 @@ import (
 
 // fakeMember is the smallest Member that lets a routing decision be observed.
 type fakeMember struct {
-	id        string
-	source    string
-	ready     bool
-	capable   bool
-	fenced    bool
-	closed    int
-	lastRoute string
+	id      string
+	source  string
+	ready   bool
+	capable bool
+	fenced  bool
+	closed  int
 }
 
 func (m *fakeMember) ID() string     { return m.id }

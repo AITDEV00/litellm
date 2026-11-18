@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 const (
@@ -22,7 +23,13 @@ const (
 	ConnectionBuffer = 1 << 20
 
 	// ResponseDeadline bounds how long a dispatch may wait for the connector.
-	ResponseDeadlineSeconds = 90
+	ResponseDeadline = 90 * time.Second
+
+	// MaxCatalogBody caps the catalog bytes a probe may read or return. Both
+	// the probe HTTP read and the tunnel Probe RPC enforce it, so a source
+	// cannot smuggle an oversized catalog past verification by choosing a
+	// transport.
+	MaxCatalogBody = 600000
 
 	// MaxBody bounds one serialized dispatch envelope on the wire.
 	MaxBody = 1 << 20

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"oicm-litellm-layer/mcp-source-link/internal/config"
+	"oicm-litellm-layer/mcp-source-link/internal/wire"
 )
 
 // Canonical returns the hex SHA-256 of a catalog after confirming it parses
@@ -80,9 +81,12 @@ func Fetch(ctx context.Context, transport http.RoundTripper, worker config.Peer)
 		return "", err
 	}
 	defer resp.Body.Close()
-	contents, err := io.ReadAll(io.LimitReader(resp.Body, 600000))
+	contents, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxCatalogBody+1))
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return "", errors.New("source catalog probe failed")
+	}
+	if len(contents) > wire.MaxCatalogBody {
+		return "", errors.New("source catalog exceeds the size limit")
 	}
 	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
 	if err != nil {

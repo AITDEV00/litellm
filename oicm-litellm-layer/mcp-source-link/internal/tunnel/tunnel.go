@@ -39,14 +39,18 @@ const (
 	ProbeTimeout = 2 * time.Second
 	// AdmitTimeout bounds the capability handshake pushed down a fresh tunnel.
 	AdmitTimeout = 10 * time.Second
-	// ResponseDeadline is the per-Execute deadline, identical to reverse-h2.
-	ResponseDeadline = 90 * time.Second
 	// MaxCatalog caps the catalog bytes a Probe response may carry.
-	MaxCatalog = 600000
+	MaxCatalog = wire.MaxCatalogBody
 	// HealthGracePeriod is how long a last-verified catalog stays trusted
 	// after a transient probe failure.
 	HealthGracePeriod = 30 * time.Second
+	// probePollCadence is how long the probe loop waits between rounds.
+	probePollCadence = 2 * time.Second
 )
+
+// ResponseDeadline is the per-Execute deadline. It is the same value the
+// reverse-h2 plane uses, taken from wire so the two cannot drift.
+var ResponseDeadline = wire.ResponseDeadline
 
 // Member is one live connector tunnel: a grpctunnel channel plus the
 // capability set its connector advertised at admission.
@@ -320,7 +324,7 @@ func (tr *Runtime) probeLoop(m *Member) {
 		select {
 		case <-m.closed:
 			return
-		case <-time.After(2 * time.Second):
+		case <-time.After(probePollCadence):
 		}
 		worker, ok := tr.pool.State().Peer(m.ID())
 		if m.Fenced(worker, ok) {

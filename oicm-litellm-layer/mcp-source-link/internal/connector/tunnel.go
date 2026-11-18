@@ -19,6 +19,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -31,6 +32,10 @@ import (
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 	"oicm-litellm-layer/mcp-source-link/internal/wire"
 )
+
+// dialTimeout bounds how long NewClient may take to reach Ready before the
+// caller reports a dial failure and the reconnect loop backs off.
+const dialTimeout = 15 * time.Second
 
 // Capabilities is the capability set this connector build implements. The
 // broker gates each pushed RPC on this list.
@@ -182,16 +187,23 @@ func RunTunnel(ctx context.Context, cfg config.ConnectorConfig, gateway string, 
 // drops. Identity metadata rides the tunnel-opening stream and is validated
 // by the worker before the tunnel establishes.
 func tunnelServe(ctx context.Context, cfg config.ConnectorConfig, target string, creds credentials.TransportCredentials, server *Server) error {
-	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
-	defer dialCancel()
-	conn, err := grpc.DialContext(dialCtx, target,
-		grpc.WithTransportCredentials(creds),
-		grpc.WithBlock(),
-	)
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	// NewClient does not dial, so an unreachable endpoint would otherwise fail
+	// only when the tunnel stream is first used, or stall until the parent
+	// context ends on a black-holed address. Wait for Ready under a deadline so
+	// a bad endpoint reports a dial-shaped error the retry loop can log.
+	if err := waitReady(ctx, conn, target); err != nil {
+		return err
+	}
+	// NewClient is lazy, so the connection is only proven once the tunnel
+	// stream is established. A broken endpoint therefore surfaces here as a
+	// stream error rather than a dial error, which the caller's retry loop
+	// handles identically.
+	conn.Connect()
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
 	dispatchpb.RegisterDispatchServiceServer(tunnelServer, server)
 	sessionCtx := metadata.AppendToOutgoingContext(ctx,
@@ -205,4 +217,26 @@ func tunnelServe(ctx context.Context, cfg config.ConnectorConfig, target string,
 		return err
 	}
 	return err
+}
+
+// waitReady blocks until the client connection reports Ready, the deadline
+// passes, or the connection enters a terminal state. NewClient is lazy, so
+// this is what turns an unreachable endpoint into a prompt error rather than a
+// stall on first use.
+func waitReady(ctx context.Context, conn *grpc.ClientConn, target string) error {
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	conn.Connect()
+	for {
+		state := conn.GetState()
+		switch state {
+		case connectivity.Ready:
+			return nil
+		case connectivity.TransientFailure, connectivity.Shutdown:
+			return fmt.Errorf("dial %s: connection not ready", target)
+		}
+		if !conn.WaitForStateChange(dialCtx, state) {
+			return fmt.Errorf("dial %s: %w", target, dialCtx.Err())
+		}
+	}
 }
