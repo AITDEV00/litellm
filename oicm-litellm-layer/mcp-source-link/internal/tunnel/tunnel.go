@@ -158,8 +158,15 @@ func (m *Member) RoundTrip(req *http.Request) (*http.Response, error) {
 		defer cancel()
 		return m.roundTripUnary(ctx, request)
 	}
-	stream, err := m.stub.ExecuteStream(ctx, request)
+	// A streamed response is not bounded by a single total deadline: an idle or
+	// indefinite SSE body must stay usable past ResponseDeadline, or a long-lived
+	// event stream would be cut at 90s merely for staying open. ResponseDeadline
+	// therefore bounds only time-to-headers; once headers arrive the stream lives
+	// as long as the caller keeps it open, and closing the body cancels it.
+	streamCtx, streamCancel := context.WithCancel(req.Context())
+	stream, err := m.stub.ExecuteStream(streamCtx, request)
 	if err != nil {
+		streamCancel()
 		cancel()
 		count := m.errorCount.Add(1)
 		if count <= 3 || count%1000 == 0 {
@@ -167,10 +174,30 @@ func (m *Member) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		return nil, err
 	}
-	first, err := stream.Recv()
-	if err != nil {
+	type firstResult struct {
+		chunk *dispatchpb.DispatchResponseChunk
+		err   error
+	}
+	firstChunk := make(chan firstResult, 1)
+	go func() {
+		chunk, recvErr := stream.Recv()
+		firstChunk <- firstResult{chunk: chunk, err: recvErr}
+	}()
+	var first *dispatchpb.DispatchResponseChunk
+	select {
+	case <-ctx.Done():
+		streamCancel()
 		cancel()
-		return nil, err
+		return nil, ctx.Err()
+	case result := <-firstChunk:
+		// The header deadline has served its purpose; stop its timer so it cannot
+		// cancel the now-live body later.
+		cancel()
+		if result.err != nil {
+			streamCancel()
+			return nil, result.err
+		}
+		first = result.chunk
 	}
 	header := make(http.Header)
 	for _, h := range first.Headers {
@@ -181,14 +208,14 @@ func (m *Member) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	bodyReader, bodyWriter := io.Pipe()
 	go func() {
-		defer cancel()
+		defer streamCancel()
 		bodyWriter.CloseWithError(m.drainStream(stream, bodyWriter))
 	}()
 	return &http.Response{
 		Status:     strconv.Itoa(int(first.Status)),
 		StatusCode: int(first.Status),
 		Header:     header,
-		Body:       &cancelingBody{ReadCloser: bodyReader, cancel: cancel},
+		Body:       &cancelingBody{ReadCloser: bodyReader, cancel: streamCancel},
 	}, nil
 }
 

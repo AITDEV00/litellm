@@ -125,6 +125,16 @@ func (r *Runtime) forwardOnce(w http.ResponseWriter, req *http.Request, sourceID
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			resp.Header.Del("Set-Cookie")
+			// The origin is private (a loopback port, a cluster service, a private
+			// IP). A redirect Location usually points at that private origin's own
+			// address, which must never reach an external caller: either it leaks
+			// internal topology, or following it sends the client to a host the
+			// operator never approved. The relay does not rewrite the Location
+			// (prefixing an already-absolute target would corrupt it), so it drops
+			// it and lets the 3xx status stand.
+			if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
+				resp.Header.Del("Location")
+			}
 			return nil
 		},
 		Transport:     m,

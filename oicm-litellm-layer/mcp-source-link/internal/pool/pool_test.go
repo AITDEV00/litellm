@@ -178,8 +178,35 @@ func TestForwardServesStatefulMCPRequestOnSingleMember(t *testing.T) {
 	}
 }
 
-// With two members the session lives on exactly one origin, so routing it to the
-// wrong member would break the session. The relay must refuse rather than guess.
+// A redirect from the private origin must not leak its Location to the caller.
+// The private host belongs to internal topology and, if followed, would send an
+// external client to a destination the operator never approved.
+func TestForwardStripsPrivateRedirectLocation(t *testing.T) {
+	client := mustClient(t, peerMCP("w1", "s1"))
+	runtime := New(client)
+	member := &redirectMember{fakeMember: fakeMember{id: "w1", source: "s1", ready: true, capable: true}}
+	runtime.AddSession(member)
+
+	recorder := httptest.NewRecorder()
+	runtime.Forward(recorder, forwardRequest(t, "s1", "mcp", nil))
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("status = %d, want the origin 302 to stand", recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); location != "" {
+		t.Fatalf("relay leaked redirect Location %q, want it stripped", location)
+	}
+}
+
+type redirectMember struct{ fakeMember }
+
+func (m *redirectMember) RoundTrip(*http.Request) (*http.Response, error) {
+	header := make(http.Header)
+	header.Set("Location", "http://127.0.0.1:18203/elsewhere")
+	return &http.Response{StatusCode: http.StatusFound, Header: header, Body: http.NoBody}, nil
+}
+
+// With two members the session lives on exactly one origin, so routing it to the// wrong member would break the session. The relay must refuse rather than guess.
 // A GET is used so the multi-member write guard cannot mask this one.
 func TestForwardRefusesStatefulMCPRequestWithMultipleMembers(t *testing.T) {
 	client := mustClient(t, peerMCP("w1", "s1"), peerMCP("w2", "s1"))
