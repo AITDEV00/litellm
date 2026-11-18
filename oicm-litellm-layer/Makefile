@@ -234,7 +234,14 @@ push-litellm:
 ##                        drift. Runs on the host toolchain, no podman, no cluster.
 ##                        Wired into `make check` via scripts/pre_commit_lint.sh.
 ##
-## mcp-sidecar-build      compile the reverse-h2 sidecar (CGO_ENABLED=0, static)
+## mcp-source-link-compat local old/new compatibility check: builds the connector
+##                        at a prior revision and proves it still admits, probes,
+##                        and serves against this broker, plus a clean-degrade
+##                        case. Not a CI gate; run it when changing the wire
+##                        contract or the admission rules. Slow (builds twice).
+##                        Override the revision with MCP_SOURCE_LINK_PREVIOUS_REV.
+##
+## mcp-sidecar-build      compile the tunnel sidecar (CGO_ENABLED=0, static)
 ##                        and bake it into a FROM-scratch image at $(MCP_SIDECAR_TAG)
 ## mcp-sidecar-push       push the sidecar image to Harbor
 ## mcp-sidecar-release    build + push + roll the dev broker pod to the new bytes.
@@ -261,6 +268,9 @@ mcp-sidecar-check:
 	            || { cp "$$scratch/$$f" "dispatchpb/$$f"; echo "dispatchpb/$$f was stale; regenerated it. Commit the result."; exit 1; }; \
 	    done
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) CGO_ENABLED=1 $(GO_BIN) test -race ./...
+
+mcp-source-link-compat:
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) test -tags compat -count=1 -timeout 20m ./compat/...
 
 mcp-sidecar-build:
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
