@@ -43,8 +43,10 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
+| Multi-account and multi-source client | DONE | `../../mcp-source-link/MULTI-ACCOUNT-SOURCE-GAPS.md`; live dev proof 2026-11-18 |
 | Bootstrap credential exchange | IMPLEMENTED, last step runs over a port-forward | `../decisions/approaches/connector-owned-enrollment.md` |
 | First-bootstrap resume after a lost worker response | IMPLEMENTED, last step runs over a port-forward | `../../../mcp-source-link/BOOTSTRAP-GAPS.md` B1 |
+| Origin proof signature on local/OpenAPI sources | REMOVED BY DESIGN | `../../mcp-source-link/MULTI-ACCOUNT-SOURCE-GAPS.md` N4 |
 | Source-agent release publisher | BUILT, live RustFS upload unproven | `scripts/publish-source-agent-release.sh` |
 | Admitted-capability logging | DONE | `internal/tunnel` `Runtime.onOpen` |
 
@@ -196,28 +198,65 @@ gateway sees the call arriving as that user. The owner is derived from the key's
 than from the body:
 
 The identity requirement is recorded in
-[`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md),
-which is open: today the handler also demands `team_id`, and the connector does not make these
-calls at all, so a human still does
+[`../decisions/approaches/connector-owned-enrollment.md`](../decisions/approaches/connector-owned-enrollment.md).
+
+The connector CLI follows the MinIO `mc` shape, not a one-shot `init`. A single installed binary
+keeps a local, owner-only account store and source registry, so it can serve several accounts and
+several sources at once:
+
+- `source-link account add <alias>` asks only for a gateway URL, a username and a password, once
+  per account. It exchanges the password for a scoped user key and stores the key owner-only. The
+  password is never stored. `account list` and `account select` manage the local set.
+- `source-link source add` registers one origin under the selected account (or `--account
+  <alias>`) and never asks for a password again. It derives the source name from the account and
+  the normalized target, so the same origin added twice in one account is the same source.
+- `source-link connector` serves every registered, enabled source across every account in one
+  persistent process. A revoked or failing source restarts independently.
+
+The source name is derived, not typed: `alias` is `<account>.<host>.<port>` with every unsafe
+run of characters normalized to a dot, which is why it satisfies the gateway grammar below
+without a human choosing it. A Kubernetes service target normalizes to its short
+`name.namespace.svc` form, so `...svc` and `...svc.cluster.local` are the same source.
 
 The request body:
 
 ```json
 {
-  "alias": "private_openapi",
+  "alias": "alpha.127.0.0.1.18080",
   "target": {"host": "127.0.0.1", "port": 18080},
   "spec": "{\"openapi\":\"3.1.0\",\"paths\":{\"/source.json\":{\"get\":{}}}}"
 }
 ```
 
 `alias` excludes `-`, which is `MCP_TOOL_PREFIX_SEPARATOR`: the alias becomes the MCP
-server name and that name prefixes every tool name. The response is
-`201 {"server_id": ..., "status": "pending_review"}`. The submitter can read that row
-back, and nobody else sees it until an administrator approves it
+server name and that name prefixes every tool name. It allows letters, digits, `.` and `_`,
+starting with a letter. The response is
+`201 {"source_id": ..., "status": "pending_review"}` for a first enrollment, and the stored
+status for an idempotent repeat. The submitter can read that row back, and nobody else sees it
+until an administrator approves it
 
-The source target allows loopback only and requires an explicit local service. Quarantine prevents tool dispatch, not subsequent recovery. Administrators can retrieve the existing connector installer whenever the source has been catalog-quarantined
+A repeat enrollment of the same normalized target by the same owner is idempotent inside the
+store's transaction: it returns the existing source id and status and creates no new MCP row,
+artifact, review, worker or generation. Different content or a changed target is a 409 and needs
+a new source or an explicit administrator change, never a silent rewrite of an approved row.
 
-The source target is only a loopback host and port. Source identity is derived from the authenticated user id and `alias`. The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a stable private pool URL with LiteLLM, and grants that source its own MCP access group. Re-enrollment keeps its source, enrollment, connector lease, and relay credentials; it updates the target and expected canonical catalog fingerprint. It does not return another one-time token
+The target may be an IPv4 address, a bracketed IPv6 address, or a Kubernetes service host
+(`name.namespace.svc`). It is never a URL, never carries userinfo or a path, and is not resolved
+by the gateway: the connector dials it from the source host. A non-loopback target is an
+exposure the owner authorizes at enrollment and an administrator approves before dispatch; it is
+not a cryptographic proof that the remote service is what it claims. The sudo loopback default
+remains the simple case. Source identity is derived from the authenticated user id and `alias`.
+The gateway saves the catalog object in the gateway-accessible artifact mirror, registers a
+stable private pool URL with LiteLLM, and grants that source its own MCP access group.
+
+The origin-proof signature the old contract required is removed from this local/OpenAPI path. A
+connector that controls both the target response and the key it supplies proves nothing about who
+handled the request, so the human dataset-id and proof-public-key prompts and the mandatory
+`X-Source-Signature` exchange are gone. The catalog is still canonicalized and its digest is
+recorded as the fingerprint, the gateway still owns approval, and the connector still
+authenticates its per-source generation-scoped tunnel identity. An origin that does supply a
+signature still has it verified against a pinned key, so an independent origin integration can opt
+in later.
 
 The connector transport is the grpctunnel stream in `mcp-source-link/`: the connector on the source host dials in (the gateway cannot make outbound connections, so an agent-initiated session is the only way back), the sidecar accepts it, and dispatch rides back over that session. There is no in-flight admission cap (`DispatchInFlightCap = 0` as of step 10) and each connector runs 8 concurrent origin round trips. The 64 in-flight figure quoted here and in step 4 describes behavior before step 10 and no longer holds. This path is fully verified live (steps 2, 3, 4, 7 below) but its wire contract is implicit Go structs on both ends, which is why step 9 spikes `jhump/grpctunnel`: any version of either side must keep connecting, degrading to less functionality rather than breaking, and that contract must be enforced by a versioned proto, not implied by struct layout. That compatibility requirement is verified across versions by `make -C oicm-litellm-layer mcp-source-link-compat`
 

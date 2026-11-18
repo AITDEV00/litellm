@@ -1,13 +1,12 @@
 package bootstrap
 
-import (
-	"testing"
-
-	"oicm-litellm-layer/mcp-source-link/internal/config"
-)
+import "testing"
 
 // TestValidateIssuedRejectsBadIdentity proves each malformed identity shape the
 // gateway could return is caught before it is persisted.
+//
+// A private IPv4 target is now valid: a source may be a service or host off
+// loopback, so only a malformed target is rejected.
 func TestValidateIssuedRejectsBadIdentity(t *testing.T) {
 	good := IssuedIdentity{
 		WorkerID:   "w",
@@ -19,9 +18,14 @@ func TestValidateIssuedRejectsBadIdentity(t *testing.T) {
 	if err := validateIssued("sid-1", good); err != nil {
 		t.Fatalf("a well-formed identity must pass: %v", err)
 	}
+	private := good
+	private.Target = "10.34.104.99:4000"
+	if err := validateIssued("sid-1", private); err != nil {
+		t.Fatalf("a private IPv4 target must be accepted: %v", err)
+	}
 	cases := map[string]IssuedIdentity{
 		"wrong source":     {WorkerID: "w", SourceID: "sid-2", Target: "127.0.0.1:18080", Generation: 1, Credential: good.Credential},
-		"non-loopback":     {WorkerID: "w", SourceID: "sid-1", Target: "10.0.0.1:80", Generation: 1, Credential: good.Credential},
+		"malformed target": {WorkerID: "w", SourceID: "sid-1", Target: "not a host", Generation: 1, Credential: good.Credential},
 		"non-hex":          {WorkerID: "w", SourceID: "sid-1", Target: "127.0.0.1:18080", Generation: 1, Credential: string(make([]byte, 0)) + repeat("z", 64)},
 		"short credential": {WorkerID: "w", SourceID: "sid-1", Target: "127.0.0.1:18080", Generation: 1, Credential: "abab"},
 		"zero generation":  {WorkerID: "w", SourceID: "sid-1", Target: "127.0.0.1:18080", Generation: 0, Credential: good.Credential},
@@ -68,5 +72,3 @@ func repeat(value string, n int) string {
 	}
 	return string(out)
 }
-
-var _ = config.ParseTarget

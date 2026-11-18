@@ -72,7 +72,7 @@ func TestTunnelRejectsBadCredentials(t *testing.T) {
 			}
 			defer func() { _ = conn.Close() }()
 			tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
-			dispatchpb.RegisterDispatchServiceServer(tunnelServer, connector.NewServer(http.DefaultTransport))
+			dispatchpb.RegisterDispatchServiceServer(tunnelServer, connector.NewServer(http.DefaultTransport, "127.0.0.1"))
 			ctx := metadata.AppendToOutgoingContext(context.Background(),
 				"x-source-member", testCase.member,
 				"x-source-generation", testCase.generation,
@@ -112,7 +112,7 @@ func TestTunnelDuplicateRegistrationRejected(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 	tunnelServer := grpctunnel.NewReverseTunnelServer(tunnelpb.NewTunnelServiceClient(conn))
-	dispatchpb.RegisterDispatchServiceServer(tunnelServer, connector.NewServer(http.DefaultTransport))
+	dispatchpb.RegisterDispatchServiceServer(tunnelServer, connector.NewServer(http.DefaultTransport, "127.0.0.1"))
 	dupCtx := metadata.AppendToOutgoingContext(context.Background(),
 		"x-source-member", harness.WorkerA,
 		"x-source-generation", "1",

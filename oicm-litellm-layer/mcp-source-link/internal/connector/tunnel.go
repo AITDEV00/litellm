@@ -68,17 +68,23 @@ func logConnectorError(kind string, count *atomic.Uint64, err error) {
 }
 
 // Server implements DispatchService on the connector: it answers the
-// broker's pushed RPCs by round-tripping the connector's loopback origin.
+// broker's pushed RPCs by round-tripping the connector's origin.
 type Server struct {
 	dispatchpb.UnimplementedDispatchServiceServer
 	origin          http.RoundTripper
+	authority       string
 	roundTripErrors atomic.Uint64
 	readErrors      atomic.Uint64
 }
 
 // NewServer builds a dispatch server over the given origin transport.
-func NewServer(origin http.RoundTripper) *Server {
-	return &Server{origin: origin}
+//
+// authority is the Host header the origin should receive. It is the target's own
+// host (an IP literal, or a Kubernetes service DNS name), so an origin behind a
+// service router sees the name it is deployed under rather than an unrelated
+// placeholder.
+func NewServer(origin http.RoundTripper, authority string) *Server {
+	return &Server{origin: origin, authority: authority}
 }
 
 // Admit answers the capability handshake.
@@ -86,9 +92,13 @@ func (d *Server) Admit(_ context.Context, _ *dispatchpb.AdmitRequest) (*dispatch
 	return &dispatchpb.AdmitResponse{Capabilities: Capabilities}, nil
 }
 
-// Probe answers a challenged catalog probe.
+// Probe answers a catalog probe by fetching the origin's OpenAPI document.
+//
+// The nonce is echoed to the origin for an origin that still signs, but a missing
+// signature is no longer an error: an unsigned catalog is the norm for a local
+// source. The broker records the catalog digest as the fingerprint either way.
 func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*dispatchpb.ProbeResponse, error) {
-	target := url.URL{Scheme: "http", Host: "target.source.invalid", Path: "/openapi.json"}
+	target := url.URL{Scheme: "http", Host: d.authority, Path: "/openapi.json"}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return nil, err
@@ -109,10 +119,9 @@ func (d *Server) Probe(ctx context.Context, req *dispatchpb.ProbeRequest) (*disp
 	if len(contents) > tunnel.MaxCatalog {
 		return nil, errors.New("origin catalog exceeds the dispatch body limit")
 	}
-	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
-	if err != nil {
-		return nil, errors.New("origin returned no proof signature")
-	}
+	// Absent signature is allowed; a present one is carried through for the
+	// broker's optional check.
+	signature, _ := base64.StdEncoding.DecodeString(resp.Header.Get("X-Source-Signature"))
 	return &dispatchpb.ProbeResponse{CatalogJson: contents, ProofSignature: signature}, nil
 }
 
@@ -121,7 +130,7 @@ func (d *Server) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (
 	if len(req.Body) > wire.MaxOriginBody {
 		return nil, status.Error(codes.ResourceExhausted, "request body exceeds the dispatch limit")
 	}
-	target := url.URL{Scheme: "http", Host: "target.source.invalid", Path: req.Path, RawQuery: req.Query}
+	target := url.URL{Scheme: "http", Host: d.authority, Path: req.Path, RawQuery: req.Query}
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(req.Body))
 	if err != nil {
 		return nil, err
@@ -154,13 +163,20 @@ func (d *Server) Execute(ctx context.Context, req *dispatchpb.DispatchRequest) (
 
 // RunTunnel is the tunnel transport's reconnect loop: dial the broker with
 // TLS, attach identity metadata, and serve the reverse tunnel.
-func RunTunnel(ctx context.Context, cfg config.ConnectorConfig, gateway string, tlsConfig *tls.Config, origin http.RoundTripper) error {
+func RunTunnel(
+	ctx context.Context,
+	cfg config.ConnectorConfig,
+	gateway string,
+	tlsConfig *tls.Config,
+	origin http.RoundTripper,
+	authority string,
+) error {
 	dialTarget, err := DialTarget(gateway)
 	if err != nil {
 		return err
 	}
 	creds := credentials.NewTLS(tlsConfig)
-	server := NewServer(origin)
+	server := NewServer(origin, authority)
 	delay := 300 * time.Millisecond
 	for ctx.Err() == nil {
 		started := time.Now()

@@ -34,7 +34,13 @@ from litellm.proxy.client_distribution.storage import (
 from litellm.proxy.mcp_source_broker.keys import Keys
 from litellm.proxy.mcp_source_broker.models import SourceCreate, SourceEnrolled, TransportName
 from litellm.proxy.mcp_source_broker.remote_gateway import create_remote_gateway_router
-from litellm.proxy.mcp_source_broker.store import ContentConflict, Database, NotOwnerConflict, SourceStore
+from litellm.proxy.mcp_source_broker.store import (
+    AlreadyEnrolled,
+    ContentConflict,
+    Database,
+    NotOwnerConflict,
+    SourceStore,
+)
 from litellm.proxy.utils import PrismaClient
 from litellm.types.mcp import MCPAuth, MCPTransport
 
@@ -142,6 +148,12 @@ def create_gateway_router(
                 "this source already exists with different content; "
                 "re-review requires a new alias or an explicit administrator change",
             )
+        if isinstance(result, AlreadyEnrolled):
+            # Idempotent re-enroll: the owner already registered this exact source.
+            # Return the existing identity and touch nothing. No artifact upload, no
+            # MCP row, no review, no worker, no new generation. The connector adopts
+            # the returned source id and resumes its existing registration.
+            return SourceEnrolled(source_id=result.record.source_id, owner=owner, status=result.record.status)
         await put_artifact(result.spec_path, request.spec.encode())
         registration: Final = NewMCPServerRequest(
             server_id=result.source_id,

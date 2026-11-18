@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from litellm.proxy._types import LitellmUserRoles
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.mcp_source_broker.models import SourceCreate, TransportName
-from litellm.proxy.mcp_source_broker.store import PermissionDenied, SourceStore
+from litellm.proxy.mcp_source_broker.store import AlreadyEnrolled, PermissionDenied, SourceStore
 
 
 @pytest.mark.asyncio
@@ -33,8 +33,14 @@ async def test_enroll_rejects_owner_mismatch(store: SourceStore, source: SourceC
 async def test_reenroll_same_catalog_is_idempotent(store: SourceStore, source: SourceCreate) -> None:
     first = await store.enroll(source, "alice")
     second = await store.enroll(source, "alice")
-    assert first.source_id == second.source_id
+    # A repeat must collapse to the existing source: the store reports the already
+    # present row rather than a fresh enrollment, so the gateway short-circuits and
+    # writes no second source, enrollment anchor or artifact.
+    assert not isinstance(first, AlreadyEnrolled)
+    assert isinstance(second, AlreadyEnrolled)
+    assert second.record.source_id == first.source_id
     assert len(store.db.enrollments) == 1
+    assert len(store.db.sources) == 1
 
 
 @pytest.mark.asyncio

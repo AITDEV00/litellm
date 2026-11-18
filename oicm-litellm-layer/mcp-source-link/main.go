@@ -1,16 +1,23 @@
-// Command mcp-source-link is the MCP source broker's sidecar. In worker mode
-// it serves the tunnel data plane beside the Python control app; in connector
-// mode it runs on a source host and dials out. Both modes are the same binary.
+// Command mcp-source-link is the MCP source broker's sidecar and the source-host
+// agent. Both modes are the same binary.
+//
+// In worker mode it serves the tunnel data plane beside the Python control app. In
+// agent mode it runs on a source host, holds a local account store, and serves
+// every registered source across every account in one long-lived process.
 //
 // This file is wiring only. Behavior lives in the internal slices:
 //
-//	config      environment, identity, and peer record validation
-//	control     peer state, health reports, credential comparison
+//	state       the on-disk account store and source registry
+//	setup       interactive account and source commands
+//	auth        the gateway password-to-key exchange
+//	bootstrap   source enrollment and worker issuance
+//	config      environment, TLS, and log-level settings
+//	connector   the source-host tunnel runtime
+//	control     worker peer state and health reports
 //	pool        which connector serves a request
-//	catalog     catalog proof and verification
+//	catalog     catalog canonicalization and fingerprinting
 //	listen      protocol and sizing choices for the two listeners
 //	tunnel      the grpctunnel data plane
-//	connector   the source-host side
 //	wire        envelope types and shared size limits
 package main
 
@@ -28,72 +35,337 @@ import (
 	"time"
 
 	"oicm-litellm-layer/mcp-source-link/internal/auth"
+	"oicm-litellm-layer/mcp-source-link/internal/bootstrap"
 	"oicm-litellm-layer/mcp-source-link/internal/config"
 	"oicm-litellm-layer/mcp-source-link/internal/connector"
 	"oicm-litellm-layer/mcp-source-link/internal/control"
 	"oicm-litellm-layer/mcp-source-link/internal/listen"
 	"oicm-litellm-layer/mcp-source-link/internal/pool"
 	"oicm-litellm-layer/mcp-source-link/internal/setup"
+	"oicm-litellm-layer/mcp-source-link/internal/state"
 	"oicm-litellm-layer/mcp-source-link/internal/tunnel"
 )
 
+const usage = `usage: source-link <command> [options]
+
+The agent keeps a local set of accounts and sources, so a second source never
+asks for your password again.
+
+account commands:
+  account add <alias>          add an account (gateway URL, username, password)
+  account list                 list stored accounts and the selected one
+  account select <alias>       choose the account new sources are added to
+
+source commands:
+  source add                   register a source under the selected account
+  source add --account <alias> register a source under a specific account
+  source add --target <host:port>
+                               also supply the origin target non-interactively
+  source list                  list registered sources
+  source remove <name>         forget one source locally
+
+agent commands:
+  connector                    serve every registered source in one process
+  worker                       run the worker beside the control app
+
+flags:
+  --insecure                   skip TLS certificate verification (dev gateways
+                               with a self-signed certificate; never use against
+                               production)
+  -h, --help                   show this message
+`
+
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("usage: mcp-source-link worker|connector|init|reinit")
-	}
-	switch os.Args[1] {
-	case "worker", "connector", "init", "reinit":
-	default:
-		log.Fatal("usage: mcp-source-link worker|connector|init|reinit")
-	}
-	if err := run(os.Args[1]); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(mode string) error {
+func run(args []string) error {
+	mode, options, err := parse(args)
+	if err != nil {
+		return err
+	}
+	if mode == help {
+		fmt.Print(usage)
+		return nil
+	}
+	if options.insecure {
+		if err := os.Setenv("MCP_SOURCE_LINK_INSECURE", "1"); err != nil {
+			return err
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	switch mode {
-	case "init":
-		return runInit(ctx)
-	case "reinit":
-		return runReinit(ctx)
-	case "connector":
+	case accountAdd:
+		return runAccountAdd(ctx, options)
+	case accountList:
+		return runAccountList()
+	case accountSelect:
+		return runAccountSelect(options)
+	case sourceAdd:
+		return runSourceAdd(ctx, options)
+	case sourceList:
+		return runSourceList()
+	case sourceRemove:
+		return runSourceRemove(options)
+	case connectorMode:
 		return runConnector(ctx)
 	default:
 		return runWorker(ctx, stop)
 	}
 }
 
-// runInit performs the interactive first-use setup: authenticate the ordinary
-// user, read the OpenAPI document, enroll the source, register this worker, and
-// persist everything owner-only. It is idempotent: a valid identity is never
-// overwritten.
-func runInit(ctx context.Context) error {
-	if !setup.IsInteractive() {
-		return errors.New("source-link init needs a terminal; run it interactively on the source host")
+// command is the parsed top-level command.
+type command int
+
+const (
+	help command = iota
+	accountAdd
+	accountList
+	accountSelect
+	sourceAdd
+	sourceList
+	sourceRemove
+	connectorMode
+	workerMode
+)
+
+// options carries the flags and positional values a command may need.
+type options struct {
+	insecure bool
+	alias    string
+	account  string
+	target   string
+	name     string
+	spec     string
+}
+
+func parse(args []string) (command, options, error) {
+	var opts options
+	positional := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		value := func() (string, error) {
+			if index+1 >= len(args) {
+				return "", fmt.Errorf("%s needs a value", arg)
+			}
+			index++
+			return args[index], nil
+		}
+		switch arg {
+		case "-h", "--help":
+			return help, opts, nil
+		case "--insecure":
+			opts.insecure = true
+		case "--account":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.account = parsed
+		case "--target":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.target = parsed
+		case "--name":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.name = parsed
+		case "--spec":
+			parsed, err := value()
+			if err != nil {
+				return help, opts, err
+			}
+			opts.spec = parsed
+		default:
+			positional = append(positional, arg)
+		}
 	}
-	base := setupBase()
-	if err := os.MkdirAll(base, 0o700); err != nil {
+	if len(positional) == 0 {
+		return help, opts, nil
+	}
+	first := positional[0]
+	rest := positional[1:]
+	switch first {
+	case "account":
+		return parseAccount(rest, opts)
+	case "source":
+		return parseSource(rest, opts)
+	case "connector":
+		return connectorMode, opts, nil
+	case "worker":
+		return workerMode, opts, nil
+	default:
+		fmt.Print(usage)
+		return help, opts, fmt.Errorf("unknown command %q", first)
+	}
+}
+
+func parseAccount(rest []string, opts options) (command, options, error) {
+	if len(rest) == 0 {
+		return help, opts, errors.New("account needs a subcommand: add, list or select")
+	}
+	switch rest[0] {
+	case "add":
+		if len(rest) > 1 {
+			opts.alias = rest[1]
+		}
+		return accountAdd, opts, nil
+	case "list":
+		return accountList, opts, nil
+	case "select":
+		if len(rest) < 2 {
+			return help, opts, errors.New("account select needs an alias")
+		}
+		opts.alias = rest[1]
+		return accountSelect, opts, nil
+	default:
+		return help, opts, fmt.Errorf("unknown account subcommand %q", rest[0])
+	}
+}
+
+func parseSource(rest []string, opts options) (command, options, error) {
+	if len(rest) == 0 {
+		return help, opts, errors.New("source needs a subcommand: add, list or remove")
+	}
+	switch rest[0] {
+	case "add":
+		return sourceAdd, opts, nil
+	case "list":
+		return sourceList, opts, nil
+	case "remove":
+		if len(rest) < 2 {
+			return help, opts, errors.New("source remove needs a source name")
+		}
+		opts.name = rest[1]
+		return sourceRemove, opts, nil
+	default:
+		return help, opts, fmt.Errorf("unknown source subcommand %q", rest[0])
+	}
+}
+
+func runAccountAdd(ctx context.Context, opts options) error {
+	if !setup.IsInteractive() {
+		return errors.New("account add needs a terminal; run it interactively")
+	}
+	store, err := openStore()
+	if err != nil {
 		return err
 	}
-	prompt := setup.Terminal{In: os.Stdin, Out: os.Stdout}
 	httpClient, err := config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
 	if err != nil {
 		return err
 	}
-	identity, err := setup.Initialize(ctx, setup.PathsFor(base), prompt, auth.PasswordLogin{HTTP: httpClient}, nil)
+	account, err := setup.AddAccount(ctx, store, terminal(), auth.PasswordLogin{HTTP: httpClient}, opts.alias)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nSource connector initialized.\n  worker:  %s\n  source:  %s\n  target:  %s\n"+
-		"Start it with: systemctl --user enable --now source-agent.service\n",
-		identity.WorkerID, identity.SourceID, identity.Target)
+	fmt.Printf("\nAdded account %q (user %s at %s).\n", account.Alias, account.Username, account.GatewayURL)
 	return nil
 }
 
-// setupBase is where initialization writes its owner-only state.
+func runAccountList() error {
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	listing, err := setup.ListAccounts(store)
+	if err != nil {
+		return err
+	}
+	fmt.Print(listing)
+	return nil
+}
+
+func runAccountSelect(opts options) error {
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	if err := store.Select(opts.alias); err != nil {
+		return err
+	}
+	fmt.Printf("Selected account %q.\n", opts.alias)
+	return nil
+}
+
+func runSourceAdd(ctx context.Context, opts options) error {
+	if !setup.IsInteractive() {
+		return errors.New("source add needs a terminal; run it interactively")
+	}
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	source, err := setup.AddSource(ctx, store, terminal(), nil, setup.AddSourceInput{
+		Account:  opts.account,
+		Name:     opts.name,
+		Target:   opts.target,
+		SpecPath: opts.spec,
+	})
+	if err != nil {
+		var setupExists setup.AlreadyExists
+		if errors.As(err, &setupExists) {
+			fmt.Printf("\nMCP source already exists as %s; nothing new was created.\n", setupExists.Source.Name)
+			return nil
+		}
+		var gatewayExists bootstrap.ErrAlreadyExists
+		if errors.As(err, &gatewayExists) {
+			fmt.Printf("\nMCP source already exists as %s; nothing new was created.\n", gatewayExists.Identity.SourceID)
+			return nil
+		}
+		return err
+	}
+	fmt.Printf("\nAdded source %s (origin %s, worker %s).\nRestart the agent to serve it.\n",
+		source.Name, source.Target, source.WorkerID)
+	return nil
+}
+
+func runSourceList() error {
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	listing, err := setup.ListSources(store)
+	if err != nil {
+		return err
+	}
+	fmt.Print(listing)
+	return nil
+}
+
+func runSourceRemove(opts options) error {
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	if _, found, err := store.Source(opts.name); err != nil {
+		return err
+	} else if !found {
+		return fmt.Errorf("source %q is not stored", opts.name)
+	}
+	if err := store.RemoveSource(opts.name); err != nil {
+		return err
+	}
+	fmt.Printf("Removed source %q from local state. Its gateway registration is unchanged.\n", opts.name)
+	return nil
+}
+
+func terminal() setup.Terminal {
+	return setup.Terminal{In: os.Stdin, Out: os.Stdout}
+}
+
+func openStore() (*state.Store, error) {
+	return state.Open(setupBase())
+}
+
+// setupBase is where accounts and sources are stored.
 func setupBase() string {
 	if explicit := config.Environment("MCP_SOURCE_LINK_STATE_DIR"); explicit != "" {
 		return explicit
@@ -105,78 +377,15 @@ func setupBase() string {
 	return filepath.Join(home, ".config", "source-agent")
 }
 
-// runConnector starts the tunnel from a persisted identity. If none exists it
-// must not silently re-bootstrap: an interactive terminal is offered init, and a
-// non-interactive run (systemd) fails with instructions rather than blocking on
-// stdin forever.
+// runConnector serves every registered source across every account in this one
+// process. It never prompts; an unregistered source is skipped with a clear log
+// line rather than blocking for input under systemd.
 func runConnector(ctx context.Context) error {
-	base := setupBase()
-	identityPath := filepath.Join(base, "identity.json")
-	if explicit := config.Environment("MCP_SOURCE_LINK_CONNECTOR_CONFIG"); explicit != "" {
-		identityPath = explicit
-	}
-	identity, err := config.ReadConnector(identityPath)
-	if err != nil {
-		if !setup.IsInteractive() {
-			return errors.New("no connector identity found; run: source-link init")
-		}
-		fmt.Println("This connector is not initialized yet; starting setup.")
-		if initErr := runInit(ctx); initErr != nil {
-			return initErr
-		}
-		identity, err = config.ReadConnector(identityPath)
-		if err != nil {
-			return err
-		}
-	}
-	return connector.Run(ctx, identity, base)
-}
-
-// runReinit replaces a connector identity that can no longer be used, which is
-// the supported recovery for a revoked worker or a permanently lost local
-// identity.
-//
-// Revocation is terminal by design, so the old worker cannot be revived and its
-// label stays claimed. Replacement therefore needs a new label, and this keeps
-// the old identity rather than deleting it: it is archived beside the new one, so
-// the fenced old generation stays on disk for an operator to inspect and nothing
-// silently pretends the revoked worker became valid again.
-func runReinit(ctx context.Context) error {
-	if !setup.IsInteractive() {
-		return errors.New("source-link reinit needs a terminal; run it interactively on the source host")
-	}
-	base := setupBase()
-	if err := os.MkdirAll(base, 0o700); err != nil {
-		return err
-	}
-	paths := setup.PathsFor(base)
-	stamp := time.Now().UTC().Format("20060102T150405Z")
-	if _, err := os.Stat(paths.Identity); err == nil {
-		archive := paths.Identity + ".revoked-" + stamp
-		if err := os.Rename(paths.Identity, archive); err != nil {
-			return fmt.Errorf("archive the old identity: %w", err)
-		}
-		fmt.Printf("Old identity archived at %s (its generation stays fenced).\n", archive)
-	}
-	if _, err := os.Stat(paths.Bootstrap); err == nil {
-		if err := os.Rename(paths.Bootstrap, paths.Bootstrap+".revoked-"+stamp); err != nil {
-			return fmt.Errorf("archive the old bootstrap input: %w", err)
-		}
-	}
-	fmt.Println("Registering a replacement connector. Use a NEW source name: the old one is still registered.")
-	prompt := setup.Terminal{In: os.Stdin, Out: os.Stdout}
-	httpClient, err := config.HTTPSClient(config.Environment("MCP_SOURCE_LINK_CA_FILE"))
+	store, err := openStore()
 	if err != nil {
 		return err
 	}
-	identity, err := setup.Initialize(ctx, paths, prompt, auth.PasswordLogin{HTTP: httpClient}, nil)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("\nReplacement connector initialized.\n  worker:  %s\n  source:  %s\n  target:  %s\n"+
-		"Restart it with: systemctl --user restart source-agent.service\n",
-		identity.WorkerID, identity.SourceID, identity.Target)
-	return nil
+	return connector.RunAll(ctx, store)
 }
 
 func runWorker(ctx context.Context, stop context.CancelFunc) error {
@@ -189,11 +398,11 @@ func runWorker(ctx context.Context, stop context.CancelFunc) error {
 		return err
 	}
 	defer client.CloseIdleConnections()
-	state, err := control.New(ctx, cfg, client)
+	controlState, err := control.New(ctx, cfg, client)
 	if err != nil {
 		return err
 	}
-	sessions := pool.New(state)
+	sessions := pool.New(controlState)
 	tunnels := tunnel.New(sessions)
 
 	data := http.NewServeMux()
@@ -222,7 +431,7 @@ func runWorker(ctx context.Context, stop context.CancelFunc) error {
 			}
 		}(server)
 	}
-	go reconcileLoop(ctx, state, sessions)
+	go reconcileLoop(ctx, controlState, sessions)
 	log.Printf("tunnel worker; private dispatch on %s; tunnel ingress on %s", cfg.DataListen, cfg.ReverseListen)
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

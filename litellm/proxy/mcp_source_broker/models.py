@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import re
 from datetime import datetime
@@ -40,9 +41,40 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+# A Kubernetes service host is `name.namespace.svc` in the short form the client
+# normalizes to. A pod may expose an origin off loopback, so the gateway must
+# accept it too; it authorizes the exposure, not the client.
+SERVICE_HOST: Final = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.svc$")
+
+
 class Target(Frozen):
-    host: Literal["127.0.0.1"] = "127.0.0.1"
+    """Where a source's origin listens, as the gateway stores it.
+
+    The host is an IPv4 literal, a bracketed IPv6 literal, or a Kubernetes service
+    name. It is never a URL, never carries userinfo or a path, and is not resolved
+    here: the connector dials it from the source host, and the gateway only records
+    and mirrors it.
+    """
+
+    host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
     port: int = Field(18080, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        if _is_ip_literal(value):
+            return value
+        if SERVICE_HOST.fullmatch(value):
+            return value
+        raise ValueError("target host must be an IP address or a Kubernetes service name like name.namespace.svc")
+
+
+def _is_ip_literal(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 class SourceCreate(Frozen):
@@ -124,14 +156,25 @@ class RouteSelection(Frozen):
 
 
 class RemotePeer(Frozen):
+    """A worker registration as the connector sends it.
+
+    ``proof_key`` is optional and defaults to empty. The mandatory origin-proof
+    signature it belonged to is removed from the supported local/OpenAPI flow: a
+    connector that controls both the target response and the key proves nothing
+    about who handled the request. A future independent origin integration can
+    still populate it, and when present it is validated as an Ed25519 public key.
+    """
+
     label: str = Field(pattern=r"^[a-z][a-z0-9-]{1,31}$")
     dataset_id: str = Field(min_length=1, max_length=255, pattern=r"^[^\r\n]+$")
-    proof_key: str = Field(pattern=r"^[A-Za-z0-9+/]{43}=?$")
+    proof_key: str = ""
     target: Target
 
     @field_validator("proof_key")
     @classmethod
     def validate_key(cls, value: str) -> str:
+        if value == "":
+            return value
         if len(base64.b64decode(value, validate=True)) != 32:
             raise ValueError("origin proof public key must be Ed25519")
         return value

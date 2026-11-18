@@ -46,7 +46,7 @@ func TestExecuteCancellationReachesOriginTransport(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
 		return nil, req.Context().Err()
-	}))
+	}), "127.0.0.1")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := server.Execute(ctx, &dispatchpb.DispatchRequest{Method: http.MethodGet, Path: "/read"}); !errors.Is(err, context.Canceled) {
@@ -60,7 +60,7 @@ func TestExecuteCancellationReachesOriginTransport(t *testing.T) {
 // Admit must report the capabilities this build implements, because the broker
 // gates pushed RPCs on that set.
 func TestAdmitReportsImplementedCapabilities(t *testing.T) {
-	server := NewServer(http.DefaultTransport)
+	server := NewServer(http.DefaultTransport, "127.0.0.1")
 	resp, err := server.Admit(context.Background(), &dispatchpb.AdmitRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestExecuteRejectsOversizeBody(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		called = true
 		return nil, errors.New("should not be called")
-	}))
+	}), "127.0.0.1")
 	oversize := make([]byte, 4<<20)
 	if _, err := server.Execute(context.Background(), &dispatchpb.DispatchRequest{Method: http.MethodPost, Path: "/read", Body: oversize}); err == nil {
 		t.Fatal("oversize body was accepted")

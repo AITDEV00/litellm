@@ -2,16 +2,22 @@
 # Source connector installer.
 #
 # Fetches and checksum-verifies the release assets, then runs the binary's own
-# interactive initializer, which is where every question is asked and every file
-# is written. This script deliberately contains no configuration logic: prompts,
-# authentication, enrollment and identity persistence all live in the binary's
-# `init` command, so a change to any of them needs no new script.
+# interactive commands, which are where every question is asked and every file is
+# written. This script deliberately contains no configuration logic: prompts,
+# authentication, enrollment and identity persistence all live in the binary, so a
+# change to any of them needs no new script.
+#
+# The agent keeps a local account store, so installing means two steps: add the
+# gateway account once (gateway URL, username, password), then add one or more
+# sources under it. A second source never asks for the password again. Re-running
+# this installer on an installed host is safe: an existing account is reported and
+# the source step is skipped by the agent's own already-exists check.
 #
 # Placeholders are substituted at publish time by the release publisher.
 set -eu
 umask 077
 
-state="${SOURCE_AGENT_STATE:-$HOME/.config/source-agent}"
+state="${MCP_SOURCE_LINK_STATE_DIR:-$HOME/.config/source-agent}"
 mkdir -p "$state" "$HOME/.config/systemd/user"
 chmod 700 "$state" "$HOME/.config/systemd/user"
 
@@ -43,10 +49,17 @@ NoNewPrivileges=yes
 WantedBy=default.target
 UNIT
 
-"$state/source-link" init
+export MCP_SOURCE_LINK_STATE_DIR="$state"
+
+echo "Step 1: add the gateway account (asked once)."
+"$state/source-link" account add
+
+echo "Step 2: add a source under that account."
+"$state/source-link" source add
 
 systemctl --user daemon-reload
 systemctl --user enable --now source-agent.service
 
 echo "Source connector installed. Service: source-agent.service"
 echo "State directory: $state"
+echo "Add another source later with: $state/source-link source add"

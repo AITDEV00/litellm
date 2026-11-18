@@ -299,3 +299,42 @@ async def test_changed_content_conflict_does_not_upload_over_the_approved_artifa
     assert "different content" in response.json()["detail"]
     assert uploads == [], "changed content must not overwrite the stored artifact"
     assert submissions == [], "changed content must not be submitted for review"
+
+
+@pytest.mark.asyncio
+async def test_repeat_enroll_creates_no_new_row_upload_or_submission(
+    store: SourceStore,
+    source: SourceCreate,
+    respx_mock: MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N3: an identical re-enroll is idempotent at the gateway, not just the client.
+
+    The first enroll writes the source, uploads its artifact and submits it for
+    review. The exact same enroll again must return the stored identity with the
+    stored status and must not upload a second artifact, submit a second MCP row,
+    open a review, or advance anything. This is enforced inside the store's
+    transaction, so it holds even for a concurrent duplicate call.
+    """
+    monkeypatch.setenv("DISABLE_AIOHTTP_TRANSPORT", "True")
+    submissions: list[tuple[NewMCPServerRequest, str]] = []
+    uploads: dict[str, bytes] = {}
+
+    async def register(request: NewMCPServerRequest, owner: str) -> None:
+        submissions.append((request, owner))
+
+    async def artifact(key: str, body: bytes) -> None:
+        uploads[key] = body
+
+    app = _app(store, register, UserAPIKeyAuth(user_id="alice"), artifact)
+    payload: Final = source.model_dump(mode="json")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+        first: Final = await client.post("/mcp-sources", json=payload)
+        second: Final = await client.post("/mcp-sources", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["source_id"] == second.json()["source_id"] == source.source_id
+    assert len(submissions) == 1, "a repeat enroll submitted a second MCP row"
+    assert len(uploads) == 1, "a repeat enroll uploaded a second artifact"
+    assert len(store.db.sources) == 1, "a repeat enroll created a second source"

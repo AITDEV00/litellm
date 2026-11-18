@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType, TracebackType
-from typing import Final, Literal, Protocol
+from typing import Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 from typing_extensions import LiteralString
@@ -46,7 +46,7 @@ class SQLRow(BaseModel):
     tenant: str
     key: str
     alias: str
-    target_host: Literal["127.0.0.1"]
+    target_host: str
     target_port: int
     spec_path: str
     expected: str
@@ -90,6 +90,19 @@ class ContentConflict:
     """
 
     id: str
+
+
+@dataclass(frozen=True, slots=True)
+class AlreadyEnrolled:
+    """An identical re-enroll of a source the same owner already has.
+
+    This is the idempotent outcome: the caller must return the existing identity
+    and must not upload an artifact, submit a new MCP row, open a review, register a
+    worker, or advance a generation. It is distinct from a fresh enrollment so the
+    gateway can short-circuit before it touches any of those.
+    """
+
+    record: SourceRecord
 
 
 class PermissionDenied(Exception):
@@ -183,7 +196,9 @@ class SourceStore:
         )
         return rows[0] if rows else None
 
-    async def enroll(self, value: SourceCreate, owner: str) -> SourceRecord | NotOwnerConflict | ContentConflict:
+    async def enroll(
+        self, value: SourceCreate, owner: str
+    ) -> SourceRecord | AlreadyEnrolled | NotOwnerConflict | ContentConflict:
         if value.owner != owner:
             raise PermissionDenied("source owner mismatch")
         sid: Final = value.source_id_for(owner, value.alias)
@@ -195,7 +210,12 @@ class SourceStore:
             )
             found: Final = tuple(row.value() for row in SOURCES.validate_python(existing))
             if found and found[0].expected == value.fingerprint() and found[0].target == value.target:
-                return found[0]
+                # Identical re-enroll: hand back the stored row marked as already
+                # present so the gateway returns the existing identity without
+                # re-uploading the artifact or re-submitting for review. This is
+                # decided inside the advisory-locked transaction, so two racing
+                # callers still collapse to one.
+                return AlreadyEnrolled(record=found[0])
             if found and found[0].tenant != owner:
                 return NotOwnerConflict(id=sid)
             if found:
