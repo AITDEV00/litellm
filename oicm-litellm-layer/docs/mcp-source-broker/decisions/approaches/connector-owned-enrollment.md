@@ -12,7 +12,16 @@
 Status: IMPLEMENTED, partially accepted. Both requirements are built and covered by tests. The
 user-without-team half and the connector-owns-bootstrap half are proven live against the dev
 cluster, except for the one live step that dev cannot currently serve; see "Implementation and
-acceptance record" at the end. Nothing here is marked SHIPPED until that last step runs.
+acceptance record" at the end. Nothing here is marked SHIPPED until that last step runs
+
+> **Open work required before SHIPPED:** [BOOTSTRAP-GAPS.md](../../../../mcp-source-link/BOOTSTRAP-GAPS.md)
+> records recovery, revocation and dev-routing defects. Its B2 supersedes the exclusion of login
+> below: the shipped binary must provide interactive `source-link init`, invoked by the supplied
+> shell installer, with ordinary username/password creating a restricted user credential. The
+> excluded mechanism is persisting a UI cookie as a connector credential, not CLI authentication.
+> B6 separates RustFS artifacts from gateway code: binaries and manifests already fetch from
+> RustFS, while the installer script must also become an upload-managed artifact. Each update
+> uses a new immutable version and moves the active manifest after validating its artifacts
 
 ## Why this file exists
 
