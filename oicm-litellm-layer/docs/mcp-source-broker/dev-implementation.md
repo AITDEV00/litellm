@@ -227,4 +227,4 @@ Post-roll protocol checks covered Service readiness and the h2c authentication p
 
 A custom-tagged sidecar release requires a dev-overlay apply after `make mcp-sidecar-release`; deleting the pod alone does not select the new tag
 
-The Pass 2 delta and Pass 3 handover archives next to this document hold the prototype source, benchmark evidence, and profile data that steps 3-4 build on. `LiteLLM-1.108.5-Source-Agent-Reference.zip` remains the received research reference; the staging relay built from it was decommissioned on 2026-11-17
+The Pass 2 delta, Pass 3 handover, MCP ingress pilot, and source-agent reference archives have been deleted from this directory. They held the research prototypes and evidence logs that steps 3-4 were built on; none of that content is recoverable from this repository now. The shipped implementation is `mcp-source-link/`, and the surviving measurements are in [the concurrency record](perf/2026-11-18-go-driver-concurrency.md)
