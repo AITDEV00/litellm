@@ -144,6 +144,14 @@ If drops recur, capture within minutes: nginx access + error logs from all three
 | `deploy/prod/litellm-ingress.yaml` | 11 | Ingress `litellm-proxy` (ns `adeo-litellm`) | `"false"` | `"off"` |
 | `deploy/rollback/access.yaml` | 10 | rollback-path Ingress copy | `"false"` | `"off"` |
 
+Applied 2026-11-19: both files now carry `"off"`, and the live Ingress renders
+`proxy_request_buffering off;` on all three controllers. The same change also
+added `nginx.ingress.kubernetes.io/proxy-max-temp-file-size: "0"` to both, so an
+unbuffered response can never spill to a temp file when the far end stops
+reading. Before that, the rendered block still carried ingress-nginx's default
+`proxy_max_temp_file_size 1024m`, which is real disk buffering even with
+`proxy_buffering off`.
+
 Two more files carry the annotation and are **already correct** (verify only, do not touch): `deploy/overlays/dev/mcp-source-broker/tunnel-ingress.yaml` uses `"off"` (bare), and the live MCP ingress renders `proxy_request_buffering off;` — this pair is the proof the parser honors the correct spelling.
 
 **How to change — manifest edit, then apply:**
@@ -162,9 +170,21 @@ Do **not** fix this with `kubectl annotate`/`kubectl edit` on the live object al
 1. Edit both manifests above in a commit (prod + rollback copy together, so a rollback cannot reintroduce the bug).
 2. Dry-run first: `kubectl apply --dry-run=server -f deploy/prod/litellm-ingress.yaml`.
 3. Apply: `kubectl apply -f deploy/prod/litellm-ingress.yaml`.
-4. Confirm the controller accepted the annotation: `kubectl -n adeo-litellm get ingress litellm-proxy -o jsonpath='{.metadata.annotations.ngress\.ingress\.kubernetes\.io/proxy-request-buffering}'` → must print `off`.
-5. Wait for the controller reload, then verify the **rendered** config on each of the three controller pods — the generated nginx.conf is ground truth, and it is exactly where the bug was found. For each pod:
-   `kubectl -n nginx-ingress-controller exec <pod> -- sh -c "awk '/ingress_name   \"litellm-proxy\"/{f=1} f&&/proxy_request_buffering/{print; exit}' /etc/nginx/nginx.conf"` → must print `proxy_request_buffering                 off;`
+4. Confirm the controller accepted the annotation: `kubectl -n adeo-litellm get ingress litellm-proxy -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/proxy-request-buffering}'` → must print `off`.
+5. Wait for the controller reload, then verify the **rendered** config on each of the three controller pods — the generated nginx.conf is ground truth, and it is exactly where the bug was found. Extract the `litellm-proxy` server block first, then read the three directives from it; matching `ingress_name "litellm-proxy"` alone is not enough, because that string appears in more than one place and a naive `awk` walks into unrelated server blocks that legitimately leave buffering `on`:
+   ```bash
+   P=<controller-pod>
+   L=$(kubectl -n nginx-ingress-controller exec $P -c controller -- sh -c \
+     'grep -n "server_name litellm.ecouncil.ae" /etc/nginx/nginx.conf | head -1 | cut -d: -f1')
+   kubectl -n nginx-ingress-controller exec $P -c controller -- sh -c \
+     "sed -n '${L},$((L+120))p' /etc/nginx/nginx.conf | grep -E 'proxy_request_buffering|proxy_buffering|proxy_max_temp_file_size'"
+   ```
+   Must print all three:
+   ```nginx
+   proxy_buffering                         off;
+   proxy_max_temp_file_size                0;
+   proxy_request_buffering                 off;
+   ```
 6. Re-run the staged bursts below.
 
 ### 6.2 Secondary fix — stream the audio in the LiteLLM route (optional, code change)
@@ -204,3 +224,4 @@ The change is a single annotation value with no application-side counterpart; re
 |---|---|---|
 | 2026-11-18 | Gateway validation session | Initial report: root cause of latency (invalid `proxy-request-buffering` value + app-side re-buffering), measured localization via timing header, drop analysis with proven/unproven separation, staged fix & validation plan. |
 | 2026-11-18 | Solution-section audit | §6.1 hardened: pinned both manifest locations carrying the bug (prod + rollback copy), manifest-not-live-object procedure with server dry-run, per-controller rendered-config verification commands, and a §6.5 rollback note. |
+| 2026-11-19 | Ingress applied | Both manifests carried `"off"` already; added `proxy-max-temp-file-size: "0"` to both, because the rendered block still had the `1024m` default (disk spill even with `proxy_buffering off`). Applied to the live Ingress and verified all three rendered blocks now read `proxy_buffering off` / `proxy_max_temp_file_size 0` / `proxy_request_buffering off`. Also fixed the step-4 jsonpath typo (`ngress`) and replaced the step-5 `awk` with a server-block extraction, because the old one matched unrelated blocks that legitimately leave buffering `on`. |
