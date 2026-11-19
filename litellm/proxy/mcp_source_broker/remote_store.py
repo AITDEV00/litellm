@@ -163,6 +163,19 @@ class RemoteStore:
         stand in for a fresh probe. Both are cleared on startup, so nothing is
         healthy until a new connector connects and proves its origin again; the
         next successful report() re-establishes the fingerprint.
+
+        This is a deliberate whole-table write, the one intentional global
+        mutation in this store. Liveness is a property of the live broker process,
+        not durable data: a worker row's ``healthy_at`` is only ever a claim that
+        some connector was connected to *this* process, so carrying it across a
+        restart would be a lie regardless of which row it belongs to. The reset is
+        therefore scoped to the process, not to a selected source.
+
+        Concurrency: it assumes a single broker process owns health at startup.
+        Running two replicas that share this table would let one replica's boot
+        wipe another's live claims; multi-replica liveness needs per-process
+        ownership (a boot id stamped on each row) before that is safe, which this
+        single-process broker intentionally does not yet provide.
         """
         await self.db.execute_raw('UPDATE "OicmMcpRemoteWorker" SET healthy_at=NULL,catalog_fingerprint=NULL')
 

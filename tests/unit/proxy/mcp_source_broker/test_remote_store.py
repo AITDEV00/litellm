@@ -742,3 +742,14 @@ async def test_reset_health_clears_content_proof_and_liveness_at_startup() -> No
     after: Final = broker.db.workers[0]
     assert after.healthy_at is None, "healthy_at must be cleared at startup"
     assert after.catalog_fingerprint is None, "catalog_fingerprint must be cleared at startup, not just healthy_at"
+
+    # A retained source row plus a retained worker row must still project as
+    # not-healthy after restart; the next successful report re-establishes it.
+    peers: Final = await broker.store.peers()
+    assert len(peers) == 1
+    assert peers[0].healthy_at is None and peers[0].catalog_fingerprint is None, (
+        "a restart must require a fresh probe, not inherit a previous boot's health"
+    )
+    await broker.store.report(worker.worker_id, 1, "f" * 64)
+    reconnected: Final = await broker.store.peers()
+    assert reconnected[0].catalog_fingerprint == "f" * 64, "a fresh report must re-establish content proof"
