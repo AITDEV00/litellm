@@ -319,11 +319,11 @@ mcp-source-link-compat:
 ## It builds nothing and rolls nothing; uploads are immutable and the release
 ## pointer moves last, so an interrupted publish never activates a half release.
 mcp-sidecar-publish:
-	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -buildvcs=false -ldflags="-s -w" -o source-link .
 	GATEWAY=$(GATEWAY) VERSION=$(VERSION) DRY_RUN=$(DRY_RUN) scripts/publish-source-agent-release.sh
 
 mcp-sidecar-build:
-	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -ldflags="-s -w" -o source-link .
+	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) build -trimpath -buildvcs=false -ldflags="-s -w" -o source-link .
 	file $(MCP_SIDECAR_DIR)/source-link | grep -q "statically linked" || { echo "sidecar binary is not static; CGO_ENABLED=0 is mandatory"; exit 1; }
 	podman build -t $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG) $(MCP_SIDECAR_DIR)
 
