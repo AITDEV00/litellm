@@ -92,6 +92,16 @@ data:
       cooldown_time: 30
       # Fallbacks intentionally omitted for now; to be configured separately.
     general_settings:
+      # The source-broker serves each OpenAPI-derived source's catalog at
+      # /install/mcp-source-broker/<source_id>/openapi.json and records that as
+      # the row's spec_path, which the gateway then fetches to build tools. The
+      # catalog base defaults to http://127.0.0.1:4000, so the fetch is loopback
+      # and the SSRF guard drops the server from the registry with "URL targets a
+      # blocked address". An OpenAPI source therefore never becomes callable
+      # while an MCP source, which has no spec, does. Allowing exactly this
+      # address keeps the guard on for everything else.
+      user_url_allowed_hosts:
+        - 127.0.0.1:4000
       use_redis_transaction_buffer: true
       # Native PG partitioning: upstream creates daily partitions and drops
       # them at retention. 999d means upstream never drops; the janitor

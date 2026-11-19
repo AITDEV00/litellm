@@ -59,6 +59,11 @@ spec:
                 secretKeyRef:
                   name: litellm-mcp-source-broker
                   key: service-token
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-db-credentials
+                  key: DATABASE_URL
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
