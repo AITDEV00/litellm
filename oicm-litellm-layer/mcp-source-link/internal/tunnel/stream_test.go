@@ -28,7 +28,7 @@ func (o *streamingOrigin) RoundTrip(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":"source-link-health","result":{}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":"source-link-health","result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"origin","version":"1"}}}`)),
 		}, nil
 	}
 	reader, writer := io.Pipe()
@@ -131,7 +131,7 @@ func (o *delayedBodyOrigin) RoundTrip(req *http.Request) (*http.Response, error)
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":"source-link-health","result":{}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":"source-link-health","result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"origin","version":"1"}}}`)),
 		}, nil
 	}
 	reader, writer := io.Pipe()
