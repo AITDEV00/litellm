@@ -395,3 +395,55 @@ The last row permits Python to persist a target the connector cannot subsequentl
 | Deployment or production approval | Not given |
 
 The worker's nine-commit pass contains useful work but is not a complete remediation. Follow the [third remediation prompt](THIRD-REMEDIATION-PROMPT-2026-11-19.md). It prioritizes the disputed statuses and keeps the explicitly deferred production blockers visible, rather than claiming another numeric completion score
+
+## Third-remediation completion record (2026-11-19, branch `jya0-v1.108.5`)
+
+This pass addressed the disputed Task 1 (G1/G4), Task 2 (R4/G3), and Task 3 (R5/G6) findings at their owning boundaries. It covers local and real-SDK work only. No image was built or deployed, no ingress was touched, and no authorized dev proof was run. Tasks 4 through 7 remain open and are stated as such below, not counted as complete
+
+### Task 1 (G1/G4): health lifecycle and regret cleanup (`64519ab46f1`, strengthened `357315683f4`)
+
+**Defect before:** the connector's initialized notification carried no `Accept` header, so the installed SDK answered **406** while an ordinary SDK client got **202**; the connector read that rejection as healthy. A failed initialize could strand the session the server had already allocated (independent reproduction ended at 1 orphaned session). `ping` accepted any sub-400 status and drained bodies to a byte cap, so redirects, 202-without-result, HTML, mismatched IDs, and JSON-RPC errors all read healthy, and a complete SSE ping on a held-open stream could stall to the deadline. Initialize shape validation accepted any non-null `result`
+
+**Owning files:** `internal/connector/mcp_health.go` (lifecycle rewrite), `internal/connector/tunnel.go` (probe delegation), with fixtures in `internal/connector/mcp_health_test.go`, `internal/connector/sdk_health_test.go`, `internal/connector/testdata/sdk_health_server.py`, and `internal/tunnel/stream_test.go` (probe answers upgraded from minimal `{}` results to full initialize shapes)
+
+**Behavior now:** the session ID is captured from the response header immediately after transport, before any body parsing, so every later failure branch can delete the allocated session with a fresh bounded `context.WithTimeout(context.Background(), 5s)`, independent of the failed request's context. `notifications/initialized` carries `Content-Type: application/json` plus `Accept: application/json, text/event-stream` and its non-2xx status makes the probe unhealthy with cleanup. Ping correlates the reply by JSON-RPC id through a shared `readJSONRPCResult` that parses SSE incrementally (bounded 256 KiB, returns at the first matching complete event) or validates a finite JSON body, and rejects redirects and non-2xx before parsing. Initialize requires an agreed protocol version (`2025-06-18`, echoed by the SDK's `_negotiate_initialize` when requested), non-null capabilities, and serverInfo. The dead `initializ` bool is removed; readiness is the completed handshake
+
+**Focused evidence:** `go test ./internal/connector/ -count=1` reports `ok ... 1.733s` (includes `TestSDKHealthPoolsOneSessionAndCloses` and `TestSDKRejectedNotificationLeavesNoSession`, each ~0.9s against the real SDK). Deterministic tests cover session reuse across probes, stale-session reinit, complete-event-before-EOF, mismatched-reply cleanup, four initialize failure modes each asserting zero surviving sessions, canceled initialize, five ping rejection modes, and held-open SSE acceptance
+
+**Real SDK result:** three probes pool exactly 1 session; a separate real SDK client completes initialize, `tools/list` (`echo`), `tools/call` (echoed content), and terminate on the same server while the pooled health session stays at 1; `CloseHealthSession` leaves 0. A server that refuses the initialized notification after allocation makes the probe unhealthy and leaves 0 sessions
+
+**Mutations killed:** dropping the notification's `Accept` header turns `TestSDKHealthPoolsOneSessionAndCloses` red (the real SDK 406s the notification); making `cleanupAfterFailure` a no-op, removing id correlation, draining ping to EOF, and deleting shape validation each turn their owning tests red (verified in the Task 1 pass; the Accept mutation re-verified against the real SDK after the strengthening commit)
+
+### Task 2 (R4/G3): historical labels preserved during reregistration (`4af4a24aef5`)
+
+**Defect before:** `WorkerLabel` digested every name longer than the remote grammar allowed, so the historical normalized alias `alpha.127.0.0.1.18080` (stored as `alpha-127-0-0-1-18080`) re-derived with a hash suffix on lost-credential recovery, selecting a different `(source_id,label)` row than the one the server actually issued
+
+**Owning files:** `internal/bootstrap/client.go` (`WorkerLabel`, `legacyNormalize`), `tests/unit/proxy/mcp_source_broker/test_remote_store.py` (server-side resume selection)
+
+**Behavior now:** `WorkerLabel` returns the grammar-verbatim legacy normalization unchanged whenever it fits within 32 characters, preserving byte-identical historical labels; only genuinely new names too long or lossy for the grammar get the `-<10 hex sha256>` digest form. Two formerly colliding long identities still receive distinct digest labels
+
+**Focused evidence:** `go test ./internal/bootstrap/ -count=1` reports `ok ... 0.003s` (7 passing tests, including `TestWorkerLabelPreservesHistoricalNormalizedAliases` with the dotted IPv4, mixed-case, service, and IPv6-derived aliases, and `TestWorkerLabelDigestsOnlyLossyLongNames`). `pytest -q tests/unit/proxy/mcp_source_broker/test_remote_store.py::test_legacy_preserved_label_resumes_its_original_worker` proves the server path: with a digest sibling inserted first, issue-then-resume still selects the original worker_id for the historical label, and a delivered worker's replay is refused
+
+**Mutations killed:** always-digest, lossy truncation returned, and case folding removed each turn the above tests red
+
+### Task 3 (R5/G6): one shared target grammar across Go and Python (`6445f785115`)
+
+**Defect before:** the two validators disagreed on real inputs. Python rejected `mysvc.myns.svc.cluster.local`, `mysvc.myns.svc.`, and uppercase service spellings that Go folded and accepted, and Python accepted `::1%eth0` (a scoped IPv6 literal the Go connector cannot parse), so a row persisted by Python could become unreadable at the connector
+
+**Owning files:** `litellm/proxy/mcp_source_broker/models.py` (`_canonical_service_host`, `canonical_worker_host`), pinned in Go by `oicm-litellm-layer/mcp-source-link/cmd/targetparity/main.go`, with tests in `tests/unit/proxy/mcp_source_broker/test_models.py`, `tests/unit/proxy/mcp_source_broker/test_target_parity.py`, and `internal/target/target_test.go`
+
+**Behavior now:** both sides fold case, strip one terminal dot, and reduce `.cluster.local`/`.local` suffixes to the canonical `name.namespace.svc` (three DNS-1123 labels, third label `svc`); both reject scoped IPv6 targets (`%zone`); both collapse IPv4-mapped IPv6 to plain IPv4; the unicast admission policy (refusing unspecified, multicast, broadcast, link-local) is preserved. A committed Go helper (`cmd/targetparity`) runs the module's actual `target.Parse` on Python-supplied spellings so parity is asserted at the real parse/persist boundary, not by copying constants: every spelling Go accepts must persist one Python identity, every shared rejection must agree, and the persisted canonical form must re-parse in Go to the same identity
+
+**Focused evidence:** `pytest -q tests/unit/proxy/mcp_source_broker/test_models.py tests/unit/proxy/mcp_source_broker/test_target_parity.py tests/unit/proxy/mcp_source_broker/test_remote_store.py` reports **64 passed**; `go test ./internal/target/ -count=1` reports `ok ... 0.003s`. The parity suite covers the four review-mismatched spellings (full cluster service, terminal dot, uppercase service, scoped loopback IPv6) plus mapped-IPv4 and compressed/expanded IPv6
+
+**Legacy rows:** `_project_peer` still drops malformed worker projections with a warning. A row whose stored target violates the new grammar is not silently quarantined: the folding accepts every spelling the old code accepted except scoped IPv6, which was never a valid Go target. An explicit migration/quarantine contract for pre-existing scoped-literal rows remains open under Task 5's state work, not claimed here
+
+**Mutations killed:** removing case folding (3 failures), suffix reduction (4), zone rejection (3), and mapped-IPv4 equality (4) each turn the parity and fold tests red; the same four mutations were re-verified after the final functional rewrite of `_canonical_service_host`
+
+### Gates run this pass
+
+`make -C oicm-litellm-layer mcp-sidecar-check` passed (all eleven packages `ok`, including the tunnel stream tests whose probe fixtures this pass upgraded to full initialize shapes); `make -C oicm-litellm-layer mcp-source-link-compat` passed (`ok ... 9.762s`); `pytest -q tests/unit/proxy/mcp_source_broker tests/unit/proxy/client_distribution tests/unit/proxy/auth/test_cli_password_login.py` reported **208 passed**. `ruff check`/`ruff format --check` clean and `basedpyright` 0 errors on every touched Python file; `gofmt -l`, `go vet`, and `staticcheck` clean on every touched Go package
+
+### Tasks 4 through 7: why they remain outside this pass
+
+Task 4 (G5 authenticated-owner identity) requires changing the public enrollment contract so gateway-authenticated ownership replaces local-alias authority, which needs a two-client harness decision on approval semantics; Task 5 (G8/G9) requires durable recovery state, generation-fenced replacement, a legacy `identity.json` migration contract, and isolated real-PostgreSQL DDL/concurrency testing that cannot be fabricated with the fake store; Task 6 (G7/G14) requires bounded streaming/redirect/multi-member contracts plus a Python SDK `Last-Event-Id` reconnect proof across the relay; Task 7 requires installation/transaction/runtime integrity work on the CLI, daemon locking, and reload lifecycle. Each is a multi-day scope with its own acceptance harness; starting them inside this pass would have produced half-implementations the review would rightly reject. The third-remediation prompt permits stating this disposition instead. No deployment, no public ingress, and no dev rollout was performed or requested; the separately authorized dev proof has not been run
