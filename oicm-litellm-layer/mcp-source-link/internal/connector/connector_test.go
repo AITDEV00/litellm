@@ -84,7 +84,7 @@ func TestProbeMCPInitializesAtMCPPathAndReturnsNoCatalog(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"application/json"}},
 			Body: io.NopCloser(strings.NewReader(
-				`{"jsonrpc":"2.0","id":"source-link-probe","result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"mock"}}}`,
+				`{"jsonrpc":"2.0","id":"source-link-health","result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"mock"}}}`,
 			)),
 		}, nil
 	}), "127.0.0.1", "mcp", "")
@@ -113,7 +113,7 @@ func TestProbeMCPInitializesAtMCPPathAndReturnsNoCatalog(t *testing.T) {
 // documented shape and must also count as healthy.
 func TestProbeMCPAcceptsSSEInitializeResult(t *testing.T) {
 	server := NewServer(originRoundTripFunc(func(*http.Request) (*http.Response, error) {
-		body := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"source-link-probe\",\"result\":{}}\n\n"
+		body := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"source-link-health\",\"result\":{\"protocolVersion\":\"2025-06-18\"}}\n\n"
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"text/event-stream"}},
