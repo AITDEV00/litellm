@@ -181,3 +181,14 @@ func TestRejectsUnroutableOrNonUnicastAddresses(t *testing.T) {
 		}
 	}
 }
+
+// A scoped IPv6 zone is refused because the gateway's Python validator refuses it
+// too: persisting a zone would store a target this parser can never dial, so the
+// two boundaries agree before any row is written.
+func TestRejectsScopedIPv6Zones(t *testing.T) {
+	for _, in := range []string{"[::1%eth0]:8080", "[fd00::1%eth0]:8080"} {
+		if _, err := Parse(in); err == nil {
+			t.Fatalf("Parse(%q) accepted a scoped IPv6 zone", in)
+		}
+	}
+}

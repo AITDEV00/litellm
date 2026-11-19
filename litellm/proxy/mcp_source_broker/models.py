@@ -45,10 +45,12 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-# A Kubernetes service host is `name.namespace.svc` in the short form the client
-# normalizes to. A pod may expose an origin off loopback, so the gateway must
-# accept it too; it authorizes the exposure, not the client.
+# A Kubernetes service host reduces to `name.namespace.svc`. A pod may expose an
+# origin off loopback, so the gateway must accept it too; it authorizes the
+# exposure, not the client. _DNS_LABEL is the DNS-1123 label rule the Go
+# connector's dnsLabel enforces, shared by the service grammar below.
 SERVICE_HOST: Final = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.svc$")
+_DNS_LABEL: Final = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class Target(Frozen):
@@ -77,6 +79,31 @@ def _is_ip_literal(value: str) -> bool:
     return True
 
 
+def _canonical_service_host(value: str) -> str | None:
+    """Reduce a Kubernetes service host to its canonical short form.
+
+    The shared target grammar with the Go connector's ``target.Parse``: case is
+    folded, one terminal dot is dropped, and the ``.cluster.local`` / ``.local``
+    cluster suffixes are removed, so ``MYSVC.NS.SVC.cluster.local.``,
+    ``mysvc.ns.svc.local``, and ``mysvc.ns.svc`` all name one service. Each label
+    must be a DNS-1123 label and the host must reduce to ``name.namespace.svc``;
+    anything else is not a cluster service and is refused here so the two
+    validators cannot drift.
+    """
+    lowered: Final = value.lower()
+    trimmed: Final = lowered.removesuffix(".")
+    stripped: Final = next(
+        (trimmed[: -len(suffix)] for suffix in (".cluster.local", ".local") if trimmed.endswith(suffix)),
+        trimmed,
+    )
+    labels: Final = stripped.split(".")
+    if len(labels) != 3 or labels[2] != "svc":
+        return None
+    if any(not _DNS_LABEL.fullmatch(label) for label in labels):
+        return None
+    return stripped
+
+
 def canonical_worker_host(value: str) -> str:
     """Validate and normalize a worker target host to its canonical stored form.
 
@@ -85,16 +112,22 @@ def canonical_worker_host(value: str) -> str:
     projection. An IPv4-mapped IPv6 address collapses to plain IPv4 so
     ``::ffff:127.0.0.1`` and ``127.0.0.1`` name one source, matching the client's
     ``target`` normalization. Unspecified, multicast, and link-local/broadcast
-    addresses are refused on both sides: a source origin is a specific unicast host,
-    never ``0.0.0.0``/``::``. A service name is lowercased. This is the single
-    validator the row DTO and the request ``Target`` both reach, so the two
-    boundaries cannot drift.
+    addresses are refused on both sides: a source origin is a specific unicast
+    host, never ``0.0.0.0``/``::``. A scoped IPv6 zone (``::1%eth0``) is refused
+    on both sides: the connector's parser rejects zones, so persisting one would
+    store a target the connector can never dial. A service name is folded to the
+    short lowercase ``name.namespace.svc`` form exactly as Go normalizes it. This
+    is the single validator the row DTO and the request ``Target`` both reach, so
+    the two boundaries cannot drift.
     """
+    if "%" in value:
+        raise ValueError("worker target host must not carry an IPv6 zone")
     try:
         address: Final = ipaddress.ip_address(value)
     except ValueError:
-        if SERVICE_HOST.fullmatch(value):
-            return value
+        service: Final = _canonical_service_host(value)
+        if service is not None:
+            return service
         raise ValueError(
             "worker target host must be an IP address or a Kubernetes service name like name.namespace.svc"
         )

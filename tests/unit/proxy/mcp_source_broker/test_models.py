@@ -95,3 +95,37 @@ def test_target_rejects_non_unicast_addresses(host: str) -> None:
     connector, so neither side stores a target the other would deny."""
     with pytest.raises(ValueError):
         Target(host=host)
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        # The shared service grammar: the gateway must fold every spelling the Go
+        # connector folds, at the actual insert boundary, or a value Go accepts
+        # would persist as a rejected read.
+        ("mysvc.myns.svc.cluster.local", "mysvc.myns.svc"),
+        ("mysvc.myns.svc.local", "mysvc.myns.svc"),
+        ("MYSVC.NS.SVC", "mysvc.ns.svc"),
+        ("MYSVC.NS.SVC.cluster.local", "mysvc.ns.svc"),
+        ("mysvc.ns.svc.", "mysvc.ns.svc"),
+    ],
+)
+def test_target_folds_service_spellings_like_the_go_connector(raw: str, canonical: str) -> None:
+    """Full cluster forms, uppercase spellings, and terminal dots name one service.
+
+    Each reduces to the short lowercase form exactly as Go's normalizeService
+    does, so one origin spelled two ways persists one source identity.
+    """
+    assert Target(host=raw).host == canonical
+
+
+@pytest.mark.parametrize("host", ["::1%eth0", "fd00::1%eth0"])
+def test_target_rejects_scoped_ipv6_zones(host: str) -> None:
+    """A scoped IPv6 zone is refused on the gateway because Go's parser refuses it.
+
+    Persisting a zone would store a target the connector can never dial: the wire
+    boundary would turn every probe into a parse failure, so both validators must
+    agree before the row is written.
+    """
+    with pytest.raises(ValueError, match="zone"):
+        Target(host=host)
