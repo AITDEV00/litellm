@@ -92,7 +92,9 @@ def canonical_worker_host(value: str) -> str:
     except ValueError:
         if SERVICE_HOST.fullmatch(value):
             return value
-        raise ValueError("worker target host must be an IP address or a Kubernetes service name like name.namespace.svc")
+        raise ValueError(
+            "worker target host must be an IP address or a Kubernetes service name like name.namespace.svc"
+        )
 
 
 def canonical_hostport(host: str, port: int) -> str:

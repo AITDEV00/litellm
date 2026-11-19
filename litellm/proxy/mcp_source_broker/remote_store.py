@@ -31,9 +31,7 @@ class PeerTargetMismatch(Exception):
     """
 
     def __init__(self, source_target: str, request_target: object) -> None:
-        super().__init__(
-            f"worker target {request_target} does not match the reviewed source target {source_target}"
-        )
+        super().__init__(f"worker target {request_target} does not match the reviewed source target {source_target}")
         self.source_target: Final = source_target
         self.request_target: Final = request_target
 
@@ -178,7 +176,9 @@ class RemoteStore:
         # 127.0.0.1:9001 could issue a worker for 127.0.0.1:9002). The reviewed stored
         # target is the authority; the request target only has to agree with it.
         if peer.target.host != source.target.host or peer.target.port != source.target.port:
-            raise PeerTargetMismatch(source_target=canonical_hostport(source.target.host, source.target.port), request_target=peer.target)
+            raise PeerTargetMismatch(
+                source_target=canonical_hostport(source.target.host, source.target.port), request_target=peer.target
+            )
         async with self.db.tx(timeout=10000) as tx:
             await tx.execute_raw("SELECT pg_advisory_xact_lock(hashtext($1))", source_id)
             found: Final = self._rows(
@@ -351,7 +351,7 @@ class RemoteStore:
             )
             if good:
                 await tx.execute_raw(
-                    "UPDATE \"OicmMcpRemoteWorker\" SET delivered_at=COALESCE(delivered_at, NOW()) "
+                    'UPDATE "OicmMcpRemoteWorker" SET delivered_at=COALESCE(delivered_at, NOW()) '
                     "WHERE worker_id=$1 AND generation=$2",
                     worker_id,
                     generation,
@@ -369,14 +369,7 @@ class RemoteStore:
                 'JOIN "OicmMcpSource" s ON s.source_id=w.source_id ORDER BY w.worker_id'
             )
         )
-        projections: Final = tuple(
-            projection
-            for row in raw
-            if (
-                projection := _project_peer(row)
-            )
-            is not None
-        )
+        projections: Final = tuple(projection for row in raw if (projection := _project_peer(row)) is not None)
         return tuple(
             RemoteGoPeer(
                 worker_id=projection.worker.worker_id,

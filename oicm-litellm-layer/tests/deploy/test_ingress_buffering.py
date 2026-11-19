@@ -51,7 +51,7 @@ def test_buffering_annotations_use_valid_off(manifest: Path) -> None:
         annotations = ingress["metadata"]["annotations"]
         for key in _BUFFERING_ANNOTATIONS:
             assert annotations.get(key) == "off", (
-                f"{manifest.name}: {key} must be \"off\" (nginx ignores any other value, so"
-                f" \"false\" leaves buffering on and serializes the delivery tier), got"
+                f'{manifest.name}: {key} must be "off" (nginx ignores any other value, so'
+                f' "false" leaves buffering on and serializes the delivery tier), got'
                 f" {annotations.get(key)!r}"
             )

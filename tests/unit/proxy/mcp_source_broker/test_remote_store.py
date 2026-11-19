@@ -106,7 +106,7 @@ class RemoteMemoryDatabase:
     async def execute_raw(self, sql: str, *args: object) -> int:
         if "CREATE TABLE" in sql or "ADD COLUMN" in sql or "pg_advisory_xact_lock" in sql:
             return 0
-        if 'SET healthy_at=NULL,catalog_fingerprint=NULL' in sql and "$2::bytea" not in sql:
+        if "SET healthy_at=NULL,catalog_fingerprint=NULL" in sql and "$2::bytea" not in sql:
             for worker in self.workers:
                 self._replace(
                     worker,
@@ -385,9 +385,7 @@ async def test_resume_peer_rederives_the_same_credential_without_new_state() -> 
     assert issued is not None
     rows_before: Final = len(broker.db.workers)
 
-    resumed: Final = await broker.store.resume_peer(
-        "11111111-1111-1111-1111-111111111111", registered
-    )
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
 
     assert resumed is not None
     assert resumed.worker_id == issued.worker_id
@@ -492,9 +490,7 @@ async def test_resume_peer_refuses_a_revoked_worker_so_replacement_needs_a_new_l
     revoked: Final = await broker.store.lifecycle(created.worker_id, "revoke", 1)
     assert revoked is not None and revoked.phase == "revoked"
 
-    resumed: Final = await broker.store.resume_peer(
-        "11111111-1111-1111-1111-111111111111", registered
-    )
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
     assert resumed is None, "a revoked worker must never resume"
 
     replacement_peer: Final = peer().model_copy(update={"label": "worker-b"})
@@ -696,7 +692,9 @@ async def test_peers_isolate_a_malformed_row_instead_of_failing_all() -> None:
     dropped and the healthy row still projects.
     """
     broker: Final = _broker_with_source(Target(host="127.0.0.1", port=9001))
-    good: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", _plain_peer(Target(host="127.0.0.1", port=9001)))
+    good: Final = await broker.store.create_peer(
+        "11111111-1111-1111-1111-111111111111", _plain_peer(Target(host="127.0.0.1", port=9001))
+    )
     assert good is not None
     bad: Final = RemoteWorkerRow.model_construct(
         worker_id="bad",
