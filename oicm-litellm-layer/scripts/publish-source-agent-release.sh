@@ -25,6 +25,11 @@ case "$gateway" in
     ;;
 esac
 
+# GATEWAY_URL overrides the local port-forward default, e.g. the prod ingress
+# https://litellm.ecouncil.ae. Explicit so a run never silently lands on a
+# forward that a rollout has since replaced.
+gateway_url=${GATEWAY_URL:-}
+
 template_only=${TEMPLATE_ONLY:-0}
 
 version=${VERSION:-}
@@ -49,7 +54,8 @@ command -v sh >/dev/null || { echo "sh is required to syntax-check the template"
 sh -n "$template" || { echo "installer template fails 'sh -n': $template" >&2; exit 2; }
 
 admin_key=${LITELLM_PROXY_ADMIN_KEY:-}
-endpoint="http://127.0.0.1:${port}"
+endpoint=${gateway_url:-http://127.0.0.1:${port}}
+endpoint=${endpoint%/}
 
 put_artifact() {
   local source=$1 key=$2
