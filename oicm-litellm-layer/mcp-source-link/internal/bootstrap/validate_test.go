@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"strings"
 	"testing"
 
 	"oicm-litellm-layer/mcp-source-link/internal/state"
@@ -129,6 +130,67 @@ func TestWorkerLabelPreservesExistingShortLabels(t *testing.T) {
 	for _, short := range []string{"pets-api", "alpha-9001", "ward-01"} {
 		if got := WorkerLabel(short); got != short {
 			t.Fatalf("short label %q became %q; legacy labels must not change", short, got)
+		}
+	}
+}
+
+// Historical normalized aliases keep their byte-identical labels across the digest
+// change, so re-enrollment or lost-credential recovery of an existing source
+// recomputes the same label the server already has keyed by (source_id,label).
+// This is the compatibility decision: names the historical rule reduced without
+// loss (within 32 characters) never migrate to digest labels.
+func TestWorkerLabelPreservesHistoricalNormalizedAliases(t *testing.T) {
+	cases := map[string]string{
+		// The originally reported regression: a dotted IPv4 target name whose
+		// historical label was the dot-flattened form.
+		"alpha.127.0.0.1.18080": "alpha-127-0-0-1-18080",
+		// Uppercase was folded by the historical rule, so a mixed-case explicit
+		// name must keep its folded historical label on resume.
+		"Alpha.127.0.0.1.18080": "alpha-127-0-0-1-18080",
+		// A dotted service alias reduced the same way.
+		"alpha.cache.svc.9001": "alpha-cache-svc-9001",
+		// A short IPv6-derived alias that fits the historical cut.
+		"alpha.2001-db8-1.9001": "alpha-2001-db8-1-9001",
+		// A digit-anchored name keeps its historical anchoring.
+		"9lives": "s-9lives",
+	}
+	for name, want := range cases {
+		if got := WorkerLabel(name); got != want {
+			t.Fatalf("historical name %q derived %q, want the preserved label %q", name, got, want)
+		}
+	}
+}
+
+// The digest-bearing derivation applies only when the historical rule would have
+// cut distinguishing bytes at 32 characters. Such names must stay grammar-valid,
+// deterministic, and distinct, and the historical lossy truncation must never be
+// returned: two formerly colliding long identities must not share one label.
+func TestWorkerLabelDigestsOnlyLossyLongNames(t *testing.T) {
+	longA := "alpha.inventory-service-with-a-shared-prefix-one.svc.9001.0000000001"
+	longB := "alpha.inventory-service-with-a-shared-prefix-two.svc.9001.0000000002"
+	labelA, labelB := WorkerLabel(longA), WorkerLabel(longB)
+	if labelA == labelB {
+		t.Fatalf("distinct long names collided on %q", labelA)
+	}
+	// The lossy historical truncation would have produced this shared prefix for
+	// both; neither digest label may equal it.
+	lossy := strings.Trim(strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, longA), "-")[:32]
+	lossy = strings.Trim(lossy, "-")
+	for _, label := range []string{labelA, labelB} {
+		if !workerLabelPattern.MatchString(label) {
+			t.Fatalf("label %q violates the gateway grammar", label)
+		}
+		if label == lossy {
+			t.Fatalf("label %q is the lossy historical truncation", label)
 		}
 	}
 }

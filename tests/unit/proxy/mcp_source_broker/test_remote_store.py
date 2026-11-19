@@ -396,6 +396,49 @@ async def test_resume_peer_rederives_the_same_credential_without_new_state() -> 
 
 
 @pytest.mark.asyncio
+async def test_legacy_preserved_label_resumes_its_original_worker() -> None:
+    """A connector reregistering a historical dotted alias must find its worker.
+
+    The Go connector's WorkerLabel preserves the pre-digest reduction for names
+    that fit it (``alpha.127.0.0.1.18080`` -> ``alpha-127-0-0-1-18080``), so the
+    lost-credential path recomputes the label the server already keyed. This test
+    carries that exact label through the real store path: issue with it, then
+    resume with it while the credential is undelivered, and assert the server
+    selects the same identity rather than a new association.
+    """
+    broker: Final = make_broker()
+    registered: Final = peer()
+    registered = registered.model_copy(update={"label": "alpha-127-0-0-1-18080"})
+    # The digest-bearing sibling is inserted FIRST, so any query that loosens the
+    # label match would deterministically select it: the exact-label binding is
+    # what keeps recovery on the historical worker.
+    digest_peer: Final = registered.model_copy(update={"label": "alpha-127-0-0-1-18080-0123456789"})
+    sibling: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", digest_peer)
+    assert sibling is not None
+    issued: Final = await broker.store.create_peer("11111111-1111-1111-1111-111111111111", registered)
+    assert issued is not None
+    assert issued.label == "alpha-127-0-0-1-18080"
+    assert issued.worker_id != sibling.worker_id
+
+    resumed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
+
+    assert resumed is not None, "the preserved historical label must resume its original worker"
+    assert resumed.worker_id == issued.worker_id
+    assert resumed.source_id == issued.source_id
+    assert resumed.generation == issued.generation
+    assert resumed.credential == issued.credential
+    assert len(broker.db.workers) == 2, "resume selects the stored worker, never a new association"
+
+    # Once delivery is proven, the same registration is a replay and must be
+    # refused: the historical label is not a credential-recovery loophole.
+    assert await broker.store.report(issued.worker_id, issued.generation, "f" * 64) is True
+    delivered_row: Final = next(w for w in broker.db.workers if w.worker_id == issued.worker_id)
+    assert delivered_row.delivered_at is not None
+    replayed: Final = await broker.store.resume_peer("11111111-1111-1111-1111-111111111111", registered)
+    assert replayed is None, "a delivered worker credential must not be reissued on replay"
+
+
+@pytest.mark.asyncio
 async def test_resume_peer_refuses_a_target_that_no_longer_matches() -> None:
     """A changed loopback target is a different origin, so it must not inherit the
     stored worker's credential."""

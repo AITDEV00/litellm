@@ -274,18 +274,41 @@ var workerLabelPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 // name that already fits the gateway's label grammar is used verbatim, which keeps
 // the label byte-identical across restarts and on resume for existing sources.
 //
-// A name that does not fit cannot be truncated naively: the source name ends in a
-// digest that distinguishes otherwise-similar long targets (e.g. two full IPv6
-// addresses), and cutting to 32 characters drops exactly that distinguishing tail,
-// so two distinct sources collide on one label and the server's (source,label)
-// uniqueness rejects the second. Instead keep a bounded readable prefix and append
-// a stable 10-char digest of the whole name, so the label stays deterministic,
-// grammar-valid, and distinct for distinct long names.
+// Compatibility decision, deliberately not a heuristic: a name that does not fit
+// is first reduced by the historical rule (lowercase, unsafe runes to '-', trim,
+// anchor with a leading letter, cut at 32). When that reduction is complete within
+// 32 characters it IS the historical label, and returning it preserves the resume
+// association of every source registered before digest labels existed, including
+// dotted IPv4 (`alpha.127.0.0.1.18080` -> `alpha-127-0-0-1-18080`), dotted
+// service, and IPv6-derived aliases. Only when the historical cut at 32 characters
+// would actually remove bytes, the lossy case that made two full-length IPv6
+// targets collide, is the digest-bearing label used: a bounded readable prefix
+// plus a stable 10-char digest of the whole name, deterministic, grammar-valid,
+// and distinct for distinct long names. The colliding historical truncation is
+// never returned to any name, so two formerly colliding long identities never
+// share a label.
 func WorkerLabel(name string) string {
 	if workerLabelPattern.MatchString(name) {
 		return name
 	}
+	legacy := legacyNormalize(name)
+	if len(legacy) <= 32 {
+		return legacy
+	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))[:10]
+	// Leave room for "-" plus the 10-char digest within the 32-char label limit.
+	const maxPrefix = 32 - 11
+	prefix := strings.Trim(legacy[:maxPrefix], "-")
+	return prefix + "-" + digest
+}
+
+// legacyNormalize is the historical label reduction: lowercase, map every rune the
+// gateway grammar rejects to '-', trim the edges, and anchor a digit or empty
+// start with a leading letter. It does not truncate: the caller decides whether
+// the reduced form fits the 32-character grammar (and so keeps its byte-identical
+// historical label) or needs the digest-bearing derivation because the historical
+// cut at 32 would have removed distinguishing bytes.
+func legacyNormalize(name string) string {
 	normalized := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
@@ -297,15 +320,11 @@ func WorkerLabel(name string) string {
 		}
 	}, name)
 	trimmed := strings.Trim(normalized, "-")
-	// Leave room for "-" plus the 10-char digest within the 32-char label limit.
-	const maxPrefix = 32 - 11
-	if len(trimmed) > maxPrefix {
-		trimmed = strings.Trim(trimmed[:maxPrefix], "-")
-	}
-	// The label must start with a letter and be at least two characters. A prefix
-	// that starts with a digit or is empty is anchored with a leading letter.
-	if trimmed == "" || trimmed[0] < 'a' || trimmed[0] > 'z' {
+	// The gateway label must start with a letter and be at least two characters.
+	// A name that starts with a digit, or is too short, is prefixed so the result
+	// always matches; this is deterministic, so a restart derives the same label.
+	if trimmed == "" || trimmed[0] < 'a' || trimmed[0] > 'z' || len(trimmed) < 2 {
 		trimmed = "s-" + trimmed
 	}
-	return strings.Trim(trimmed, "-") + "-" + digest
+	return trimmed
 }
