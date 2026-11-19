@@ -19,7 +19,10 @@
 ## and multiplexed load clients). The grpctunnel ingress stays h2c-only.
 ##
 ## A custom tag changed through this patch needs `kubectl apply -k` afterwards;
-## `make mcp-sidecar-release` deletes the pod but does not choose a new tag.
+## `make mcp-sidecar-release` sets the tag and digest for you, deletes the pod,
+## and does not choose a new tag name. The tag is the mutable dev channel
+## (`<branch>-dev`); `make mcp-sidecar-pin` rewrites it together with the digest
+## of the bytes it resolved to.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,7 +37,7 @@ spec:
             - name: MCP_SOURCE_LINK_ENABLED
               value: "true"
         - name: source-link
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5-dev6
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5-dev@sha256:41883c901577878ded0dc2707d0482eaffbefa386c329ddd845e1496bed54c7b
           imagePullPolicy: Always
           command: ["/source-link", "worker"]
           env:

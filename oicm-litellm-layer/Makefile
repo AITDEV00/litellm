@@ -48,9 +48,15 @@ LITELLM_LOCAL_PORT := 4000
 MCP_SIDECAR_DIR  := mcp-source-link
 MCP_SIDECAR_IMG  := $(REGISTRY)/$(REPO_PATH)/mcp-source-link-worker
 MCP_BROKER_IMG   := $(REGISTRY)/$(REPO_PATH)/litellm-mcp-broker
-MCP_SIDECAR_TAG  ?= $(LITELLM_SRC_TAG)
-MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)
+# Dev tags carry a bare `-dev` suffix and nothing else. No -dev2/-dev3 counter:
+# the previous scheme bumped a hand-edited number in the manifest on every
+# build, which cannot be automated (the next suffix is not derivable) and left
+# a trail of dead tags in Harbor. A mutable `-dev` tag is the dev channel; the
+# digest in the manifest is what pins the bytes that actually run.
+MCP_SIDECAR_TAG  ?= $(LITELLM_SRC_TAG)-dev
+MCP_BROKER_TAG   ?= $(LITELLM_SRC_TAG)-dev
 MCP_SIDECAR_MANIFEST := $(CURDIR)/deploy/overlays/dev/mcp-source-broker/source-link-patch.yaml
+MCP_BROKER_MANIFEST  := $(CURDIR)/deploy/overlays/dev/mcp-source-broker/broker.yaml
 
 # Host Go toolchain and module cache for the sidecar build. GO_BIN defaults to
 # the user-local toolchain this repo's Go work has always used; override with
@@ -123,6 +129,25 @@ define pin_image
 for f in $(3); do sed -i 's|image: $(1):.*|image: $(1):$(2)|' $$f; echo "  $$f -> $(1):$(2)"; done
 endef
 
+# Pin a MUTABLE dev tag and append the repo digest it resolved to. $(1) image
+# repo, $(2) tag, $(3) manifest paths. The `-dev` tag is rewritten by every
+# build, so on its own it does not say which bytes a manifest means; the digest
+# does, and the two together let a reader both see the channel and reproduce it.
+# A re-pin strips the previous digest first so the pattern stays anchored.
+define pin_dev_image_with_digest
+for f in $(3); do \
+    digest=$$(skopeo inspect --tls-verify=false docker://$(1):$(2) --format '{{.Digest}}' 2>/dev/null); \
+    sed -i 's|image: $(1):[^ ]*|image: $(1):$(2)@@DIGEST@@|' $$f; \
+    if [ -n "$$digest" ]; then \
+        sed -i "s|@@DIGEST@@|@$$digest|" $$f; \
+        echo "  $$f -> $(1):$(2)@$$digest"; \
+    else \
+        sed -i 's|@@DIGEST@@||' $$f; \
+        echo "  $$f -> $(1):$(2) (no digest; run make login)"; \
+    fi; \
+done
+endef
+
 # Roll one Deployment out and wait for it. $(1) deployment, $(2) timeout.
 define rollout
 $(KUBECTL) -n $(NAMESPACE) rollout restart deployment/$(1) && \
@@ -153,7 +178,7 @@ endef
         docs litellm-logo port-forward-datasources \
         mcp-sidecar-build mcp-sidecar-push mcp-sidecar-pin mcp-sidecar-release \
         mcp-sidecar-check mcp-source-link-compat \
-        mcp-broker-build mcp-broker-push mcp-broker-release-dev
+        mcp-broker-build mcp-broker-push mcp-broker-pin mcp-broker-release-dev
 # These composites build a controller (or gateway) image and then apply it, so a
 # failed build must stop the rollout and the pin must land before the apply. A
 # parallel `make -j` would otherwise interleave them.
@@ -193,9 +218,10 @@ help:
 	@echo "  litellm-src-release-dev       build, push, pin, roll out DEV only"
 	@echo "  litellm-src-release           same for prod"
 	@echo ""
-	@echo "MCP source broker images."
+	@echo "MCP source broker images. Both dev images are one mutable"
+	@echo "  tag: \$$(LITELLM_SRC_TAG)-dev, pinned by digest in the overlay."
 	@echo "  mcp-sidecar-release          build+push+pin sidecar, delete the dev broker pod to re-pull"
-	@echo "  mcp-broker-release-dev       build+push control app on the running gateway digest, roll dev"
+	@echo "  mcp-broker-release-dev       build+push+pin control app on the running gateway digest, roll dev"
 	@echo ""
 	@echo "Local + smoke.  make litellm-local-run | litellm-ui-dev | smoke-fast"
 	@echo "Overridable: BASE KEY TAG LITELLM_SRC_TAG BUILD NAMESPACE ROLLOUT_TIMEOUT"
@@ -255,8 +281,13 @@ push-litellm:
 ##
 ## mcp-broker-build       build the Python control-app image as a thin layer over
 ##                        the RUNNING dev gateway digest (LITELLM_SRC_BASE overrides)
-## mcp-broker-push       push it to Harbor
-## mcp-broker-release-dev build + push + roll the dev broker Deployment
+## mcp-broker-push        push it to Harbor
+## mcp-broker-pin         write $(MCP_BROKER_TAG) into the dev overlay
+## mcp-broker-release-dev build + push + pin + roll the dev broker Deployment
+##
+## Both dev images rebuild one mutable tag (`<branch>-dev`). Rolling the pod
+## re-pulls it because the manifests set imagePullPolicy: Always, so a rebuild
+## needs no new tag name.
 ## ---------------------------------------------------------------------------
 mcp-sidecar-check:
 	@cd $(MCP_SIDECAR_DIR) && unformatted=$$(env $(GO_ENV) $(GO_BIN) fmt ./... | sed -n 's/^\(.*\.go\)$$/\1/p'); \
@@ -277,9 +308,12 @@ mcp-sidecar-check:
 mcp-source-link-compat:
 	cd $(MCP_SIDECAR_DIR) && env $(GO_ENV) $(GO_BIN) test -tags compat -count=1 -timeout 20m ./compat/...
 
-## Publish the source-agent release assets the installer downloads. Requires an
-## explicit target, because a default that silently meant prod is the failure
-## mode worth designing out:
+## Deprecated: publishes source-agent release assets to RustFS. The live upload
+## is unproven (BOOTSTRAP-GAPS.md B6) and the intended replacement is
+## `mcp-source-agent-publish` in docs/client-distribution/source-agent-releases.md,
+## which is not implemented yet. Keep this until that lands, then delete both.
+## Requires an explicit target, because a default that silently meant prod is
+## the failure mode worth designing out:
 ##   make mcp-sidecar-publish GATEWAY=dev VERSION=v1.2.3
 ##   make mcp-sidecar-publish GATEWAY=dev VERSION=v1.2.3 DRY_RUN=1
 ## It builds nothing and rolls nothing; uploads are immutable and the release
@@ -298,10 +332,11 @@ mcp-sidecar-push:
 
 ## Pin the sidecar tag in the dev overlay so the committed manifest names the
 ## bytes that actually run. Without this the overlay keeps whichever tag was
-## committed last and silently disagrees with the cluster.
+## committed last and silently disagrees with the cluster. The digest is pinned
+## alongside the tag because `$(MCP_SIDECAR_TAG)` is rewritten by every build.
 mcp-sidecar-pin:
 	@echo "Pinning $(MCP_SIDECAR_IMG):$(MCP_SIDECAR_TAG) in $(MCP_SIDECAR_MANIFEST)"
-	$(call pin_image,$(MCP_SIDECAR_IMG),$(MCP_SIDECAR_TAG),$(MCP_SIDECAR_MANIFEST))
+	$(call pin_dev_image_with_digest,$(MCP_SIDECAR_IMG),$(MCP_SIDECAR_TAG),$(MCP_SIDECAR_MANIFEST))
 
 mcp-sidecar-release: mcp-sidecar-build mcp-sidecar-push mcp-sidecar-pin
 	$(KUBECTL) -n $(NAMESPACE) delete pod -l app=$(BROKER_DEPLOYMENT_DEV) --wait=false
@@ -320,7 +355,13 @@ mcp-broker-build:
 mcp-broker-push:
 	podman push --tls-verify=false $(MCP_BROKER_IMG):$(MCP_BROKER_TAG)
 
-mcp-broker-release-dev: mcp-broker-build mcp-broker-push
+## Pin the broker tag in the dev overlay, for the same reason as
+## mcp-sidecar-pin: the committed manifest must name the bytes that run.
+mcp-broker-pin:
+	@echo "Pinning $(MCP_BROKER_IMG):$(MCP_BROKER_TAG) in $(MCP_BROKER_MANIFEST)"
+	$(call pin_dev_image_with_digest,$(MCP_BROKER_IMG),$(MCP_BROKER_TAG),$(MCP_BROKER_MANIFEST))
+
+mcp-broker-release-dev: mcp-broker-build mcp-broker-push mcp-broker-pin
 	$(KUBECTL) -n $(NAMESPACE) rollout restart deployment/$(BROKER_DEPLOYMENT_DEV)
 	$(KUBECTL) -n $(NAMESPACE) rollout status deployment/$(BROKER_DEPLOYMENT_DEV) --timeout=$(ROLLOUT_TIMEOUT)
 # validated in dev is `make controller-deploy-prod BUILD=0`, which reuses the
