@@ -130,10 +130,12 @@ _DEV_DB_ENV_VARS: Final = (
 )
 
 # Config keys under `general_settings` expected to differ, with the reason.
-# Empty since 4f513b1dca mirrored prod's retention settings on dev: the dev
-# overlay's general_settings is byte-identical to the base config prod runs.
-# When a dev-only knob is re-introduced, declare it here with its reason.
-_EXPECTED_CONFIG_DIFFS: Final = frozenset({"user_url_allowed_hosts"})
+# Empty: prod now carries `user_url_allowed_hosts` in the base config because the
+# SSRF guard blocks the source broker's loopback catalog URL (`127.0.0.1:4000`)
+# and an OpenAPI source is silently dropped from the registry without it. Dev
+# always had it; base having it too means neither environment differs. When a
+# dev-only knob is re-introduced, declare it here with its reason.
+_EXPECTED_CONFIG_DIFFS: Final = frozenset()
 
 # Top-level config paths expected to differ. The KEDA gauge callback ships in
 # the shared hooks ConfigMap for both environments, but only dev activates it:
