@@ -248,3 +248,53 @@ Do not deploy in response to this gap list. The previously changed dev image tag
 The broader 181 tests and Go suite may pass with these defects open because their test fixtures operate at one package and finite response protocol boundary. Any next completion note must enumerate these exact lifecycle cases and say whether they execute, not count generic tests by total alone
 
 **Review scope:** no source files or live infrastructure were changed. Untracked unrelated files were left untouched. No human secrets appeared in this document or reproduction output
+
+## Worker completion record (2026-11-19, branch `jya0-v1.108.5`)
+
+This pass implemented G1, G2, G3, G4, G6, G10, G11, G12, and G13 against their owning modules with executable regressions and consequential mutation checks. G5, G7, G8, G9, and G14 remain open and are not claimed here. Each entry below states the behavior change and the test that fails before it and passes after, with the mutation that turns the test red
+
+### G1 + G4. One MCP health session, incremental SSE, protocol-correct readiness (`56ef1a04e29`)
+
+The connector probe is now a per-source MCP client in `internal/connector/mcp_health.go`: it initializes once, records `Mcp-Session-Id`, sends `notifications/initialized`, reuses the session with `ping` across intervals, deletes a session the ping finds stale, and deletes it on source close. `tunnel.go`'s `mcpProbe` delegates to it and `RunTunnel` closes it on teardown. In production this removes the ~one-leaked-session-per-interval growth (doc: about 900 retained sessions per source at a two-second cadence under the SDK's 30-minute expiry) instead of only tuning a count
+
+Readiness is now strict: `validateInitializeResponse` requires `jsonrpc:"2.0"`, the probe's own id (`source-link-health`), a non-null `result`, and no `error`; `readSSEInitialize` parses events incrementally with a 256 KiB bound and returns at the first matching complete event, so a held-open stream that already delivered the reply goes ready before EOF
+
+Evidence: `internal/connector/mcp_health_test.go` drives a protocol-conformant stateful fixture (`mcpFixture`) that tracks live sessions, rejects unknown ids on initialize/ping/DELETE, and errors if any request carries a session it did not issue. Tests: twelve probes keep exactly one live session; teardown deletes it; a stale ping re-initializes without leaking; a complete SSE event before EOF is accepted within two seconds; a foreign reply id is refused; an unrelated leading event does not short-circuit. Mutations killed: always re-initialize (reuse test red), Close skips DELETE (teardown red), stale path skips delete (leak red), SSE reads to EOF (held-open test times out red), id check removed (foreign-id test red)
+
+Not proven here: an actual Python SDK `StreamableHTTPSessionManager` run. The fixture is an equivalent protocol-conformant stateful server, which the work order permits. Live SDK acceptance remains deferred
+
+### G2. Account-scoped `SourceKey` (`391afc70d5b`)
+
+`state.SourceKey{Account,Name}` now scopes `Source`, `PutSource`, `RemoveSource`, list results, the runner `running`/`wanted` maps, `AddSource`, and `runSourceRemove`. Prior behavior: with `shared` stored for alpha and beta, `Source("shared")` returned alpha and `RemoveSource("shared")` removed both. Now each is independent. `sameIdentity` also compares `Kind` and `Path`. Evidence: two-account same-name tests; a name-only revert fails them
+
+### G3. `WorkerLabel` keeps the digest (`d12f4abc918`)
+
+`WorkerLabel` appends `-<10 hex sha256(name)>` after a bounded readable prefix instead of truncating to 32 characters and cutting the digest. Prior behavior: two full-length IPv6 targets shared `alpha-2001-db8-1-2-3`. Now they are distinct and grammar-valid. Evidence: full-length IPv6 and long service-alias collision tests; dropping the digest fails them
+
+### G6. Agreed target canonicalization and unicast policy (`99ff2acf8c8`)
+
+Go `target.Parse` and Python `canonical_worker_host` now both collapse an IPv4-mapped literal (`::ffff:127.0.0.1`) to plain IPv4 and both refuse unspecified, multicast, broadcast, and link-local addresses. Prior behavior: Go mapped the address and Python kept it compressed, so one origin derived two identities; neither refused `0.0.0.0`/`::`. Evidence: table-driven parity tests on each side; removing the mapping or the policy check fails them. Service DNS case and compressed/expanded IPv6 collapse are pinned on both sides
+
+### G10. Startup health reset justified and proven (`170e06801b9`)
+
+`reset_health` stays a global whole-table write, now documented as the one intentional global mutation: `healthy_at` is a claim about the live process, so it cannot be carried across restarts for any row. The docstring records the single-process assumption and what multi-replica ownership would require. Evidence: the test asserts through `peers()` that a retained worker is not content-proven after restart and becomes proven only after a fresh report; clearing only `healthy_at` fails it
+
+### G11. Memory fake binds the real source columns (`a86cbcaeaf4`)
+
+`MemoryDatabase` derives its column list from the same `SOURCE_COLUMNS` the store uses and asserts argument count, instead of zipping eleven hand-copied names against thirteen values and dropping `kind`/`mcp_path` to defaults. Evidence: enrolling an MCP source with `path=/custom/mcp` round-trips both columns; truncating to eleven names flips `kind` to `openapi`, and swapping the name order puts the path in `kind`, so either regression fails the test
+
+### G12. Admin rejected before rehash, handler mint proved (`bfa4d8e7f91`)
+
+The database-admin role check runs before `_rehash_password_if_needed`, so a denied admin login writes nothing. New tests drive the real `cli_password_login` handler: a denied admin reaches no mint call, an ordinary user reaches issuance exactly once, and a denied admin never triggers the rehash. Removing the role check fails the handler admin test; restoring the old ordering fails the rehash test. Existing `verify_password_only` tests stay
+
+### G13. Formatting clean
+
+`ruff format --check` and `ruff check` are clean on every touched Python file; `gofmt -l`, `go vet`, and `staticcheck` are clean on the changed Go packages. The canonical full `type_check_gate.py` was not run in this pass (its dependency fetch is heavy); `basedpyright` on the touched files shows no error beyond the pre-existing baseline (79, unchanged)
+
+### Gates run this pass
+
+`make -C oicm-litellm-layer mcp-sidecar-check` passed; `make -C oicm-litellm-layer mcp-source-link-compat` passed; `pytest tests/unit/proxy/{mcp_source_broker,client_distribution,auth/test_cli_password_login.py}` reported 196 passed. These are package-level results, not native-MCP dispatch, scale, or production-readiness proof, and no live SDK or real-PostgreSQL run was performed
+
+### Still open (not claimed)
+
+G5 (authenticated-owner public identity), G7 (stream bounds and same-source redirect), G8 (interrupted enrollment reconciliation), G9 (revoke/replace/migration), G14 (remaining P1/P2). No deployment was made
