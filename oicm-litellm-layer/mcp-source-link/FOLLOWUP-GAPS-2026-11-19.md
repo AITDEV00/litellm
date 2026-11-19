@@ -298,3 +298,100 @@ The database-admin role check runs before `_rehash_password_if_needed`, so a den
 ### Still open (not claimed)
 
 G5 (authenticated-owner public identity), G7 (stream bounds and same-source redirect), G8 (interrupted enrollment reconciliation), G9 (revoke/replace/migration), G14 (remaining P1/P2). No deployment was made
+
+## Independent reassessment after `ac76776f06db8a` (2026-11-19)
+
+This review inspected the nine commits `012f2f10db8..ac76776f06d` and independently exercised the current health client against the installed MCP SDK. It is a correction to the completion record above, not a claim that a later worker pass has fixed these findings
+
+**Disposition: do not accept the connector as complete or deploy it on this pass.** G2, G10, G12, and G13 can be retained as scoped fixes. G11 has a genuine fixture improvement, but its real-database work remains unproven. G1, G3, G4, and G6 are incomplete, not completed. G5, G7, G8, G9, and G14 remain open as the worker disclosed. No source or cluster resource was changed during this review
+
+### R1. G1/G4: health succeeds after the initialized notification is rejected
+
+[notifyInitialized](internal/connector/mcp_health.go#L153-L169) omits `Accept: application/json, text/event-stream` and ignores notification delivery failures and HTTP status. [initialize](internal/connector/mcp_health.go#L126-L148) returns success regardless of that rejection
+
+An independent ASGI observer wrapping the installed SDK recorded the following responses for the same notification under the same server:
+
+| Client | Accept | Initialized notification response |
+|---|---|---:|
+| Current connector health client | Absent | **406** |
+| Ordinary Python SDK client | `application/json, text/event-stream` | **202** |
+
+The connector nevertheless reports healthy probes. The installed SDK's `ping` is exempt from its initialized-session gate, so a later ping does not prove that initialization completed
+
+[The worker's fixture](internal/connector/mcp_health_test.go#L74-L80) accepts notifications without checking media acceptance. It cannot support the claim of being protocol-conformant in this respect
+
+**Required:** deliver and validate the initialized notification as part of readiness. Require the accepted HTTP response and fail closed on transport, creation, or status errors. The installed SDK responds 202 with no JSON-RPC result. Add an SDK-backed regression and make the deterministic fixture enforce request media rules
+
+### R2. G1: failed initialize responses can retain allocated sessions
+
+[initialize](internal/connector/mcp_health.go#L135-L139) stores the ID only after result parsing. Wrong IDs, malformed replies, JSON-RPC errors, body-read failures, or cancellation can therefore discard an ID already allocated by the server before returning
+
+The real SDK reproduction returned an initialization error to the connector, followed by explicit health close. The server's status was `{"sessions":1,"initializations":[]}`. The session allocated by the failed request remained because close had no recorded ID to delete
+
+[The mismatched-ID test](internal/connector/mcp_health_test.go#L217-L225) asserts only that the probe errors. It does not assert that no allocated session survives
+
+Ping failure also performs deletion using the failed ping's context in [Probe](internal/connector/mcp_health.go#L77-L94). If that context expired, regret cleanup can fail immediately
+
+**Required:** capture the accepted HTTP session ID immediately, before application-level validation. Every later failure must attempt termination with a fresh bounded cleanup context. Assert zero remaining sessions for malformed and mismatched replies, cancellation, read timeouts, and server rejection. Handle deletion responses deliberately rather than ignoring every status and error
+
+### R3. G4: ping accepts arbitrary responses and can wait for EOF
+
+[ping](internal/connector/mcp_health.go#L172-L199) rejects only HTTP statuses at or above 400. It accepts redirects, 202-with-no-result, HTML, unrelated messages, mismatched or missing JSON-RPC IDs, and JSON-RPC errors
+
+Its `io.CopyN(..., 4096)` is a byte-count limit but not an SSE message boundary. It waits for 4096 bytes or EOF, so a complete matching ping on a held-open stream can still block until the probe deadline
+
+[validateInitializeResponse](internal/connector/mcp_health.go#L287-L313) also accepts any non-null JSON `result`, including `{}`, without checking the negotiated protocol version or required initialize-result fields
+
+**Required:** use bounded, correlated JSON-RPC response parsing for both JSON and SSE initialization and ping. Return on the matching complete message instead of EOF. Reject redirects, errors, unrelated events, unsupported protocol versions, and invalid result shapes. Preserve the new incremental initialize parser and envelope checks rather than replacing them with another body-string test
+
+### R4. G3: long-name collision repair changes historical normalized labels
+
+[WorkerLabel](internal/bootstrap/client.go#L284-L303) preserves names already satisfying the remote grammar. Other names, including previously normalized names with dots, now gain a digest. For example, the historical `alpha.127.0.0.1.18080` normalized to `alpha-127-0-0-1-18080`; the new derivation produces another label with a hash
+
+[The preservation test](internal/bootstrap/validate_test.go#L127-L134) only covers short names already matching the grammar. It does not preserve earlier normalized dotted IPv4, service, or IPv6-derived aliases
+
+This does **not** imply that every normal restart creates a worker. An existing running agent loads its persisted identity directly. The affected path is re-enrollment and lost-credential recovery, where [Register](internal/bootstrap/client.go#L244-L255) derives the label again. Since the remote worker key includes the label, the new name can select a different association. The precise server result must be exercised, not assumed to be 409
+
+**Required:** preserve non-conflicting historical labels when resuming their authoritative source. Use a digest-bearing derivation for intentionally new identities or an explicit migration. Include previously normalized dotted forms in actual issue/resume tests. Never replay a delivered worker credential or silently replace an approved source identity to obtain a passing test
+
+### R5. G6: equivalent targets still diverge across the two validators
+
+[Go service normalization](internal/target/target.go#L136-L154) lowercases service names, strips a terminal dot, and reduces full cluster suffixes. [Python canonicalization](../../litellm/proxy/mcp_source_broker/models.py#L91-L114) accepts only the short lowercase expression. Direct current-code probes produced:
+
+| Input | Python result | Go behavior |
+|---|---|---|
+| `mysvc.myns.svc.cluster.local` | Rejected | Shortened and accepted |
+| `mysvc.myns.svc.` | Rejected | Terminal dot removed and accepted |
+| Uppercase service spelling | Rejected | Lowercased and accepted |
+| `::1%eth0` | Accepted unchanged | Rejected |
+
+The last row permits Python to persist a target the connector cannot subsequently parse. [_project_peer](../../litellm/proxy/mcp_source_broker/remote_store.py#L73-L92) also drops malformed worker projections with a warning. That isolates valid peers, but now-invalid legacy targets can disappear without an explicit migration or quarantine decision
+
+**Required:** define one shared grammar and normalization contract for service case, full cluster forms, terminal dots, compressed IPv6, and scoped addresses. Assert both language implementations at the actual persisted/wire boundary. Decide and document how existing rows affected by a new rule are diagnosed. Keep mapped IPv4 and unicast fixes, and keep separate public-versus-private admission policy explicit
+
+### Other claimed statuses, with exact limits
+
+1. **G2 retains:** account-scoped lookups, removal, duplicate decisions, and runner ownership now use the account/name key. Same-name sources in separate accounts are independent. Public source ownership is still G5, and meaningful-content comparison is explicitly outside this result
+2. **G10 retains conditionally:** the global health reset is explicitly a single-owner-process assumption. It is not a safe multi-replica liveness design
+3. **G11 is partial:** [MemoryDatabase](../../tests/unit/proxy/mcp_source_broker/conftest.py#L14-L84) now binds `SOURCE_COLUMNS` with exact arity, preserving kind/path. Isolated PostgreSQL upgrade testing from earlier real DDL remains required. The old/current executable compatibility control reported by the worker has not been rerun independently at `ac76776f06db8a`
+4. **G12 retains:** the real handler drives the ordinary-user success and administrative denial paths, with the denial ordered before rehash. This validates the called dependency boundary, not a live database transaction
+5. **G13 retains:** the nine changed Python files are formatted and selected lint checks pass. No passing canonical full type-gate result is established
+6. **G1 positive lifecycle path:** three health probes against the actual SDK succeeded and explicit close left **0 sessions**. Successful-path pooling is real progress and must remain. It does not resolve R1 or R2
+7. **Previously verified streaming:** incremental chunking and ordinary-close cancellation retain their earlier scope. Unbounded streams, blocked-client capacity, redirects, and resume semantics remain G7, not inferred to work from this patch
+
+### Evidence and acceptance boundary
+
+| Independent check at `ac76776f06db8a` | Result |
+|---|---|
+| `make -C oicm-litellm-layer mcp-sidecar-check` | Passed with the explicit Go/staticcheck environment |
+| Focused proxy/distribution/login suite | **197 passed**, compared with the worker's 196 report |
+| Ruff lint and formatting on the nine changed Python files | Passed |
+| Real SDK successful health lifecycle | Three probes, then 0 sessions after close |
+| Real SDK rejected initialization followed by close | **1 orphaned session** |
+| Real SDK initialized notification comparison | Connector **406/no Accept** versus ordinary client **202/correct Accept** |
+| Target normalization and scoped-address probes | Residual mismatches reproduced above |
+| Real PostgreSQL schema and transaction upgrade | Not established |
+| Approved native-MCP dispatch through the supported dev path | Not established |
+| Deployment or production approval | Not given |
+
+The worker's nine-commit pass contains useful work but is not a complete remediation. Follow the [third remediation prompt](THIRD-REMEDIATION-PROMPT-2026-11-19.md). It prioritizes the disputed statuses and keeps the explicitly deferred production blockers visible, rather than claiming another numeric completion score
