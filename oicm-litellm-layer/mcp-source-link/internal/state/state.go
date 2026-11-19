@@ -281,14 +281,34 @@ func (s *Store) SourcesForAccount(alias string) ([]Source, error) {
 	return owned, nil
 }
 
-// Source returns one source by its derived name.
-func (s *Store) Source(name string) (Source, bool, error) {
+// SourceKey is the local stable identity of a source: the owning account alias
+// and the source's derived (or display) name. A source belongs to an account, so
+// every lookup, list, removal, and reload fingerprint keys on this pair, never on
+// the name alone. Two accounts may both hold a source named "shared" and they are
+// different sources with independent credentials.
+type SourceKey struct {
+	Account string
+	Name    string
+}
+
+// Key returns the source's local identity.
+func (s Source) Key() SourceKey {
+	return SourceKey{Account: s.Account, Name: s.Name}
+}
+
+// String renders the key as one comparable value for maps and fingerprints.
+func (k SourceKey) String() string {
+	return k.Account + "\x00" + k.Name
+}
+
+// Source returns one source by its account-scoped identity.
+func (s *Store) Source(key SourceKey) (Source, bool, error) {
 	all, err := s.Sources()
 	if err != nil {
 		return Source{}, false, err
 	}
 	for _, source := range all {
-		if source.Name == name {
+		if source.Account == key.Account && source.Name == key.Name {
 			return source, true, nil
 		}
 	}
@@ -321,17 +341,22 @@ func (s *Store) PutSource(source Source) error {
 	return writeJSONOwnerOnly(s.sourcesPath(), sourcesFile{Sources: all})
 }
 
-// RemoveSource deletes one source by name.
-func (s *Store) RemoveSource(name string) error {
+// RemoveSource deletes one source by its account-scoped identity.
+//
+// Removal is scoped to the pair: deleting a source named "shared" under alpha
+// must never touch a source named "shared" under beta. A name-only removal would
+// delete both, silently dropping another account's tunnel.
+func (s *Store) RemoveSource(key SourceKey) error {
 	all, err := s.Sources()
 	if err != nil {
 		return err
 	}
 	remaining := make([]Source, 0, len(all))
 	for _, source := range all {
-		if source.Name != name {
-			remaining = append(remaining, source)
+		if source.Account == key.Account && source.Name == key.Name {
+			continue
 		}
+		remaining = append(remaining, source)
 	}
 	return writeJSONOwnerOnly(s.sourcesPath(), sourcesFile{Sources: remaining})
 }

@@ -29,8 +29,8 @@ func src(name, worker string, generation uint64) state.Source {
 func TestPlanChangesLeavesUnchangedSourceAlone(t *testing.T) {
 	a := src("alpha.127.0.0.1.18201", "w1", 1)
 	stop, start := planChanges(
-		map[string]state.Source{a.Name: a},
-		map[string]state.Source{a.Name: a},
+		map[state.SourceKey]state.Source{a.Key(): a},
+		map[state.SourceKey]state.Source{a.Key(): a},
 	)
 	if len(stop) != 0 || len(start) != 0 {
 		t.Fatalf("unchanged source planned stop=%v start=%v, want neither", stop, start)
@@ -43,8 +43,8 @@ func TestPlanChangesStartsOnlyNewSource(t *testing.T) {
 	b := src("beta.127.0.0.1.18202", "w2", 1)
 
 	stop, start := planChanges(
-		map[string]state.Source{a.Name: a},
-		map[string]state.Source{a.Name: a, b.Name: b},
+		map[state.SourceKey]state.Source{a.Key(): a},
+		map[state.SourceKey]state.Source{a.Key(): a, b.Key(): b},
 	)
 	if len(stop) != 0 {
 		t.Fatalf("starting a new source stopped %v, want none", stop)
@@ -60,10 +60,10 @@ func TestPlanChangesStopsOnlyRemovedSource(t *testing.T) {
 	b := src("alpha.127.0.0.1.18203", "w2", 1)
 
 	stop, start := planChanges(
-		map[string]state.Source{a.Name: a, b.Name: b},
-		map[string]state.Source{a.Name: a},
+		map[state.SourceKey]state.Source{a.Key(): a, b.Key(): b},
+		map[state.SourceKey]state.Source{a.Key(): a},
 	)
-	if !reflect.DeepEqual(stop, []string{b.Name}) {
+	if !reflect.DeepEqual(stop, []state.SourceKey{b.Key()}) {
 		t.Fatalf("stop = %v, want [%s]", stop, b.Name)
 	}
 	if len(start) != 0 {
@@ -78,10 +78,10 @@ func TestPlanChangesRestartsSourceWhoseIdentityChanged(t *testing.T) {
 	after := src("alpha.127.0.0.1.18201", "w1", 2)
 
 	stop, start := planChanges(
-		map[string]state.Source{before.Name: before},
-		map[string]state.Source{after.Name: after},
+		map[state.SourceKey]state.Source{before.Key(): before},
+		map[state.SourceKey]state.Source{after.Key(): after},
 	)
-	if !reflect.DeepEqual(stop, []string{after.Name}) {
+	if !reflect.DeepEqual(stop, []state.SourceKey{after.Key()}) {
 		t.Fatalf("stop = %v, want the changed source stopped", stop)
 	}
 	if len(start) != 1 || start[0].Name != after.Name {

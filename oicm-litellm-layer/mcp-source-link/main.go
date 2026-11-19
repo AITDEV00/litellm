@@ -365,15 +365,20 @@ func runSourceRemove(opts options) error {
 	if err != nil {
 		return err
 	}
-	if _, found, err := store.Source(opts.name); err != nil {
+	account, err := store.ResolveAccount(opts.account)
+	if err != nil {
+		return err
+	}
+	key := state.SourceKey{Account: account.Alias, Name: opts.name}
+	if _, found, err := store.Source(key); err != nil {
 		return err
 	} else if !found {
-		return fmt.Errorf("source %q is not stored", opts.name)
+		return fmt.Errorf("source %q is not stored under account %q", opts.name, account.Alias)
 	}
-	if err := store.RemoveSource(opts.name); err != nil {
+	if err := store.RemoveSource(key); err != nil {
 		return err
 	}
-	fmt.Printf("Removed source %q from local state. Its gateway registration is unchanged.\n", opts.name)
+	fmt.Printf("Removed source %q from account %q in local state. Its gateway registration is unchanged.\n", opts.name, account.Alias)
 	signalReload(setupBase())
 	return nil
 }

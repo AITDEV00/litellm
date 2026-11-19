@@ -377,3 +377,40 @@ func TestAddSourceOpenApiKindFailsWhenOriginHasNoDocument(t *testing.T) {
 func noRetry() RetryPolicy {
 	return RetryPolicy{Attempts: 1, Backoff: func(int) time.Duration { return 0 }, Sleep: func(time.Duration) {}}
 }
+
+// Two accounts adding the SAME explicit display name with different targets must
+// register independently. Before G2, AddSource's name-only lookup returned
+// alpha's record to beta, so beta silently adopted a different account's source.
+func TestAddSourceSameNameDifferentAccountsDoNotAdopt(t *testing.T) {
+	store := newStore(t)
+	login := &fakeLogin{}
+	for _, alias := range []string{"alpha", "beta"} {
+		prompt := &scripted{lines: []string{"https://gw.example", alias}, secrets: []string{"pw"}}
+		if _, err := AddAccount(context.Background(), store, prompt, login, alias); err != nil {
+			t.Fatalf("AddAccount(%s): %v", alias, err)
+		}
+	}
+	spec := writeSpec(t)
+	alpha, err := AddSource(context.Background(), store, &scripted{}, staticGateway(t, "shared"), AddSourceInput{
+		Account: "alpha", Name: "shared", Target: "10.0.0.1:80", SpecPath: spec,
+	})
+	if err != nil {
+		t.Fatalf("alpha source: %v", err)
+	}
+	beta, err := AddSource(context.Background(), store, &scripted{}, staticGateway(t, "shared"), AddSourceInput{
+		Account: "beta", Name: "shared", Target: "10.0.0.2:80", SpecPath: spec,
+	})
+	if err != nil {
+		t.Fatalf("beta source: %v", err)
+	}
+	if alpha.Account != "alpha" || beta.Account != "beta" {
+		t.Fatalf("accounts crossed: alpha=%q beta=%q", alpha.Account, beta.Account)
+	}
+	if alpha.Target != "10.0.0.1:80" || beta.Target != "10.0.0.2:80" {
+		t.Fatalf("beta adopted alpha's target: alpha=%q beta=%q", alpha.Target, beta.Target)
+	}
+	all, err := store.Sources()
+	if err != nil || len(all) != 2 {
+		t.Fatalf("expected 2 sources, got %d (%v): %+v", len(all), err, all)
+	}
+}

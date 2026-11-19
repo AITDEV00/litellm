@@ -237,7 +237,7 @@ func TestRemoveOnlySelectedSource(t *testing.T) {
 			t.Fatalf("PutSource(%s): %v", name, err)
 		}
 	}
-	if err := store.RemoveSource("alpha.127.0.0.1.18201"); err != nil {
+	if err := store.RemoveSource(SourceKey{Account: "alpha", Name: "alpha.127.0.0.1.18201"}); err != nil {
 		t.Fatalf("RemoveSource: %v", err)
 	}
 	all, err := store.Sources()
@@ -324,5 +324,42 @@ func TestPutSourceIsScopedToAccount(t *testing.T) {
 		if source.Target != want {
 			t.Fatalf("account %s target = %q, want %q (cross-account overwrite)", source.Account, source.Target, want)
 		}
+	}
+}
+
+// The same explicit display name under two accounts must stay two independent
+// sources: an account-scoped lookup returns only its own, and a scoped removal
+// deletes only its own. The old name-only Source/RemoveSource adopted alpha's
+// record for beta and deleted both on one remove.
+func TestAccountScopedLookupAndRemoveDoNotCrossAccounts(t *testing.T) {
+	store := open(t)
+	if err := store.PutSource(Source{Name: "shared", Account: "alpha", Target: "10.0.0.1:9001", Credential: strings.Repeat("a", 64)}); err != nil {
+		t.Fatalf("put alpha: %v", err)
+	}
+	if err := store.PutSource(Source{Name: "shared", Account: "beta", Target: "10.0.0.2:9002", Credential: strings.Repeat("b", 64)}); err != nil {
+		t.Fatalf("put beta: %v", err)
+	}
+
+	alpha, found, err := store.Source(SourceKey{Account: "alpha", Name: "shared"})
+	if err != nil || !found {
+		t.Fatalf("alpha lookup: found=%v err=%v", found, err)
+	}
+	if alpha.Target != "10.0.0.1:9001" {
+		t.Fatalf("alpha lookup returned %q, adopted the wrong account", alpha.Target)
+	}
+	beta, found, err := store.Source(SourceKey{Account: "beta", Name: "shared"})
+	if err != nil || !found || beta.Target != "10.0.0.2:9002" {
+		t.Fatalf("beta lookup = %+v found=%v err=%v", beta, found, err)
+	}
+
+	if err := store.RemoveSource(SourceKey{Account: "alpha", Name: "shared"}); err != nil {
+		t.Fatalf("remove alpha: %v", err)
+	}
+	all, err := store.Sources()
+	if err != nil {
+		t.Fatalf("sources: %v", err)
+	}
+	if len(all) != 1 || all[0].Account != "beta" {
+		t.Fatalf("removing alpha/shared must leave only beta/shared, got %+v", all)
 	}
 }

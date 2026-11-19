@@ -247,19 +247,22 @@ func addSource(
 	if datasetID == "" {
 		datasetID = name
 	}
-	// A source with this derived name already exists locally: it is the same
-	// target in the same account. Return the existing registration without a
-	// network call, so a repeat never creates a second gateway row or worker.
-	if existing, found, err := store.Source(name); err != nil {
-		return state.Source{}, err
-	} else if found {
-		return existing, AlreadyExists{Source: existing}
-	}
 	specPath := strings.TrimSpace(input.SpecPath)
 	kind := sourceKind(input.Kind)
 	mcpPath := strings.TrimSpace(input.Path)
 	if mcpPath == "" {
 		mcpPath = "/mcp"
+	}
+	// A source with this derived name under THIS account may already exist. The
+	// lookup is account-scoped: another account's source of the same name is a
+	// different source with its own credentials, so it must never be adopted here.
+	// The duplicate decision also compares the canonical target, kind, and path, so
+	// a same-named but different registration is not mistaken for a repeat.
+	sourceKey := state.SourceKey{Account: account.Alias, Name: name}
+	if existing, found, err := store.Source(sourceKey); err != nil {
+		return state.Source{}, err
+	} else if found && existing.Target == origin.String() && existing.Kind == kind && existing.Path == mcpPath {
+		return existing, AlreadyExists{Source: existing}
 	}
 	var spec []byte
 	specSource := ""

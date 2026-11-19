@@ -94,12 +94,13 @@ func RunAll(ctx context.Context, store *state.Store, reload <-chan struct{}) err
 	}
 }
 
-// runner holds the live tunnels keyed by source name, so a reload can diff the
-// store against what is actually running.
+// runner holds the live tunnels keyed by the account-scoped source identity, so a
+// reload can diff the store against what is actually running and two accounts'
+// same-named sources never collide.
 type runner struct {
 	ctx     context.Context
 	store   *state.Store
-	running map[string]*runningSource
+	running map[state.SourceKey]*runningSource
 }
 
 type runningSource struct {
@@ -109,7 +110,7 @@ type runningSource struct {
 }
 
 func newRunner(ctx context.Context, store *state.Store) *runner {
-	return &runner{ctx: ctx, store: store, running: map[string]*runningSource{}}
+	return &runner{ctx: ctx, store: store, running: map[state.SourceKey]*runningSource{}}
 }
 
 func (r *runner) started() int {
@@ -124,25 +125,25 @@ func (r *runner) sync() error {
 	if err != nil {
 		return err
 	}
-	wanted := make(map[string]state.Source, len(sources))
+	wanted := make(map[state.SourceKey]state.Source, len(sources))
 	for _, source := range sources {
 		if !source.Enabled || !source.Registered() {
 			continue
 		}
-		wanted[source.Name] = source
+		wanted[source.Key()] = source
 	}
-	running := make(map[string]state.Source, len(r.running))
-	for name, current := range r.running {
-		running[name] = current.source
+	running := make(map[state.SourceKey]state.Source, len(r.running))
+	for key, current := range r.running {
+		running[key] = current.source
 	}
 	stop, start := planChanges(running, wanted)
-	for _, name := range stop {
-		r.running[name].cancel()
-		delete(r.running, name)
+	for _, key := range stop {
+		r.running[key].cancel()
+		delete(r.running, key)
 	}
 	for _, source := range start {
 		if err := r.start(source); err != nil {
-			log.Printf("source %s not started: %v", source.Name, err)
+			log.Printf("source %s/%s not started: %v", source.Account, source.Name, err)
 		}
 	}
 	return nil
@@ -151,25 +152,26 @@ func (r *runner) sync() error {
 // planChanges is the reconcile decision, separated from the goroutine plumbing so
 // it is a pure function a test can pin: which running sources to stop, and which
 // wanted sources to start. A source in both maps with the same identity is in
-// neither, so a reload never restarts a healthy tunnel.
-func planChanges(running, wanted map[string]state.Source) (stop []string, start []state.Source) {
-	toStop := make([]string, 0, len(running))
-	for name, current := range running {
-		next, stillWanted := wanted[name]
+// neither, so a reload never restarts a healthy tunnel. Both maps are keyed by
+// the account-scoped SourceKey, so alpha/shared and beta/shared are distinct.
+func planChanges(running, wanted map[state.SourceKey]state.Source) (stop []state.SourceKey, start []state.Source) {
+	toStop := make([]state.SourceKey, 0, len(running))
+	for key, current := range running {
+		next, stillWanted := wanted[key]
 		if !stillWanted || !sameIdentity(current, next) {
-			toStop = append(toStop, name)
+			toStop = append(toStop, key)
 		}
 	}
 	toStart := make([]state.Source, 0, len(wanted))
-	for name, source := range wanted {
-		current, alreadyRunning := running[name]
+	for key, source := range wanted {
+		current, alreadyRunning := running[key]
 		if alreadyRunning && sameIdentity(current, source) {
 			continue
 		}
 		toStart = append(toStart, source)
 	}
-	sort.Strings(toStop)
-	sort.Slice(toStart, func(i, j int) bool { return toStart[i].Name < toStart[j].Name })
+	sort.Slice(toStop, func(i, j int) bool { return toStop[i].String() < toStop[j].String() })
+	sort.Slice(toStart, func(i, j int) bool { return toStart[i].Key().String() < toStart[j].Key().String() })
 	return toStop, toStart
 }
 
@@ -186,10 +188,10 @@ func (r *runner) start(source state.Source) error {
 		return err
 	}
 	sourceCtx, cancel := context.WithCancel(r.ctx)
-	r.running[source.Name] = &runningSource{cancel: cancel, source: source, gateway: gateway}
+	r.running[source.Key()] = &runningSource{cancel: cancel, source: source, gateway: gateway}
 	go func() {
 		if err := Run(sourceCtx, source, gateway); err != nil && sourceCtx.Err() == nil {
-			log.Printf("source %s stopped: %v", source.Name, err)
+			log.Printf("source %s/%s stopped: %v", source.Account, source.Name, err)
 		}
 	}()
 	log.Printf("serving source %s (%s) for account %s", source.Name, source.Target, source.Account)
@@ -205,13 +207,17 @@ func (r *runner) stopAll() {
 // sameIdentity reports whether two records describe the same tunnel, so a reload
 // keeps an unchanged source running instead of restarting it. The generation is
 // the gateway's own change marker; worker and credential are what the tunnel
-// authenticates with.
+// authenticates with, plus the kind and path the tunnel serves, and the account
+// name the record belongs to. A change to any of those is a different tunnel and
+// must restart, or a reload would keep serving a stale kind or MCP path.
 func sameIdentity(a, b state.Source) bool {
 	return a.WorkerID == b.WorkerID &&
 		a.Credential == b.Credential &&
 		a.Generation == b.Generation &&
 		a.Target == b.Target &&
-		a.Account == b.Account
+		a.Account == b.Account &&
+		a.Kind == b.Kind &&
+		a.Path == b.Path
 }
 
 // resolveGateway returns an explicit tunnel URL override when set, otherwise the
