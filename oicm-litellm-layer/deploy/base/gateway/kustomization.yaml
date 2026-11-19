@@ -16,6 +16,7 @@ resources:
   - secrets/litellm-master-key.yaml
   - secrets/litellm-salt-key.yaml
   - secrets/litellm-db-credentials.yaml
+  - secrets/litellm-mcp-source-broker.yaml
   - config/litellm-config.yaml
   - proxy/deployment.yaml
   - proxy/service.yaml
