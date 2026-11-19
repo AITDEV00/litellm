@@ -24,6 +24,22 @@ async def test_enroll_creates_source_and_enrollment_anchor(store: SourceStore, s
 
 
 @pytest.mark.asyncio
+async def test_enroll_persists_kind_and_custom_mcp_path(store: SourceStore, source: SourceCreate) -> None:
+    """An MCP source's kind and non-default path must survive the INSERT.
+
+    The fake used to bind a shortened column list that dropped ``kind`` and
+    ``mcp_path`` to their field defaults, so an MCP source enrolled over it looked
+    like an OpenAPI source at ``/mcp``. Binding the real ``SOURCE_COLUMNS`` keeps
+    both, and a wrong order or arity now fails the fake's own assertion.
+    """
+    mcp: Final = source.model_copy(update={"kind": "mcp", "path": "/custom/mcp", "spec": ""})
+    await store.enroll(mcp, "alice")
+    stored: Final = store.db.sources[0]
+    assert stored.kind == "mcp"
+    assert stored.mcp_path == "/custom/mcp"
+
+
+@pytest.mark.asyncio
 async def test_enroll_rejects_owner_mismatch(store: SourceStore, source: SourceCreate) -> None:
     with pytest.raises(PermissionDenied):
         await store.enroll(source, "bob")

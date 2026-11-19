@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Final
 
 import pytest
 
 from litellm.proxy.mcp_source_broker.keys import Keys
 from litellm.proxy.mcp_source_broker.models import SourceCreate, Target
-from litellm.proxy.mcp_source_broker.store import SQLRow, SourceStore
+from litellm.proxy.mcp_source_broker.store import SOURCE_COLUMNS, SourceStore, SQLRow
+
+# The INSERT names every column in SOURCE_COLUMNS in order, so the fake binds the
+# real column list rather than a hand-copied subset. A shortened list would silently
+# drop trailing columns (kind, mcp_path) to their field defaults and hide exactly the
+# arity/order mistakes a fake exists to catch.
+SOURCE_COLUMN_NAMES: Final = tuple(name.strip() for name in SOURCE_COLUMNS.split(","))
 
 
 class MemorySource(SQLRow):
@@ -63,28 +70,11 @@ class MemoryDatabase:
             self.enrollments.append(str(args[0]))
             return 1
         if 'INSERT INTO "OicmMcpSource"' in sql:
-            self.sources.append(
-                MemorySource.model_validate(
-                    dict(
-                        zip(
-                            (
-                                "source_id",
-                                "tenant",
-                                "key",
-                                "alias",
-                                "target_host",
-                                "target_port",
-                                "spec_path",
-                                "expected",
-                                "gateway_auth_ciphertext",
-                                "status",
-                                "revision",
-                            ),
-                            args,
-                        )
-                    )
-                )
+            assert len(args) == len(SOURCE_COLUMN_NAMES), (
+                "the INSERT must bind exactly one argument per source column; a shorter binding "
+                "would drop bookkeeping columns to their defaults and hide an arity bug"
             )
+            self.sources.append(MemorySource.model_validate(dict(zip(SOURCE_COLUMN_NAMES, args))))
             return 1
         if 'UPDATE "OicmMcpSource" SET target_host=' in sql:
             for index, row in enumerate(self.sources):
