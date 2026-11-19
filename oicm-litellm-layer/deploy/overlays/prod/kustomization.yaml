@@ -12,6 +12,7 @@ resources:
   - ../../base/shared
   - ../../base/gateway
   - ../../base/rustfs
+  - mcp-source-broker
 
 patches:
   - path: gateway/deployment.yaml

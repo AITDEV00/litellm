@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-mcp-broker
+  namespace: adeo-litellm
+  labels:
+    app: litellm-mcp-broker
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-mcp-broker
+  template:
+    metadata:
+      labels:
+        app: litellm-mcp-broker
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: adeo-gpu-03
+      tolerations:
+        - key: tenant
+          value: adeo
+          effect: NoSchedule
+        - key: tenant
+          value: adeo
+          effect: NoExecute
+        - key: target
+          value: k8s
+          effect: NoSchedule
+        - key: target
+          value: k8s
+          effect: NoExecute
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+      containers:
+        - name: broker
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-mcp-broker:jya0-v1.108.5-prod@sha256:2728d6a738d13156e05fee5671a46c892654a50044029b391e317935a98bee89
+          imagePullPolicy: Always
+          command: ["python", "-m", "litellm.proxy.mcp_source_broker.main"]
+          env:
+            - name: MCP_SOURCE_BROKER_ENABLED
+              value: "true"
+            - name: MCP_SOURCE_LINK_ENABLED
+              value: "true"
+            - name: LITELLM_LOCAL_MODEL_COST_MAP
+              value: "true"
+            - name: PRISMA_BINARY_CACHE_DIR
+              value: /opt/prisma/binaries
+            - name: PRISMA_CLI_QUERY_ENGINE_TYPE
+              value: binary
+            - name: MCP_SOURCE_BROKER_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker
+                  key: pepper
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker
+                  key: service-token
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-app
+                  key: host
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-app
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-app
+                  key: password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: adeo-litellm-postgres-app
+                  key: dbname
+          ports:
+            - name: control
+              containerPort: 9091
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: control
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: control
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-mcp-broker
+  namespace: adeo-litellm
+  labels:
+    app: litellm-mcp-broker
+spec:
+  selector:
+    app: litellm-mcp-broker
+  ports:
+    - name: control
+      port: 9091
+      targetPort: 9091

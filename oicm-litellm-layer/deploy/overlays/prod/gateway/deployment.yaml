@@ -1,9 +1,8 @@
 # Prod-only additions to the base gateway Deployment.
 #
-# The base already carries everything prod needs; this patch adds the one
-# value that only makes sense with a public ingress: the URL the install
-# script embeds as the gateway base for lite config set. Dev sets its own
-# port-forward value; prod uses the ingress host.
+# The base already carries everything prod needs; this patch adds the values
+# that only make sense here: the public install base URL, and the MCP source
+# broker wiring so prod can route to the broker the way dev does.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,6 +13,24 @@ spec:
     spec:
       containers:
         - name: litellm
+          # Prod pins the exact bytes it validated. The base names only the
+          # mutable `jya0-v1.108.5` tag, which dev rebuilds overwrite.
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.108.5-prod@sha256:c2beba4bcb4ccb006b7981f1a5448a38004028c88c95992608d58e37bb8f0c89
           env:
             - name: LITELLM_PUBLIC_BASE_URL
               value: "https://litellm.ecouncil.ae"
+            - name: MCP_SOURCE_BROKER_ENABLED
+              value: "true"
+            # Standard data-plane Service port for the MCP source broker.
+            - name: MCP_SOURCE_BROKER_DATA_PLANE_URL
+              value: "http://litellm-mcp-broker.adeo-litellm.svc.cluster.local:8888"
+            - name: MCP_SOURCE_BROKER_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker
+                  key: pepper
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker
+                  key: service-token

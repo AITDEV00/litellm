@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-mcp-broker
+  namespace: adeo-litellm
+spec:
+  template:
+    spec:
+      containers:
+        - name: broker
+          env:
+            - name: MCP_SOURCE_LINK_ENABLED
+              value: "true"
+        - name: source-link
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/mcp-source-link-worker:jya0-v1.108.5-prod@sha256:ce3c214c205b32aaa34010fff1466ef9f8b790c7e45fc27f836d9c2b9091242c
+          imagePullPolicy: Always
+          command: ["/source-link", "worker"]
+          env:
+            - name: MCP_SOURCE_LINK_CONTROL_URL
+              value: http://127.0.0.1:9091
+            - name: MCP_SOURCE_BROKER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-mcp-source-broker
+                  key: service-token
+            - name: MCP_SOURCE_LINK_DATA_LISTEN
+              value: "0.0.0.0:9092"
+            - name: MCP_SOURCE_LINK_REVERSE_LISTEN
+              value: "0.0.0.0:8093"
+          ports:
+            - name: link-data
+              containerPort: 9092
+            - name: link-tunnel
+              containerPort: 8093
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: link-data
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "1"
+              memory: 512Mi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-mcp-broker
+  namespace: adeo-litellm
+spec:
+  ports:
+    - name: data
+      port: 8888
+      targetPort: link-data
+    - name: link-tunnel
+      port: 8093
+      targetPort: link-tunnel
+    - name: remote-control
+      port: 9091
+      targetPort: 9091

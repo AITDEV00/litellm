@@ -58,6 +58,10 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
         "RUSTFS_SECRET_KEY",  # dev: litellm-rustfs-credentials-dev
         "RUSTFS_BUCKET",  # dev: litellm-client-mirror-dev
         "LITELLM_PUBLIC_BASE_URL",  # dev: localhost:14001, prod: litellm.ecouncil.ae
+        # MCP source broker: same wiring, per-environment Service and Secret.
+        "MCP_SOURCE_BROKER_DATA_PLANE_URL",  # dev: litellm-mcp-broker-dev
+        "MCP_SOURCE_BROKER_PEPPER",  # dev: litellm-mcp-source-broker-dev Secret
+        "MCP_SOURCE_BROKER_SERVICE_TOKEN",  # dev: litellm-mcp-source-broker-dev Secret
     }
 )
 
@@ -65,16 +69,13 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
 # `DATABASE_URL`; dev sets the discrete `DATABASE_*` vars LiteLLM assembles a URL
 # from instead, so it can read CNPG's per-field keys rather than the Secret's
 # `uri` key (whose embedded password is stale).
-_BROKER_ONLY_ENV_VARS: Final = frozenset(
+#
+# The broker vars used to live here when only dev ran a broker. Prod now ships
+# one too (overlays/prod/mcp-source-broker), so both environments declare them
+# and they are no longer a dev-only allowance.
+_DEV_ONLY_ENV_VARS: Final = frozenset(
     {
-        "MCP_SOURCE_BROKER_ENABLED",
-        "MCP_SOURCE_BROKER_DATA_PLANE_URL",
-        "MCP_SOURCE_BROKER_PEPPER",
-        "MCP_SOURCE_BROKER_SERVICE_TOKEN",
-    }
-)
-
-_DEV_ONLY_ENV_VARS: Final = frozenset(_BROKER_ONLY_ENV_VARS | {"DATABASE_HOST",
+        "DATABASE_HOST",
         "DATABASE_USERNAME",
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
@@ -193,24 +194,28 @@ def _env_sources(doc: dict) -> dict[str, object]:
 
 
 def test_every_prod_object_has_a_dev_counterpart(prod: dict[str, dict], dev: dict[str, dict]):
-    """Prod and dev must declare the same kinds and names, dev suffixed."""
+    """Prod and dev must declare the same kinds and names, dev suffixed.
+
+    The broker is part of both environments now, so it needs no special case: it
+    arrives already suffixed from the prod set. The only exception is a rename.
+    The rustfs broker policy puts the environment marker before the shared tail
+    (`litellm-rustfs-dev-source-broker`) so it reads as one phrase; the generic
+    suffix would make it `litellm-rustfs-source-broker-dev`.
+    """
     expected = {
         key if key in _SHARED_UNSUFFIXED else f"{key.split('/')[0]}/{key.split('/')[1]}{_DEV_SUFFIX}"
         for key in prod
         if key not in _PROD_ONLY_OBJECTS
     }
-    broker = {
-        "Deployment/litellm-mcp-broker-dev",
-        "Service/litellm-mcp-broker-dev",
-        "NetworkPolicy/litellm-mcp-broker-dev",
-        "NetworkPolicy/litellm-rustfs-dev-source-broker",
-        "Ingress/litellm-mcp-tunnel-dev",
-    }
-    assert set(dev) == expected | broker, (
-        "dev must match prod plus its explicitly dev-only broker overlay.\n"
+    # The rustfs broker policy puts the environment marker before the shared tail
+    # (`litellm-rustfs-dev-source-broker`) so it reads as one phrase; the generic
+    # suffix would make it `litellm-rustfs-source-broker-dev`.
+    renamed = {"NetworkPolicy/litellm-rustfs-dev-source-broker"}
+    expected -= {"NetworkPolicy/litellm-rustfs-source-broker-dev"}
+    assert set(dev) == expected | renamed, (
+        "dev must match prod plus its explicitly renamed objects.\n"
         f"missing from dev: {sorted(expected - set(dev))}\n"
-        f"unexpected in dev: {sorted(set(dev) - expected)}\n"
-        "prod must not declare or enable the broker"
+        f"unexpected in dev: {sorted(set(dev) - expected - renamed)}"
     )
 
 
@@ -319,10 +324,21 @@ def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict
     """
     prod_container = _container(prod["Deployment/litellm-proxy"])
     dev_container = _container(dev[f"Deployment/litellm-proxy{_DEV_SUFFIX}"])
-    for field in ("image", "ports", "readinessProbe", "livenessProbe", "resources"):
+    for field in ("ports", "readinessProbe", "livenessProbe", "resources"):
         assert prod_container.get(field) == dev_container.get(field), (
             f"container field {field!r} differs between prod and dev"
         )
+    # Image: same repository. Prod must be digest-pinned so a rebuild of its tag
+    # can never silently change what production runs. Dev may float on a
+    # rebuildable tag, which is how the dev channel picks up a new build.
+    prod_image = prod_container.get("image", "")
+    dev_image = dev_container.get("image", "")
+    prod_repo, _, prod_ref = prod_image.partition("@")
+    dev_repo, _, _dev_ref = dev_image.partition("@")
+    assert prod_repo.rsplit(":", 1)[0] == dev_repo.rsplit(":", 1)[0], (
+        f"prod and dev must run the same image repository, got {prod_repo!r} and {dev_repo!r}"
+    )
+    assert prod_ref.startswith("sha256:"), f"prod image must be digest-pinned, got {prod_image!r}"
     assert prod_container.get("volumeMounts") == dev_container.get("volumeMounts"), (
         "the two Deployments must mount the same volumes at the same paths"
     )
