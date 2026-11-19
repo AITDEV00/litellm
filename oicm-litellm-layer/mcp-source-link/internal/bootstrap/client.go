@@ -15,6 +15,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -269,13 +270,22 @@ var workerLabelPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
 
 // WorkerLabel is the deterministic worker label for a source name.
 //
-// The name is already derived from the account and target, so it is stable; this
-// only makes it fit the gateway's label rule. Names that already fit are used
-// verbatim, which keeps the label deterministic across restarts.
+// The name is already derived from the account and target, so it is stable. A
+// name that already fits the gateway's label grammar is used verbatim, which keeps
+// the label byte-identical across restarts and on resume for existing sources.
+//
+// A name that does not fit cannot be truncated naively: the source name ends in a
+// digest that distinguishes otherwise-similar long targets (e.g. two full IPv6
+// addresses), and cutting to 32 characters drops exactly that distinguishing tail,
+// so two distinct sources collide on one label and the server's (source,label)
+// uniqueness rejects the second. Instead keep a bounded readable prefix and append
+// a stable 10-char digest of the whole name, so the label stays deterministic,
+// grammar-valid, and distinct for distinct long names.
 func WorkerLabel(name string) string {
 	if workerLabelPattern.MatchString(name) {
 		return name
 	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))[:10]
 	normalized := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
@@ -287,14 +297,15 @@ func WorkerLabel(name string) string {
 		}
 	}, name)
 	trimmed := strings.Trim(normalized, "-")
-	// The gateway label must start with a letter and be at least two characters.
-	// A name that starts with a digit, or is too short, is prefixed so the result
-	// always matches; this is deterministic, so a restart derives the same label.
-	if trimmed == "" || trimmed[0] < 'a' || trimmed[0] > 'z' || len(trimmed) < 2 {
+	// Leave room for "-" plus the 10-char digest within the 32-char label limit.
+	const maxPrefix = 32 - 11
+	if len(trimmed) > maxPrefix {
+		trimmed = strings.Trim(trimmed[:maxPrefix], "-")
+	}
+	// The label must start with a letter and be at least two characters. A prefix
+	// that starts with a digit or is empty is anchored with a leading letter.
+	if trimmed == "" || trimmed[0] < 'a' || trimmed[0] > 'z' {
 		trimmed = "s-" + trimmed
 	}
-	if len(trimmed) > 32 {
-		trimmed = strings.Trim(trimmed[:32], "-")
-	}
-	return trimmed
+	return strings.Trim(trimmed, "-") + "-" + digest
 }

@@ -1,6 +1,20 @@
 package bootstrap
 
-import "testing"
+import (
+	"testing"
+
+	"oicm-litellm-layer/mcp-source-link/internal/state"
+	"oicm-litellm-layer/mcp-source-link/internal/target"
+)
+
+func mustTarget(t *testing.T, value string) target.Target {
+	t.Helper()
+	parsed, err := target.Parse(value)
+	if err != nil {
+		t.Fatalf("parse target %q: %v", value, err)
+	}
+	return parsed
+}
 
 // TestValidateIssuedRejectsBadIdentity proves each malformed identity shape the
 // gateway could return is caught before it is persisted.
@@ -71,4 +85,50 @@ func repeat(value string, n int) string {
 		out = append(out, value...)
 	}
 	return string(out)
+}
+
+// Two distinct full-length source names must not collide on one worker label.
+//
+// The source name ends in a digest that separates otherwise-similar long targets
+// (two full IPv6 addresses, two long service names sharing a prefix). The old
+// WorkerLabel truncated to 32 characters and cut that digest off, so both sources
+// derived the same label and the server rejected the second registration. The
+// label must stay grammar-valid, deterministic, and distinct.
+func TestWorkerLabelDistinguishesFullLengthIdentities(t *testing.T) {
+	// Derive names exactly as the connector does, from full authoritative targets.
+	fullV6A := mustTarget(t, "[2001:db8:1:2:3:4:5:6]:9001")
+	fullV6B := mustTarget(t, "[2001:db8:1:2:3:4:5:7]:9001")
+	names := []string{
+		state.DeriveName("alpha", fullV6A),
+		state.DeriveName("alpha", fullV6B),
+		"alpha.inventory-service-with-a-shared-prefix-one.svc.9001.0000000001",
+		"alpha.inventory-service-with-a-shared-prefix-two.svc.9001.0000000002",
+	}
+	seen := map[string]string{}
+	for _, name := range names {
+		label := WorkerLabel(name)
+		if !workerLabelPattern.MatchString(label) {
+			t.Fatalf("label %q for name %q violates the gateway grammar", label, name)
+		}
+		if len(label) > 32 {
+			t.Fatalf("label %q is %d chars, want <= 32", label, len(label))
+		}
+		if previous, ok := seen[label]; ok {
+			t.Fatalf("distinct names %q and %q collide on label %q", previous, name, label)
+		}
+		seen[label] = name
+		if WorkerLabel(name) != label {
+			t.Fatalf("label for %q is not deterministic", name)
+		}
+	}
+}
+
+// A short name that already fits the gateway grammar must pass through verbatim,
+// so existing sources keep their issued label on resume.
+func TestWorkerLabelPreservesExistingShortLabels(t *testing.T) {
+	for _, short := range []string{"pets-api", "alpha-9001", "ward-01"} {
+		if got := WorkerLabel(short); got != short {
+			t.Fatalf("short label %q became %q; legacy labels must not change", short, got)
+		}
+	}
 }
