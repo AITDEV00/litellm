@@ -1,0 +1,133 @@
+apiVersion: v1
+data:
+  keda_metrics.py: "\"\"\"\nKEDA Metrics Callback \u2014 emits ml_model_concurrent_requests\
+    \ Prometheus gauge.\n\nThis is Component #4 of the OICM\u2192LiteLLM integration\
+    \ layer.\nIt plugs into LiteLLM via `litellm_settings.callbacks` in config.yaml.\n\
+    \nHow it works:\n1. On each incoming request (log_pre_api_call): increment gauge\n\
+    2. On each completed request (async_log_success_event): decrement gauge\n3. On\
+    \ each failed request (async_log_failure_event): decrement gauge\n4. The gauge\
+    \ is exposed on LiteLLM's /metrics endpoint alongside other Prometheus metrics\n\
+    \nKEDA integration:\n  The existing KEDA ScaledObject for 0f8674c2 (MinerU) uses:\n\
+    \    sum(ml_model_concurrent_requests{model_id=\"<uuid>\"})\n\n  This callback\
+    \ emits the exact same metric name and label, so the existing\n  KEDA ScaledObject\
+    \ continues to work without modification.\n\nModel ID resolution:\n  LiteLLM uses\
+    \ model_name (e.g., \"Qwen/Qwen3-Next-80B-A3B-Instruct\") internally,\n  but KEDA\
+    \ uses the OICM UUID (e.g., \"0f8674c2-5fb8-43c7-bf2d-a6e5db2c0ff4\").\n  We resolve\
+    \ model_name \u2192 oicm_uuid from the model_info metadata stored by\n  the discovery\
+    \ controller.\n\"\"\"\n\nimport logging\nfrom typing import Optional\n\nfrom litellm.integrations.custom_logger\
+    \ import CustomLogger\n\nlogger = logging.getLogger(\"oicm-keda\")\n\n# \u2500\
+    \u2500\u2500 Prometheus gauge \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\ntry:\n    from prometheus_client\
+    \ import Gauge\n\n    CONCURRENT_REQUESTS = Gauge(\n        \"ml_model_concurrent_requests\"\
+    ,\n        \"Number of concurrent requests currently being processed\",\n    \
+    \    [\"model_id\"],\n    )\n    PROMETHEUS_AVAILABLE = True\nexcept ImportError:\n\
+    \    logger.warning(\"prometheus_client not installed, KEDA metrics disabled\"\
+    )\n    PROMETHEUS_AVAILABLE = False\n\n\n# \u2500\u2500\u2500 Model name \u2192\
+    \ OICM UUID resolution \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\n\n# Cache: model_name \u2192 oicm_uuid\n# Populated from model_info metadata\
+    \ (set by discovery controller)\n_uuid_cache: dict = {}\n\n\ndef _resolve_uuid(model_name:\
+    \ str, kwargs: dict) -> Optional[str]:\n    \"\"\"\n    Resolve a LiteLLM model_name\
+    \ to an OICM UUID.\n\n    Strategy:\n    1. Check the kwargs metadata (litellm_params.model_info.oicm_uuid)\n\
+    \    2. Check the in-memory cache\n    3. Return None if not found (gauge won't\
+    \ be emitted)\n    \"\"\"\n    # Try from kwargs metadata. At pre-call time (log_pre_api_call)\
+    \ the\n    # routing metadata lives under litellm_params.metadata; post-call events\n\
+    \    # also surface it at the top level. Check both shapes.\n    litellm_params\
+    \ = kwargs.get(\"litellm_params\", {}) or {}\n    metadata = kwargs.get(\"metadata\"\
+    ) or litellm_params.get(\"metadata\") or {}\n    model_info = metadata.get(\"\
+    model_info\", {}) or {}\n    oicm_uuid = model_info.get(\"oicm_uuid\")\n    if\
+    \ oicm_uuid:\n        _uuid_cache[model_name] = oicm_uuid\n        return oicm_uuid\n\
+    \n    # Try cache\n    if model_name in _uuid_cache:\n        return _uuid_cache[model_name]\n\
+    \n    return None\n\n\ndef _get_model_id(kwargs: dict) -> Optional[str]:\n   \
+    \ \"\"\"Get the model identifier for KEDA labeling.\"\"\"\n    # The model field\
+    \ in kwargs could be the litellm model name or the model_name\n    model = kwargs.get(\"\
+    model\", \"\")\n\n    # Strip the \"hosted_vllm/\" prefix if present\n    if model.startswith(\"\
+    hosted_vllm/\"):\n        model = model[len(\"hosted_vllm/\"):]\n\n    # Try to\
+    \ resolve to OICM UUID\n    uuid = _resolve_uuid(model, kwargs)\n    if uuid:\n\
+    \        return uuid\n\n    # Fallback: use the model name as-is\n    return model\n\
+    \n\n# \u2500\u2500\u2500 Callback \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\n\nclass KEDAMetricsCallback(CustomLogger):\n    \"\"\"\n \
+    \   Custom callback that emits ml_model_concurrent_requests for KEDA.\n\n    Register\
+    \ in config.yaml:\n\n        litellm_settings:\n          callbacks:\n       \
+    \     - hooks.keda_metrics.KEDAMetricsCallback\n    \"\"\"\n\n    def log_pre_api_call(self,\
+    \ model, messages, kwargs):\n        \"\"\"Increment concurrent requests gauge\
+    \ before the API call.\n\n        Upstream invokes the synchronous pre-call hook,\
+    \ not the async one, so\n        this must stay sync or the gauge is never incremented\
+    \ and only ever\n        decrements.\n        \"\"\"\n        if not PROMETHEUS_AVAILABLE:\n\
+    \            return\n\n        model_id = _get_model_id(kwargs)\n        if model_id:\n\
+    \            try:\n                CONCURRENT_REQUESTS.labels(model_id=model_id).inc()\n\
+    \                logger.debug(f\"KEDA inc: model_id={model_id}\")\n          \
+    \  except Exception as e:\n                logger.error(f\"KEDA inc error for\
+    \ {model_id}: {e}\")\n\n    async def async_log_success_event(self, kwargs, response_obj,\
+    \ start_time, end_time):\n        \"\"\"Decrement concurrent requests gauge on\
+    \ success.\"\"\"\n        if not PROMETHEUS_AVAILABLE:\n            return\n\n\
+    \        model_id = _get_model_id(kwargs)\n        if model_id:\n            try:\n\
+    \                CONCURRENT_REQUESTS.labels(model_id=model_id).dec()\n       \
+    \         logger.debug(f\"KEDA dec (success): model_id={model_id}\")\n       \
+    \     except Exception as e:\n                logger.error(f\"KEDA dec error for\
+    \ {model_id}: {e}\")\n\n    async def async_log_failure_event(self, kwargs, response_obj,\
+    \ start_time, end_time):\n        \"\"\"Decrement concurrent requests gauge on\
+    \ failure.\"\"\"\n        if not PROMETHEUS_AVAILABLE:\n            return\n\n\
+    \        model_id = _get_model_id(kwargs)\n        if model_id:\n            try:\n\
+    \                CONCURRENT_REQUESTS.labels(model_id=model_id).dec()\n       \
+    \         logger.debug(f\"KEDA dec (failure): model_id={model_id}\")\n       \
+    \     except Exception as e:\n                logger.error(f\"KEDA dec error for\
+    \ {model_id}: {e}\")\n\n    async def async_log_stream_event(self, kwargs, response_obj,\
+    \ start_time, end_time):\n        \"\"\"No-op for streaming events, which are\
+    \ tracked at request level.\"\"\"\n        pass\n\n\n# The config loader resolves\
+    \ dotted callback paths to attributes, so it needs\n# a module-level instance,\
+    \ not the bare class (same convention as\n# priority_bridge).\nkeda_metrics =\
+    \ KEDAMetricsCallback()\n"
+  priority_bridge.py: "import logging\nfrom typing import Optional, Union\n\nimport\
+    \ litellm\nfrom litellm.integrations.custom_logger import CustomLogger\nfrom litellm.caching\
+    \ import DualCache\nfrom litellm.proxy._types import UserAPIKeyAuth\nfrom litellm.proxy.hooks.dynamic_rate_limiter_v3_htb\
+    \ import htb_priority\nfrom litellm.types.utils import CallTypesLiteral\n\nlogger\
+    \ = logging.getLogger(\"oicm-priority-bridge\")\n\n_CHAT_CALL_TYPES: frozenset[str]\
+    \ = frozenset({\"completion\", \"acompletion\"})\n\n\nclass PriorityBridge(CustomLogger):\n\
+    \n    async def async_pre_call_hook(\n        self,\n        user_api_key_dict:\
+    \ UserAPIKeyAuth,\n        cache: DualCache,\n        data: dict,\n        call_type:\
+    \ CallTypesLiteral,\n    ) -> Optional[Union[Exception, str, dict]]:\n       \
+    \ body_fields_map = litellm.priority_body_fields\n        if not body_fields_map:\n\
+    \            return None\n\n        if call_type not in _CHAT_CALL_TYPES:\n  \
+    \          return None\n\n        htb_prio = htb_priority.get()\n        if htb_prio\
+    \ is None:\n            return None\n\n        body_fields = body_fields_map.get(htb_prio)\n\
+    \        if not body_fields:\n            return None\n\n        extra_body =\
+    \ data.get(\"extra_body\") or {}\n        extra_body.update(body_fields)\n   \
+    \     data[\"extra_body\"] = extra_body\n\n        logger.debug(\n           \
+    \ \"Injected priority body fields for htb_priority=%s: %s\",\n            htb_prio,\n\
+    \            list(body_fields.keys()),\n        )\n\n        return data\n\n\n\
+    priority_bridge = PriorityBridge()\n"
+  vllm_param_injector.py: "import os\nfrom typing import Any, Dict, Optional\nfrom\
+    \ litellm.integrations.custom_logger import CustomLogger\nfrom litellm.utils import\
+    \ get_secret\n\n\nclass VllmParamInjector(CustomLogger):\n    \"\"\"Pre-call hook\
+    \ that injects vLLM-specific parameters from the\n    upstream model deployment's\
+    \ ConfigMap into the request.\"\"\"\n\n    @staticmethod\n    def _target_matches(model_info:\
+    \ dict, target_model: str) -> bool:\n        litellm_params = model_info.get(\"\
+    litellm_params\", {})\n        return litellm_params.get(\"model\", \"\") == target_model\n\
+    \n    async def async_pre_call_hook(\n        self,\n        user_api_key_dict:\
+    \ Dict,\n        cache: Any,\n        data: Dict,\n        call_type: str,\n \
+    \   ) -> Optional[Dict]:\n        from litellm.proxy.proxy_server import llm_router\n\
+    \n        if llm_router is None or not hasattr(llm_router, \"get_model_list\"\
+    ):\n            return data\n\n        target_model = data.get(\"model\")\n  \
+    \      if not target_model:\n            return data\n\n        for model_info\
+    \ in llm_router.get_model_list():\n            if self._target_matches(model_info,\
+    \ target_model):\n                model_info_extra = model_info.get(\"model_info\"\
+    , {})\n                extra_body = {}\n                for key, value in model_info_extra.items():\n\
+    \                    if key.startswith(\"vllm_\") and value is not None:\n   \
+    \                     param_name = key[len(\"vllm_\"):]\n                    \
+    \    extra_body[param_name] = value\n                if extra_body:\n        \
+    \            existing = data.get(\"extra_body\") or {}\n                    existing.update(extra_body)\n\
+    \                    data[\"extra_body\"] = existing\n                break\n\n\
+    \        return data\n\n\nvllm_param_injector = VllmParamInjector()\n"
+kind: ConfigMap
+metadata:
+  name: litellm-hooks
+  namespace: adeo-litellm

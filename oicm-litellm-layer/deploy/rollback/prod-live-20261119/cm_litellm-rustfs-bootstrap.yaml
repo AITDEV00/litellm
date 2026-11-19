@@ -1,0 +1,13 @@
+apiVersion: v1
+data:
+  bootstrap.sh: "#!/bin/sh\nset -eu\n: \"${RUSTFS_ENDPOINT_URL:?}\"\n: \"${RUSTFS_ACCESS_KEY:?}\"\
+    \n: \"${RUSTFS_SECRET_KEY:?}\"\n\ni=0\nuntil mc alias set rustfs \"$RUSTFS_ENDPOINT_URL\"\
+    \ \"$RUSTFS_ACCESS_KEY\" \"$RUSTFS_SECRET_KEY\" >/dev/null 2>&1; do\n  i=$((i\
+    \ + 1))\n  if [ \"$i\" -ge 30 ]; then\n    echo \"rustfs not reachable at $RUSTFS_ENDPOINT_URL\
+    \ after 30 attempts\" >&2\n    exit 1\n  fi\n  echo \"waiting for rustfs (attempt\
+    \ $i)\"\n  sleep 2\ndone\n\nfor bucket in litellm-client-mirror litellm-logs;\
+    \ do\n  mc mb --ignore-existing \"rustfs/$bucket\"\ndone\nmc ls rustfs\n"
+kind: ConfigMap
+metadata:
+  name: litellm-rustfs-bootstrap
+  namespace: adeo-litellm

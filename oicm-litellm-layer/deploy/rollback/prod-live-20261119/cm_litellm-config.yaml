@@ -1,0 +1,67 @@
+apiVersion: v1
+data:
+  config.yaml: "model_list: []\nlitellm_settings:\n  store_model_in_db: true\n  cache:\
+    \ true\n  cache_params:\n    type: redis\n    ttl: 3600\n    default_in_memory_ttl:\
+    \ 60\n    max_connections: 500\n    socket_timeout: 10.0\n  enable_redis_auth_cache:\
+    \ true\n  callbacks:\n    - litellm_hooks.vllm_param_injector.vllm_param_injector\n\
+    \    - dynamic_rate_limiter_v3_htb\n    - litellm_hooks.priority_bridge.priority_bridge\n\
+    \    - prometheus\n    # Infers/stamps metadata.session_id for no-client-id traffic\
+    \ so\n    # session_affinity can pin a conversation to one replica (prefix KV\
+    \ reuse).\n    # The loader needs an instance, not a class: proxy_handler_instance\
+    \ is a\n    # module-level singleton whose cache binds per-request. Enabled via\n\
+    \    # SESSION_IDENTITY_ENABLED=true on the Deployment env.\n    - litellm.router_utils.session_identity.resolver.proxy_handler_instance\n\
+    \  # Require auth on the /metrics scrape endpoint. Prometheus keeps scraping\n\
+    \  # because the ServiceMonitor (litellm-servicemonitor.yaml) presents the\n \
+    \ # master key as a bearer token.\n  require_auth_for_metrics_endpoint: true\n\
+    \  priority_reservation:\n    prior1: 0.50\n    prior2: 0.30\n    prior3: 0.20\n\
+    \  priority_reservation_settings:\n    saturation_threshold: 1.0\n  priority_body_fields:\n\
+    \    prior1:\n      priority: 0\n    prior2:\n      priority: 100\n    prior3:\n\
+    \      priority: 200\n  # EXEMPT METHOD: prior1 is fully exempt from priority\
+    \ enforcement (cap = 100% model RPM).\n  # prior2 and prior3 fall into a shared\
+    \ default_pool at default_priority.\n  # Use key-level rpm_limit on individual\
+    \ API keys to separate prior2/prior3.\n  # priority_reservation:\n  #   prior1:\
+    \ 1.0\n  # priority_reservation_settings:\n  #   saturation_threshold: 0.75\n\
+    \  #   default_priority: 0.50\nrouter_settings:\n  routing_strategy: usage-based-routing-v2\n\
+    \  # Sticky sessions: a conversation keeps landing on the replica that served\n\
+    \  # its earlier turns so vLLM prefix KV cache is reused instead of\n  # re-prefilled\
+    \ on a second replica. Only pins callers that send a stable\n  # session id (x-litellm-session-id\
+    \ header or metadata.session_id);\n  # everyone else routes normally. Idle TTL,\
+    \ refreshed on every request.\n  optional_pre_call_checks:\n    - enforce_model_rate_limits\n\
+    \    - session_affinity\n  deployment_affinity_ttl_seconds: 86400\n  # ---- Retry\
+    \ budget per exception class (preemptive, post-OOM hardening).\n  # AuthenticationError\
+    \ / BadRequest / ContentPolicyViolation almost never\n  # self-heal, so don't\
+    \ waste a retry; transient network/5xx do.\n  retry_policy:\n    InternalServerErrorRetries:\
+    \ 3\n    ServiceUnavailableErrorRetries: 3\n    TimeoutErrorRetries: 2\n    RateLimitErrorRetries:\
+    \ 2\n    AuthenticationErrorRetries: 0\n    BadRequestErrorRetries: 0\n    ContentPolicyViolationErrorRetries:\
+    \ 0\n  # Floor for the exponential backoff in _calculate_retry_after; the actual\n\
+    \  # sleep is max(this, INITIAL_RETRY_DELAY * 2**n) plus jitter.\n  retry_after:\
+    \ 0.5\n  # Per-request and per-stream-chunk upper bounds so a stalled stream\n\
+    \  # fails loud instead of hanging on the outer HTTP timeout. Non-streaming\n\
+    \  # requests on big reasoning models can legitimately take several minutes.\n\
+    \  # stream_timeout must exceed the LONGEST legitimate silence from sglang\n \
+    \ # (which buffers tokens under load and emits them late), not just the\n  # average\
+    \ chunk gap. 300s covers Kimi-K3 deep-thinking batches.\n  timeout: 600\n  stream_timeout:\
+    \ 300\n  # Deployment health hysteresis: trip to cooldown after 3 fails, sleep\
+    \ 30s\n  # before retrying that deployment (default is 1 fail / 1s).\n  allowed_fails:\
+    \ 3\n  cooldown_time: 30\n  # Fallbacks intentionally omitted for now; to be configured\
+    \ separately.\ngeneral_settings:\n  use_redis_transaction_buffer: true\n  # Native\
+    \ PG partitioning: upstream creates daily partitions and drops\n  # them at retention.\
+    \ 999d means upstream never drops; the janitor\n  # CronJob owns actual retention\
+    \ (pressure-based, 60d floor).\n  use_spend_logs_partitioning: true\n  maximum_spend_logs_retention_period:\
+    \ \"999d\"\n  maximum_spend_logs_retention_interval: \"1h\"\n  # Decouple gateway\
+    \ availability from Postgres (2026-09-08 incident:\n  # flush-retry CPU churn\
+    \ starved the event loop until liveness timed\n  # out and pods restarted). With\
+    \ this on: auth falls back to cached\n  # identity instead of 503 on cache misses,\
+    \ and the pod starts even\n  # when the DB is down. Spend-log queueing stays bounded\
+    \ (64MB,\n  # drop-oldest) so RAM cannot grow unboundedly while the DB is down.\n\
+    \  allow_requests_on_db_unavailable: true\n  # Cancel the in-flight upstream LLM\
+    \ call when the client disconnects\n  # mid-request, so SGLang/vLLM abort the\
+    \ generation instead of burning\n  # GPU tokens into a dead pipe. Verified on\
+    \ dev first (trace: socket\n  # closed t+3s into a 4000-token generation, SGLang\
+    \ decode loop stopped\n  # at ~1500/4000 tokens within 1s). Streaming already\
+    \ aborts via the\n  # generator's disconnect handling; this flag covers the non-streaming\n\
+    \  # path.\n  cancel_on_disconnect: true\n"
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: adeo-litellm
