@@ -77,6 +77,7 @@ class _Throttle:
 
 
 _ORDINARY: Final = LitellmUserRoles.INTERNAL_USER.value
+_EMPTY_SETTINGS: Final = MappingProxyType[str, object]({})
 
 
 def _patch_repository(monkeypatch: pytest.MonkeyPatch, row: _Row | None) -> None:
@@ -199,6 +200,113 @@ async def test_database_admin_is_rejected_before_issuance(monkeypatch: pytest.Mo
     assert "ordinary user account" in raised.value.message
     assert minted == [], "a database admin must never reach key issuance"
     assert throttle.failures == 1, "the rejected admin attempt must be counted"
+
+
+@pytest.mark.asyncio
+async def test_database_admin_rejection_does_not_rehash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A denied database admin login must not write the password hash back.
+
+    The role check runs before the upgrade rehash, so rejecting an admin is
+    entirely side-effect free rather than issuing a database write on the way out.
+    """
+    row: Final = _Row("admin-1", LitellmUserRoles.PROXY_ADMIN.value, _password("admin-secret"))
+    _patch_repository(monkeypatch, row)
+    rehashed: Final[list[str]] = []
+
+    async def _rehash_spy(user_id: str, *_args: object) -> None:
+        rehashed.append(user_id)
+
+    monkeypatch.setattr(login_utils, "_rehash_password_if_needed", _rehash_spy, raising=True)
+    throttle: Final = _Throttle()
+
+    with pytest.raises(ProxyException) as raised:
+        await login_utils.verify_password_only(
+            username="admin@example.com",
+            password="admin-secret",
+            master_key="sk-master",
+            prisma_client=_Prisma(),  # pyright: ignore[reportArgumentType]  # narrow fake
+            throttle=throttle,  # pyright: ignore[reportArgumentType]  # recording seam
+            general_settings=MappingProxyType({}),
+        )
+
+    assert str(raised.value.code) == "403"
+    assert rehashed == [], "a rejected admin login must not write the password back"
+
+
+class _Request:
+    def __init__(self, body: dict[str, object]) -> None:
+        self._body = body
+
+    async def json(self) -> dict[str, object]:
+        return self._body
+
+
+class _LoginThrottle:
+    """A stand-in for ``LoginThrottle`` whose ``from_request`` returns a recorder."""
+
+    @staticmethod
+    def from_request(*_args: object, **_kwargs: object) -> _Throttle:
+        return _Throttle()
+
+
+@pytest.mark.asyncio
+async def test_handler_persists_no_key_for_a_denied_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real ``cli_password_login`` handler must persist zero keys when it
+    rejects a database admin.
+
+    ``verify_password_only`` minting nothing is only the helper's invariant; the
+    defect lived in the handler that minted after verification. This drives the
+    actual route function and asserts the repository/mint boundary saw no write.
+    """
+    from litellm.proxy import proxy_server
+    from litellm.proxy.management_endpoints import key_management_endpoints
+
+    row: Final = _Row("admin-1", LitellmUserRoles.PROXY_ADMIN.value, _password("admin-secret"))
+    _patch_repository(monkeypatch, row)
+
+    async def _mint_spy(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("a denied admin login reached key issuance")
+
+    monkeypatch.setattr(key_management_endpoints, "generate_key_helper_fn", _mint_spy, raising=True)
+    monkeypatch.setattr(proxy_server, "prisma_client", _Prisma(), raising=False)
+    monkeypatch.setattr(proxy_server, "master_key", "sk-master", raising=False)
+    monkeypatch.setattr(proxy_server, "general_settings", _EMPTY_SETTINGS, raising=False)
+    monkeypatch.setattr(proxy_server, "LoginThrottle", _LoginThrottle, raising=False)
+
+    with pytest.raises(ProxyException) as raised:
+        await proxy_server.cli_password_login(_Request({"username": "admin@example.com", "password": "admin-secret"}))  # pyright: ignore[reportArgumentType]  # narrow fake request
+
+    assert str(raised.value.code) == "403"
+
+
+@pytest.mark.asyncio
+async def test_handler_mints_exactly_one_key_for_an_ordinary_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ordinary-user handler path issues exactly one scoped key, so the
+    zero-write admin proof above is not vacuous for a handler that never mints."""
+    from litellm.proxy import proxy_server
+    from litellm.proxy.management_endpoints import key_management_endpoints
+
+    row: Final = _Row("user-1", LitellmUserRoles.INTERNAL_USER.value, _password("correct horse battery staple"))
+    _patch_repository(monkeypatch, row)
+    calls: Final[list[dict[str, object]]] = []
+
+    async def _mint_spy(*args: object, **kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return {"key": "sk-issued", "expires": None}
+
+    monkeypatch.setattr(key_management_endpoints, "generate_key_helper_fn", _mint_spy, raising=True)
+    monkeypatch.setattr(proxy_server, "prisma_client", _Prisma(), raising=False)
+    monkeypatch.setattr(proxy_server, "master_key", "sk-master", raising=False)
+    monkeypatch.setattr(proxy_server, "general_settings", _EMPTY_SETTINGS, raising=False)
+    monkeypatch.setattr(proxy_server, "LoginThrottle", _LoginThrottle, raising=False)
+
+    response: Final = await proxy_server.cli_password_login(
+        _Request({"username": "user@example.com", "password": "correct horse battery staple"})  # pyright: ignore[reportArgumentType]  # narrow fake request
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 1, "an ordinary user must reach issuance exactly once"
+    assert calls[0]["user_id"] == "user-1"
 
 
 @pytest.mark.asyncio

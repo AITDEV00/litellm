@@ -395,14 +395,14 @@ async def verify_password_only(
             code=401,
         )
 
-    await _rehash_password_if_needed(user_row.user_id, password, stored_password)
     database_role: Final = cast(str, getattr(user_row, "user_role", LitellmUserRoles.INTERNAL_USER))
     if database_role in {LitellmUserRoles.PROXY_ADMIN.value, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value}:
         # The env UI-admin is already refused above; this is the database-backed
         # admin. A machine-facing login must never hand a long-lived key to a
         # PROXY_ADMIN row, even one scoped to self-service routes: the scope is a
-        # courtesy, not the boundary. Reject here so the handler never reaches key
-        # issuance with an administrative role.
+        # courtesy, not the boundary. Reject before the password rehash so a denied
+        # admin login writes nothing, then so the handler never reaches key issuance
+        # with an administrative role.
         await attempt.failed()
         raise ProxyException(
             message=(
@@ -413,6 +413,7 @@ async def verify_password_only(
             param="username",
             code=403,
         )
+    await _rehash_password_if_needed(user_row.user_id, password, stored_password)
     breached_now: Final = prisma_client is not None and await screen_login_password_for_breach(
         user_id=user_row.user_id,
         password=password,
