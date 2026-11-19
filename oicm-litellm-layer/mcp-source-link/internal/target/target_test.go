@@ -136,3 +136,48 @@ func TestTargetRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+// An IPv4-mapped IPv6 literal names the same source as its plain IPv4 form. The
+// gateway's Python normalizer must agree, so `[::ffff:127.0.0.1]:8080` and
+// `127.0.0.1:8080` collapse to one target rather than creating two sources with
+// different aliases.
+func TestMappedIPv4CollapsesToIPv4(t *testing.T) {
+	for _, testCase := range []struct {
+		in   string
+		want string
+	}{
+		{"[::ffff:127.0.0.1]:8080", "127.0.0.1:8080"},
+		{"[::ffff:10.34.104.99]:4000", "10.34.104.99:4000"},
+		{"[::ffff:7f00:1]:8080", "127.0.0.1:8080"},
+	} {
+		got, err := Parse(testCase.in)
+		if err != nil {
+			t.Fatalf("Parse(%q) rejected a mapped IPv4: %v", testCase.in, err)
+		}
+		if got.Kind != IPv4 {
+			t.Fatalf("Parse(%q) kind = %v, want IPv4", testCase.in, got.Kind)
+		}
+		if got.String() != testCase.want {
+			t.Fatalf("Parse(%q) = %q, want %q", testCase.in, got.String(), testCase.want)
+		}
+	}
+}
+
+// A source origin is a specific unicast host, so an unspecified, multicast,
+// broadcast, or link-local address must be refused rather than dialed. This is the
+// immutability policy the gateway mirrors in canonical_worker_host.
+func TestRejectsUnroutableOrNonUnicastAddresses(t *testing.T) {
+	for _, in := range []string{
+		"0.0.0.0:8080",
+		"[::]:8080",
+		"255.255.255.255:8080",
+		"224.0.0.1:8080",
+		"[ff02::1]:8080",
+		"[fe80::1]:8080",
+		"169.254.1.1:8080",
+	} {
+		if _, err := Parse(in); err == nil {
+			t.Fatalf("Parse(%q) accepted a non-unicast or unroutable address", in)
+		}
+	}
+}

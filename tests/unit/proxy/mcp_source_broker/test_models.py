@@ -22,9 +22,6 @@ def test_alias_rejects_the_tool_name_separator() -> None:
         SourceCreate(alias="pets-api", **base)
 
 
-import pytest
-
-
 @pytest.mark.parametrize(
     "host",
     [
@@ -69,3 +66,32 @@ def test_target_port_bounds() -> None:
     with pytest.raises(ValueError):
         Target(host="127.0.0.1", port=65536)
     assert Target(host="127.0.0.1", port=65535).port == 65535
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        ("::ffff:127.0.0.1", "127.0.0.1"),
+        ("::ffff:7f00:1", "127.0.0.1"),
+        ("::ffff:10.34.104.99", "10.34.104.99"),
+        ("0:0:0:0:0:0:0:1", "::1"),
+        ("FD00:0:0:0:0:0:0:1", "fd00::1"),
+    ],
+)
+def test_target_normalizes_like_the_go_connector(raw: str, canonical: str) -> None:
+    """The gateway must normalize a host exactly as the Go connector's target.Parse.
+
+    An IPv4-mapped IPv6 literal collapses to plain IPv4, and IPv6 is compressed, so
+    two spellings of one origin persist as one identity rather than deriving two
+    aliases that disagree across the gateway/connector boundary.
+    """
+    assert Target(host=raw).host == canonical
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "255.255.255.255", "224.0.0.1", "ff02::1", "fe80::1", "169.254.1.1"])
+def test_target_rejects_non_unicast_addresses(host: str) -> None:
+    """A source origin is a specific unicast host: an unspecified, multicast,
+    broadcast, or link-local address must be refused on the gateway as it is on the
+    connector, so neither side stores a target the other would deny."""
+    with pytest.raises(ValueError):
+        Target(host=host)

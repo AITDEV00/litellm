@@ -82,19 +82,33 @@ def canonical_worker_host(value: str) -> str:
 
     The worker row stores exactly what the reviewed source stores, so a service DNS
     name, a private IPv4, and an IPv6 literal must all survive insert, read, and
-    projection. IPv6 is normalized through ``ipaddress`` so two spellings collapse to
-    one, matching the client's ``target`` normalization; a service name is
-    lowercased. This is the single validator the row DTO and the request ``Target``
-    both reach, so the two boundaries cannot drift.
+    projection. An IPv4-mapped IPv6 address collapses to plain IPv4 so
+    ``::ffff:127.0.0.1`` and ``127.0.0.1`` name one source, matching the client's
+    ``target`` normalization. Unspecified, multicast, and link-local/broadcast
+    addresses are refused on both sides: a source origin is a specific unicast host,
+    never ``0.0.0.0``/``::``. A service name is lowercased. This is the single
+    validator the row DTO and the request ``Target`` both reach, so the two
+    boundaries cannot drift.
     """
     try:
-        return ipaddress.ip_address(value).compressed
+        address: Final = ipaddress.ip_address(value)
     except ValueError:
         if SERVICE_HOST.fullmatch(value):
             return value
         raise ValueError(
             "worker target host must be an IP address or a Kubernetes service name like name.namespace.svc"
         )
+    mapped: Final = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) else None
+    canonical: Final = mapped if mapped is not None else address
+    if not _usable_address(canonical):
+        raise ValueError("worker target host must be a unicast host address")
+    return canonical.compressed
+
+
+def _usable_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if address.is_unspecified or address.is_multicast or address.is_link_local:
+        return False
+    return not (isinstance(address, ipaddress.IPv4Address) and address == ipaddress.IPv4Address("255.255.255.255"))
 
 
 def canonical_hostport(host: str, port: int) -> str:

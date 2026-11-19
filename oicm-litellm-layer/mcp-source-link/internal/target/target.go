@@ -96,10 +96,7 @@ func normalizeHost(host string) (string, Kind, error) {
 		return "", 0, errors.New("target host is empty")
 	}
 	if address := net.ParseIP(host); address != nil {
-		if address.To4() != nil {
-			return address.To4().String(), IPv4, nil
-		}
-		return address.String(), IPv6, nil
+		return normalizeAddress(address)
 	}
 	if net.ParseIP(strings.Trim(host, "[]")) != nil {
 		return "", 0, errors.New("an IPv6 target must be bracketed as [address]:port")
@@ -109,6 +106,35 @@ func normalizeHost(host string) (string, Kind, error) {
 		return "", 0, err
 	}
 	return service, Service, nil
+}
+
+// normalizeAddress canonicalizes an address literal and rejects the addresses a
+// source may never expose.
+//
+// Every mapped IPv4 form collapses to plain IPv4 so `::ffff:127.0.0.1` and
+// `127.0.0.1` name one source, matching the gateway's Python normalizer exactly.
+// Unspecified (0.0.0.0, ::), multicast, and broadcast/link-local addresses are
+// refused: a source origin is a specific host to dial, and an unspecified address
+// means "this machine", not a target, while the others are not a service address.
+func normalizeAddress(address net.IP) (string, Kind, error) {
+	if v4 := address.To4(); v4 != nil {
+		if !usableIPv4(v4) {
+			return "", 0, errors.New("target address must be a unicast host address")
+		}
+		return v4.String(), IPv4, nil
+	}
+	if !usableIPv6(address) {
+		return "", 0, errors.New("target address must be a unicast host address")
+	}
+	return address.String(), IPv6, nil
+}
+
+func usableIPv4(v4 net.IP) bool {
+	return !v4.IsUnspecified() && !v4.IsMulticast() && !v4.Equal(net.IPv4bcast) && !v4.IsLinkLocalUnicast()
+}
+
+func usableIPv6(v6 net.IP) bool {
+	return !v6.IsUnspecified() && !v6.IsMulticast() && !v6.IsLinkLocalUnicast()
 }
 
 // normalizeService accepts `name.namespace.svc` and the full cluster forms
