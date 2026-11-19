@@ -114,6 +114,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Pyannote diarization guide | `docs/usage-guides/PYANNOTE_DIARIZATION_GUIDE.md` |
 | Qwen image generation & editing guide | `examples/usage/image-generation/README.md` (included into `docs/usage-guides/QWEN_IMAGE_GUIDE.md`) |
 | Qwen vision guide | `docs/usage-guides/QWEN_VISION_GUIDE.md` |
+| MCP source agent guide (install, log in, register sources, run the agent, approve, call tools, revoke) | `docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` |
 
 ### Runnable usage harnesses
 
