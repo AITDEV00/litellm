@@ -352,6 +352,44 @@ def test_get_llm_provider_hosted_vllm():
     assert model == "llama-3.1-70b-instruct"
     assert dynamic_api_key == "fake-api-key"
 
+
+@pytest.mark.usefixtures("_vcr_outcome_gate", "isolate_litellm_state", "setup_and_teardown")
+def test_self_hosted_nim_with_explicit_api_base_needs_no_real_key():
+    """A self-hosted NIM server (explicit api_base, no auth) keeps working.
+
+    The controller registers in-cluster NIM deployments with their own
+    api_base and no key. The OpenAI SDK client refuses to construct without
+    some key, so the resolution must fall back to the same placeholder the
+    hosted_vllm configs use instead of failing the whole chat surface.
+    """
+    model, custom_llm_provider, dynamic_api_key, api_base = litellm.get_llm_provider(
+        model="nvidia_nim/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        api_base="http://s-nim-pod.adeo.svc.cluster.local:8080/v1",
+        api_key=None,
+    )
+    assert custom_llm_provider == "nvidia_nim"
+    assert dynamic_api_key == "fake-api-key"
+    assert api_base == "http://s-nim-pod.adeo.svc.cluster.local:8080/v1"
+
+
+@pytest.mark.usefixtures("_vcr_outcome_gate", "isolate_litellm_state", "setup_and_teardown")
+def test_public_nvidia_nim_endpoint_still_requires_a_real_key(monkeypatch: pytest.MonkeyPatch):
+    """The public NVIDIA cloud endpoint must not silently get a placeholder key.
+
+    Only an explicit api_base says self-hosted; the default endpoint keeps
+    requiring a real key so an unset NVIDIA_NIM_API_KEY fails loudly there.
+    """
+    monkeypatch.delenv("NVIDIA_NIM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_NIM_API_BASE", raising=False)
+
+    _, _, dynamic_api_key, api_base = litellm.get_llm_provider(
+        model="nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct",
+        api_base=None,
+        api_key=None,
+    )
+    assert api_base == "https://integrate.api.nvidia.com/v1"
+    assert dynamic_api_key is None
+
 @pytest.mark.usefixtures("_vcr_outcome_gate", "isolate_litellm_state", "setup_and_teardown")
 def test_get_llm_provider_llamafile():
     model, custom_llm_provider, dynamic_api_key, api_base = litellm.get_llm_provider(

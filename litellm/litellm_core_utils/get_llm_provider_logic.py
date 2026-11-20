@@ -665,8 +665,17 @@ def _get_openai_compatible_provider_info(
         model = split_mantle_region_prefix(model)[1]  # rebind-ok: the prefix is routing only, not a Mantle model id
     elif custom_llm_provider == "nvidia_nim":
         # nvidia_nim is openai compatible, we just need to set this to custom_openai and have the api_base be https://api.endpoints.anyscale.com/v1
-        api_base = api_base or get_secret("NVIDIA_NIM_API_BASE") or "https://integrate.api.nvidia.com/v1"
-        dynamic_api_key = api_key or get_secret_str("NVIDIA_NIM_API_KEY")
+        explicit_nim_base: Final = api_base or get_secret("NVIDIA_NIM_API_BASE")
+        api_base = explicit_nim_base or "https://integrate.api.nvidia.com/v1"  # rebind-ok: mirrors sibling provider branches
+        # An explicit api_base means a self-hosted NIM server, which may serve
+        # with no auth at all (the same no-key contract the hosted_vllm configs
+        # give in-cluster pods); the OpenAI SDK client refuses to construct
+        # without some key, so fall back to the same placeholder they use. The
+        # public NVIDIA endpoint still requires a real key.
+        if explicit_nim_base:
+            dynamic_api_key = api_key or get_secret_str("NVIDIA_NIM_API_KEY") or "fake-api-key"
+        else:
+            dynamic_api_key = api_key or get_secret_str("NVIDIA_NIM_API_KEY")
     elif custom_llm_provider == "nvidia_riva":
         # NVIDIA Riva is gRPC-based; api_base must be a host:port like
         # `grpc.nvcf.nvidia.com:443` or `localhost:50051`. There is no
