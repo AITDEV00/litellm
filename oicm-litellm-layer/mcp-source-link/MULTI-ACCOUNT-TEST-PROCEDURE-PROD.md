@@ -300,9 +300,13 @@ correctly do not: they serve no OpenAPI catalog.
   which means the gateway and broker pods were started against different secret
   contents. Restart both so they read the same secret, then re-enroll, because
   credentials minted under the old pepper no longer validate.
-- `connection not ready`: the terminator or the 18093 forward is down.
-- Immediate close with no error at all: `MCP_SOURCE_LINK_TUNNEL_URL` is unset and
-  the agent is dialing the gateway's 443, which has no gRPC route.
+- `connection not ready`: **dev only**, the terminator or the 18093 forward is down.
+  Prod has no forward to lose; a broker rollout merely drops live tunnels until the
+  agent redials.
+- Immediate close with no server-side log: the tunnel Ingress is missing or not
+  programmed, so `/grpctunnel.v1.TunnelService/` falls through to the gateway. Apply
+  `deploy/prod/mcp-tunnel-ingress.yaml` and re-run the Phase 1 probe; it must answer
+  `200 application/grpc`, not a JSON `404`.
 
 ## Phase 6: approve the four sources (you, in the UI)
 

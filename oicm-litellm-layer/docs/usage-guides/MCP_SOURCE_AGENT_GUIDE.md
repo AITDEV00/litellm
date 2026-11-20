@@ -73,9 +73,9 @@ confusing failures.
 | Certificate | self-signed, needs `MCP_SOURCE_LINK_INSECURE=1` | valid, do **not** set `INSECURE` |
 
 The agent derives its tunnel target from the account's gateway URL, defaulting to
-port 443. On prod that address is the gateway, which has no gRPC route, so an
-unset `MCP_SOURCE_LINK_TUNNEL_URL` means every tunnel closes immediately with no
-server-side error to explain it. See appendix A.
+port 443. On prod that same host and port carry both endpoints, so the account URL
+is already correct and `MCP_SOURCE_LINK_TUNNEL_URL` is not needed. On dev the
+gateway forward has no gRPC route, so the override is required. See appendix A.
 
 ---
 
@@ -363,12 +363,14 @@ the others keep serving; that independence is the point.
   | dev | `MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094` | `dial localhost:14443: connection not ready` forever |
   | prod | `MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae` | nothing to configure: this is the default the account URL already gives |
 
-  There is **no** environment where this override can be skipped today, including
-  prod: prod's ingress routes every path to the gateway on 4000 and has no route
-  to 8093. See appendix A.
-- A broker rollout replaces the pod and kills the port-forward behind your
-  terminator. Re-run the forward and restart the terminator, then restart the
-  agent; otherwise it logs `connection not ready` indefinitely.
+  The override is **dev only**. Prod needs no tunnel URL because the ingress routes
+  `/grpctunnel.v1.TunnelService/` on the same 443 the control plane uses. See
+  appendix A.
+- **Dev only**: a broker rollout replaces the pod and kills the port-forward behind
+  your terminator. Re-run the forward and restart the terminator, then restart the
+  agent; otherwise it logs `connection not ready` indefinitely. On prod the tunnel
+  goes through the Ingress, so a broker rollout drops live tunnels briefly but no
+  forward breaks and the agent reconnects on its own.
 - The agent reloads when the source set changes (`source add`/`source remove`
   tell it to reload), so you do not restart it for a new source. It does not
   reload on credential changes from a failed re-enrollment (Step 9).
@@ -604,7 +606,7 @@ an agent serves them again.
 
 | Variable | Effect | When to set |
 | -------- | ------ | ----------- |
-| `MCP_SOURCE_LINK_TUNNEL_URL=https://host:port` | Dial the gRPC tunnel at this URL instead of the account's gateway URL | Dev only: its control-plane terminator does not speak HTTP/2. On prod the account URL already works over 443 (appendix A). |
+| `MCP_SOURCE_LINK_TUNNEL_URL=https://host:port` | Dial the gRPC tunnel at this URL instead of the account's gateway URL | **Dev only**. On prod the account URL already works over 443 and this can be left unset. |
 | `MCP_SOURCE_LINK_INSECURE=1` | Skip TLS certificate verification | Dev gateway with a self-signed cert only. Never on prod. |
 | `MCP_SOURCE_LINK_CA_FILE=<path>` | CA bundle to verify the gateway certificate | Environments where you can verify instead of skipping |
 | `MCP_SOURCE_LINK_STATE_DIR=<path>` | Override the state directory | Isolated test runs, multiple identities on one machine |
