@@ -46,6 +46,17 @@ The tested model is registered with
 the NIM's public OICM model name and maps it to the lowercase internal NIM
 model name. Callers should send the full model ID as listed above.
 
+The row's serving stack is registered as `nvidia_nim` since 2026-11-20: the
+discovery controller activates the NIM audio protocol only when OICM declares
+the serving stack (`model_server_name=NVIDIA NIM Nemotron Transcribe`,
+`model_server_tag=1.0.0`) and the pod mounts both native audio surfaces, so
+the row prefix in `litellm_params.model` reads
+`nvidia_nim/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B`. Requests keep
+sending the public model ID unchanged; the prefix is internal routing. Chat
+completions with inline audio run through the same OpenAI-compatible
+transport as before, and the self-hosted pod needs no API key: the gateway
+supplies a placeholder exactly as it does for hosted-vLLM pods
+
 ## Audio support and transcription languages
 
 The model accepts a complete audio file, not live PCM microphone input. A known

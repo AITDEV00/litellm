@@ -1393,6 +1393,57 @@ Live dev proofs, all with the reference WAV `tests/gettysburg.wav`:
 - chat-audio regression: `/v1/chat/completions` with base64 `input_audio`
   and `stream=true` still returns 200 SSE with a terminal `[DONE]`
 
+### Phase C1 (NIM server identity activation), delivered 2026-11-20
+
+Commits `59f6ab5e27b` (controller gate) and `4a40c500647` (gateway key fix)
+on `jya0-v1.108.5`. Dev controller
+`oicm-discovery-controller:0.1.0-20261120-59f6ab5`, dev gateway image
+`litellm-src:jya0-v1.108.5` rebuilt with the fix
+
+Identity precondition verified read-only before any wiring: the OICM
+`deployment_summary` payload carries `model_server_name` and
+`model_server_tag` on every item; the Nemotron deployment declares
+`NVIDIA NIM Nemotron Transcribe` tag `1.0.0`, every other deployment carries
+`vLLM`, `SGLang`, or `None`. The pod's openapi.json mounts both
+`/v1/audio/transcriptions` and `/v1/audio/translations`
+
+Delivered: the two identity fields on `OicmDeploymentSummary` and
+`OicmStatusSnapshot` mapped through `build_snapshot`; `InferenceDeclaration`
+as the frozen declaration record; `_deployment_declaration` as the single
+snapshot join with `_declared_task` derived from it;
+`detect_nim_audio_protocol` as the only activation decision (declared NIM
+server name, a recorded tag, and both native audio paths, flipping only a
+`hosted_vllm` result, never an independently detected native provider); and
+negative fixtures for every misclassification risk in the plan (owned_by
+nvidia alone, a nemotron-named model on declared vLLM, an untagged
+declaration, a half-mounted surface, a NIM-declared hamsa pod)
+
+Live dev proof:
+
+- the controller logged
+  `NIM audio protocol activated for 3fb782ae: declared server 'NVIDIA NIM Nemotron Transcribe' tag '1.0.0'`
+  during its first full sync and patched the row in place
+  (`Patched model litellm_id=537be714...`, `Full sync complete: 24 models
+  registered`): no delete/re-register churn, `mode=audio_transcription` and
+  `oicm_task=Automatic Speech Recognition` preserved
+- the stored row now reads
+  `model=nvidia_nim/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B` with the
+  unchanged `/v1` api_base
+- the flip immediately surfaced a real chat-path bug the hosted_vllm default
+  had masked: chat through `nvidia_nim` required an API key the in-cluster
+  pod does not check, failing every chat completion with AuthenticationError.
+  Fixed by scoping the placeholder-key fallback to an explicit (self-hosted)
+  api_base, exactly the hosted_vllm contract; the public NVIDIA endpoint
+  still requires a real key. Regression tests pin both directions and were
+  mutation-verified
+- after the gateway rebuild, native audio evidence repeated through the
+  flipped row: transcription JSON 200 with the full `x-litellm-*` header set
+  and native `{"text", "usage"}` fields; `response_format=text` 200
+  `text/plain` document bytes; translation with `target_language=en` 200
+  genuinely translated. Chat-audio streaming re-proven after the rebuild
+
+Phase C2-C4 (native multipart SSE streaming) remain not started
+
 ---
 
 ## Appendix A: Implementation-time facts to verify, not code assumptions
