@@ -20,7 +20,7 @@ from .exclusions import excluded, load_exclusions
 from .fallbacks import FallbackReconciler
 from .fallbacks.client import FallbackClient
 from .litellm_client import LiteLLMClient
-from .models import OicmModel, strip_source_prefix
+from .models import InferenceDeclaration, OicmModel, strip_source_prefix
 from .pricing import PricingResolver, PricingSource, pricing_to_params
 from .reconciler import SyncReconciler, _summaries_to_models
 from .sources import ModelSource
@@ -53,7 +53,10 @@ class DiscoveryController:
             # because the poller is created below and injection order must
             # not constrain it.
             self.sources: List[ModelSource] = [
-                LocalDeploymentSource(task_lookup=self._declared_task)
+                LocalDeploymentSource(
+                    task_lookup=self._declared_task,
+                    declaration_lookup=self._deployment_declaration,
+                )
             ]
             if ENABLE_SUBMARINER_IMPORTS:
                 self.sources.append(SubmarinerImportSource())
@@ -154,17 +157,34 @@ class DiscoveryController:
             return None
         return self.status_poller.persister.checked_at.get(cluster)
 
-    def _declared_task(self, uuid: str) -> Optional[str]:
-        """OICM's declared inference task for a deployment, if polled yet.
+    def _deployment_declaration(self, uuid: str) -> Optional[InferenceDeclaration]:
+        """The operator's deploy-time declarations for a deployment, if polled.
 
         A plain lookup, not a fetch: the poll loop is the single writer of
         snapshots, and discovery reading them here joins two views the
         controller already owns (k8s evidence, OICM declaration). A brand-new
-        deployment may not have been polled yet; None simply means tier 0
-        sits this discovery out and the mode falls to path detection.
+        deployment may not have been polled yet; None simply means the
+        declaration tiers sit this discovery out and detection falls to the
+        mounted surface.
         """
         snap = self.status_poller.snapshot(strip_source_prefix(uuid))
-        return snap.inference_task if snap else None
+        if snap is None:
+            return None
+        return InferenceDeclaration(
+            inference_task=snap.inference_task,
+            model_server_name=snap.model_server_name,
+            model_server_tag=snap.model_server_tag,
+        )
+
+    def _declared_task(self, uuid: str) -> Optional[str]:
+        """OICM's declared inference task, derived from the full declaration.
+
+        Kept as its own derivation so the existing tier-0 mode decision keeps
+        its signature; the declaration lookup above is the single join point
+        for every declared fact.
+        """
+        declaration = self._deployment_declaration(uuid)
+        return declaration.inference_task if declaration else None
 
     async def full_sync(self):
         logger.info("Starting full sync...")

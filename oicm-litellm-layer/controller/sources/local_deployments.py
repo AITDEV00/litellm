@@ -22,11 +22,13 @@ from ..config import (
     WORKLOAD_TYPE_LABEL,
 )
 from ..models import (
+    InferenceDeclaration,
     OicmModel,
     build_model,
     detect_api_surface,
     detect_mode_from_paths,
     detect_mode_from_task,
+    detect_nim_audio_protocol,
     detect_provider,
     parse_model_list,
 )
@@ -38,6 +40,11 @@ logger = logging.getLogger("oicm-discovery")
 # deployment. Injected by the controller (a snapshot lookup), so the source
 # itself stays free of poller knowledge and a test can pin the task directly.
 TaskLookup = Callable[[str], Optional[str]]
+
+# The full declared-fact lookup (task + serving-stack identity). Same
+# injection contract as TaskLookup: the controller passes its snapshot join,
+# a test pins the declaration directly.
+DeclarationLookup = Callable[[str], Optional[InferenceDeclaration]]
 
 # A tiny solid-red 1x1 PNG and a 0.1s 8kHz silent WAV, both under 100 bytes
 # base64-encoded, so the synthetic capability probe costs the backend a few
@@ -67,14 +74,16 @@ def load_kube_config() -> None:
 
 
 class LocalDeploymentSource(ModelSource):
-    # Class-level default so instances built via __new__ in tests (which skip
-    # __init__) still see "no task lookup" rather than an AttributeError.
+    # Class-level defaults so instances built via __new__ in tests (which skip
+    # __init__) still see "no lookups" rather than an AttributeError.
     _task_lookup: Optional["TaskLookup"] = None
+    _declaration_lookup: Optional["DeclarationLookup"] = None
 
     def __init__(
         self,
         http_client: Optional[httpx.AsyncClient] = None,
         task_lookup: Optional[TaskLookup] = None,
+        declaration_lookup: Optional[DeclarationLookup] = None,
     ):
         try:
             load_kube_config()
@@ -86,6 +95,7 @@ class LocalDeploymentSource(ModelSource):
         self.core_api = client.CoreV1Api()
         self._client = http_client or httpx.AsyncClient(timeout=PROBE_TIMEOUT_SECONDS)
         self._task_lookup = task_lookup
+        self._declaration_lookup = declaration_lookup
         # Synthetic-probe verdicts memoized per deployment for the controller's
         # lifetime: the probe is the only expensive step in discovery (a real
         # inference), so it runs once per deployment per process, never per cycle.
@@ -155,12 +165,32 @@ class LocalDeploymentSource(ModelSource):
         # surface, not the individual model id), so compute them once. Tier 0:
         # the operator's declared task decides when its native surface is
         # mounted; tier 3 (path shape) is the floor and stays unchanged.
-        inference_task = self._task_lookup(uuid) if self._task_lookup else None
+        declaration = (
+            self._declaration_lookup(uuid) if self._declaration_lookup else None
+        )
+        inference_task = (
+            declaration.inference_task
+            if declaration is not None
+            else (self._task_lookup(uuid) if self._task_lookup else None)
+        )
         mode = (
             detect_mode_from_task(inference_task, paths)
             or detect_mode_from_paths(paths, model_ids[0], extra_args)
         )
         provider = detect_provider(owned_by or "", model_ids[0], paths)
+        # The NIM compound gate fires only when the declared serving stack is
+        # NVIDIA NIM and both native audio surfaces are mounted, and only
+        # when no independently detected native provider already claimed the
+        # pod (hamsa/pyannote/omnivoice detection is per-file protocol
+        # mapping, never overwritten by a serving-stack declaration).
+        if provider == "hosted_vllm" and detect_nim_audio_protocol(declaration, paths):
+            provider = "nvidia_nim"
+            logger.info(
+                "NIM audio protocol activated for %s: declared server %r tag %r",
+                uuid[:8],
+                declaration.model_server_name if declaration else None,
+                declaration.model_server_tag if declaration else None,
+            )
         api_surface = detect_api_surface(provider, paths)
 
         capability_facts = await self._probe_capability_facts(uuid, mode, model_ids[0], served_task_types)

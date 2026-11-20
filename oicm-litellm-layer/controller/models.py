@@ -13,6 +13,22 @@ from .token_limits import token_budgets
 SUBMARINER_PREFIX: Final[str] = "submariner:"
 
 
+@dataclass(frozen=True, slots=True)
+class InferenceDeclaration:
+    """The operator's deploy-time declarations for one deployment, from OICM.
+
+    Carries exactly the fields a detection tier needs to make a decision from
+    declared intent: the inference task and the serving-stack identity. All
+    fields may be None (a source that predates them, or a deployment OICM has
+    not been asked about), and every consumer must treat None as ``no claim``
+    rather than guessing.
+    """
+
+    inference_task: Optional[str] = None
+    model_server_name: Optional[str] = None
+    model_server_tag: Optional[str] = None
+
+
 def strip_source_prefix(uuid: str) -> str:
     """The bare deployment uuid behind a possibly source-prefixed one.
 
@@ -200,6 +216,7 @@ def sanitize_model_id(raw_id: str) -> str:
 
 CHAT_PATH = "/v1/chat/completions"
 TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
+TRANSLATION_PATH = "/v1/audio/translations"
 TTS_PATH = "/v1/audio/speech"
 EMBEDDING_PATH = "/v1/embeddings"
 OCR_PATH = "/v1/ocr"
@@ -474,3 +491,48 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
         return "hamsa"
 
     return "hosted_vllm"
+
+
+# The serving-stack name OICM records for the NVIDIA NIM transcribe service.
+# Matched case-insensitively against the declared ``model_server_name``, and
+# only ever reachable through ``detect_nim_audio_protocol``'s compound gate:
+# never add "nvidia" or "nim" to KNOWN_PROVIDERS, whose substring match would
+# fire on any owned_by or model id that merely mentions NVIDIA.
+_NIM_SERVER_NAME_TOKENS: Final[Tuple[str, ...]] = ("nvidia", "nim")
+
+# The paths that prove a NIM transcribe service's native audio surface is
+# actually mounted. Both must be present: the NIM audio protocol differs from
+# hosted-vLLM's in its SSE event vocabulary and its per-field contracts, so a
+# server declared NIM but missing either surface must stay on the generic
+# OpenAI-compatible transport rather than half-activate.
+_NIM_AUDIO_PATHS: Final[FrozenSet[str]] = frozenset(
+    {TRANSCRIPTION_PATH, TRANSLATION_PATH}
+)
+
+
+def detect_nim_audio_protocol(
+    declaration: Optional[InferenceDeclaration], paths: FrozenSet[str]
+) -> bool:
+    """Whether the compound NIM audio activation contract holds, exactly.
+
+    True only when every fact agrees: the operator declared a NVIDIA NIM
+    serving stack (``model_server_name``) with a recorded version tag, and
+    the pod's openapi.json mounts both native audio surfaces. Anything less
+    (a missing declaration, an unknown server, owned_by=nvidia, a
+    nemotron-named model on vLLM, an unmounted surface) is False, so the
+    provider falls through to the generic OpenAI-compatible transport.
+
+    This is the only place the NIM activation decision exists: the source
+    calls it once per discovery, and no name-based heuristic anywhere else
+    may reach the same conclusion.
+    """
+    if declaration is None:
+        return False
+    server_name = (declaration.model_server_name or "").lower()
+    if not server_name:
+        return False
+    if not all(token in server_name for token in _NIM_SERVER_NAME_TOKENS):
+        return False
+    if not declaration.model_server_tag:
+        return False
+    return _NIM_AUDIO_PATHS <= paths

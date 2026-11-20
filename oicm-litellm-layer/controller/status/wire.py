@@ -105,6 +105,13 @@ class OicmDeploymentSummary(BaseModel):
     # survive parsing and ride the row as model_info.oicm_task, and only the
     # mode-mapping table degrades it to lower tiers.
     inference_task: Optional[str] = None
+    # The operator-selected serving stack (OICM ``model_server_name`` and
+    # ``model_server_tag``), e.g. ``vLLM`` / ``0.27.1-cu129`` or ``NVIDIA NIM
+    # Nemotron Transcribe`` / ``1.0.0``. Facts, never heuristics: the NIM
+    # audio protocol may activate only on this explicit declaration plus its
+    # native surfaces, never on an owned_by or model-name substring.
+    model_server_name: Optional[str] = None
+    model_server_tag: Optional[str] = None
 
     @field_validator("status_detail", mode="before")
     @classmethod

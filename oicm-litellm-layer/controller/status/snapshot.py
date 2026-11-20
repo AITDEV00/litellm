@@ -70,3 +70,9 @@ class OicmStatusSnapshot:
     # a mode: it rides the row as model_info.oicm_task and feeds the tier-0
     # mode decision, but never overwrites what the mounted surface implies.
     inference_task: Optional[str] = None
+    # The operator-declared serving stack (OICM ``model_server_name`` /
+    # ``model_server_tag``). Same facts-not-decisions contract as
+    # inference_task: the compound NIM activation gate reads these, but no
+    # provider or mode is ever derived from a name substring alone.
+    model_server_name: Optional[str] = None
+    model_server_tag: Optional[str] = None

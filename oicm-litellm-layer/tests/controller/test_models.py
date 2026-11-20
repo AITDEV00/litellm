@@ -1,6 +1,7 @@
 """Tests for controller/models.py shape parsing, mode/provider detection, api_base shape, and hamsa api-surface sniffing."""
 
 from controller.models import (
+    InferenceDeclaration,
     OicmModel,
     build_model,
     build_oicm_model,
@@ -8,6 +9,7 @@ from controller.models import (
     detect_mode,
     detect_mode_from_paths,
     detect_mode_from_task,
+    detect_nim_audio_protocol,
     detect_provider,
     parse_model_list,
     sanitize_model_id,
@@ -511,3 +513,95 @@ class TestSourcePrefix:
         assert m.cluster == "abudhabi"
         assert m.source == "submariner:abudhabi"
         assert m.deployment_id == "766b1720"
+
+
+class TestNimAudioProtocolGate:
+    # The compound activation contract, pinned fact by fact. The live Al Ain
+    # deployment declares server "NVIDIA NIM Nemotron Transcribe" tag "1.0.0"
+    # and mounts both native audio paths; every other fixture is a negative.
+
+    _NIM_PATHS = frozenset({"/v1/audio/transcriptions", "/v1/audio/translations"})
+
+    def test_the_live_declaration_and_both_paths_activate(self):
+        assert detect_nim_audio_protocol(
+            InferenceDeclaration(
+                inference_task="Automatic Speech Recognition",
+                model_server_name="NVIDIA NIM Nemotron Transcribe",
+                model_server_tag="1.0.0",
+            ),
+            self._NIM_PATHS,
+        )
+
+    def test_none_declaration_is_no_claim(self):
+        assert detect_nim_audio_protocol(None, self._NIM_PATHS) is False
+
+    def test_all_fields_none_is_no_claim(self):
+        assert detect_nim_audio_protocol(InferenceDeclaration(), self._NIM_PATHS) is False
+
+    def test_vllm_server_name_is_no_claim(self):
+        assert (
+            detect_nim_audio_protocol(
+                InferenceDeclaration(
+                    model_server_name="vLLM",
+                    model_server_tag="0.27.1-cu129",
+                ),
+                self._NIM_PATHS,
+            )
+            is False
+        )
+
+    def test_missing_tag_is_no_claim(self):
+        assert (
+            detect_nim_audio_protocol(
+                InferenceDeclaration(
+                    model_server_name="NVIDIA NIM Nemotron Transcribe",
+                ),
+                self._NIM_PATHS,
+            )
+            is False
+        )
+
+    def test_translation_surface_missing_is_no_claim(self):
+        assert (
+            detect_nim_audio_protocol(
+                InferenceDeclaration(
+                    model_server_name="NVIDIA NIM Nemotron Transcribe",
+                    model_server_tag="1.0.0",
+                ),
+                frozenset({"/v1/audio/transcriptions"}),
+            )
+            is False
+        )
+
+    def test_transcription_surface_missing_is_no_claim(self):
+        assert (
+            detect_nim_audio_protocol(
+                InferenceDeclaration(
+                    model_server_name="NVIDIA NIM Nemotron Transcribe",
+                    model_server_tag="1.0.0",
+                ),
+                frozenset({"/v1/audio/translations"}),
+            )
+            is False
+        )
+
+    def test_name_match_is_case_insensitive(self):
+        assert detect_nim_audio_protocol(
+            InferenceDeclaration(
+                model_server_name="nvidia nim nemotron transcribe",
+                model_server_tag="1.0.0",
+            ),
+            self._NIM_PATHS,
+        )
+
+    def test_nvidia_without_nim_in_the_name_is_no_claim(self):
+        assert (
+            detect_nim_audio_protocol(
+                InferenceDeclaration(
+                    model_server_name="NVIDIA Triton Inference Server",
+                    model_server_tag="25.02",
+                ),
+                self._NIM_PATHS,
+            )
+            is False
+        )

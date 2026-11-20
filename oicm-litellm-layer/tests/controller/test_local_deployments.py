@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+from controller.models import InferenceDeclaration
 from controller.sources.base import probe_v1_models
 from controller.sources.local_deployments import LocalDeploymentSource
 
@@ -98,6 +99,159 @@ async def test_declared_task_rides_the_row_without_overriding_when_surface_absen
     model = models["vibe"]
     assert model.mode == "chat"
     assert model.inference_task == "Automatic Speech Recognition"
+
+
+_NIM_PATHS = frozenset({"/v1/audio/transcriptions", "/v1/audio/translations"})
+
+
+def _nim_source(declaration):
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(return_value=_NIM_PATHS)
+    source._discover_model_ids = AsyncMock(
+        return_value=(["nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"], "nvidia", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+    source._declaration_lookup = lambda uuid: declaration
+    return source
+
+
+@pytest.mark.asyncio
+async def test_declared_nim_with_both_native_paths_activates_nvidia_nim():
+    """The live Nemotron registration, end to end through discovery.
+
+    OICM declares server ``NVIDIA NIM Nemotron Transcribe`` tag ``1.0.0`` and
+    the pod mounts both native audio surfaces, so the compound gate fires and
+    the row flips to the nvidia_nim provider. owned_by is nvidia here too, so
+    this also proves the declaration, not the owner string, carried the flip.
+    """
+    source = _nim_source(
+        InferenceDeclaration(
+            inference_task="Automatic Speech Recognition",
+            model_server_name="NVIDIA NIM Nemotron Transcribe",
+            model_server_tag="1.0.0",
+        )
+    )
+
+    models = await source.discover_for_deployment(_make_deployment("nim"))
+
+    assert models["nim"].provider == "nvidia_nim"
+    assert models["nim"].inference_task == "Automatic Speech Recognition"
+
+
+@pytest.mark.asyncio
+async def test_owned_by_nvidia_without_nim_declaration_stays_hosted_vllm():
+    """An owned_by that merely mentions nvidia must never flip the provider.
+
+    KNOWN_PROVIDERS deliberately has no nvidia entry: substring activation
+    would catch every NVIDIA-published model served by any stack. Only the
+    compound declaration-plus-surfaces contract may activate nvidia_nim.
+    """
+    source = _nim_source(None)
+
+    models = await source.discover_for_deployment(_make_deployment("nvidia-owner"))
+
+    assert models["nvidia-owner"].provider == "hosted_vllm"
+
+
+@pytest.mark.asyncio
+async def test_nemotron_named_model_on_vllm_server_stays_hosted_vllm():
+    """A nemotron-named model served by a vLLM server stays on the generic
+    OpenAI-compatible transport, whatever the owner string says.
+
+    This is the negative fixture for the compound identity: the model id and
+    owned_by both scream NVIDIA, but the declared server is vLLM, so the NIM
+    audio protocol must not activate.
+    """
+    source = _nim_source(
+        InferenceDeclaration(
+            inference_task="Automatic Speech Recognition",
+            model_server_name="vLLM",
+            model_server_tag="0.27.1-cu129",
+        )
+    )
+
+    models = await source.discover_for_deployment(_make_deployment("vllm-nemotron"))
+
+    assert models["vllm-nemotron"].provider == "hosted_vllm"
+
+
+@pytest.mark.asyncio
+async def test_nim_declaration_missing_tag_stays_hosted_vllm():
+    """A NIM-named server with no recorded tag has not met the contract.
+
+    The tag is part of the activation record (it identifies which NIM
+    protocol revision the gateway is compiled against), so an untagged
+    declaration is not a declaration the gateway can trust.
+    """
+    source = _nim_source(
+        InferenceDeclaration(
+            inference_task="Automatic Speech Recognition",
+            model_server_name="NVIDIA NIM Nemotron Transcribe",
+        )
+    )
+
+    models = await source.discover_for_deployment(_make_deployment("untagged"))
+
+    assert models["untagged"].provider == "hosted_vllm"
+
+
+@pytest.mark.asyncio
+async def test_nim_declaration_without_translations_surface_stays_hosted_vllm():
+    """A declared NIM server that does not mount both audio surfaces
+    half-activates nothing.
+
+    The NIM audio protocol and the generic OpenAI-compatible transport
+    differ in SSE vocabulary and per-field contracts, so a NIM server missing
+    either surface stays on the generic transport rather than activating a
+    protocol whose paths it does not serve.
+    """
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(
+        return_value=frozenset({"/v1/audio/transcriptions", "/v1/chat/completions"})
+    )
+    source._discover_model_ids = AsyncMock(
+        return_value=(["nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"], "", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+    source._declaration_lookup = lambda uuid: InferenceDeclaration(
+        inference_task="Automatic Speech Recognition",
+        model_server_name="NVIDIA NIM Nemotron Transcribe",
+        model_server_tag="1.0.0",
+    )
+
+    models = await source.discover_for_deployment(_make_deployment("half-nim"))
+
+    assert models["half-nim"].provider == "hosted_vllm"
+
+
+@pytest.mark.asyncio
+async def test_known_native_provider_is_never_overwritten_by_nim_declaration():
+    """A hamsa pod that somehow carries a NIM server declaration keeps hamsa.
+
+    Provider detection is per-file protocol mapping: the independently
+    detected native providers own their pods, and a serving-stack declaration
+    never reassigns them.
+    """
+    source = LocalDeploymentSource.__new__(LocalDeploymentSource)
+    source._get_configmap_field = AsyncMock(return_value=None)
+    source._probe_openapi_paths = AsyncMock(
+        return_value=frozenset({"/tts/stream", "/v1/audio/transcriptions", "/v1/audio/translations"})
+    )
+    source._discover_model_ids = AsyncMock(
+        return_value=(["hamsa-tts"], "hamsa", None, frozenset())
+    )
+    source._probe_capability_facts = AsyncMock(return_value=None)
+    source._declaration_lookup = lambda uuid: InferenceDeclaration(
+        inference_task="Text-to-Speech",
+        model_server_name="NVIDIA NIM Nemotron Transcribe",
+        model_server_tag="1.0.0",
+    )
+
+    models = await source.discover_for_deployment(_make_deployment("hamsa-nim"))
+
+    assert models["hamsa-nim"].provider == "hamsa"
 
 
 @pytest.mark.asyncio

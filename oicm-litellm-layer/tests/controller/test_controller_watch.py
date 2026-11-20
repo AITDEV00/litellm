@@ -53,6 +53,87 @@ def _controller(models, serving=True):
     return controller
 
 
+class TestDeploymentDeclaration:
+    """The snapshot join that feeds every declared-fact detection tier."""
+
+    def test_the_polled_server_identity_reaches_the_declaration(self):
+        from datetime import datetime, timezone
+
+        from controller.status import OicmStatusSnapshot
+
+        snap = OicmStatusSnapshot(
+            workspace_id="ws1",
+            workload_id="uuid-1",
+            source_name="alain",
+            cluster="alain",
+            source_status=None,
+            desired_replicas=1,
+            available_replicas=1,
+            unavailable_replicas=0,
+            serving_available=True,
+            error_msg=None,
+            status_changed_at=None,
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            inference_task="Automatic Speech Recognition",
+            model_server_name="NVIDIA NIM Nemotron Transcribe",
+            model_server_tag="1.0.0",
+        )
+        poller = MagicMock()
+        poller.snapshot.return_value = snap
+        controller = DiscoveryController(
+            sources=[MagicMock()], litellm=MagicMock(), status_poller=poller
+        )
+
+        declaration = controller._deployment_declaration("uuid-1")
+
+        assert declaration is not None
+        assert declaration.inference_task == "Automatic Speech Recognition"
+        assert declaration.model_server_name == "NVIDIA NIM Nemotron Transcribe"
+        assert declaration.model_server_tag == "1.0.0"
+        # The legacy task derivation reads through the same join, so the two
+        # can never disagree about what OICM declared.
+        assert controller._declared_task("uuid-1") == "Automatic Speech Recognition"
+
+    def test_an_unpolled_deployment_declares_nothing(self):
+        poller = MagicMock()
+        poller.snapshot.return_value = None
+        controller = DiscoveryController(
+            sources=[MagicMock()], litellm=MagicMock(), status_poller=poller
+        )
+
+        assert controller._deployment_declaration("never-polled") is None
+        assert controller._declared_task("never-polled") is None
+
+    def test_a_submariner_uuid_joins_on_the_bare_workload_id(self):
+        from controller.status import OicmStatusSnapshot
+
+        snap = OicmStatusSnapshot(
+            workspace_id="ws1",
+            workload_id="766b1720",
+            source_name="abudhabi",
+            cluster="abudhabi",
+            source_status=None,
+            desired_replicas=1,
+            available_replicas=1,
+            unavailable_replicas=0,
+            serving_available=True,
+            error_msg=None,
+            status_changed_at=None,
+            observed_at="2026-11-20T00:00:00+00:00",
+            inference_task="Text Generation",
+        )
+        poller = MagicMock()
+        poller.snapshot.return_value = snap
+        controller = DiscoveryController(
+            sources=[MagicMock()], litellm=MagicMock(), status_poller=poller
+        )
+
+        declaration = controller._deployment_declaration("submariner:abudhabi:766b1720")
+
+        assert declaration is not None
+        assert declaration.inference_task == "Text Generation"
+
+
 @pytest.mark.asyncio
 async def test_not_ready_deployment_is_registered_and_blocked():
     """A deployment seen before it is ready must not be dropped.

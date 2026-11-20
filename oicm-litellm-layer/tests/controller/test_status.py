@@ -116,6 +116,23 @@ class TestWireParsing:
         # A source that predates the field must parse, not crash.
         assert _summary("Ready", []).inference_task is None
 
+    def test_model_server_identity_is_parsed(self):
+        # The NIM activation gate reads the declared serving stack; the DTO
+        # must declare both fields or extra="allow" silently drops them and
+        # the gate can never fire even for a genuinely declared NIM server.
+        summary = _summary("Ready", [_pod(True)])
+        raw = summary.model_dump()
+        raw["model_server_name"] = "NVIDIA NIM Nemotron Transcribe"
+        raw["model_server_tag"] = "1.0.0"
+        parsed = OicmDeploymentSummary.model_validate(raw)
+        assert parsed.model_server_name == "NVIDIA NIM Nemotron Transcribe"
+        assert parsed.model_server_tag == "1.0.0"
+
+    def test_model_server_identity_absent_is_none(self):
+        summary = _summary("Ready", [_pod(True)])
+        assert summary.model_server_name is None
+        assert summary.model_server_tag is None
+
 
 class TestAvailability:
     def test_pod_ready_with_node_is_available(self):
@@ -254,6 +271,22 @@ class TestBuildSnapshot:
     def test_inference_task_absent_stays_none_in_the_snapshot(self):
         snap = _build(_summary("Ready", [_pod(True)]))
         assert snap.inference_task is None
+
+    def test_model_server_identity_is_threaded_into_the_snapshot(self):
+        # The compound NIM gate reads the serving-stack declaration through
+        # the snapshot; a field the builder drops makes the gate unreachable.
+        summary = _summary("Ready", [_pod(True)])
+        raw = summary.model_dump()
+        raw["model_server_name"] = "NVIDIA NIM Nemotron Transcribe"
+        raw["model_server_tag"] = "1.0.0"
+        snap = _build(OicmDeploymentSummary.model_validate(raw))
+        assert snap.model_server_name == "NVIDIA NIM Nemotron Transcribe"
+        assert snap.model_server_tag == "1.0.0"
+
+    def test_model_server_identity_absent_stays_none_in_the_snapshot(self):
+        snap = _build(_summary("Ready", [_pod(True)]))
+        assert snap.model_server_name is None
+        assert snap.model_server_tag is None
 
 
 class TestEvidenceFixture:
