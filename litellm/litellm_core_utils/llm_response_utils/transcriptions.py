@@ -28,6 +28,10 @@ import json
 from collections.abc import Mapping
 from typing import Final, TypeAlias, cast
 
+from pydantic import ConfigDict, TypeAdapter
+
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.utils import (
     TranscriptionResponse,
     TranscriptionUsageDurationObject,
@@ -37,6 +41,7 @@ from litellm.types.utils import (
 _USAGE_FIELD: Final = "usage"
 _AUDIO_DURATION_INTERNAL_KEY: Final = "_audio_transcription_duration"
 _AUDIO_DURATION_HIDDEN_KEY: Final = "audio_transcription_duration"
+_CACHED_AUDIO_DOCUMENT_KEY: Final = "_cached_audio_document"
 
 _RecognizedUsage: TypeAlias = TranscriptionUsageDurationObject | TranscriptionUsageTokensObject
 
@@ -139,3 +144,64 @@ def hydrate_transcription_response(
         response._response_headers = dict(response_headers)
 
     return response
+
+
+class _CachedAudioDocument(LiteLLMBaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    body: str
+    media_type: str
+    charset: str | None
+
+
+_CACHED_AUDIO_DOCUMENT: Final = TypeAdapter(_CachedAudioDocument)
+
+
+def serialize_audio_document_response(
+    document: NativeAudioDocumentResponse,
+) -> dict[str, object]:
+    """Serialize a document response for the response cache.
+
+    The public contract (body bytes + declared media type) is preserved; the
+    billed duration rides the same internal key the JSON path uses so a cached
+    document still costs like the fresh request that stored it. Private
+    transport metadata (provider headers, hidden params) is not cached: it is
+    recreated from the current request on the read path.
+    """
+    cached: Final[dict[str, object]] = {
+        _CACHED_AUDIO_DOCUMENT_KEY: {
+            "body": document.body,
+            "media_type": document.media_type,
+            "charset": document.charset,
+        }
+    }
+    duration: Final[object] = document.hidden_params.get(_AUDIO_DURATION_HIDDEN_KEY)
+    if duration is not None:
+        cached[_AUDIO_DURATION_INTERNAL_KEY] = duration
+    return cached
+
+
+def is_cached_audio_document(cached_result: object) -> bool:
+    """Whether a cached payload is a serialized audio document response."""
+    return isinstance(cached_result, Mapping) and _CACHED_AUDIO_DOCUMENT_KEY in cached_result
+
+
+def rehydrate_audio_document_response(
+    cached_result: Mapping[str, object],
+) -> NativeAudioDocumentResponse:
+    """Rebuild a document response from its cached payload.
+
+    Internal fields (cache_hit, duration) are stamped from the current
+    request context by the caller, never trusted from the cached prior one.
+    """
+    record: Final = _CACHED_AUDIO_DOCUMENT.validate_python(cached_result[_CACHED_AUDIO_DOCUMENT_KEY])
+    hidden_params: Final[dict[str, object]] = {}
+    duration: Final[object] = cached_result.get(_AUDIO_DURATION_INTERNAL_KEY)
+    if duration is not None:
+        hidden_params[_AUDIO_DURATION_HIDDEN_KEY] = duration
+    return NativeAudioDocumentResponse(
+        body=record.body,
+        media_type=record.media_type,
+        charset=record.charset,
+        _hidden_params=hidden_params,
+    )

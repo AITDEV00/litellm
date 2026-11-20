@@ -1331,6 +1331,70 @@ remaining live proof explicitly deferred, and do not mount a dummy route
 
 ---
 
+## 9. Delivered state record
+
+### Phase A (ordinary transcription and response docs), delivered 2026-11-19
+
+Commit `70ba8913b93` on `jya0-v1.108.5`. Native multipart fields, rich JSON
+cold/cache parity, and `NativeAudioDocumentResponse` for text/srt/vtt landed
+without a live dev proof of the document formats; the Phase B proof below
+found and fixed four latent document bugs (frozen-dataclass metadata
+stamping, router fallback-header decoration, cache serialization, response
+header loss) that unit tests had not covered, and also extended spend logging
+to recognize document responses. `response_format=text/srt/vtt` is verified
+live in the Phase B record
+
+### Phase B (translation), delivered 2026-11-20, dev gateway `litellm-src:jya0-v1.108.5`
+
+Observed model server: deployment `j-3fb782ae-36cc-45a4-9f65-2a8fdb2029fa`
+in namespace `adeo`, served model id
+`nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B`, registered as `hosted_vllm`
+with the pod at
+`s-3fb782ae-36cc-45a4-9f65-2a8fdb2029fa.adeo.svc.cluster.local:8080/v1`.
+All proofs ran against the dev gateway over
+`kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`,
+never through the public ingress
+
+Delivered: `/v1/audio/translations` and `/audio/translations` mounted and
+authorized for `key_type=llm_api` keys, `atranslation`/`translation` SDK
+entrypoints, Router and `route_request` dispatch, `hosted_vllm` and
+`nvidia_nim` translation configs (NIM activated only through its own
+declarations), openai-transport translation via the OpenAI SDK, duration-based
+cost plumbing, namespaced response-cache identity
+(`translation:<checksum>`, transcription entries unaffected), spend logging
+with `call_type=atranslation`, and true document responses for
+`response_format=text`
+
+Live dev proofs, all with the reference WAV `tests/gettysburg.wav`:
+
+- translation cold 200 with `target_language=en`, text genuinely translated
+  ("Four score and seven years ago" answered as "Eighty-seven years ago");
+  cold and cached responses have identical public JSON `{"text", "usage"}`
+- omitting `target_language` returns 200; the pod applies its own default and
+  the gateway adds no field
+- translation `response_format=text` returns `text/plain` document bytes;
+  cold and cached bodies are byte-identical
+- transcription `response_format=text/srt/vtt` return `text/plain`,
+  `application/x-subrip`, `text/vtt` true document bytes, no JSON envelope;
+  cached copies byte-identical
+- translation `stream=true` surfaces as a truthful 400: this pod answers the
+  nonstreaming call with an SSE stream, so the gateway reports that streaming
+  is unsupported for the operation instead of failing to parse `data:` frames
+  as JSON. Deviation from the earlier native test recorded in the usage guide:
+  the pod streams rather than rejecting
+- a scoped `key_type=llm_api` key (alias `phaseb-proof-20261120`, models
+  scoped to the Nemotron id) called both alias paths with 200, unauthenticated
+  calls 401, and the key was deleted via `/key/delete` with re-use then 401
+- spend rows are written for `atranscription`, `atranslation`, and document
+  responses with the correct call type (spend is 0.0: this self-hosted
+  deployment carries no price entry)
+- custom `x-litellm-*` headers (call-id, model-id, cache-key, durations) ride
+  every audio response, cold and cached
+- chat-audio regression: `/v1/chat/completions` with base64 `input_audio`
+  and `stream=true` still returns 200 SSE with a terminal `[DONE]`
+
+---
+
 ## Appendix A: Implementation-time facts to verify, not code assumptions
 
 These are intentionally separated from ready coding constraints:

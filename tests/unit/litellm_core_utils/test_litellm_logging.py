@@ -12593,3 +12593,42 @@ def test_record_native_bedrock_guardrail_bills_each_call_its_own_trace_when_call
     (first_cost, second_cost) = costs
     assert second_cost == pytest.approx(2 * first_cost)
     assert shared_metadata == {"tag": "x"}
+
+
+def test_document_response_logs_as_its_transcript_text_view() -> None:
+    """A text/srt/vtt NativeAudioDocumentResponse must reach the standard
+    logging payload: recognized as a billable call type and serialized as the
+    transcript text it carries, with its duration-priced hidden params."""
+    import datetime
+
+    from litellm.litellm_core_utils.litellm_logging import (
+        Logging,
+        get_standard_logging_object_payload,
+    )
+    from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+
+    logging_obj = Logging(
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        messages=[{"role": "user", "content": "audio"}],
+        stream=False,
+        call_type="atranscription",
+        start_time=datetime.datetime(2026, 11, 20, 12, 0, 0),
+        litellm_call_id="document-logging-view",
+        function_id="fn",
+    )
+    document = NativeAudioDocumentResponse(body="Four score and seven years", media_type="text/plain")
+    document.hidden_params["audio_transcription_duration"] = 10.885
+
+    assert logging_obj._is_recognized_call_type_for_logging(logging_result=document) is True
+
+    payload = get_standard_logging_object_payload(
+        kwargs=dict(logging_obj.model_call_details),
+        init_response_obj=document,
+        start_time=datetime.datetime(2026, 11, 20, 12, 0, 0),
+        end_time=datetime.datetime(2026, 11, 20, 12, 0, 2),
+        logging_obj=logging_obj,
+        status="success",
+    )
+
+    assert payload is not None
+    assert payload["response"]["text"] == "Four score and seven years"

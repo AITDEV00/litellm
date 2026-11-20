@@ -134,6 +134,7 @@ from litellm.types.interactions import (
     InteractionsAPIResponse,
     InteractionsAPIStreamingResponse,
 )
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.llms.openai import (
     AllMessageValues,
     Batch,
@@ -2225,6 +2226,7 @@ class Logging(LiteLLMLoggingBaseClass):
             and litellm_params.get(CallTypes.aembedding.value, False) is not True
             and litellm_params.get(CallTypes.aimage_generation.value, False) is not True
             and litellm_params.get(CallTypes.atranscription.value, False) is not True
+            and litellm_params.get(CallTypes.atranslation.value, False) is not True
             and litellm_params.get(CallTypes.allm_passthrough_route.value, False) is not True
             and litellm_params.get(CallTypes.aanthropic_messages.value, False) is not True
             and litellm_params.get(CallTypes.agenerate_content.value, False) is not True
@@ -2816,6 +2818,7 @@ class Logging(LiteLLMLoggingBaseClass):
             or isinstance(logging_result, EmbeddingResponse)
             or isinstance(logging_result, ImageResponse)
             or isinstance(logging_result, TranscriptionResponse)
+            or isinstance(logging_result, NativeAudioDocumentResponse)
             or isinstance(logging_result, TextCompletionResponse)
             or isinstance(logging_result, HttpxBinaryResponseContent)  # tts
             or isinstance(logging_result, RerankResponse)
@@ -6894,6 +6897,11 @@ def _extract_response_obj_and_hidden_params(
     original_exception: Exception | None,
 ) -> tuple[dict, dict | None]:
     """Extract response_obj and hidden_params from init_response_obj."""
+    if isinstance(init_response_obj, NativeAudioDocumentResponse):
+        # A text/srt/vtt document logs as the transcript text it carries; the
+        # spend row stays readable without leaking the raw document bytes twice
+        document_hidden: Final[dict | None] = dict(init_response_obj.hidden_params) or None
+        return {"text": init_response_obj.body, "media_type": init_response_obj.media_type}, document_hidden
     hidden_params: dict | None = (
         getattr(init_response_obj, HIDDEN_PARAMS_ATTR, None)
         if isinstance(init_response_obj, BaseModel | HttpxBinaryResponseContent)

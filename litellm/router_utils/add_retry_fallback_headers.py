@@ -233,8 +233,21 @@ def get_hidden_params_dict(
     return hidden_params
 
 
+def _is_frozen_dataclass(response: object) -> bool:
+    params: Final[object] = getattr(type(response), "__dataclass_params__", None)
+    return params is not None and getattr(params, "frozen", False) is True
+
+
 def _write_hidden_params(response: object, hidden_params: dict[str, object]) -> None:
     if isinstance(response, dict) or hasattr(response, _HIDDEN_PARAMS_ATTR):
+        if _is_frozen_dataclass(response) and not isinstance(response, dict):
+            # a frozen dataclass (NativeAudioDocumentResponse) forbids _hidden_params
+            # reassignment; merge into the dict storage the response already carries
+            existing_storage: Final[object] = getattr(response, _HIDDEN_PARAMS_ATTR, None)
+            if isinstance(existing_storage, dict) and existing_storage is not hidden_params:
+                cast("dict[str, object]", existing_storage).clear()
+                cast("dict[str, object]", existing_storage).update(hidden_params)
+            return
         set_hidden_params(response, hidden_params)
 
 

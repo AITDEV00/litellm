@@ -272,6 +272,7 @@ def test_diarization_route_type_dispatch_wired() -> None:
 # ---------------------------------------------------------------------------
 
 _FORK_INFERENCE_ROUTERS: Final = (
+    "litellm.proxy.audio_translation_routes",
     "litellm.proxy.diarization_routes",
     "litellm.proxy.voice_routes",
 )
@@ -399,11 +400,78 @@ def test_hamsa_api_surface_reaches_provider_params() -> None:
     assert params["api_surface"] == "v1"
 
 
+# ---------------------------------------------------------------------------
+# Slice: audio translation route + SDK (litellm/proxy/audio_translation_routes.py,
+# litellm/endpoints/audio_translation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/audio/translations", "/v1/audio/translations"],
+)
+def test_audio_translation_routes_router_is_mounted_on_app(path: str) -> None:
+    """Both alias paths must be included on the FastAPI app after a merge."""
+    from litellm.proxy.proxy_server import app
+
+    assert any(getattr(route, "path", None) == path for route in app.routes), (
+        f"{path} is not mounted; audio_translation_routes slice was dropped"
+    )
+
+
+def test_audio_translation_routes_module_has_router() -> None:
+    from litellm.proxy.audio_translation_routes import router
+
+    assert len(router.routes) > 0, "audio_translation_routes router is empty"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["translation", "atranslation"],
+)
+def test_audio_translation_sdk_slice_wired_into_litellm_namespace(name: str) -> None:
+    fn = getattr(litellm, name)
+    assert callable(fn)
+    assert fn.__module__.startswith("litellm.endpoints.audio_translation"), (
+        f"litellm.{name} no longer resolves to the audio_translation slice"
+    )
+
+
+def test_audio_translation_provider_registry_dispatch_wired() -> None:
+    """The provider config manager must dispatch translation for NIM + hosted vLLM."""
+    from litellm.types.utils import LlmProviders
+    from litellm.utils import ProviderConfigManager
+
+    for provider in (LlmProviders.NVIDIA_NIM, LlmProviders.HOSTED_VLLM):
+        cfg = ProviderConfigManager.get_provider_audio_translation_config(
+            model="probe", provider=provider
+        )
+        assert cfg is not None, f"{provider.value} audio translation dispatch was dropped"
+
+
+def test_audio_translation_route_type_dispatch_wired() -> None:
+    """route_llm_request must map atranslation to the /audio/translations endpoint."""
+    from litellm.proxy.route_llm_request import ROUTE_ENDPOINT_MAPPING
+
+    assert ROUTE_ENDPOINT_MAPPING.get("atranslation") == "/audio/translations", (
+        "atranslation dispatch mapping was dropped from route_llm_request"
+    )
+
+
+def test_audio_translation_resolves_guardrail_call_types() -> None:
+    from litellm.litellm_core_utils.api_route_to_call_types import get_call_types_for_route
+
+    assert get_call_types_for_route("/v1/audio/translations"), (
+        "/v1/audio/translations resolves no CallTypes, so unified guardrails skip it"
+    )
+
+
 def test_async_inference_slices_are_not_classified_as_sync() -> None:
     from litellm.litellm_core_utils.litellm_logging import Logging
 
     assert Logging.is_sync_litellm_request({"acreate_voice": True}) is False
     assert Logging.is_sync_litellm_request({"adiarize": True}) is False
+    assert Logging.is_sync_litellm_request({"atranslation": True}) is False
 
 
 def test_openrouter_compatible_catalog_is_mounted_on_app() -> None:

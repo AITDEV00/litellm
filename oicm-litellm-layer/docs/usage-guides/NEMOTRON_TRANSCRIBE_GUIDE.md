@@ -229,10 +229,12 @@ coverage suite.
 | `word_timestamps=true` + verbose JSON | Native word-timestamp extension | **Worked**, preserving the tested native speaker timestamps |
 | `diarization=true` + verbose JSON | Native speaker timing structures | **Not parity-supported:** accepted, but native extra sections stripped |
 | OpenAI-style `prompt` | Phrase boosting/prompt injection rejected by NIM | **HTTP 400 observed: `invalid_request_error`**, not a supported Whisper-style free-form prompt |
-| `response_format=text` | Plain text at HTTP 200 | **500, JSON error:** expected JSON transcription fields; plain-text response cannot satisfy that provider parser |
-| `response_format=srt` or `vtt` | Subtitle response at HTTP 200 | **500, JSON error**, same response conversion issue |
+| `response_format=text` | Plain text at HTTP 200 | **200 `text/plain`, body is the transcript, not a JSON envelope** (verified on dev 2026-11-20) |
+| `response_format=srt` or `vtt` | Subtitle response at HTTP 200 | **200 `application/x-subrip` / `text/vtt`, true subtitle document bytes** (verified on dev 2026-11-20; cold and cached responses are byte-identical) |
 | `stream=true` multipart transcription | SSE text stream | **200 buffered JSON `{text, usage}`**, so no incremental multipart parity |
-| `/v1/audio/translations` | Native translation works; with `target_language=en` produces translated text | **404 route not exposed** |
+| `/v1/audio/translations` | Native translation works; with `target_language=en` produces translated text | **200 translated text** (dev 2026-11-20: `target_language=en` returned "Eighty-seven years ago..." for the same clip; cold and cached responses match; works with and without `/v1`) |
+| `/v1/audio/translations` without `target_language` | Provider validates the field | **200**: the pod translates to its default language; the gateway forwards truthfully and adds no field |
+| `/v1/audio/translations` + `response_format=text` | Plain text at HTTP 200 | **200 `text/plain`, translated body as a true document**, cold and cached byte-identical (dev 2026-11-20) |
 | Audio-chat with a transcription instruction | Chat-text transcription is a separate request form | **Not an alternative native translation route**; only transcription was tested |
 | `/v1/chat/completions` + base64 `input_audio` | Text/audio response | **200**, with the full public model ID and native `transcription` preserved |
 | `/v1/chat/completions` + `stream=true` | Streamed chat | **200 SSE** with `data: ...` deltas, a terminal `[DONE]`, and usage |
@@ -240,7 +242,7 @@ coverage suite.
 | `/openai/v1/audio/translations` | Not applicable (native NIM path) | 500 `OpenAIException` accompanied by upstream-provider context, not a supported public translation route |
 | `GET /health/liveness` / `/health/readiness` | 404 on native audio listener | **200 proxy health** only |
 | `GET /v1/health/ready`, `/v1/health/live` | 200 NIM health | **404 public gateway** |
-| `/v1/audio/translations` + multipart `stream=true` | Rejected HTTP 400 in the native test | **404**, route not exposed |
+| `/v1/audio/translations` + multipart `stream=true` | Rejected HTTP 400 in the native test | **400 truthful error**: this pod answered the nonstreaming call with an SSE stream, so the gateway reports `streaming is not supported for this operation. Resend without stream=true` (dev 2026-11-20; the pod streams rather than rejecting, unlike the earlier native test) |
 | `GET /v1/models/{encoded-full-model-id}` | Not a required native lookup route | **404**: slashes in the model name are not usable in this path lookup |
 | Native `/v1/metrics`, `/v1/license`, `/v1/manifest`, `/v1/metadata`, `/v1/version` | Mounted on native OpenAPI listener | **Not model inference APIs; treated as private operations endpoints, not public Nemotron endpoints** |
 
@@ -388,8 +390,11 @@ This tested harness lives under
 `oicm-litellm-layer/examples/usage/nemotron-transcribe/`.
 
 - `test_gateway.py`: one reference WAV exercises multipart JSON/verbose JSON,
-  word timestamps, chat audio/SSE, model listing, translation route 404, text
-  conversion 500, gateway health; the response evidence excludes secrets.
+  word timestamps, chat audio/SSE, model listing, gateway health; the response
+  evidence excludes secrets. It was written when the gateway returned 404 for
+  `/v1/audio/translations` and 500 for `response_format=text`; those two
+  checks now describe the pre-2026-11-20 gateway and need updating before the
+  script is reused
 - `transcribe_chat_stream.py`: end-to-end streaming chat transcription; it
   reconstructs and prints the full text, verifies, and
   prints the usage event when present.

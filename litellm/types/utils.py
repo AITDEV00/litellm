@@ -517,6 +517,8 @@ class CallTypes(str, Enum):
     amoderation = "amoderation"
     atranscription = "atranscription"
     transcription = "transcription"
+    atranslation = "atranslation"
+    translation = "translation"
     aspeech = "aspeech"
     speech = "speech"
     acreate_voice = "acreate_voice"
@@ -719,6 +721,8 @@ CallTypesLiteral = Literal[
     "amoderation",
     "atranscription",
     "transcription",
+    "atranslation",
+    "translation",
     "aspeech",
     "speech",
     "acreate_voice",
@@ -831,6 +835,9 @@ API_ROUTE_TO_CALL_TYPES: Final[Mapping[str, Sequence[CallTypes]]] = {
     # Audio Transcriptions
     "/audio/transcriptions": [CallTypes.atranscription, CallTypes.transcription],
     "/v1/audio/transcriptions": [CallTypes.atranscription, CallTypes.transcription],
+    # Audio Translations
+    "/audio/translations": [CallTypes.atranslation, CallTypes.translation],
+    "/v1/audio/translations": [CallTypes.atranslation, CallTypes.translation],
     # Audio Speech
     "/audio/speech": [CallTypes.aspeech, CallTypes.speech],
     "/v1/audio/speech": [CallTypes.aspeech, CallTypes.speech],

@@ -14,6 +14,7 @@ from typing import Final
 
 import httpx
 
+import litellm
 from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
 from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
 from litellm.litellm_core_utils.llm_response_utils.transcriptions import (
@@ -26,6 +27,7 @@ from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.utils import FileTypes, TranscriptionResponse
 
 _JSON_CONTENT_TYPE: Final = "application/json"
+_EVENT_STREAM_MEDIA_TYPE: Final = "text/event-stream"
 _DOCUMENT_MEDIA_TYPES: Final = frozenset(
     {
         "text/plain",
@@ -71,9 +73,7 @@ class OpenAICompatibleNativeAudioMultipartTransformation:
         """
         processed_audio: Final = process_audio_file(audio_file)
         standard_fields: Final = {
-            key: optional_params[key]
-            for key in supported_openai_params
-            if optional_params.get(key) is not None
+            key: optional_params[key] for key in supported_openai_params if optional_params.get(key) is not None
         }
         extension_fields: Final = {
             key: value
@@ -130,6 +130,19 @@ class OpenAICompatibleNativeAudioMultipartTransformation:
         concern: this method runs only on 2xx.
         """
         content_type: Final = _header_value(raw_response.headers, "content-type", "").split(";")[0].strip().lower()
+        if content_type == _EVENT_STREAM_MEDIA_TYPE:
+            # The upstream answered a non-streaming call with an SSE stream. The
+            # gateway has no streaming support for this operation, so the frames
+            # cannot be truthfully repackaged as a final response; surface the
+            # mismatch as a client error instead of failing to parse "data:" as JSON
+            raise litellm.BadRequestError(
+                message=(
+                    "The provider answered this audio request with an SSE stream, but streaming is not supported "
+                    "for this operation. Resend without stream=true."
+                ),
+                model="",
+                llm_provider="",
+            )
         if content_type and content_type not in _DOCUMENT_MEDIA_TYPES:
             payload: Final = raw_response.json()
             return hydrate_transcription_response(response_object=payload)

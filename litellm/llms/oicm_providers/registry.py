@@ -22,6 +22,7 @@ from litellm.types.utils import LlmProviders
 from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
+from litellm.llms.base_llm.audio_translation.transformation import BaseAudioTranslationConfig
 from litellm.llms.base_llm.diarization.transformation import (
     BaseDiarizationConfig,
 )
@@ -127,6 +128,38 @@ def get_provider_audio_transcription_config(
         )
 
         return InceptionAudioTranscriptionConfig()
+    if provider == litellm.LlmProviders.NVIDIA_NIM:
+        from litellm.llms.nvidia_nim.audio_transcription.transformation import (
+            NvidiaNimAudioTranscriptionConfig,
+        )
+
+        return NvidiaNimAudioTranscriptionConfig()
+    return None
+
+
+def get_provider_audio_translation_config(
+    provider: LlmProviders,
+) -> BaseAudioTranslationConfig | None:
+    """Audio-translation config for self-hosted native multipart providers.
+
+    Registered only for serving stacks whose tested surface actually mounts
+    ``/v1/audio/translations`` (hosted-vLLM style servers, the NVIDIA NIM
+    transcribe service). Providers that do not expose native translations
+    return None, so the SDK fails loudly instead of silently calling
+    transcription with a swapped suffix.
+    """
+    if provider == litellm.LlmProviders.HOSTED_VLLM:
+        from litellm.llms.hosted_vllm.audio_translation.transformation import (
+            HostedVLLMAudioTranslationConfig,
+        )
+
+        return HostedVLLMAudioTranslationConfig()
+    if provider == litellm.LlmProviders.NVIDIA_NIM:
+        from litellm.llms.nvidia_nim.audio_translation.transformation import (
+            NvidiaNimAudioTranslationConfig,
+        )
+
+        return NvidiaNimAudioTranslationConfig()
     return None
 
 

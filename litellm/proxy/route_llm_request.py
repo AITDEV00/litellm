@@ -86,6 +86,7 @@ ROUTE_ENDPOINT_MAPPING: Final = {
     "ascript": "/audio/script",
     "adiarize": "/v1/diarize",
     "atranscription": "/audio/transcriptions",
+    "atranslation": "/audio/translations",
     "amoderation": "/moderations",
     "arerank": "/rerank",
     "aresponses": "/responses",
@@ -180,6 +181,7 @@ REQUIRED_PRESENT_BODY_PARAMS_BY_ROUTE: Final[Mapping[str, tuple[str, ...]]] = Ma
         "asearch": ("query",),
         "atext_completion": ("prompt",),
         "atranscription": ("file",),
+        "atranslation": ("file",),
         "arerank": ("query", "documents"),
         "acompact_responses": ("input",),
         "anthropic_messages": ("messages", "max_tokens"),
@@ -272,7 +274,7 @@ def _find_missing_required_body_param(
 # The Router method takes the route's required param positionally, so it binds before
 # any default or deployment param is merged in, and only the request body can supply it.
 _ROUTE_TYPES_WITH_POSITIONAL_REQUIRED_PARAM: Final[frozenset[str]] = frozenset(
-    {"aimage_generation", "aspeech", "atext_completion", "atranscription"}
+    {"aimage_generation", "aspeech", "atext_completion", "atranscription", "atranslation"}
 )
 
 _ROUTE_TYPES_WITHOUT_ROUTER_DEFAULTS_MERGE: Final[frozenset[str]] = (
@@ -508,6 +510,7 @@ RouteType = Literal[
     "ascript",
     "adiarize",
     "atranscription",
+    "atranslation",
     "amoderation",
     "arerank",
     "aresponses",

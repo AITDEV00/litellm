@@ -404,6 +404,8 @@ class EntrypointState:
     atext_completion: bool | None = None
     text_completion: bool | None = None
     allm_passthrough_route: bool | None = None
+    atranscription: bool | None = None
+    atranslation: bool | None = None
     async_call: bool | None = None
 
 

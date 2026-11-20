@@ -921,6 +921,10 @@ OPENAI_TRANSCRIPTION_PARAMS: Final = [
     "timestamp_granularities",
 ]
 
+OPENAI_TRANSLATION_PARAMS: Final = [
+    "response_format",
+]
+
 OPENAI_EMBEDDING_PARAMS: Final = ["dimensions", "encoding_format", "user"]
 
 DEFAULT_EMBEDDING_PARAM_VALUES: Final = {

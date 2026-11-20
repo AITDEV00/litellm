@@ -69,6 +69,9 @@ from litellm.llms.base_llm.anthropic_messages.transformation import (
 from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
+from litellm.llms.base_llm.audio_translation.transformation import (
+    BaseAudioTranslationConfig,
+)
 from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.llms.base_llm.base_model_iterator import (
     BaseModelResponseIterator,
@@ -1869,7 +1872,11 @@ class BaseLLMHTTPHandler:
         headers: dict[str, object] | None = None,
         provider_config: BaseAudioTranscriptionConfig | None = None,
         shared_session: Optional["ClientSession"] = None,
-    ) -> TranscriptionResponse | NativeAudioDocumentResponse | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse]:
+    ) -> (
+        TranscriptionResponse
+        | NativeAudioDocumentResponse
+        | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse]
+    ):
         if provider_config is None:
             raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
 
@@ -2007,6 +2014,239 @@ class BaseLLMHTTPHandler:
             logging_obj=logging_obj,
             optional_params=optional_params,
             api_key=api_key,
+        )
+
+    def _prepare_audio_translation_request(
+        self,
+        model: str,
+        audio_file: FileTypes,
+        optional_params: dict,
+        litellm_params: dict,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        headers: dict[str, object] | None,
+        provider_config: BaseAudioTranslationConfig,
+    ) -> tuple[dict, str, dict | bytes | None, dict | None]:
+        """
+        Shared logic for preparing native audio translation requests.
+        Returns: (headers, complete_url, data, files)
+        """
+        from litellm.llms.base_llm.audio_translation.transformation import (
+            AudioTranslationRequestData,
+        )
+
+        headers = provider_config.validate_environment(
+            api_key=api_key,
+            headers=headers or {},
+            model=model,
+            messages=[],
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        complete_url: Final = provider_config.get_complete_url(
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        transformed_result: Final = provider_config.transform_audio_translation_request(
+            model=model,
+            audio_file=audio_file,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+        )
+
+        if not isinstance(transformed_result, AudioTranslationRequestData):
+            raise ValueError(f"Provider {provider_config.__class__.__name__} must return AudioTranslationRequestData")
+
+        data: Final = transformed_result.data
+        files: Final = transformed_result.files
+        if transformed_result.content_type is not None:
+            headers["Content-Type"] = transformed_result.content_type
+
+        ## LOGGING
+        logging_obj.pre_call(
+            input=optional_params.get("query", ""),
+            api_key=api_key,
+            additional_args={
+                "complete_input_dict": data or {},
+                "api_base": complete_url,
+                "headers": headers,
+            },
+        )
+
+        return headers, complete_url, data, files
+
+    def _transform_audio_translation_response(
+        self,
+        provider_config: BaseAudioTranslationConfig,
+        response: httpx.Response,
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
+        """Shared logic for transforming audio translation responses.
+
+        Same union contract as transcription: JSON hydrates a
+        ``TranscriptionResponse``; a true text/SRT/VTT document stays a
+        ``NativeAudioDocumentResponse``. Provider response headers land in
+        hidden params for both shapes.
+        """
+        transformed: Final = provider_config.transform_audio_translation_response(
+            raw_response=response,
+        )
+        set_provider_response_headers_in_hidden_params(transformed, response.headers)
+        return transformed
+
+    def audio_translations(
+        self,
+        model: str,
+        audio_file: FileTypes,
+        optional_params: dict,
+        litellm_params: dict,
+        model_response: TranscriptionResponse,
+        timeout: float,
+        max_retries: int,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        custom_llm_provider: str,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        atranslation: bool = False,
+        headers: dict[str, object] | None = None,
+        provider_config: BaseAudioTranslationConfig | None = None,
+        shared_session: Optional["ClientSession"] = None,
+    ) -> (
+        TranscriptionResponse
+        | NativeAudioDocumentResponse
+        | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse]
+    ):
+        """Sync (or dispatching to async) native audio translation request."""
+        if provider_config is None:
+            raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
+
+        if atranslation is True:
+            return self.async_audio_translations(
+                model=model,
+                audio_file=audio_file,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                model_response=model_response,
+                timeout=timeout,
+                logging_obj=logging_obj,
+                api_key=api_key,
+                api_base=api_base,
+                custom_llm_provider=custom_llm_provider,
+                client=client,
+                headers=headers,
+                provider_config=provider_config,
+                shared_session=shared_session,
+            )
+
+        (
+            headers,
+            complete_url,
+            data,
+            files,
+        ) = self._prepare_audio_translation_request(
+            model=model,
+            audio_file=audio_file,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+            logging_obj=logging_obj,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            provider_config=provider_config,
+        )
+
+        if client is None or not isinstance(client, HTTPHandler):
+            client = get_httpx_client()
+
+        json_data: Final = data if files is None and isinstance(data, dict) else None
+
+        try:
+            response: Final = client.post(
+                url=complete_url,
+                headers=headers,
+                data=data if json_data is None else None,
+                files=files,
+                json=json_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        return self._transform_audio_translation_response(
+            provider_config=provider_config,
+            response=response,
+        )
+
+    async def async_audio_translations(
+        self,
+        model: str,
+        audio_file: FileTypes,
+        optional_params: dict,
+        litellm_params: dict,
+        model_response: TranscriptionResponse,
+        timeout: float,
+        logging_obj: LiteLLMLoggingObj,
+        api_key: str | None,
+        api_base: str | None,
+        custom_llm_provider: str,
+        client: HTTPHandler | AsyncHTTPHandler | None = None,
+        headers: dict[str, object] | None = None,
+        provider_config: BaseAudioTranslationConfig | None = None,
+        shared_session: Optional["ClientSession"] = None,
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
+        """Async native audio translation request."""
+        if provider_config is None:
+            raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
+
+        (
+            headers,
+            complete_url,
+            data,
+            files,
+        ) = self._prepare_audio_translation_request(
+            model=model,
+            audio_file=audio_file,
+            optional_params=optional_params,
+            litellm_params=litellm_params,
+            logging_obj=logging_obj,
+            api_key=api_key,
+            api_base=api_base,
+            headers=headers,
+            provider_config=provider_config,
+        )
+
+        if client is None or not isinstance(client, AsyncHTTPHandler):
+            async_httpx_client = get_async_httpx_client(
+                llm_provider=litellm.LlmProviders(custom_llm_provider),
+                params={"ssl_verify": litellm_params.get("ssl_verify", None)},
+                shared_session=shared_session,
+            )
+        else:
+            async_httpx_client = client
+
+        json_data: Final = data if files is None and isinstance(data, dict) else None
+
+        try:
+            response: Final = await async_httpx_client.post(
+                url=complete_url,
+                headers=headers,
+                data=data if json_data is None else None,
+                files=files,
+                json=json_data,
+                timeout=timeout,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        return self._transform_audio_translation_response(
+            provider_config=provider_config,
+            response=response,
         )
 
     def search(

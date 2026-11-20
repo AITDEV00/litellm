@@ -24,10 +24,17 @@ from litellm.caching.caching_handler import (
     CachingHandlerResponse,
     _is_chat_completion_cached_dict,
     _should_defer_streaming_cache_hit_callbacks,
+    is_response_without_output,
 )
 from litellm.caching import DualCache, InMemoryCache
 from litellm.caching.caching import LiteLLMCacheType
+from litellm.litellm_core_utils.llm_response_utils.transcriptions import (
+    is_cached_audio_document,
+    rehydrate_audio_document_response,
+    serialize_audio_document_response,
+)
 from litellm.types.caching import CACHED_STREAM_EVENTS_KEY
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.utils import CallTypes
 from litellm.types.rerank import RerankResponse
 from litellm.types.utils import (
@@ -495,6 +502,77 @@ def test_convert_cached_result_to_model_response(
 
     assert isinstance(result, expected_type)
     assert result is not None
+
+
+@pytest.mark.parametrize("call_type", [CallTypes.atranscription.value, CallTypes.atranslation.value])
+def test_convert_cached_result_rehydrates_an_audio_document(call_type):
+    """A cached text/srt/vtt document must come back as NativeAudioDocumentResponse
+    with its body and media type intact, not be forced into a TranscriptionResponse
+    (which would JSON-envelope plaintext on the wire)."""
+    caching_handler = LLMCachingHandler(
+        original_function=lambda: None, request_kwargs={}, start_time=datetime.now()
+    )
+    logging_obj = LiteLLMLogging(
+        litellm_call_id=str(datetime.now()),
+        call_type=call_type,
+        model="test-model",
+        messages=[{"role": "user", "content": "Hello, how can I help you today?"}],
+        function_id=str(uuid.uuid4()),
+        stream=False,
+        start_time=datetime.now(),
+    )
+    cached_payload = serialize_audio_document_response(
+        NativeAudioDocumentResponse(
+            body="1\n00:00:00,000 --> 00:00:02,000\nFour score\n",
+            media_type="application/x-subrip",
+            charset=None,
+        )
+    )
+    cached_payload["_audio_transcription_duration"] = 10.885
+
+    result = caching_handler._convert_cached_result_to_model_response(
+        cached_result=cached_payload,
+        call_type=call_type,
+        kwargs={},
+        logging_obj=logging_obj,
+        model="test-model",
+        args=(),
+    )
+
+    assert isinstance(result, NativeAudioDocumentResponse)
+    assert result.body == "1\n00:00:00,000 --> 00:00:02,000\nFour score\n"
+    assert result.media_type == "application/x-subrip"
+    assert result.hidden_params["cache_hit"] is True
+    assert result.hidden_params["audio_transcription_duration"] == 10.885
+
+
+def test_document_cache_round_trip_survives_json_serialization():
+    """The cached payload must survive the Redis JSON round-trip unchanged:
+    serialize -> json dumps/loads -> rehydrate keeps body, media type and charset."""
+    document = NativeAudioDocumentResponse(
+        body="WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nFour score",
+        media_type="text/vtt",
+        charset="utf-8",
+    )
+    document.hidden_params["audio_transcription_duration"] = 2.5
+
+    cached = serialize_audio_document_response(document)
+    transported = json.loads(json.dumps(cached))
+
+    assert is_cached_audio_document(transported)
+    rehydrated = rehydrate_audio_document_response(transported)
+    assert rehydrated.body == document.body
+    assert rehydrated.media_type == document.media_type
+    assert rehydrated.charset == "utf-8"
+    assert rehydrated.hidden_params["audio_transcription_duration"] == 2.5
+    assert rehydrated.hidden_params.get("cache_hit") is None
+
+
+def test_is_response_without_output_rejects_empty_documents():
+    """An empty document body must not be cached: it is a failed transcription,
+    and caching it would replay a blank 200 forever."""
+    assert is_response_without_output(NativeAudioDocumentResponse(body="", media_type="text/plain")) is True
+    assert is_response_without_output(NativeAudioDocumentResponse(body="hi", media_type="text/plain")) is False
 
 
 def test_combine_cached_embedding_response_with_api_result():

@@ -260,6 +260,15 @@ class ResponseMetadata:
     def apply(self) -> None:
         """Apply metadata to the response object"""
         if hasattr(self.result, "_hidden_params"):
+            result_hidden_params: Final[object] = getattr(self.result, "_hidden_params", None)
+            if isinstance(result_hidden_params, dict):
+                # dict storage (e.g. the frozen NativeAudioDocumentResponse) cannot be
+                # reassigned; the same dict object self._hidden_params was read from is
+                # updated in place, so the result already sees every mutation
+                if result_hidden_params is not self._hidden_params:
+                    result_hidden_params.clear()
+                    result_hidden_params.update(self._hidden_params)
+                return
             self.result._hidden_params = self._hidden_params
 
 

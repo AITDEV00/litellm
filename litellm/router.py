@@ -5205,6 +5205,86 @@ class Router:
             self._stamp_retry_skip_deployment_id(e, kwargs)
             raise e
 
+    async def atranslation(self, file: FileTypes, model: str, **kwargs):
+        """
+        Translate an audio file through a dynamically resolved deployment.
+
+        Example Usage:
+
+        ```
+        from litellm import Router
+        client = Router(model_list = [
+            {
+                "model_name": "whisper",
+                "litellm_params": {
+                    "model": "whisper-1",
+                },
+            },
+        ])
+
+        audio_file = open("speech.mp3", "rb")
+        translation = await client.atranslation(
+            model="whisper",
+            file=audio_file,
+            target_language="en",
+        )
+        ```
+        """
+        try:
+            kwargs["model"] = model
+            kwargs["file"] = file
+            kwargs["original_function"] = self._atranslation
+            self._update_kwargs_before_fallbacks(model=model, kwargs=kwargs)
+            response: Final = await self.async_function_with_fallbacks(**kwargs)
+
+            return response
+        except Exception as e:
+            asyncio.create_task(
+                send_llm_exception_alert(
+                    litellm_router_instance=self,
+                    request_kwargs=kwargs,
+                    error_traceback_str=traceback.format_exc(),
+                    original_exception=e,
+                )
+            )
+            raise e
+
+    async def _atranslation(self, file: FileTypes, model: str, **kwargs):
+        model_name: Final = model
+        try:
+            verbose_router_logger.debug("Inside _atranslation()- model: %s; kwargs: %s", model, kwargs)
+            parent_otel_span: Final = get_parent_otel_span_from_kwargs(kwargs)
+            deployment: Final = await self.async_get_available_deployment(
+                model=model,
+                messages=[{"role": "user", "content": "prompt"}],
+                specific_deployment=kwargs.pop("specific_deployment", None),
+                request_kwargs=kwargs,
+            )
+
+            self._update_kwargs_with_deployment(deployment=deployment, kwargs=kwargs)
+            data: Final = deployment["litellm_params"].copy()
+
+            self.total_calls[model_name] += 1
+            async with self._deployment_slot(deployment=deployment, kwargs=kwargs, parent_otel_span=parent_otel_span):
+                response = await litellm.atranslation(
+                    **{
+                        **data,
+                        "file": file,
+                        "caching": self.cache_responses,
+                        **kwargs,
+                    }
+                )
+
+            self.success_calls[model_name] += 1
+            verbose_router_logger.info("litellm.atranslation(model=%s)\x1b[32m 200 OK\x1b[0m", model_name)
+            return response
+        except Exception as e:
+            verbose_router_logger.info("litellm.atranslation(model=%s)\x1b[31m Exception %s\x1b[0m", model_name, e)
+            if model_name is not None:
+                self.fail_calls[model_name] += 1
+            self._stamp_retry_skip_deployment_id(e, kwargs)
+            raise e
+
     async def aspeech(self, model: str, input: str, voice: str | None = None, **kwargs):
         """
         Example Usage:

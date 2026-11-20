@@ -13,7 +13,12 @@ from litellm.utils import get_model_info
 
 
 def cost_router(call_type: CallTypes) -> Literal["cost_per_token", "cost_per_second"]:
-    if call_type == CallTypes.atranscription or call_type == CallTypes.transcription:
+    if (
+        call_type == CallTypes.atranscription
+        or call_type == CallTypes.transcription
+        or call_type == CallTypes.atranslation
+        or call_type == CallTypes.translation
+    ):
         return "cost_per_second"
     else:
         return "cost_per_token"

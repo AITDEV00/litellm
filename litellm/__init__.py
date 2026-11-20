@@ -2563,6 +2563,11 @@ def __getattr__(name: str) -> Any:
 
         return locals()[name]
 
+    if name in ("atranslation", "translation"):
+        from litellm.endpoints.audio_translation.main import atranslation, translation
+
+        return locals()[name]
+
     # Lazy load evals module functions
     if name in [
         "acreate_eval",

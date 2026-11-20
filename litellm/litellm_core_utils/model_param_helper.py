@@ -93,6 +93,7 @@ class ModelParamHelper:
         text_completion_kwargs: Final = ModelParamHelper._get_litellm_supported_text_completion_kwargs()
         embedding_kwargs: Final = ModelParamHelper._get_litellm_supported_embedding_kwargs()
         transcription_kwargs: Final = ModelParamHelper._get_litellm_supported_transcription_kwargs()
+        translation_kwargs: Final = ModelParamHelper._get_litellm_supported_translation_kwargs()
         rerank_kwargs: Final = ModelParamHelper._get_litellm_supported_rerank_kwargs()
         responses_api_kwargs: Final = ModelParamHelper._get_litellm_supported_responses_api_kwargs()
         anthropic_messages_kwargs: Final = ModelParamHelper._get_litellm_supported_anthropic_messages_kwargs()
@@ -102,6 +103,7 @@ class ModelParamHelper:
             text_completion_kwargs,
             embedding_kwargs,
             transcription_kwargs,
+            translation_kwargs,
             rerank_kwargs,
             responses_api_kwargs,
             anthropic_messages_kwargs,
@@ -180,6 +182,25 @@ class ModelParamHelper:
             return all_transcription_kwargs
         except Exception as e:
             verbose_logger.debug("Error getting transcription kwargs %s", str(e))
+            return set()
+
+    @staticmethod
+    def _get_litellm_supported_translation_kwargs() -> set[str]:
+        """
+        Get the litellm supported audio translation kwargs
+
+        This follows the OpenAI API Spec. Distinct from transcription so the
+        response-cache key can carry the operation (a transcription and a
+        translation of the same file under the same model must not collide).
+        """
+        try:
+            from openai.types.audio.translation_create_params import (
+                TranslationCreateParams,
+            )
+
+            return set(getattr(TranslationCreateParams, "__annotations__", {}).keys())
+        except Exception as e:
+            verbose_logger.debug("Error getting translation kwargs %s", str(e))
             return set()
 
     @staticmethod

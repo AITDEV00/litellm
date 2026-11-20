@@ -19467,6 +19467,13 @@ _LIT_7114_ASYNC_ENTRYPOINTS: Final[
         {"text": "hi"},
         lambda router: router.atranscription(model="gpt-5.6", file=("hi.wav", b"RIFF", "audio/wav")),
     ),
+    "atranslation": (
+        "openai/whisper-1",
+        "/v1/audio/translations",
+        400,
+        {"text": "hi"},
+        lambda router: router.atranslation(model="gpt-5.6", file=("hi.wav", b"RIFF", "audio/wav")),
+    ),
     "arerank": (
         "cohere/rerank-v3.5",
         "/v2/rerank",
@@ -21963,6 +21970,7 @@ def test_update_kwargs_before_fallbacks_unit_test():
         CallTypes.aembedding,
         CallTypes.arerank,
         CallTypes.atranscription,
+        CallTypes.atranslation,
     ],
 )
 @pytest.mark.asyncio
@@ -21996,7 +22004,7 @@ async def test_update_kwargs_before_fallbacks(call_type):
                 input_kwarg = {
                     "input": "Hello, how are you?",
                 }
-            elif call_type.value == "atranscription":
+            elif call_type.value in ("atranscription", "atranslation"):
                 input_kwarg = {
                     "file": "path/to/file",
                 }

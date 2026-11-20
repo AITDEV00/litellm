@@ -1365,6 +1365,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audio/translations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Audio Translations
+         * @description Same params as:
+         *
+         *     https://platform.openai.com/docs/api-reference/audio/createTranslation?lang=curl
+         */
+        post: operations["audio_translations_audio_translations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audio/voices": {
         parameters: {
             query?: never;
@@ -8160,7 +8182,7 @@ export interface paths {
         get?: never;
         /**
          * Admin Put Artifact
-         * @description Upsert one artifact. Streams to RustFS with sha256 on the fly.
+         * @description Upsert one artifact with sha256 verification.
          */
         put: operations["admin_put_artifact_install_admin_v1_artifact__path__put"];
         post?: never;
@@ -8218,6 +8240,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/install/admin/v1/source-agent/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Admin Activate Release
+         * @description Point the active manifest at one complete, already-uploaded release.
+         *
+         *     Activation is separate from upload on purpose: the operator uploads the
+         *     immutable binary and release.json first, and only then moves the pointer, so an
+         *     interrupted publication leaves the previous installer and version serving. This
+         *     route validates the referenced bytes, refuses an incomplete pair, and applies a
+         *     compare-and-set on the pointer token so concurrent publishers cannot both win.
+         */
+        put: operations["admin_activate_release_install_admin_v1_source_agent_activate_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/install/admin/v1/source-agent/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Release State
+         * @description The current pointer bytes and its concurrency token, for a checked update.
+         */
+        get: operations["admin_release_state_install_admin_v1_source_agent_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/install/manifest.json": {
         parameters: {
             query?: never;
@@ -8257,6 +8325,46 @@ export interface paths {
          *     so this response is identical for every caller.
          */
         get: operations["get_harness_preset_install_providers__provider___harness__v_version__json_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/install/source-agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Source Agent Install Script
+         * @description Serve the installer rendered from the stored template and active release.
+         */
+        get: operations["source_agent_install_script_install_source_agent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/install/source-agent/{version}/{asset}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Source Agent Asset
+         * @description Proxy one immutable release asset. Versioned paths only.
+         */
+        get: operations["source_agent_asset_install_source_agent__version___asset__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -16199,6 +16307,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sso/cli/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cli Password Login
+         * @description Exchange an ordinary user's username and password for one durable, scoped key.
+         *
+         *     This is the credential path for `source-link init`. Verification comes from
+         *     ``verify_password_only``, which does the password check, throttling and breach
+         *     screening but mints nothing. Only after that returns, and only for an ordinary
+         *     non-admin account with no reset outstanding, does this mint exactly one
+         *     DB-backed virtual key. Calling ``authenticate_user`` here would have created a
+         *     dashboard session key we immediately had to reject, so an admin login would
+         *     have left a real UI credential behind; this mints nothing until every check
+         *     has passed.
+         *
+         *     The issued key is the ordinary user's own and is restricted to the source
+         *     self-service routes, so it can enroll a source and register its connector
+         *     worker under that user, and nothing administrative. Ownership is derived by
+         *     the gateway from this authenticated user, never from the request body.
+         *
+         *     Lifetime: ``duration=None`` is deliberate. A connector runs as a daemon and
+         *     must survive restarts, so a short UI/dashboard session token is the wrong
+         *     credential here. Revocation is the operator's lever: deleting or blocking the
+         *     key stops the connector on its next request. Retrying a login is safe in the
+         *     sense that it never leaves a half-issued privilege behind, but each successful
+         *     login mints a new key because the gateway cannot re-reveal an existing key's
+         *     secret; a lost response therefore means logging in again, not replaying a key.
+         *
+         *     Only ordinary user accounts are issuable here. An admin login would hand a
+         *     long-lived admin credential to a source host, so it is refused before any key
+         *     exists, and the caller is told to use a user account created by an
+         *     administrator.
+         */
+        post: operations["cli_password_login_sso_cli_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sso/cli/poll/{key_id}": {
         parameters: {
             query?: never;
@@ -20092,6 +20247,28 @@ export interface paths {
          *     https://platform.openai.com/docs/api-reference/audio/createTranscription?lang=curl
          */
         post: operations["audio_transcriptions_v1_audio_transcriptions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/audio/translations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Audio Translations
+         * @description Same params as:
+         *
+         *     https://platform.openai.com/docs/api-reference/audio/createTranslation?lang=curl
+         */
+        post: operations["audio_translations_v1_audio_translations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -26216,6 +26393,22 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * ActivateRequest
+         * @description Activate an already-uploaded, complete release.
+         *
+         *     ``expected_current`` is the pointer digest the caller last observed, or the
+         *     literal ``"absent"`` when it expects no pointer yet. Omitting it skips the
+         *     compare, which is only appropriate for a deliberate first publication.
+         */
+        ActivateRequest: {
+            /** Expected Current */
+            expected_current?: string | null;
+            /** Sha256 */
+            sha256: string;
+            /** Version */
+            version: string;
+        };
+        /**
          * ActiveUsersAnalyticsResponse
          * @description Response for active users analytics
          */
@@ -28027,6 +28220,16 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_audio_translations_audio_translations_post */
+        Body_audio_translations_audio_translations_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_audio_translations_v1_audio_translations_post */
+        Body_audio_translations_v1_audio_translations_post: {
+            /** File */
+            file: string;
+        };
         /** Body_authorize_complete_authorize_complete_post */
         Body_authorize_complete_authorize_complete_post: {
             /** Decision */
@@ -29072,7 +29275,7 @@ export interface components {
          * CallTypes
          * @enum {string}
          */
-        CallTypes: "embedding" | "aembedding" | "completion" | "acompletion" | "atext_completion" | "text_completion" | "image_generation" | "aimage_generation" | "image_edit" | "aimage_edit" | "moderation" | "amoderation" | "atranscription" | "transcription" | "aspeech" | "speech" | "acreate_voice" | "create_voice" | "adiarize" | "diarize" | "rerank" | "arerank" | "search" | "asearch" | "decisions" | "adecisions" | "systemone" | "asystemone" | "_arealtime" | "_aresponses_websocket" | "create_batch" | "acreate_batch" | "aretrieve_batch" | "retrieve_batch" | "acancel_batch" | "cancel_batch" | "pass_through_endpoint" | "anthropic_messages" | "aanthropic_messages" | "get_assistants" | "aget_assistants" | "create_assistants" | "acreate_assistants" | "delete_assistant" | "adelete_assistant" | "acreate_thread" | "create_thread" | "aget_thread" | "get_thread" | "a_add_message" | "add_message" | "aget_messages" | "get_messages" | "arun_thread" | "run_thread" | "arun_thread_stream" | "run_thread_stream" | "afile_retrieve" | "file_retrieve" | "afile_delete" | "file_delete" | "afile_list" | "file_list" | "acreate_file" | "create_file" | "afile_content" | "file_content" | "create_fine_tuning_job" | "acreate_fine_tuning_job" | "create_video" | "acreate_video" | "video_generation" | "avideo_generation" | "avideo_retrieve" | "video_retrieve" | "avideo_content" | "video_content" | "video_remix" | "avideo_remix" | "video_list" | "avideo_list" | "video_retrieve_job" | "avideo_retrieve_job" | "video_delete" | "avideo_delete" | "video_create_character" | "avideo_create_character" | "video_get_character" | "avideo_get_character" | "video_edit" | "avideo_edit" | "video_extension" | "avideo_extension" | "vector_store_file_create" | "avector_store_file_create" | "vector_store_file_list" | "avector_store_file_list" | "vector_store_file_retrieve" | "avector_store_file_retrieve" | "vector_store_file_content" | "avector_store_file_content" | "vector_store_file_update" | "avector_store_file_update" | "vector_store_file_delete" | "avector_store_file_delete" | "vector_store_create" | "avector_store_create" | "vector_store_search" | "avector_store_search" | "ingest" | "aingest" | "query" | "aquery" | "create_interaction" | "acreate_interaction" | "create_container" | "acreate_container" | "list_containers" | "alist_containers" | "retrieve_container" | "aretrieve_container" | "delete_container" | "adelete_container" | "list_container_files" | "alist_container_files" | "upload_container_file" | "aupload_container_file" | "create_sandbox" | "acreate_sandbox" | "delete_sandbox" | "adelete_sandbox" | "run_code" | "arun_code" | "code_interpreter_tool" | "acode_interpreter_tool" | "acancel_fine_tuning_job" | "cancel_fine_tuning_job" | "alist_fine_tuning_jobs" | "list_fine_tuning_jobs" | "aretrieve_fine_tuning_job" | "retrieve_fine_tuning_job" | "responses" | "aresponses" | "get_responses" | "aget_responses" | "delete_responses" | "adelete_responses" | "cancel_responses" | "acancel_responses" | "compact_responses" | "acompact_responses" | "alist_input_items" | "llm_passthrough_route" | "allm_passthrough_route" | "generate_content" | "agenerate_content" | "generate_content_stream" | "agenerate_content_stream" | "ocr" | "aocr" | "call_mcp_tool" | "list_mcp_tools" | "asend_message" | "send_message" | "acreate_skill";
+        CallTypes: "embedding" | "aembedding" | "completion" | "acompletion" | "atext_completion" | "text_completion" | "image_generation" | "aimage_generation" | "image_edit" | "aimage_edit" | "moderation" | "amoderation" | "atranscription" | "transcription" | "atranslation" | "translation" | "aspeech" | "speech" | "acreate_voice" | "create_voice" | "adiarize" | "diarize" | "rerank" | "arerank" | "search" | "asearch" | "decisions" | "adecisions" | "systemone" | "asystemone" | "_arealtime" | "_aresponses_websocket" | "create_batch" | "acreate_batch" | "aretrieve_batch" | "retrieve_batch" | "acancel_batch" | "cancel_batch" | "pass_through_endpoint" | "anthropic_messages" | "aanthropic_messages" | "get_assistants" | "aget_assistants" | "create_assistants" | "acreate_assistants" | "delete_assistant" | "adelete_assistant" | "acreate_thread" | "create_thread" | "aget_thread" | "get_thread" | "a_add_message" | "add_message" | "aget_messages" | "get_messages" | "arun_thread" | "run_thread" | "arun_thread_stream" | "run_thread_stream" | "afile_retrieve" | "file_retrieve" | "afile_delete" | "file_delete" | "afile_list" | "file_list" | "acreate_file" | "create_file" | "afile_content" | "file_content" | "create_fine_tuning_job" | "acreate_fine_tuning_job" | "create_video" | "acreate_video" | "video_generation" | "avideo_generation" | "avideo_retrieve" | "video_retrieve" | "avideo_content" | "video_content" | "video_remix" | "avideo_remix" | "video_list" | "avideo_list" | "video_retrieve_job" | "avideo_retrieve_job" | "video_delete" | "avideo_delete" | "video_create_character" | "avideo_create_character" | "video_get_character" | "avideo_get_character" | "video_edit" | "avideo_edit" | "video_extension" | "avideo_extension" | "vector_store_file_create" | "avector_store_file_create" | "vector_store_file_list" | "avector_store_file_list" | "vector_store_file_retrieve" | "avector_store_file_retrieve" | "vector_store_file_content" | "avector_store_file_content" | "vector_store_file_update" | "avector_store_file_update" | "vector_store_file_delete" | "avector_store_file_delete" | "vector_store_create" | "avector_store_create" | "vector_store_search" | "avector_store_search" | "ingest" | "aingest" | "query" | "aquery" | "create_interaction" | "acreate_interaction" | "create_container" | "acreate_container" | "list_containers" | "alist_containers" | "retrieve_container" | "aretrieve_container" | "delete_container" | "adelete_container" | "list_container_files" | "alist_container_files" | "upload_container_file" | "aupload_container_file" | "create_sandbox" | "acreate_sandbox" | "delete_sandbox" | "adelete_sandbox" | "run_code" | "arun_code" | "code_interpreter_tool" | "acode_interpreter_tool" | "acancel_fine_tuning_job" | "cancel_fine_tuning_job" | "alist_fine_tuning_jobs" | "list_fine_tuning_jobs" | "aretrieve_fine_tuning_job" | "retrieve_fine_tuning_job" | "responses" | "aresponses" | "get_responses" | "aget_responses" | "delete_responses" | "adelete_responses" | "cancel_responses" | "acancel_responses" | "compact_responses" | "acompact_responses" | "alist_input_items" | "llm_passthrough_route" | "allm_passthrough_route" | "generate_content" | "agenerate_content" | "generate_content_stream" | "agenerate_content_stream" | "ocr" | "aocr" | "call_mcp_tool" | "list_mcp_tools" | "asend_message" | "send_message" | "acreate_skill";
         /** CallbackDelete */
         CallbackDelete: {
             /** Callback Name */
@@ -53348,6 +53551,39 @@ export interface operations {
             };
         };
     };
+    audio_translations_audio_translations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_audio_translations_audio_translations_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_voice_audio_voices_post: {
         parameters: {
             query?: never;
@@ -63073,6 +63309,63 @@ export interface operations {
             };
         };
     };
+    admin_activate_release_install_admin_v1_source_agent_activate_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_release_state_install_admin_v1_source_agent_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     get_manifest_install_manifest_json_get: {
         parameters: {
             query?: never;
@@ -63101,6 +63394,58 @@ export interface operations {
                 provider: string;
                 harness: string;
                 version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    source_agent_install_script_install_source_agent_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    source_agent_asset_install_source_agent__version___asset__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: string;
+                asset: string;
             };
             cookie?: never;
         };
@@ -73158,6 +73503,26 @@ export interface operations {
             };
         };
     };
+    cli_password_login_sso_cli_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     cli_poll_key_sso_cli_poll__key_id__get: {
         parameters: {
             query?: {
@@ -78391,6 +78756,39 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_audio_transcriptions_v1_audio_transcriptions_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    audio_translations_v1_audio_translations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_audio_translations_v1_audio_translations_post"];
             };
         };
         responses: {

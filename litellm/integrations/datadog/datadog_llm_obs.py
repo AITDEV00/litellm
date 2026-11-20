@@ -940,6 +940,8 @@ class DataDogLLMObsLogger(CustomBatchLogger):
             CallTypes.amoderation.value,
             CallTypes.transcription.value,
             CallTypes.atranscription.value,
+            CallTypes.translation.value,
+            CallTypes.atranslation.value,
             CallTypes.speech.value,
             CallTypes.aspeech.value,
             CallTypes.rerank.value,

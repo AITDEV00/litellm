@@ -88,6 +88,31 @@ def test_provider_audio_transcription_config_resolves_oicm_providers(
     assert type(config).__name__ == expected_class
 
 
+@pytest.mark.parametrize(
+    "provider_name,expected_class",
+    [
+        ("nvidia_nim", "NvidiaNimAudioTranslationConfig"),
+        ("hosted_vllm", "HostedVLLMAudioTranslationConfig"),
+    ],
+)
+def test_provider_audio_translation_config_resolves_native_providers(
+    provider_name: str, expected_class: str
+) -> None:
+    provider = litellm.LlmProviders(provider_name)
+    config = ProviderConfigManager.get_provider_audio_translation_config(
+        model="x", provider=provider
+    )
+    assert config is not None
+    assert type(config).__name__ == expected_class
+
+
+def test_provider_audio_translation_config_returns_none_for_unsupported() -> None:
+    config = ProviderConfigManager.get_provider_audio_translation_config(
+        model="x", provider=litellm.LlmProviders.GROQ
+    )
+    assert config is None
+
+
 def test_oicm_registry_module_importable() -> None:
     import litellm.llms.oicm_providers as oicm
 

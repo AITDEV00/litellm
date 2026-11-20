@@ -6848,6 +6848,62 @@ def test_transcription_cost_without_provider_seconds_bills_the_measured_length(
     assert cost == pytest.approx(0.01 * expected_seconds)
 
 
+@pytest.mark.parametrize("call_type", ["atranslation", "translation"], ids=["async", "sync"])
+def test_translation_cost_bills_audio_seconds_not_chat_tokens(
+    monkeypatch: pytest.MonkeyPatch, call_type: str
+) -> None:
+    """A translation of the same file must bill like transcription: per audio
+    second. Falling through to chat token pricing would bill zero tokens and
+    silently report cost 0 for a billed operation."""
+    monkeypatch.setitem(
+        litellm.model_cost,
+        "whisper-fake",
+        {"input_cost_per_second": 0.01, "litellm_provider": "openai", "mode": "audio_transcription"},
+    )
+    translation: Final = convert_to_model_response_object(
+        response_object={
+            "text": "What is the weather in Paris?",
+            "usage": {"type": "duration", "seconds": 3},
+        },
+        model_response_object=TranscriptionResponse(),
+        hidden_params={"model": "whisper-fake", "custom_llm_provider": "openai"},
+        response_type="audio_transcription",
+    )
+
+    cost: Final = completion_cost(
+        completion_response=translation, model="openai/whisper-fake", call_type=call_type
+    )
+
+    assert cost == pytest.approx(0.01 * 3)
+
+
+def test_translation_cost_matches_transcription_cost_for_the_same_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        litellm.model_cost,
+        "whisper-fake",
+        {"input_cost_per_second": 0.01, "litellm_provider": "openai", "mode": "audio_transcription"},
+    )
+
+    def _build() -> TranscriptionResponse:
+        return convert_to_model_response_object(
+            response_object={"text": "hi", "usage": {"type": "duration", "seconds": 3}},
+            model_response_object=TranscriptionResponse(),
+            hidden_params={"model": "whisper-fake", "custom_llm_provider": "openai"},
+            response_type="audio_transcription",
+        )
+
+    transcription_cost: Final = completion_cost(
+        completion_response=_build(), model="openai/whisper-fake", call_type="atranscription"
+    )
+    translation_cost: Final = completion_cost(
+        completion_response=_build(), model="openai/whisper-fake", call_type="atranslation"
+    )
+
+    assert translation_cost == pytest.approx(transcription_cost)
+
+
 def test_gpt_image_2_azure_cost_tracking():
     azure_image_generation_response: Final = {
         "created": 1758585600,

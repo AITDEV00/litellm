@@ -266,6 +266,9 @@ class LiteLLMRoutes(enum.Enum):
         # audio transcription
         "/audio/transcriptions",
         "/v1/audio/transcriptions",
+        # audio translation
+        "/audio/translations",
+        "/v1/audio/translations",
         # audio Speech
         "/audio/speech",
         "/v1/audio/speech",

@@ -27,6 +27,7 @@ from litellm.litellm_core_utils.llm_response_utils.response_metadata import (
 )
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.utils import ModelResponse, Usage
 
 
@@ -685,3 +686,44 @@ def test_update_response_metadata_keeps_the_provider_model_after_the_proxy_rewri
         select_model_name_for_cost_calc(model=None, completion_response=result, custom_llm_provider="azure")
         == "azure/gpt-5.4-nano-2026-03-17"
     )
+
+
+def test_update_response_metadata_stamps_a_frozen_document_response_without_reassigning():
+    """A NativeAudioDocumentResponse keeps _hidden_params in dict storage, so
+    update_response_metadata must merge in place instead of assigning; the
+    assignment raised FrozenInstanceError and 500'd every text/srt/vtt request
+    on a live deployment."""
+    start_time: Final = datetime.datetime(2026, 11, 20, 12, 0, 0)
+    logging_obj: Final = Logging(
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        messages=[{"role": "user", "content": "audio"}],
+        stream=False,
+        call_type="atranscription",
+        start_time=start_time,
+        litellm_call_id="frozen-document-metadata",
+        function_id="f",
+    )
+    logging_obj.update_environment_variables(
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        litellm_params={},
+        optional_params={},
+        custom_llm_provider="hosted_vllm",
+    )
+    document: Final = NativeAudioDocumentResponse(body="Four score", media_type="text/plain")
+    document.hidden_params["audio_transcription_duration"] = 10.885
+
+    update_response_metadata(
+        result=document,
+        logging_obj=logging_obj,
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        kwargs={},
+        start_time=start_time,
+        end_time=start_time + datetime.timedelta(seconds=2),
+    )
+
+    hidden: Final = document.hidden_params
+    assert hidden["litellm_call_id"] == "frozen-document-metadata"
+    assert hidden["litellm_model_name"] == "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
+    assert hidden["audio_transcription_duration"] == 10.885
+    assert document.body == "Four score"
+    assert document.media_type == "text/plain"

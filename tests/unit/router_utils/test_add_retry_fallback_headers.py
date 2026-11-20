@@ -15,6 +15,7 @@ from litellm.router_utils.add_retry_fallback_headers import (
     replace_complexity_router_headers,
 )
 from litellm.types.decisions import DecisionsResponse
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 
 
 class StreamingWrapper:
@@ -265,6 +266,30 @@ def test_add_fallback_headers_to_frozen_decisions_response() -> None:
 
     assert result is response
     assert response.hidden_params["additional_headers"] == {"x-litellm-attempted-fallbacks": 1}
+
+
+def test_add_fallback_headers_to_frozen_native_audio_document() -> None:
+    """The frozen NativeAudioDocumentResponse dataclass forbids _hidden_params
+    reassignment; header decoration must merge into its dict storage or every
+    text/srt/vtt transcription through the router 500s with FrozenInstanceError."""
+    response: Final = NativeAudioDocumentResponse(body="Four score", media_type="text/plain")
+    response.hidden_params["model_id"] = "deployment-1"
+
+    result: Final = add_fallback_headers_to_response(response=response, attempted_fallbacks=1)
+
+    assert result is response
+    assert response.hidden_params["model_id"] == "deployment-1"
+    assert response.hidden_params["additional_headers"] == {"x-litellm-attempted-fallbacks": 1}
+
+
+def test_ensure_response_additional_headers_updates_frozen_native_audio_document() -> None:
+    response: Final = NativeAudioDocumentResponse(body="Four score", media_type="text/plain")
+
+    additional_headers: Final = ensure_response_additional_headers(response)
+    additional_headers["x-added"] = "value"
+
+    assert response.hidden_params["additional_headers"] is additional_headers
+    assert response.body == "Four score"
 
 
 def test_ensure_response_additional_headers_updates_frozen_decisions_response() -> None:

@@ -383,6 +383,7 @@ if TYPE_CHECKING:
     from litellm.llms.base_llm.audio_transcription.transformation import (
         BaseAudioTranscriptionConfig,
     )
+    from litellm.llms.base_llm.audio_translation.transformation import BaseAudioTranslationConfig
     from litellm.llms.base_llm.diarization.transformation import BaseDiarizationConfig
 
     # Type stubs for lazy-loaded config classes and types
@@ -1271,6 +1272,22 @@ def function_setup(
             else:
                 kwargs["metadata"] = {"file_checksum": file_checksum}
             messages = file_checksum
+        elif call_type == CallTypes.atranslation.value or call_type == CallTypes.translation.value:
+            translation_file: Final[FileTypes] = args[1] if len(args) > 1 else kwargs["file"]
+            # Same audio-upload treatment as transcription: the checksum is
+            # computed before any API call and keys the response cache. The
+            # cache keys the file by metadata["file_checksum"] + model, not by
+            # the operation, so the "translation:" prefix keeps an entry from
+            # colliding with a plain transcription of the same file while
+            # identical translation requests still share one entry.
+            translation_audio_utils: Final = _get_cached_audio_utils()
+            translation_checksum: Final = translation_audio_utils.get_audio_file_content_hash(file_obj=translation_file)
+            translation_cache_identity: Final = f"translation:{translation_checksum}"
+            if "metadata" in kwargs:
+                kwargs["metadata"]["file_checksum"] = translation_cache_identity
+            else:
+                kwargs["metadata"] = {"file_checksum": translation_cache_identity}
+            messages = translation_checksum
         elif call_type == CallTypes.aspeech.value or call_type == CallTypes.speech.value:
             messages = kwargs.get("input", "speech")
         elif call_type == CallTypes.aresponses.value or call_type == CallTypes.responses.value:
@@ -1842,6 +1859,7 @@ def client(original_function):
                 and kwargs.get("acompletion", False) is not True
                 and kwargs.get("aimg_generation", False) is not True
                 and kwargs.get("atranscription", False) is not True
+                and kwargs.get("atranslation", False) is not True
                 and kwargs.get("arerank", False) is not True
                 and kwargs.get("_arealtime", False) is not True
             ):  # allow users to control returning cached responses from the completion function
@@ -1926,6 +1944,8 @@ def client(original_function):
                 and kwargs["aimg_generation"] is True
                 or "atranscription" in kwargs
                 and kwargs["atranscription"] is True
+                or "atranslation" in kwargs
+                and kwargs["atranslation"] is True
                 or "aspeech" in kwargs
                 and kwargs["aspeech"] is True
                 or asyncio.iscoroutine(result)
@@ -2419,6 +2439,7 @@ def _is_async_request(
         or kwargs.get("amoderation", False) is True
         or kwargs.get("atext_completion", False) is True
         or kwargs.get("atranscription", False) is True
+        or kwargs.get("atranslation", False) is True
         or kwargs.get("arerank", False) is True
         or kwargs.get("_arealtime", False) is True
         or kwargs.get("acreate_batch", False) is True
@@ -3955,6 +3976,100 @@ def get_optional_params_transcription(
     )
 
     return optional_params
+
+
+def get_optional_params_translation(
+    model: str,
+    custom_llm_provider: str,
+    prompt: str | None = None,
+    response_format: str | None = None,
+    temperature: int | None = None,
+    drop_params: bool | None = None,
+    **kwargs,
+):
+    """Build optional params for an audio translation call.
+
+    Structurally equivalent to ``get_optional_params_transcription``: the
+    public standard OpenAI translation parameters are validated against the
+    selected provider config's supported list, and for native-multipart
+    providers (hosted-vLLM, NIM) the extension params including NIM's
+    ``target_language`` merge top-level through the native transport
+    discriminator instead of being nested in ``extra_body`` or rejected.
+    """
+    from litellm.constants import OPENAI_TRANSLATION_PARAMS
+
+    passed_params: Final = locals()
+    passed_params.pop("OPENAI_TRANSLATION_PARAMS")
+    passed_params.pop("custom_llm_provider")
+    passed_params.pop("drop_params")
+    drop_params = normalize_drop_params(drop_params)
+    special_params: Final[Mapping[str, object]] = passed_params.pop("kwargs")
+    for k, v in special_params.items():
+        passed_params[k] = v
+
+    default_params: Final = {
+        "prompt": None,
+        "response_format": None,
+        "temperature": None,
+    }
+
+    non_default_params = {k: v for k, v in passed_params.items() if (k in default_params and v != default_params[k])}
+    optional_params = {}
+    special_transport: str = "default"
+
+    def _check_valid_arg(supported_params):
+        if len(non_default_params.keys()) > 0:
+            keys: Final = list(non_default_params.keys())
+            for k in keys:
+                if (
+                    drop_params is True or litellm.drop_params is True
+                ) and k not in supported_params:  # drop the unsupported non-default values
+                    non_default_params.pop(k, None)
+                elif k not in supported_params:
+                    raise UnsupportedParamsError(
+                        status_code=500,
+                        message=f"Setting user/encoding format is not supported by {custom_llm_provider}. To drop it from the call, set `litellm.drop_params = True`.",
+                    )
+            return non_default_params
+
+    provider_config: BaseAudioTranslationConfig | None = None
+    if custom_llm_provider is not None:
+        provider_config = ProviderConfigManager.get_provider_audio_translation_config(
+            model=model,
+            provider=LlmProviders(custom_llm_provider),
+        )
+
+    if custom_llm_provider == "openai" or custom_llm_provider == "azure":
+        optional_params = non_default_params
+    elif provider_config is not None:
+        supported_params = provider_config.get_supported_openai_params(model)
+        _check_valid_arg(supported_params=supported_params)
+        optional_params = provider_config.map_openai_params(
+            non_default_params=non_default_params,
+            optional_params=optional_params,
+            model=model,
+            drop_params=drop_params if drop_params is not None else False,
+        )
+        special_transport = "native_multipart" if _uses_native_translation_transport(provider_config) else "default"
+
+    optional_params = add_provider_specific_params_to_optional_params(
+        optional_params=optional_params,
+        passed_params=passed_params,
+        custom_llm_provider=custom_llm_provider,
+        openai_params=OPENAI_TRANSLATION_PARAMS,
+        additional_drop_params=kwargs.get("additional_drop_params", None),
+        transport=special_transport,
+    )
+
+    return optional_params
+
+
+def _uses_native_translation_transport(provider_config: BaseAudioTranslationConfig) -> bool:
+    """Whether a translation config's serving stack consumes the typed native
+    multipart form-field contract (ordered fields, repeated parts, unpacked
+    extra_body). Checked through duck-typing because the transcription and
+    translation base configs declare the flag independently."""
+    return getattr(provider_config, "uses_native_multipart_transport", False) is True
 
 
 def _map_openai_size_to_vertex_ai_aspect_ratio(size: str | None) -> str:
@@ -9671,6 +9786,25 @@ class ProviderConfigManager:
         )
 
         return oicm_get_provider_audio_transcription_config(provider)
+
+    @staticmethod
+    def get_provider_audio_translation_config(
+        model: str,
+        provider: LlmProviders,
+    ) -> BaseAudioTranslationConfig | None:
+        """Audio translation config dispatch.
+
+        Plain OpenAI keeps its official SDK transport, so it is dispatched by
+        the SDK slice directly rather than through this registry. Self-hosted
+        native multipart providers (hosted-vLLM, NVIDIA NIM) come through the
+        OICM registry, which registers only serving stacks whose tested
+        surface actually mounts ``/v1/audio/translations``.
+        """
+        from litellm.llms.oicm_providers.registry import (
+            get_provider_audio_translation_config as oicm_get_provider_audio_translation_config,
+        )
+
+        return oicm_get_provider_audio_translation_config(provider)
 
     @staticmethod
     def get_provider_responses_api_config(

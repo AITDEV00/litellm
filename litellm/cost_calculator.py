@@ -192,6 +192,15 @@ _SPEECH_CALL_TYPES: Final = frozenset(
     }
 )
 
+_AUDIO_FILE_CALL_TYPES: Final = frozenset(
+    {
+        CallTypes.atranscription.value,
+        CallTypes.transcription.value,
+        CallTypes.atranslation.value,
+        CallTypes.translation.value,
+    }
+)
+
 _TRANSCRIPTION_CALL_TYPES: Final = frozenset(
     {
         CallTypes.atranscription.value,
@@ -702,7 +711,7 @@ def cost_per_token(
             data_residency=data_residency,
             vertex_location=vertex_location,
         )
-    elif call_type == "atranscription" or call_type == "transcription":
+    elif call_type in _AUDIO_FILE_CALL_TYPES:
         if _transcription_usage_has_token_details(usage_block):
             return generic_cost_per_token(
                 model=model_without_prefix,
@@ -1858,7 +1867,7 @@ def completion_cost(
                     )
                 elif call_type in _SPEECH_CALL_TYPES:
                     prompt_characters = litellm.utils.count_characters(text=prompt)
-                elif call_type in _TRANSCRIPTION_CALL_TYPES:
+                elif call_type in _AUDIO_FILE_CALL_TYPES:
                     audio_transcription_file_duration = _transcription_duration_for_cost(completion_response)
                 elif call_type in _RERANK_CALL_TYPES:
                     if completion_response is not None and isinstance(completion_response, RerankResponse):
@@ -2223,6 +2232,8 @@ def response_cost_calculator(
         "amoderation",
         "atranscription",
         "transcription",
+        "atranslation",
+        "translation",
         "aspeech",
         "speech",
         "rerank",

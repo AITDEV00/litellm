@@ -13220,12 +13220,17 @@ async def audio_transcriptions(
             response=response,
             request_headers=dict(request.headers),
         )
-        if callback_headers:
-            fastapi_response.headers.update(callback_headers)
-
+        # The handler returns an explicit Response (document bytes under their
+        # native media type, or the model's JSON), so FastAPI does not merge the
+        # injected response parameter's headers: the built headers must ride the
+        # returned Response itself
+        response_headers: Final[dict[str, str]] = {
+            **dict(fastapi_response.headers),
+            **callback_headers,
+        }
         if isinstance(response, NativeAudioDocumentResponse):
-            return audio_document_response(response, headers={})
-        return audio_json_response(response, headers={})
+            return audio_document_response(response, headers=response_headers)
+        return audio_json_response(response, headers=response_headers)
     except Exception as e:
         await proxy_logging_obj.post_call_failure_hook(
             user_api_key_dict=user_api_key_dict, original_exception=e, request_data=data
@@ -21160,6 +21165,7 @@ app.include_router(agent_skills_discovery_router)
 # Eager: /models/{name}:method overlaps with the OpenAI /models endpoint.
 app.include_router(google_router)
 
+from litellm.proxy.audio_translation_routes import router as oicm_audio_translation_router
 from litellm.proxy.client_distribution.routes import router as client_distribution_router
 from litellm.proxy.client_distribution.source_agent_distribution import router as source_agent_distribution_router
 from litellm.proxy.diarization_routes import router as oicm_diarization_router
@@ -21172,6 +21178,7 @@ app.include_router(oicm_status_router)
 app.include_router(source_agent_distribution_router)
 app.include_router(client_distribution_router)
 app.include_router(oicm_diarization_router)
+app.include_router(oicm_audio_translation_router)
 app.include_router(openrouter_compat_router)
 
 attach_lazy_features(app)

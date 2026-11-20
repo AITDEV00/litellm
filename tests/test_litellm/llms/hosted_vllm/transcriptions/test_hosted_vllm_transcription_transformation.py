@@ -14,7 +14,9 @@ import io
 import json
 
 import httpx
+import pytest
 
+import litellm
 from litellm.llms.base_llm.audio_transcription.transformation import (
     AudioTranscriptionRequestData,
 )
@@ -164,6 +166,19 @@ class TestHostedVLLMAudioTranscriptionTransform:
 class TestHostedVLLMAudioTranscriptionResponse:
     def _response(self, payload: dict) -> httpx.Response:
         return httpx.Response(200, json=payload)
+
+    def test_an_sse_answer_to_a_nonstreaming_call_is_a_truthful_error(self):
+        """An upstream that answers a non-streaming request with SSE frames
+        must surface a 400-class error, not a JSON parse crash: "data:" lines
+        cannot be truthfully repackaged as a final response."""
+        sse_response = httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"type": "transcript.text.delta", "delta": "Fo"}\n\n',
+        )
+
+        with pytest.raises(litellm.BadRequestError, match="streaming is not supported"):
+            HostedVLLMAudioTranscriptionConfig().transform_audio_transcription_response(sse_response)
 
     def test_handles_usage_field(self):
         """A provider ``usage`` field must not crash response construction.

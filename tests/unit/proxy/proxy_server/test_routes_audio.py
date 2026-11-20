@@ -254,3 +254,18 @@ def test_audio_transcription_error(client, auth_as, patched_transcription_error,
         response = client.post(path, files=files, data=data)
     assert response.status_code == 500
     assert len(response.content) > 0
+
+
+@pytest.mark.parametrize("path", ["/v1/audio/transcriptions", "/audio/transcriptions"])
+def test_audio_transcription_happy_path_returns_custom_headers(client, auth_as, patched_transcription, path):
+    """The route returns an explicit Response, so FastAPI never merges the
+    injected response parameter's headers; the built custom headers must ride
+    the returned Response or every transcription loses its x-litellm headers."""
+    files = {"file": ("audio.mp3", b"\x00\x01\x02", "audio/mpeg")}
+    data = {"model": "whisper-1"}
+    with auth_as():
+        response = client.post(path, files=files, data=data)
+
+    assert response.status_code == 200
+    assert response.headers.get("x-litellm-call-id") is not None
+    assert response.headers["x-litellm-call-id"] != ""

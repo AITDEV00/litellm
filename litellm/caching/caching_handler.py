@@ -33,11 +33,17 @@ from litellm.litellm_core_utils.hidden_params import get_hidden_params
 from litellm.litellm_core_utils.llm_response_utils.response_metadata import (
     update_response_metadata,
 )
+from litellm.litellm_core_utils.llm_response_utils.transcriptions import (
+    is_cached_audio_document,
+    rehydrate_audio_document_response,
+    serialize_audio_document_response,
+)
 from litellm.litellm_core_utils.logging_utils import (
     assemble_complete_response_from_streaming_chunks,
 )
 from litellm.types.caching import CACHED_STREAM_EVENTS_KEY, EMBEDDING_CACHE_FORMAT_VERSION, CachedEmbedding
 from litellm.types.integrations.custom_logger import converted_stream_requested
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.openai import ChatCompletionFileObject, ResponsesAPIResponse
 from litellm.types.rerank import RerankResponse
@@ -138,6 +144,8 @@ def is_response_without_output(result: object) -> bool:
         return not result.choices
     if isinstance(result, ResponsesAPIResponse):
         return not getattr(result, "output", None)
+    if isinstance(result, NativeAudioDocumentResponse):
+        return not result.body
     if not isinstance(result, dict):
         return False
     cached_stream_events: Final = result.get(CACHED_STREAM_EVENTS_KEY)
@@ -947,6 +955,7 @@ class LLMCachingHandler:
         | EmbeddingResponse
         | RerankResponse
         | TranscriptionResponse
+        | NativeAudioDocumentResponse
         | CustomStreamWrapper
         | None
     ):
@@ -1014,20 +1023,26 @@ class LLMCachingHandler:
                 model_response_object=None,
                 response_type="rerank",
             )
-        elif (call_type == CallTypes.atranscription.value or call_type == CallTypes.transcription.value) and isinstance(
-            cached_result, dict
-        ):
-            hidden_params: Final = {
-                "model": "whisper-1",
-                "custom_llm_provider": custom_llm_provider,
-                "cache_hit": True,
-            }
-            cached_result = convert_to_model_response_object(
-                response_object=cached_result,
-                model_response_object=TranscriptionResponse(),
-                response_type="audio_transcription",
-                hidden_params=hidden_params,
-            )
+        elif (
+            call_type == CallTypes.atranscription.value
+            or call_type == CallTypes.transcription.value
+            or call_type == CallTypes.atranslation.value
+            or call_type == CallTypes.translation.value
+        ) and isinstance(cached_result, dict):
+            if is_cached_audio_document(cached_result):
+                cached_result = rehydrate_audio_document_response(cached_result)
+            else:
+                hidden_params: Final = {
+                    "model": "whisper-1",
+                    "custom_llm_provider": custom_llm_provider,
+                    "cache_hit": True,
+                }
+                cached_result = convert_to_model_response_object(
+                    response_object=cached_result,
+                    model_response_object=TranscriptionResponse(),
+                    response_type="audio_transcription",
+                    hidden_params=hidden_params,
+                )
         elif (
             call_type == CallTypes.anthropic_messages.value or call_type == CallTypes.aanthropic_messages.value
         ) and isinstance(cached_result, dict):
@@ -1164,24 +1179,27 @@ class LLMCachingHandler:
         new_kwargs["parent_otel_span"] = parent_otel_span
         # [OPTIONAL] ADD TO CACHE
         if self.should_store_result_in_cache(original_function=original_function, kwargs=new_kwargs):
+            cacheable_result: Final[object] = (
+                serialize_audio_document_response(result) if isinstance(result, NativeAudioDocumentResponse) else result
+            )
             if (
-                isinstance(result, litellm.ModelResponse)
-                or isinstance(result, litellm.EmbeddingResponse)
-                or isinstance(result, TranscriptionResponse)
-                or isinstance(result, RerankResponse)
-                or isinstance(result, ResponsesAPIResponse)
+                isinstance(cacheable_result, litellm.ModelResponse)
+                or isinstance(cacheable_result, litellm.EmbeddingResponse)
+                or isinstance(cacheable_result, TranscriptionResponse)
+                or isinstance(cacheable_result, RerankResponse)
+                or isinstance(cacheable_result, ResponsesAPIResponse)
             ):
                 if (
-                    isinstance(result, EmbeddingResponse)
+                    isinstance(cacheable_result, EmbeddingResponse)
                     and not isinstance(cache.cache, S3Cache)  # s3 doesn't support bulk writing. Exclude.
                 ):
                     create_cache_write_task(
                         lambda: cache.async_add_cache_pipeline(
-                            result, dynamic_cache_object=self.dual_cache, **new_kwargs
+                            cacheable_result, dynamic_cache_object=self.dual_cache, **new_kwargs
                         )
                     )
                 else:
-                    result_json: Final = result.model_dump_json(exclude_unset=True)
+                    result_json: Final = cacheable_result.model_dump_json(exclude_unset=True)
                     create_cache_write_task(
                         lambda: cache.async_add_cache(
                             result_json,
@@ -1190,7 +1208,7 @@ class LLMCachingHandler:
                         )
                     )
             else:
-                create_cache_write_task(lambda: cache.async_add_cache(result, **new_kwargs))
+                create_cache_write_task(lambda: cache.async_add_cache(cacheable_result, **new_kwargs))
 
     def sync_set_cache(
         self,
@@ -1217,7 +1235,12 @@ class LLMCachingHandler:
 
         if self.should_store_result_in_cache(original_function=self.original_function, kwargs=new_kwargs):
             with response_cache_phase("set"):
-                litellm.cache.add_cache(result, **new_kwargs)
+                cacheable_result: Final[object] = (
+                    serialize_audio_document_response(result)
+                    if isinstance(result, NativeAudioDocumentResponse)
+                    else result
+                )
+                litellm.cache.add_cache(cacheable_result, **new_kwargs)
 
         return
 
