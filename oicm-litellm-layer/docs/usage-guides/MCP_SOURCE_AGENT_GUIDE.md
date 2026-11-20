@@ -67,8 +67,9 @@ confusing failures.
 | | Dev | Prod |
 | --- | --- | --- |
 | Gateway (control plane) | `kubectl port-forward` of `svc/litellm-proxy-dev :4000`, plus a local TLS terminator on `14443` | the ingress at `https://litellm.ecouncil.ae`, which routes everything to the gateway's port 4000 |
-| Broker tunnel (data plane) | port-forward of `svc/litellm-mcp-broker-dev :8093`, plus an **HTTP/2** TLS terminator on `18094` | port-forward of `svc/litellm-mcp-broker :8093`, plus an HTTP/2 TLS terminator, because **no ingress route reaches 8093** |
-| How the agent picks the tunnel | `MCP_SOURCE_LINK_TUNNEL_URL` (required on dev) | `MCP_SOURCE_LINK_TUNNEL_URL` (required on prod, for the same reason) |
+| Broker tunnel (data plane) | port-forward of `svc/litellm-mcp-broker-dev :8093`, plus an **HTTP/2** TLS terminator on `18094` | the same public host on 443: a separate Ingress (`litellm-mcp-tunnel`) routes `/grpctunnel.v1.TunnelService/` to the broker with `backend-protocol: GRPC` |
+| How the agent picks the tunnel | `MCP_SOURCE_LINK_TUNNEL_URL` (required on dev) | the account's gateway URL already works: set `MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae`, no port |
+| Extra port needed | none (forward is local only) | **none**: 443 is the only port a client needs |
 | Certificate | self-signed, needs `MCP_SOURCE_LINK_INSECURE=1` | valid, do **not** set `INSECURE` |
 
 The agent derives its tunnel target from the account's gateway URL, defaulting to
@@ -85,7 +86,7 @@ server-side error to explain it. See appendix A.
 | The binary | `adma`, installed to `~/.local/bin/adma` (on `PATH`) |
 | A gateway account | An ordinary user (an `internal_user`, **not** an admin), with its **email** and password |
 | A reachable origin | The service you want to expose, listening on a `host:port` you can reach from the agent's machine |
-| Gateway reachability | The control plane (prod: the public hostname; dev: forwards + terminators) and a route to the broker's tunnel port (both: a forward + an HTTP/2 terminator). See appendix A. |
+| Gateway reachability | The control plane and the tunnel. Prod: both on 443 through the ingress, nothing to set up. Dev: forwards plus terminators for each. See appendix A. |
 
 The agent stores state under `~/.config/source-agent/`:
 
@@ -360,7 +361,7 @@ the others keep serving; that independence is the point.
   | Environment | Set | Symptom if unset |
   | ----------- | --- | ---------------- |
   | dev | `MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094` | `dial localhost:14443: connection not ready` forever |
-  | prod | `MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094` (an h2 terminator over a forward of `svc/litellm-mcp-broker :8093`) | each tunnel closes at once, often with no server-side log |
+  | prod | `MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae` | nothing to configure: this is the default the account URL already gives |
 
   There is **no** environment where this override can be skipped today, including
   prod: prod's ingress routes every path to the gateway on 4000 and has no route
@@ -603,7 +604,7 @@ an agent serves them again.
 
 | Variable | Effect | When to set |
 | -------- | ------ | ----------- |
-| `MCP_SOURCE_LINK_TUNNEL_URL=https://host:port` | Dial the gRPC tunnel at this URL instead of the account's gateway URL | **Both** environments today: prod's ingress has no route to the broker's 8093, and dev's control-plane terminator does not speak HTTP/2 (appendix A) |
+| `MCP_SOURCE_LINK_TUNNEL_URL=https://host:port` | Dial the gRPC tunnel at this URL instead of the account's gateway URL | Dev only: its control-plane terminator does not speak HTTP/2. On prod the account URL already works over 443 (appendix A). |
 | `MCP_SOURCE_LINK_INSECURE=1` | Skip TLS certificate verification | Dev gateway with a self-signed cert only. Never on prod. |
 | `MCP_SOURCE_LINK_CA_FILE=<path>` | CA bundle to verify the gateway certificate | Environments where you can verify instead of skipping |
 | `MCP_SOURCE_LINK_STATE_DIR=<path>` | Override the state directory | Isolated test runs, multiple identities on one machine |
@@ -612,11 +613,10 @@ an agent serves them again.
 
 ## Appendix A: reaching the gateway and the tunnel
 
-Both environments split the agent's two endpoints, and on neither does the
-account's gateway URL reach the tunnel. This section is the plumbing you must have
-in place before `adma connector` will connect. It is test-harness setup, not
-product behaviour, but forgetting it is the most common source of confusing
-failures.
+Both environments split the agent's two endpoints onto two backends, but prod
+presents both on **one host and port**, so a prod client needs nothing but 443.
+Dev cannot, because its tunnel sits behind a local forward. This section is the
+plumbing for each.
 
 ### The tunnel listener
 
@@ -627,41 +627,46 @@ kubectl -n adeo-litellm get svc litellm-mcp-broker -o jsonpath='{range .spec.por
 # data=8888   link-tunnel=8093   remote-control=9091
 ```
 
-It speaks **plain h2c**; it does not terminate TLS and it does not negotiate
-HTTP/2 inside a TLS handshake. The agent requires HTTP/2 with ALPN `h2`, so the
-port must sit behind an HTTP/2-capable TLS terminator, not a plain one.
+It speaks **plain h2c**; it does not terminate TLS itself. Anything in front of
+it must speak HTTP/2 to it and terminate TLS for the client.
 
 ### Prod
 
-The ingress for `litellm.ecouncil.ae` routes every path to the gateway on port
-4000. There is **no** ingress route to the broker's 8093, so the tunnel needs a
-forward and a local terminator, exactly as on dev:
+Prod routes the tunnel through the ingress, so the agent needs no port-forward and
+no extra port. Two Ingress objects share `litellm.ecouncil.ae`:
 
 ```
-https://litellm.ecouncil.ae (control plane, valid cert, no --insecure)
-        └─▶ ingress ─▶ svc/litellm-proxy:4000
-
-18094 (TLS, ALPN h2) ─▶ grpc_tls_proxy.py ─▶ 18093 ─▶ svc/litellm-mcp-broker:8093
+https://litellm.ecouncil.ae  ─┬─▶ /                              ─▶ svc/litellm-proxy:4000      (HTTP)
+                              └─▶ /grpctunnel.v1.TunnelService/  ─▶ svc/litellm-mcp-broker:link-tunnel (GRPC)
 ```
+
+The tunnel route is its own Ingress (`deploy/prod/mcp-tunnel-ingress.yaml`)
+because `nginx.ingress.kubernetes.io/backend-protocol: GRPC` is a **per-Ingress**
+annotation, not per-path. Marking the gateway's Ingress GRPC would force the
+gateway's own HTTP traffic to gRPC, so the tunnel prefix must live in a separate
+object. Its backend is the broker's `link-tunnel` port; nginx terminates TLS and
+speaks h2c to the sidecar.
 
 ```sh
-kubectl -n adeo-litellm port-forward svc/litellm-mcp-broker 18093:8093 &
-# grpc_tls_proxy.py: TLS with ALPN h2 on 18094, forwarding to the h2c forward on 18093
-export MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094
+export MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae   # no port
+adma connector
 ```
 
-Sanity-check the forward before involving the agent. A plain h2c gRPC probe
-should answer `200 2`:
+Verify the route from a workstation, with no forwards running:
 
 ```sh
-curl -s -o /dev/null -w '%{http_code} %{http_version}\n' --http2-prior-knowledge \
-  -X POST http://127.0.0.1:18093/grpctunnel.v1.TunnelService/OpenReverseTunnel \
+curl -s -o /dev/null -w '%{http_code} %{http_version} %{content_type}\n' --http2 \
+  -X POST https://litellm.ecouncil.ae/grpctunnel.v1.TunnelService/OpenReverseTunnel \
   -H 'content-type: application/grpc' -H 'te: trailers' --data-binary 'x'
+# 200 2 application/grpc
 ```
 
-Do not probe gRPC through the public ingress. Every path there resolves to the
-gateway, which answers a gRPC-shaped request with a FastAPI 404. That response says
-nothing about the tunnel; on 2026-11-19 it was misread as "gRPC is not routed".
+A `404` with `content-type: application/json` means the request fell through to
+the gateway, so the tunnel Ingress is missing or not programmed. That is the
+signal to look at the Ingress, not at the agent.
+
+The tunnel Ingress sets `proxy-read-timeout: 3600` because nginx would otherwise
+cut an idle upstream stream at 60s, which the agent sees as a reconnect loop.
 
 ### Dev
 
@@ -700,7 +705,7 @@ went away.
 | Symptom | Cause | Fix |
 | ------- | ----- | --- |
 | `dial localhost:14443: connection not ready` on every tunnel (dev) | Tunnel dialing the non-h2 terminator | Set `MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094` and run `grpc_tls_proxy.py` + the 18093 forward |
-| Every tunnel closes at once, no server-side log (prod) | `MCP_SOURCE_LINK_TUNNEL_URL` unset, so the agent dials the public host:443, which is the gateway with no gRPC route | Same: forward 8093, run the h2 terminator, set the tunnel URL |
+| Every tunnel closes at once, no server-side log (prod) | The gRPC tunnel Ingress is missing, so `/grpctunnel.v1.TunnelService/` falls through to the gateway | Apply `deploy/prod/mcp-tunnel-ingress.yaml`; the probe should answer `200 application/grpc`, not a JSON `404` |
 | `connector unauthorized` for every worker, broker `peers` empty | Broker on a different database than the gateway | Give the broker the gateway's `DATABASE_URL` (`litellm-db-credentials`), not `adeo-litellm-postgres-app` |
 | `connector unauthorized` with a non-empty `peers` | Gateway and broker pods started against different pepper contents | Restart both so they read the same secret, then re-enroll (old credentials will not validate) |
 | `password reset required before this account can be used for a connector` | `password_reset_required` set on the account | Clear the flag server-side (Step 2); retrying the login re-stamps it |

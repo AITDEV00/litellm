@@ -19,15 +19,13 @@ data through the public hostname.
 Read this first. Each item below produced a failure whose message pointed
 somewhere other than the cause.
 
-1. **The control plane is the public host; the data plane is not.** Prod has an
-   ingress for `litellm.ecouncil.ae` that routes everything to the gateway on
-   port 4000. The gRPC tunnel is a *separate* listener, the broker's
-   `link-tunnel` on 8093, and **no ingress route reaches it**. The agent derives
-   its tunnel target from the account's gateway URL, so left alone it dials
-   `litellm.ecouncil.ae:443` (the gateway) and the tunnel never connects. You must
-   set `MCP_SOURCE_LINK_TUNNEL_URL` to a route that reaches 8093 (Phase 1). This
-   is the single most common prod failure and it presents as a tunnel that closes
-   immediately with no server-side log.
+1. **A client only needs 443.** The tunnel is routed through the ingress on 443
+   (`Ingress/litellm-mcp-tunnel`, path `/grpctunnel.v1.TunnelService/`, backend
+   protocol GRPC) to the broker's `link-tunnel` port. Set
+   `MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae`, no port-forward and no
+   local terminator. Before that Ingress existed the tunnel was unreachable and the
+   only workaround was a forward of 8093 plus a local h2 terminator; that is no
+   longer the supported path on prod.
 
 2. **The broker and the gateway must read the same database.** They are separate
    processes with separate env. The gateway writes sources and workers through
@@ -147,25 +145,19 @@ binary is the published release (the installer prints version and sha):
 sha256sum ~/.local/bin/adma      # must equal the release's sha256
 ```
 
-Now stand up the tunnel route. prod has no ingress for 8093, so forward the
-broker's `link-tunnel` port and terminate TLS in front of it. The agent requires
-HTTP/2 with ALPN, and a plain TLS terminator (like a dev `14443`-style proxy)
-does **not** negotiate it, so the terminator must offer `h2`.
+The tunnel goes through the ingress on 443, so there is nothing to forward. Confirm
+the route exists before starting the agent, with no port-forwards running:
 
 ```bash
-kubectl -n adeo-litellm port-forward svc/litellm-mcp-broker 18093:8093 &
-# then run an h2 TLS terminator on 18094 forwarding to 127.0.0.1:18093, and:
-export MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094
-```
-
-Sanity-check that the forward speaks plain h2c gRPC before involving the agent:
-
-```bash
-curl -s -o /dev/null -w '%{http_code} %{http_version}\n' --http2-prior-knowledge \
-  -X POST http://127.0.0.1:18093/grpctunnel.v1.TunnelService/OpenReverseTunnel \
+curl -s -o /dev/null -w '%{http_code} %{http_version} %{content_type}\n' --http2 \
+  -X POST https://litellm.ecouncil.ae/grpctunnel.v1.TunnelService/OpenReverseTunnel \
   -H 'content-type: application/grpc' -H 'te: trailers' --data-binary 'x'
-# 200 2
+# 200 2 application/grpc
 ```
+
+A `404` with `content-type: application/json` is the gateway answering, meaning
+`Ingress/litellm-mcp-tunnel` is missing or not programmed. Fix the Ingress; do
+not add a port-forward.
 
 Before running the agent, verify the broker actually shares the gateway's
 database, so a later `connector unauthorized` is not a mystery:
@@ -182,12 +174,12 @@ is empty while the database has workers, the broker is on the wrong database
 
 **Caveats**:
 
-- A broker rollout replaces the pod and kills the 18093 forward. Re-run it and
-  restart the terminator; the agent otherwise logs `dial localhost:18094:
-  connection not ready` forever.
-- If your terminator is running against a stale forward, the agent's error reads
-  `connection not ready`, which looks like a TLS or certificate problem and is
-  not. Re-check the forward first.
+- A broker rollout replaces the pod behind the tunnel Ingress. The Ingress itself
+  keeps working, but an open tunnel drops and the agent reconnects; a few seconds
+  of `tunnel session finished` lines in the agent log is expected, not a fault.
+- The `peers` check above uses a port-forward of the broker's control port (9091).
+  That forward is only for reading peer state in this procedure; the agent does
+  not need it, and it is not the tunnel path.
 
 ## Phase 2: log in (you)
 
@@ -277,7 +269,7 @@ reconnect path, and do not try to "fix" it by removing and re-adding.
 ## Phase 5: run the agent and confirm all four connect
 
 ```bash
-export MCP_SOURCE_LINK_TUNNEL_URL=https://localhost:18094
+export MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae
 adma connector
 ```
 
@@ -451,8 +443,9 @@ empty and the UI shows no rows.
 
 - Phase 0: prod account provisioning and the `password_reset_required` gate that
   blocks a connector login.
-- Phase 1: the split between the public control plane and the private tunnel, and
-  the broker/gateway database pairing. Both are invisible to a health check.
+- Phase 1: that one host and port carry both the control plane and the tunnel, so
+  the client needs nothing but HTTP/2 on 443, and the broker/gateway database
+  pairing. Both are invisible to a health check.
 - Phase 4: account-scoped derived names, and rows landing in the database the
   broker reads.
 - Phase 5: the tunnel actually authenticating, which requires matching peppers and

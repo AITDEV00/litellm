@@ -60,6 +60,7 @@ outside it, and each must be applied on its own path:
 | `Deployment/oicm-discovery-controller` | `deploy/prod/discovery-controller.yaml` | Modelled separately; image pinned by digest |
 | CNPG `Cluster/adeo-litellm-postgres` | `deploy/prod/litellm-postgres-cluster.yaml` | Database cluster lifecycle is separate from the app |
 | `Ingress/litellm-proxy` | not in this folder | Created separately; see "Ingress" below |
+| `Ingress/litellm-mcp-tunnel` | `deploy/prod/mcp-tunnel-ingress.yaml` | Separate object so its `GRPC` backend protocol does not apply to the gateway's Ingress |
 | CNPG-generated Secrets (`*-app`, `*-server`, `*-ca`, `*-superuser`, `*-replication`) | generated | Owned by the operator, never hand-edit |
 
 A deploy that runs only `kubectl apply -k` leaves the discovery controller on
@@ -176,12 +177,16 @@ Annotations that matter, and why:
 | `proxy-body-size` | `0` | No upload size cap |
 | `proxy-read-timeout` / `proxy-send-timeout` | `3600` | Long generations must not be cut off |
 
-**There is no route to the MCP tunnel.** The broker's tunnel listener is port
-8093 (`Service/litellm-mcp-broker`, port name `link-tunnel`), and nothing in this
-ingress reaches it. A connector therefore needs a port-forward plus an HTTP/2 TLS
-terminator; see the source-agent guide's appendix A. Do not test gRPC through the
-public hostname: every path lands on the gateway, which answers a gRPC-shaped
-request with a FastAPI `404`, and that says nothing about the tunnel.
+**The tunnel is routed through the ingress on 443.** `Ingress/litellm-mcp-tunnel`
+(`deploy/prod/mcp-tunnel-ingress.yaml`) sends only
+`/grpctunnel.v1.TunnelService/` to `svc/litellm-mcp-broker:link-tunnel` with
+`backend-protocol: GRPC`, so every other path on the same host stays on the
+gateway. A client therefore needs nothing but HTTP/2 on 443:
+`MCP_SOURCE_LINK_TUNNEL_URL=https://litellm.ecouncil.ae`, no port-forward.
+
+It must be a **separate** Ingress object: `backend-protocol` is a per-Ingress
+annotation, so marking the gateway's Ingress `GRPC` would force the gateway's own
+HTTP traffic to gRPC as well.
 
 ## The MCP source broker overlay
 

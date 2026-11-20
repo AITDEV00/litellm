@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm-mcp-tunnel
+  namespace: adeo-litellm
+  annotations:
+    # Per-Ingress, not per-path: this is why the tunnel gets its own object. The
+    # gateway's Ingress carries every path to port 4000 over HTTP, and marking it
+    # GRPC would force the gateway's own traffic to gRPC as well.
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    # The tunnel is a long-lived bidirectional stream. nginx defaults to cutting
+    # an idle upstream at 60s, which the agent would see as a silent reconnect
+    # loop; match the gateway's 3600s so a quiet tunnel stays up.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - litellm.ecouncil.ae
+      secretName: litellm-ecouncil-ae-tls
+  rules:
+    - host: litellm.ecouncil.ae
+      http:
+        paths:
+          # The agent's reverse tunnel is a gRPC stream on this service. Routing
+          # only this prefix keeps every other path on the gateway's Ingress, so
+          # the client reaches both control plane and tunnel on 443 with no
+          # port-forward and no extra port.
+          - path: /grpctunnel.v1.TunnelService/
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm-mcp-broker
+                port:
+                  name: link-tunnel
