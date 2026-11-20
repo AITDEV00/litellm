@@ -143,6 +143,10 @@ from litellm.types.completion import (
     _CompletionDispatchResult,
 )
 from litellm.types.litellm_params import ControlOptions, RetryStrategy
+from litellm.types.llms.audio_transcription import (
+    NativeAudioDocumentResponse,
+    NonStreamingNativeAudioResult,
+)
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.router import GenericLiteLLMParams
 from litellm.types.utils import (
@@ -8093,16 +8097,16 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
         init_response: Final = await loop.run_in_executor(None, func_with_context)
         if isinstance(init_response, dict):
             response = _transcription_response_from_cached_dict(init_response)
-        elif isinstance(init_response, TranscriptionResponse):  ## CACHING SCENARIO
+        elif isinstance(init_response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             response = init_response
         elif asyncio.iscoroutine(init_response):
             response = await init_response
         else:
             # Call the synchronous function using run_in_executor
             response = await loop.run_in_executor(None, func_with_context)
-        if not isinstance(response, TranscriptionResponse):
+        if not isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             raise ValueError(
-                f"Invalid response from transcription provider, expected TranscriptionResponse, but got {type(response)}"
+                f"Invalid response from transcription provider, expected TranscriptionResponse or NativeAudioDocumentResponse, but got {type(response)}"
             )
 
         # Store duration in _hidden_params for cost calculation without
@@ -8115,7 +8119,6 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
                 calculated_duration: Final = calculate_request_duration(file)
                 if calculated_duration is not None:
                     response.hidden_params["audio_transcription_duration"] = calculated_duration
-
         return response
     except Exception as e:
         custom_llm_provider = custom_llm_provider or "openai"
@@ -8148,7 +8151,7 @@ def transcription(
     custom_llm_provider=None,
     base_url: str | None = None,
     **kwargs,
-) -> TranscriptionResponse | Coroutine[object, object, TranscriptionResponse]:
+) -> NonStreamingNativeAudioResult | Coroutine[object, object, NonStreamingNativeAudioResult]:
     """
     Calls openai + azure whisper endpoints.
 
@@ -8215,7 +8218,7 @@ def transcription(
         custom_llm_provider=custom_llm_provider,
     )
 
-    response: TranscriptionResponse | Coroutine[object, object, TranscriptionResponse] | None = None
+    response: NonStreamingNativeAudioResult | Coroutine[object, object, NonStreamingNativeAudioResult] | None = None
 
     provider_config: Final = ProviderConfigManager.get_provider_audio_transcription_config(
         model=model,
@@ -8392,6 +8395,12 @@ def transcription(
 
     if response is None:
         raise ValueError("Unmapped provider passed in. Unable to get the response.")
+    if isinstance(response, NativeAudioDocumentResponse) and not (
+        provider_config is not None and provider_config.uses_native_multipart_transport
+    ):
+        raise ValueError(
+            f"Provider {custom_llm_provider} returned a document response without opting into the native audio transport"
+        )
     return response
 
 

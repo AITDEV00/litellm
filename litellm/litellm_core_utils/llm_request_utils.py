@@ -106,6 +106,71 @@ def serialize_multipart_form_fields(data: Mapping[str, object]) -> tuple[tuple[s
     )
 
 
+_NATIVE_MPART_SCALAR: Final = (str, int, float, bool)
+
+
+def native_multipart_fields(
+    *sources: Mapping[str, object] | None,
+    extra_body: Mapping[str, object] | None = None,
+) -> tuple[tuple[str, str | int | float | bool], ...]:
+    """Build ordered multipart form fields for a native audio request.
+
+    One conversion contract for every native multipart consumer (transcription
+    and translation, hosted-vLLM style servers and NVIDIA NIM): input order is
+    preserved, scalar literals pass through as their native type so httpx
+    spells booleans correctly, and a list/tuple value repeats the field once
+    per element (``timestamp_granularities=["word","segment"]`` becomes two
+    ``timestamp_granularities`` parts, not one bracketed blob).
+
+    ``extra_body`` keys are unpacked top-level: a native multipart server owns
+    its own form schema, so nesting extensions under a literal ``extra_body``
+    form key would change host semantics.
+
+    Two safety filters run at this boundary. LiteLLM-owned dispatch kwargs
+    (``is_litellm_owned_kwarg``: router/deployment control flags like
+    ``keepalive_seconds``, credentials, logging plumbing) never become form
+    fields, and the ``model`` routing key is accepted only from the explicit
+    first position where the caller supplies the deployment-resolved value —
+    never from ``extra_body``, where it would be unsafe user injection.
+
+    Non-scalar values other than lists of scalars are dropped rather than
+    JSON-stringified: a dict or nested upload inside a form field is not a
+    shape the native servers define, and silently encoding it would produce a
+    request the provider cannot parse but LiteLLM would still have "sent".
+    """
+    from litellm.types.utils import is_litellm_owned_kwarg
+
+    fields: Final[list[tuple[str, str | int | float | bool]]] = []  # mutable-ok: ordered accumulator
+    seen: Final[set[str]] = set()  # mutable-ok: first-wins bookkeeping across sources
+
+    def _emit(key: str, value: object) -> None:
+        if key.startswith("_") or is_litellm_owned_kwarg(key):
+            return
+        if isinstance(value, (list, tuple)):
+            for entry in value:
+                if isinstance(entry, _NATIVE_MPART_SCALAR):
+                    fields.append((key, entry))
+            return
+        if isinstance(value, _NATIVE_MPART_SCALAR):
+            fields.append((key, value))
+
+    for source in sources:
+        if source is None:
+            continue
+        for key, value in source.items():
+            if key in seen:
+                continue
+            seen.add(key)
+            _emit(key, value)
+    if extra_body is not None:
+        for key, value in extra_body.items():
+            if key in seen or key == "model":
+                continue
+            seen.add(key)
+            _emit(key, value)
+    return tuple(fields)
+
+
 def ensure_extra_body_is_safe(extra_body: dict[str, object] | None) -> dict[str, object] | None:
     """
     Ensure that the extra_body sent in the request is safe,  otherwise users will see this error

@@ -133,3 +133,131 @@ def test_ensure_extra_body_is_safe_returns_non_dict_unchanged():
     result = ensure_extra_body_is_safe(cast(dict[str, object], extra_body))
 
     assert result is extra_body
+
+
+# ---------------------------------------------------------------------------
+# native_multipart_fields: the typed contract for native multipart audio
+# ---------------------------------------------------------------------------
+
+
+def _encode_multipart(
+    fields: tuple[tuple[str, str | int | float | bool], ...],
+) -> dict[str, list[str]]:
+    """Encode the fields the way the transport sends them (httpx ``data=`` is a
+    mapping: the request builder collapses the ordered pairs into an
+    insertion-ordered dict whose list values repeat a field) and parse the
+    wire body back with a form-conforming parser, so the test observes the
+    actual protocol rather than the intermediate pair list."""
+    data: dict[str, object] = {}
+    for name, value in fields:
+        existing = data.get(name)
+        if isinstance(existing, list):
+            existing.append(value)
+        elif existing is not None:
+            data[name] = [existing, value]
+        else:
+            data[name] = value
+
+    request = httpx.Request(
+        "POST",
+        "http://backend/v1/audio/transcriptions",
+        data=data,
+        files=[("file", ("a.wav", b"RIFF....", "audio/wav"))],
+    )
+    request.read()
+    body = request.content.decode("utf-8", "replace")
+    boundary = body.split("\r\n")[0].strip()
+    parsed: dict[str, list[str]] = {}
+    for section in body.split(boundary)[1:]:
+        if 'name="' not in section:
+            continue
+        header_block, _, value = section.partition("\r\n\r\n")
+        disposition_line = next(line for line in header_block.splitlines() if "form-data" in line)
+        name_start: Final = disposition_line.index('name="') + len('name="')
+        name = disposition_line[name_start:].split('"')[0]
+        if "filename=" in disposition_line:
+            continue
+        parsed.setdefault(name, []).append(value[: value.rfind("\r\n")])
+    return parsed
+
+
+class TestNativeMultipartFields:
+    def test_preserves_order_and_scalar_types(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields(
+            {"model": "nemotron"},
+            {"language": "en", "temperature": 0.0, "diarization": True},
+        )
+        assert fields == (
+            ("model", "nemotron"),
+            ("language", "en"),
+            ("temperature", 0.0),
+            ("diarization", True),
+        )
+
+    def test_repeats_list_values_in_order(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields({"timestamp_granularities": ["word", "segment"]})
+        assert fields == (
+            ("timestamp_granularities", "word"),
+            ("timestamp_granularities", "segment"),
+        )
+
+    def test_extra_body_unpacks_top_level(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields({"model": "m"}, extra_body={"custom_k": "v"})
+        assert ("custom_k", "v") in fields
+        assert all(name != "extra_body" for name, _ in fields)
+
+    def test_extra_body_cannot_override_model(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields({"model": "resolved-model"}, extra_body={"model": "attacker"})
+        assert ("model", "resolved-model") in fields
+        assert fields.count(("model", "attacker")) == 0
+
+    def test_filters_litellm_owned_kwargs(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields(
+            {
+                "keepalive_seconds": 3600,
+                "allow_client_keepalive_override": True,
+                "litellm_call_id": "abc",
+                "metadata": {"x": 1},
+            }
+        )
+        assert fields == ()
+
+    def test_drops_non_scalar_shapes(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields({"nested": {"a": 1}, "uploads": [b"bytes"]})
+        assert fields == ()
+
+    def test_first_source_wins_on_collision(self):
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields({"a": 1}, {"a": 2})
+        assert fields == (("a", 1),)
+
+    def test_wire_body_repeats_fields_and_spells_bools(self):
+        """End-to-end through the actual httpx multipart encoder.
+
+        Repeated parts survive as two parts in the wire body, and a boolean is
+        spelled lowercase, matching what native servers parse from form data.
+        """
+        from litellm.litellm_core_utils.llm_request_utils import native_multipart_fields
+
+        fields = native_multipart_fields(
+            {"model": "m", "diarization": True, "timestamp_granularities": ["word", "segment"]},
+            extra_body={"word_timestamps": True},
+        )
+        parsed = _encode_multipart(fields)
+        assert parsed["model"] == ["m"]
+        assert parsed["diarization"] == ["true"]
+        assert parsed["word_timestamps"] == ["true"]
+        assert parsed["timestamp_granularities"] == ["word", "segment"]

@@ -69,6 +69,7 @@ from litellm.llms.base_llm.anthropic_messages.transformation import (
 from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.llms.base_llm.base_model_iterator import (
     BaseModelResponseIterator,
     MockResponseIterator,
@@ -1819,11 +1820,21 @@ class BaseLLMHTTPHandler:
         logging_obj: LiteLLMLoggingObj,
         optional_params: dict,
         api_key: str | None,
-    ) -> TranscriptionResponse:
-        """Shared logic for transforming audio transcription responses."""
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
+        """Shared logic for transforming audio transcription responses.
+
+        A provider config opting into the native body contract may return
+        either a ``TranscriptionResponse`` (JSON) or a
+        ``NativeAudioDocumentResponse`` (true text/SRT/VTT document). Provider
+        response headers are captured into hidden params for both shapes so
+        cost, logging, and header building read one consistent surface.
+        """
         transformed: Final = provider_config.transform_audio_transcription_response(
             raw_response=response,
         )
+        if isinstance(transformed, NativeAudioDocumentResponse):
+            set_provider_response_headers_in_hidden_params(transformed, response.headers)
+            return transformed
         set_provider_response_headers_in_hidden_params(transformed, response.headers)
         if not provider_config.supports_subtitle_synthesis:
             return transformed
@@ -1858,7 +1869,7 @@ class BaseLLMHTTPHandler:
         headers: dict[str, object] | None = None,
         provider_config: BaseAudioTranscriptionConfig | None = None,
         shared_session: Optional["ClientSession"] = None,
-    ) -> TranscriptionResponse | Coroutine[object, object, TranscriptionResponse]:
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse]:
         if provider_config is None:
             raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
 
@@ -1943,7 +1954,7 @@ class BaseLLMHTTPHandler:
         headers: dict[str, object] | None = None,
         provider_config: BaseAudioTranscriptionConfig | None = None,
         shared_session: Optional["ClientSession"] = None,
-    ) -> TranscriptionResponse:
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
         if provider_config is None:
             raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
 

@@ -26,7 +26,10 @@ class AudioTranscriptionRequestData:
     Structured data for audio transcription requests.
 
     Attributes:
-        data: The request data (form data for multipart, json data for regular requests)
+        data: The request data (form data for multipart, json data for regular
+            requests). For multipart, a scalar value sends one part and a list
+            value repeats the field once per element (order preserved by the
+            insertion-ordered dict), which is what httpx's encoder emits.
         files: Optional files dict for multipart form data
         content_type: Optional content type override
     """
@@ -57,6 +60,25 @@ class BaseAudioTranscriptionConfig(BaseConfig, ABC):
         Opt-in for OpenAI-compatible providers whose transcription lives on a
         non-OpenAI route: when True the request skips the OpenAI SDK transport
         and goes through this config via the shared http handler.
+        """
+        return False
+
+    @property
+    def uses_native_multipart_transport(self) -> bool:
+        """
+        Opt-in for providers whose multipart body is built from the typed
+        native form-field contract (ordered scalar fields, repeated parts,
+        unpacked ``extra_body``) instead of the OpenAI SDK request shape.
+        Provider identity chooses this, never the model name.
+        """
+        return False
+
+    @property
+    def supports_multipart_streaming(self) -> bool:
+        """
+        Opt-in for providers whose multipart transcription endpoint honors
+        ``stream=true`` with an SSE body of typed transcript events. False
+        keeps the request nonstreaming even when a client passes ``stream``.
         """
         return False
 

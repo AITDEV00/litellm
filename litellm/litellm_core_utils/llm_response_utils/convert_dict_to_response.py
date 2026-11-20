@@ -45,14 +45,13 @@ from litellm.types.utils import (
     TextChoices,
     TextCompletionResponse,
     TranscriptionResponse,
-    TranscriptionUsageDurationObject,
-    TranscriptionUsageTokensObject,
     Usage,
     chat_completion_tool_call_from_dict,
 )
 from litellm.types.utils import Logprobs as TextCompletionLogprobs
 
 from .get_headers import get_response_headers
+from .transcriptions import hydrate_transcription_response
 
 _MESSAGE_FIELDS: Final[frozenset] = frozenset(Message.model_fields.keys())
 _CHOICES_FIELDS: Final[frozenset] = frozenset(Choices.model_fields.keys())
@@ -929,42 +928,12 @@ def convert_to_model_response_object(
             if response_object is None:
                 raise Exception("Error in response object format")
 
-            if model_response_object is None:
-                model_response_object = TranscriptionResponse()
-
-            if "text" in response_object:
-                model_response_object.text = response_object["text"]
-
-            optional_keys: Final = ["language", "task", "duration", "words", "segments"]
-            for key in optional_keys:  # not guaranteed to be in response
-                if key in response_object:
-                    setattr(model_response_object, key, response_object[key])
-
-            if "usage" in response_object and response_object["usage"] is not None:
-                tr_usage_object: TranscriptionUsageDurationObject | TranscriptionUsageTokensObject | None = None
-
-                if response_object["usage"].get("type", None) == "duration":
-                    tr_usage_object = TranscriptionUsageDurationObject(**response_object["usage"])
-                elif response_object["usage"].get("type", None) == "tokens":
-                    tr_usage_object = TranscriptionUsageTokensObject(**response_object["usage"])
-                if tr_usage_object is not None:
-                    setattr(model_response_object, "usage", tr_usage_object)
-
-            if hidden_params is not None:
-                model_response_object.hidden_params = hidden_params
-
-            # Store internally-calculated duration in _hidden_params for cost
-            # tracking without exposing it in the response body. Must be set
-            # after hidden_params assignment to avoid being overwritten.
-            if "_audio_transcription_duration" in response_object:
-                model_response_object.hidden_params["audio_transcription_duration"] = response_object[
-                    "_audio_transcription_duration"
-                ]
-
-            if _response_headers is not None:
-                model_response_object._response_headers = _response_headers
-
-            return model_response_object
+            return hydrate_transcription_response(
+                response_object=response_object,
+                model_response=model_response_object if isinstance(model_response_object, TranscriptionResponse) else None,
+                hidden_params=hidden_params,
+                response_headers=_response_headers,
+            )
         elif response_type == "rerank" and (
             model_response_object is None or isinstance(model_response_object, RerankResponse)
         ):

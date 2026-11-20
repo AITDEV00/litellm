@@ -2702,9 +2702,25 @@ class TestConvertToModelResponseObjectAudioTranscription:
 
         transcript: Final = "CANARYTRANSCRIPT customer account ending 2750"
 
+        # An invalid recognized-usage shape no longer rejects the whole cached
+        # response: the shared hydrator keeps the unrecognized shape as public
+        # passthrough metadata (explicitly not a typed cost object) instead of
+        # raising, so one bad native field cannot wipe out a good transcript.
+        result = convert_to_model_response_object(
+            response_object={"text": transcript, "usage": {"type": "duration", "seconds": "not-a-number"}},
+            model_response_object=TranscriptionResponse(),
+            response_type="audio_transcription",
+        )
+        assert result.text == transcript
+        assert result["usage"] == {"type": "duration", "seconds": "not-a-number"}
+
+        # The redaction property this test originally pinned still holds on
+        # the remaining raising path: a transcription conversion failure must
+        # never render the transcript into the exception message. A malformed
+        # (non-mapping) response object is that path.
         with pytest.raises(Exception, match="Invalid response object") as exc_info:
             convert_to_model_response_object(
-                response_object={"text": transcript, "usage": {"type": "duration", "seconds": "not-a-number"}},
+                response_object=[transcript],
                 model_response_object=TranscriptionResponse(),
                 response_type="audio_transcription",
             )

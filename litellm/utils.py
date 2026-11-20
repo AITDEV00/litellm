@@ -3890,6 +3890,7 @@ def get_optional_params_transcription(
 
     non_default_params = {k: v for k, v in passed_params.items() if (k in default_params and v != default_params[k])}
     optional_params = {}
+    special_transport: str = "default"
 
     ## raise exception if non-default value passed for non-openai/azure embedding calls
     def _check_valid_arg(supported_params):
@@ -3934,6 +3935,15 @@ def get_optional_params_transcription(
             model=model,
             drop_params=drop_params if drop_params is not None else False,
         )
+        if provider_config.uses_native_multipart_transport:
+            # `_check_valid_arg` governs the public standard OpenAI parameters
+            # above. Native vendor extras stay top-level because the native
+            # backend owns its form schema, so they merge through the native
+            # multipart transport discriminator instead of being rejected (or,
+            # with drop_params, silently dropped) as an "unsupported param".
+            special_transport = "native_multipart"
+        else:
+            special_transport = "default"
 
     optional_params = add_provider_specific_params_to_optional_params(
         optional_params=optional_params,
@@ -3941,6 +3951,7 @@ def get_optional_params_transcription(
         custom_llm_provider=custom_llm_provider,
         openai_params=OPENAI_TRANSCRIPTION_PARAMS,
         additional_drop_params=kwargs.get("additional_drop_params", None),
+        transport=special_transport,
     )
 
     return optional_params
@@ -5437,12 +5448,39 @@ def add_provider_specific_params_to_optional_params(
     passed_params: dict,
     custom_llm_provider: str,
     openai_params: list[str],
-    additional_drop_params: list | None = None,
+    additional_drop_params: list[str] | None = None,
+    transport: Literal["default", "native_multipart"] = "default",
 ) -> dict:
     """
     Add provider specific params to optional_params
+
+    ``transport="native_multipart"`` opts a call into the native multipart
+    form-field contract: provider extension params and ``extra_body`` keys are
+    appended top-level so the provider transform encodes them as form fields,
+    instead of being nested inside a literal ``extra_body`` JSON body key the
+    native server never defined. Only canonical LiteLLM dispatch kwargs
+    (``is_litellm_owned_kwarg``) and the ``model`` routing key are filtered;
+    a native server owns the rest of its form schema.
     """
     from litellm.llms.openai_like.json_loader import JSONProviderRegistry
+
+    if transport == "native_multipart":
+        dropped_keys: Final = EXTRA_BODY_ROUTING_KEYS | frozenset(
+            param for param in (additional_drop_params or ()) if isinstance(param, str)
+        )
+        for k in passed_params:
+            if k in openai_params or k in dropped_keys or k == "model":
+                continue
+            if is_litellm_owned_kwarg(k) or passed_params[k] is None:
+                continue
+            optional_params[k] = passed_params[k]
+        extra_body_params: Final = passed_params.get("extra_body")
+        if isinstance(extra_body_params, Mapping):
+            for k, v in extra_body_params.items():
+                if k in dropped_keys or k == "model" or v is None:
+                    continue
+                optional_params[k] = v
+        return optional_params
 
     calls_through_openai_sdk: Final = custom_llm_provider in [
         "openai",

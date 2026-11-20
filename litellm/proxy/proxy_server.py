@@ -13194,32 +13194,27 @@ async def audio_transcriptions(
         asyncio.create_task(proxy_logging_obj.update_request_status(litellm_call_id=litellm_call_id, status="success"))
 
         ### RESPONSE HEADERS ###
-        hidden_params: Final = getattr(response, "_hidden_params", {}) or {}
-        model_id: Final = hidden_params.get("model_id", None) or ""
-        cache_key: Final = hidden_params.get("cache_key", None) or ""
-        api_base: Final = hidden_params.get("api_base", None) or ""
-        response_cost: Final = hidden_params.get("response_cost", None) or ""
-        response_call_id: Final = hidden_params.get("litellm_call_id", None) or ""
-        additional_headers: Final[dict] = hidden_params.get("additional_headers", {}) or {}
+        from litellm.proxy.audio_response_helpers import (
+            apply_audio_response_headers_hook,
+            audio_document_response,
+            audio_json_response,
+            build_audio_custom_headers,
+        )
+        from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 
         fastapi_response.headers.update(
-            ProxyBaseLLMRequestProcessing.get_custom_headers(
+            build_audio_custom_headers(
+                response=response,
+                data=data,
                 user_api_key_dict=user_api_key_dict,
-                model_id=model_id,
-                cache_key=cache_key,
-                api_base=api_base,
                 version=version,
-                response_cost=response_cost,
-                model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
-                call_id=response_call_id,
                 request_data=data,
-                hidden_params=hidden_params,
-                **additional_headers,
             )
         )
 
         # Call response headers hook (matches base_process_llm_request behavior)
-        callback_headers: Final = await proxy_logging_obj.post_call_response_headers_hook(
+        callback_headers: Final = await apply_audio_response_headers_hook(
+            proxy_logging_obj=proxy_logging_obj,
             data=data,
             user_api_key_dict=user_api_key_dict,
             response=response,
@@ -13228,7 +13223,9 @@ async def audio_transcriptions(
         if callback_headers:
             fastapi_response.headers.update(callback_headers)
 
-        return response
+        if isinstance(response, NativeAudioDocumentResponse):
+            return audio_document_response(response, headers={})
+        return audio_json_response(response, headers={})
     except Exception as e:
         await proxy_logging_obj.post_call_failure_hook(
             user_api_key_dict=user_api_key_dict, original_exception=e, request_data=data
