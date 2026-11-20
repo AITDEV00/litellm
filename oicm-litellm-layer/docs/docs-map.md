@@ -87,6 +87,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Custom providers README | `docs/custom-providers/README.md` |
 | pyannote diarization provider plan | `docs/custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md` |
 | pyannote speaker embeddings plan | `docs/custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md` |
+| Nemotron native transcription, translation, documents, cache, and SSE implementation plan | `docs/custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md` |
 | Drama 3 gateway gaps (ownership + custom-provider proposal) | `docs/custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md` |
 | Endpoint architecture | `docs/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md` |
 | HAMSA research / TTS behavior | `docs/custom-providers/HAMSA_RESEARCH.md`, `HAMSA_TTS_BEHAVIOR.md` |

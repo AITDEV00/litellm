@@ -46,6 +46,7 @@ Diarization-only provider behind the `POST /v1/diarize` route, served by coro de
 | Document | Description |
 |---|---|
 | [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md) | Recorded design choices and vertical-slice implementation plan for the pyannote diarization provider (gateway route + discovery controller) |
+| [NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md](NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md) | Staged first-class native multipart, rich cache, document, translation, and NIM streaming plan without relay routes |
 | [LITELLM_ENDPOINT_ARCHITECTURE.md](LITELLM_ENDPOINT_ARCHITECTURE.md) | Full 7-layer trace of how LiteLLM implements endpoints and the pattern for adding a new custom provider endpoint |
 | [HAMSA_RESEARCH.md](HAMSA_RESEARCH.md) | Hamsa STT source code crawl, protocol analysis, and OpenAI compatibility assessment |
 | [HAMSA_TTS_BEHAVIOR.md](HAMSA_TTS_BEHAVIOR.md) | Hamsa TTS pod source code analysis covering model loading, inference flow, and API endpoints |

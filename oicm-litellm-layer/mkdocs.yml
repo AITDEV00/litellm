@@ -202,6 +202,7 @@ nav:
       - Capability Registration Review 2: custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md
       - pyannote Diarization Provider Plan: custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
       - pyannote Speaker Embeddings Plan: custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
+      - Nemotron Native Audio Implementation Plan: custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
       - Reasoning Control Guide: usage-guides/REASONING_CONTROL_GUIDE.md
