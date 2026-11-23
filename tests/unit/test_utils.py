@@ -3749,6 +3749,17 @@ class TestIsStreamingRequest:
     def test_generate_content_stream_string(self):
         assert _is_streaming_request(kwargs={}, call_type=CallTypes.generate_content_stream.value) is True
 
+    def test_multipart_string_true_is_streaming(self):
+        # The proxy forwards multipart form fields verbatim, so stream=true
+        # arrives as the string "true": the wrapper must take the streaming
+        # branch or it cache-serializes the live stream handle as a final
+        # response.
+        assert _is_streaming_request(kwargs={"stream": "true"}, call_type="atranscription") is True
+
+    def test_unrecognized_string_stream_values_stay_non_streaming(self):
+        assert _is_streaming_request(kwargs={"stream": "yes"}, call_type="atranscription") is False
+        assert _is_streaming_request(kwargs={"stream": ""}, call_type="atranscription") is False
+
     def test_agenerate_content_stream_string(self):
         assert _is_streaming_request(kwargs={}, call_type=CallTypes.agenerate_content_stream.value) is True
 
@@ -4949,7 +4960,9 @@ class _EntryReadDuringARegistration(dict[str, object]):
 
 
 @pytest.mark.parametrize("walk", ["fal_ai", "fireworks_ai", "ollama", "gpt-5", "case-insensitive scan"])
-def test_request_path_cost_map_walks_survive_a_registration_mid_walk(monkeypatch: pytest.MonkeyPatch, walk: str) -> None:
+def test_request_path_cost_map_walks_survive_a_registration_mid_walk(
+    monkeypatch: pytest.MonkeyPatch, walk: str
+) -> None:
     from litellm.llms.fal_ai.cost_calculator import _keyed_rows
     from litellm.llms.fireworks_ai.chat.transformation import FireworksAIConfig
     from litellm.llms.ollama.common_utils import OllamaModelInfo
@@ -7180,7 +7193,9 @@ def test_get_model_info_gemini(monkeypatch):
             assert info.get("rpm") is not None, f"{model} does not have rpm"
 
 
-def test_register_model_without_a_provider_never_inherits_another_providers_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_model_without_a_provider_never_inherits_another_providers_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from litellm.utils import _invalidate_model_cost_lowercase_map
 
     key: Final = "azure/claude-sonnet-4-6"
@@ -7678,6 +7693,7 @@ def test_openai_non_text_embedding_3_without_allowed_openai_params_raises():
             )
     finally:
         litellm.drop_params = prev_drop_params
+
 
 @pytest.mark.usefixtures(
     "_vcr_outcome_gate_local_testing",

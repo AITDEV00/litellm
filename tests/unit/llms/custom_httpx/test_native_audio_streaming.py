@@ -163,6 +163,39 @@ class TestExactlyOnceTerminal:
         assert summary._hidden_params["model_id"] == "dep-1"
 
     @pytest.mark.asyncio
+    async def test_terminal_dispatch_builds_the_standard_logging_payload(self):
+        """The stream's terminal success dispatch is the request's one and only
+        spend-log event: it must run with final-response semantics so the
+        generic handler builds the standard logging payload cost tracking and
+        router accounting read (a streaming-flagged call defers the payload to
+        the chunk-assembly path, which never runs for a native transcript)."""
+        from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
+
+        logging_obj = LiteLLMLoggingObj(
+            model="nvidia_nim/m",
+            messages=[{"role": "user", "content": "transcribe this"}],
+            stream=True,
+            call_type="atranscription",
+            start_time=None,
+            litellm_call_id="stream-log-test",
+            function_id="",
+        )
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=_FakeAsyncTransport(_live_done_frame_with_usage()),
+            provider_config=_config(),
+            logging_obj=logging_obj,
+            hidden_params={"model_id": "dep-1"},
+        )
+        events = [event async for event in stream]
+        assert isinstance(events[-1], NativeTranscriptDone)
+        await asyncio.sleep(0.1)
+        payload = logging_obj.model_call_details.get("standard_logging_object")
+        assert payload is not None
+        assert payload["id"] == "stream-log-test"
+        assert logging_obj.stream is False
+
+    @pytest.mark.asyncio
     async def test_a_terminal_after_done_never_dispatches_twice(self):
         """The first terminal event ends iteration exactly once; a stray
         second terminal in the same transport window can never dispatch a

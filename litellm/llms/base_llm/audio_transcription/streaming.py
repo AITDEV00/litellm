@@ -204,6 +204,12 @@ class SharedNativeTranscriptionStream:
         summary._hidden_params = dict(self.hidden_params)  # rebind-ok: dynamic-attr model contract
         end_time: Final = datetime.now(timezone.utc)
         try:
+            # The wrapper marked this call as streaming, which makes the
+            # generic success handler defer the standard logging payload to
+            # the chunk-assembly path that never runs here: the terminal
+            # event IS the final result, so the logging object is flipped
+            # back to final-response semantics before the one dispatch.
+            self._logging_obj.stream = False  # rebind-ok: terminal state transition
             asyncio.create_task(
                 self._logging_obj.dispatch_success_handlers(
                     summary,

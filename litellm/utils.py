@@ -2471,7 +2471,13 @@ def _is_streaming_request(
         - if "stream=True" in kwargs  (litellm chat completion, litellm text completion, litellm messages)
         - if call_type is generate_content_stream or agenerate_content_stream (litellm google genai)
     """
-    if "stream" in kwargs and kwargs["stream"] is True:
+    stream_value: Final = kwargs.get("stream")
+    if stream_value is True:
+        return True
+    # A multipart form field arrives as the string "true" (the proxy
+    # forwards form fields verbatim), so the string spelling counts as the
+    # same client intent.
+    if isinstance(stream_value, str) and stream_value.strip().lower() == "true":
         return True
     return call_type in _STREAMING_CALL_TYPES
 
