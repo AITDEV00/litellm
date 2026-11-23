@@ -26,7 +26,7 @@ The round-trip contract:
 
 import json
 from collections.abc import Mapping
-from typing import Final, TypeAlias, cast
+from typing import Final, TypeAlias
 
 from pydantic import ConfigDict, TypeAdapter
 
@@ -120,7 +120,7 @@ def hydrate_transcription_response(
     response.text = str(response_object.get("text") or "")
 
     for key, value in response_object.items():
-        if key == "text" or key == _USAGE_FIELD or key == _AUDIO_DURATION_INTERNAL_KEY or key.startswith("_"):
+        if key in {"text", _USAGE_FIELD, _AUDIO_DURATION_INTERNAL_KEY} or key.startswith("_"):
             continue
         if value is None or not _json_compatible(value):
             continue

@@ -208,7 +208,7 @@ class TestNemotronNativeAudio:
             assert result.body.get("usage")
             responses.append(result.body)
         assert responses[2] == responses[0]
-        assert responses != [responses[0]] * 3
+        assert responses[2] != responses[1]
 
     def test_native_transcript_stream_ends_with_exactly_one_done(self, gw: Gateway) -> None:
         import httpx

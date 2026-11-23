@@ -16,7 +16,7 @@ import json
 import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from datetime import datetime
-from typing import Final, Optional, Protocol
+from typing import Final, Protocol
 
 from openai._streaming import SSEDecoder
 
@@ -383,11 +383,12 @@ class SyncNativeTranscriptionStream:
                 yield missing
         except GeneratorExit:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # transport failures surface as typed audio stream errors
             if not self._terminal_fired:
+                error: Final = NativeTranscriptStreamError(message=str(e))
                 self._terminal_fired = True
-                self._terminal_logging(NativeTranscriptStreamError(message=str(e)))
-            raise
+                self._terminal_logging(error)
+                yield error
         finally:
             self.close()
 

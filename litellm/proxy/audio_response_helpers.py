@@ -246,13 +246,14 @@ def serialize_native_transcript_event(event: NativeTranscriptEvent) -> str:
     and the native ``type`` field) plus every native field the provider sent,
     so gateway clients see the provider's stream, not an invented dialect.
     """
-    if isinstance(event, NativeTranscriptDelta):
-        event_name: Final = "transcript.text.delta"
-    elif isinstance(event, NativeTranscriptDone):
-        event_name = "transcript.text.done"
-    else:
-        event_name = "error"
-    payload: Final = dict(getattr(event, "native_event", {}) or {})
+    match event:
+        case NativeTranscriptDelta():
+            event_name: Final = "transcript.text.delta"
+        case NativeTranscriptDone():
+            event_name = "transcript.text.done"
+        case NativeTranscriptStreamError():
+            event_name = "error"
+    payload: Final = dict(event.native_event or {})
     if isinstance(event, NativeTranscriptStreamError):
         payload.setdefault("message", event.message)
     return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
@@ -268,13 +269,11 @@ async def _native_transcript_sse_body(
     async generator), which the shared stream turns into upstream transport
     cancellation with no terminal logging.
     """
-    aclose: Final = stream.aclose
     try:
         async for event in stream.events:
             yield serialize_native_transcript_event(event).encode("utf-8")
     finally:
-        if aclose is not None:
-            await aclose()
+        await stream.aclose()
 
 
 def audio_stream_response(

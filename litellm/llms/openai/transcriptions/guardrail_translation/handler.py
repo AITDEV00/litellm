@@ -58,17 +58,17 @@ class OpenAIAudioTranscriptionHandler(BaseTranslation):
 
     async def process_output_response(
         self,
-        response: "TranscriptionResponse",
+        response: "TranscriptionResponse | NativeAudioDocumentResponse",
         guardrail_to_apply: "CustomGuardrail",
         litellm_logging_obj: "LiteLLMLoggingObj | None" = None,
         user_api_key_dict: "UserAPIKeyAuth | None" = None,
         request_data: dict | None = None,
-    ) -> "TranscriptionResponse":
+    ) -> "TranscriptionResponse | NativeAudioDocumentResponse":
         """
         Process output transcription by applying guardrails to transcribed text.
 
         Args:
-            response: Transcription response object containing transcribed text
+            response: JSON or native-document transcription result
             guardrail_to_apply: The guardrail instance to apply
             litellm_logging_obj: Optional logging object
             user_api_key_dict: User API key metadata to pass to guardrails

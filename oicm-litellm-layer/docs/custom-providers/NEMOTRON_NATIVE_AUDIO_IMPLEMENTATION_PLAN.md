@@ -1586,6 +1586,54 @@ This review does not assert byte-for-byte generic chat compatibility with
 hosted-vLLM rather than the specifically restored `stream_options` behavior,
 nor semantic timestamp accuracy from this short speech fixture
 
+### Smell pass and latest controller activation, 2026-11-23
+
+The prescribed L1 to L4 pass ran pyflakes, vulture at confidence 80,
+actionable ruff rules and focused type analysis. Proxy exports, adapter
+arguments, Pydantic fields and guarded extension boundaries were excluded
+from mechanical false positives. One behavioral mismatch was found and
+fixed: a sync native transcript transport reset now yields one structured
+audio error, logs failure once and closes the response, matching async.
+A narrowed test for this fails when the fix is reversed. Native stream close
+callbacks and guardrail return types are now explicitly typed, and the
+smoke translation assertion now requires the repeated English response to
+differ from the French result as well as equal the cold English body
+
+The final gateway-focused run passed 442 tests. One unrelated existing realtime
+test requiring `google.cloud.speech_v2` was deselected because that optional
+package is not installed in `.venv`. The exact controller identity, discovery
+and status modules passed 146 tests. Feature pyflakes and vulture candidates
+are clean after triage, and strict feature-local ruff passed. The former
+`make check` blockers still apply; this pass did not rerun it
+
+A source-only dev controller build, using existing commit `d2d1118` plus no
+previous controller changes, is deployed as
+`oicm-discovery-controller:0.1.0-20261123-d2d1118`. Its actual pod is
+`oicm-discovery-controller-dev-c4dc46dcd-zf54f`, image digest
+`sha256:ec14330203c2d554dd918397efe01bd80199d7d719b09ccf97b0f66dd57fba8c`.
+That pod logged exact NIM activation and a 24-model sync.
+Read-only `/model/info` proves `nvidia_nim/nvidia/NVIDIA-Nemotron-3.5-
+Transcribe-30B-A4B`, workload UUID `3fb782ae-36cc-45a4-9f65-2a8fdb2029fa`,
+mode `audio_transcription`, and the per-workload service URL. The independently
+discovered CohereLabs transcribe workload remains `hosted_vllm/...`, proving
+the same task does not promote an unrelated provider
+
+Declaration and registration were executed by controller reconciliation only;
+there was no direct DB edit and no prod rollout. After the new dev gateway code
+rolled out, `litellm-proxy-dev-686d6bfb46-25jp8` was Ready at image digest
+`sha256:2092739253e76119ce6b3a7e9083510a7ea1719a01033b42ba76ec9dca3c4726`.
+A freshly scoped customer key ran all nine NEMOTRON public smoke cases against
+this pod on loopback `14003`, including the strengthened target-cache proof.
+They passed in 13.66 s, and key revocation returned 200. No master key was used
+for those inference requests. Before the successful connection, attempts to
+reuse an expired forward failed by transport; these are not claimed as service
+proof. An initial key-generation probe that did not expose its key was also
+cleaned from the dev key store
+
+The new controller artifact does not need a gateway code mirror, since its
+provider record and source predicate are independent of the synchronous SDK
+stream error fix
+
 ---
 
 ## Appendix A: Implementation-time facts to verify, not code assumptions

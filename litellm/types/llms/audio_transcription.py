@@ -12,7 +12,7 @@ SDK entry points, and the proxy route return. JSON results stay
 ``NativeAudioDocumentResponse`` and flow out to a raw ``Response``.
 """
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
@@ -92,6 +92,10 @@ class NativeAudioDocumentResponse:
 NonStreamingNativeAudioResult: TypeAlias = TranscriptionResponse | NativeAudioDocumentResponse
 
 
+async def _noop_close() -> None:
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class OpenedNativeAudioStream:
     """An initialized native transcript SSE stream, before first iteration.
@@ -111,7 +115,7 @@ class OpenedNativeAudioStream:
     model: str
     events: AsyncIterator[NativeTranscriptEvent]
     hidden_params: dict[str, object] = field(default_factory=dict)
-    aclose: object = field(default=None)
+    aclose: Callable[[], Awaitable[None]] = _noop_close
 
     @property
     def meta(self) -> dict[str, object]:  # mutable-ok: same surface as TranscriptionResponse

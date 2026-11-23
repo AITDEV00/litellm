@@ -433,8 +433,9 @@ class TestSyncFacade:
         stream = SyncNativeTranscriptionStream(
             model="m", response=_ExplodingTransport(), provider_config=_config(), logging_obj=logging_obj
         )
-        with pytest.raises(RuntimeError, match="reset"):
-            list(stream)
+        events = list(stream)
+        assert [type(event) for event in events] == [NativeTranscriptDelta, NativeTranscriptStreamError]
+        assert "reset" in events[-1].message
         assert logging_obj.model_call_details.get("has_logged_sync_failure") is True
 
     def test_sync_handler_string_stream_value_opens_the_stream(self):
