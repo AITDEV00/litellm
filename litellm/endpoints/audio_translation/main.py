@@ -126,8 +126,10 @@ def translation(
     model_info: Final = kwargs.get("model_info", None)
     metadata: Final = kwargs.get("metadata", None)
     atranslation: Final = kwargs.pop("atranslation", False)
-    litellm_logging_obj: Final[LiteLLMLoggingObj] = cast(  # cast-ok: kwargs carries the wrapper-constructed logging object
-        LiteLLMLoggingObj, kwargs.get("litellm_logging_obj")
+    litellm_logging_obj: Final[LiteLLMLoggingObj] = (
+        cast(  # cast-ok: kwargs carries the wrapper-constructed logging object
+            LiteLLMLoggingObj, kwargs.get("litellm_logging_obj")
+        )
     )
     extra_headers: Final = kwargs.get("extra_headers", None)
     shared_session: Final = kwargs.get("shared_session", None)
@@ -137,7 +139,9 @@ def translation(
     supplied_client: Final = kwargs.pop("client", None)
     client: Final = supplied_client if isinstance(supplied_client, (openai.AsyncOpenAI, openai.OpenAI)) else None
     native_client: Final = (
-        supplied_client if isinstance(supplied_client, (HTTPHandler, AsyncHTTPHandler, httpx.Client, httpx.AsyncClient)) else None
+        supplied_client
+        if isinstance(supplied_client, (HTTPHandler, AsyncHTTPHandler, httpx.Client, httpx.AsyncClient))
+        else None
     )
 
     if litellm_logging_obj:
@@ -262,7 +266,7 @@ def translation(
         if existing_duration is None:
             calculated_duration: Final = calculate_request_duration(file)
             if calculated_duration is not None:
-                response_hidden_params: Final = cast(dict[str, object], getattr(response, "_hidden_params"))
+                response_hidden_params: Final = response.hidden_params
                 response_hidden_params["audio_transcription_duration"] = calculated_duration
 
     if response is None:

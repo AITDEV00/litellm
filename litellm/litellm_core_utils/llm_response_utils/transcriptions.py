@@ -162,8 +162,8 @@ def serialize_audio_document_response(
 ) -> dict[str, object]:
     """Serialize a document response for the response cache.
 
-    The public contract (body bytes + declared media type) is preserved; the
-    billed duration rides the same internal key the JSON path uses so a cached
+    The public contract (decoded document text + declared media type/charset)
+    is preserved; the billed duration rides the same internal key the JSON path uses so a cached
     document still costs like the fresh request that stored it. Private
     transport metadata (provider headers, hidden params) is not cached: it is
     recreated from the current request on the read path.

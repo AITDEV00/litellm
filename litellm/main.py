@@ -8067,7 +8067,7 @@ async def amoderation(
 
 
 @client
-async def atranscription(*args, **kwargs) -> TranscriptionResponse:
+async def atranscription(*args, **kwargs) -> NonStreamingNativeAudioResult | NativeAudioStreamResult | SyncNativeTranscriptionStream:
     """
     Calls openai + azure whisper endpoints.
 
@@ -8107,10 +8107,10 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
         elif isinstance(init_response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             response = init_response
         elif isinstance(init_response, (SyncNativeTranscriptionStream, OpenedNativeAudioStream)):
-            # A streaming handle crosses the executor boundary whole: the
-            # async handle's event iterator is already bound to the upstream
-            # transport, and the sync handle's iteration is blocking (safe in
-            # the executor); neither is awaited here.
+            # The generic branch normally opens an async handle here because
+            # the executor invokes transcription with atranscription=True.
+            # Accept either provider-supported handle whole rather than
+            # awaiting its source; a sync handle needs explicit caller cleanup.
             response = init_response
         elif asyncio.iscoroutine(init_response):
             response = await init_response

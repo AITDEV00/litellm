@@ -1634,6 +1634,41 @@ The new controller artifact does not need a gateway code mirror, since its
 provider record and source predicate are independent of the synchronous SDK
 stream error fix
 
+### Second smell pass, 2026-11-23
+
+A fresh L1 to L4 pass on the whole feature removed the duplicate
+`test_atranscription_returns_a_native_stream_handle_whole` definition in the
+large test_main module, which previously shadowed its first body. It also
+removed the unused document-response predicate/export, unused test imports,
+and a missing `Final` test annotation. Terminology now matches behavior:
+iteration ends after the first terminal event, later frames are ignored, and
+an opened native stream owns a one-shot iterator even though its envelope is
+frozen. NIM and hosted-vLLM response methods declare the JSON-or-document
+union rather than JSON-only or missing returns. Synchronous abandonment and
+terminal-callback failure coverage were added
+
+No additional customer-visible behavior defect was established in this pass.
+The suspected sync iterator crossing the async boundary was ruled out by
+tracing the public call: `atranscription` invokes `transcription` with
+`atranscription=True` in an executor, which selects the generic async HTTP
+handler. The accepted sync fallback is not changed. The new no-injected-client
+public SDK regression verifies that standard path yields
+`OpenedNativeAudioStream`. Framework callback signatures, required lazy
+exports, intentional upstream exception transparency, and conditional
+optional-parameter checks were triaged out rather than refactored
+
+L4 passed 221 current native stream, provider, proxy route, translation, public
+SDK (including both async transport variants), and cache-identity tests
+Test-specific lint passes. A broader `test_main.py` run stopped in
+unrelated retry helpers because this parser environment lacks `tenacity`, not
+because a native audio assertion failed
+Remaining pyflakes reports are lazy public re-exports; remaining vulture
+entries are dunder exception signatures and test-context factory variables.
+This second pass is nonbehavioral, so it did not trigger a new dev rollout or
+alter the previously validated controller registration. The configured strict
+gate could not resolve its remote base on this host, and the previously
+reported global `make check` blockers remain outside this cleanup
+
 ---
 
 ## Appendix A: Implementation-time facts to verify, not code assumptions

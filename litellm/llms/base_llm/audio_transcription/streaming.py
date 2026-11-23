@@ -67,8 +67,8 @@ class SharedNativeTranscriptionStream:
     when iteration starts, never at construction, so the proxy can commit
     headers from ``hidden_params`` before the first byte reaches the client.
 
-    Terminal state is exactly-once: the provider must send one terminal
-    event (done or error); a second one is itself an error. ``aclose`` and
+    Terminal state is exactly-once: after the first done or error, iteration
+    ends immediately and trailing frames are ignored. ``aclose`` and
     ``__aexit__`` are idempotent, and success/failure logging is dispatched
     from a single guarded transition so repeated disposal never logs twice.
     """

@@ -80,7 +80,7 @@ class BaseAudioTranscriptionConfig(BaseConfig, ABC):
         """
         Opt-in for providers whose multipart transcription endpoint honors
         ``stream=true`` with an SSE body of typed transcript events. False
-        keeps the request nonstreaming even when a client passes ``stream``.
+        rejects a caller's ``stream=true`` before opening upstream transport.
         """
         return False
 

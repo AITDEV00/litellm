@@ -5,8 +5,8 @@ injectable fake transport (handshake and delayed frames without a network):
 
 - frames cut at arbitrary network boundaries decode to the same events
 - a delta always precedes the terminal done; done carries the native usage
-- exactly one terminal event: a second done is an error, and a stream that
-  ends with no terminal surfaces a structured error event
+- one terminal event is consumed and logged, and trailing bytes cannot emit
+  another; a stream ending with no terminal surfaces a structured error event
 - success/failure logging dispatches exactly once; repeated disposal never
   double-logs
 - caller disconnect (cancellation) closes the upstream transport with no
@@ -214,7 +214,7 @@ class TestExactlyOnceTerminal:
             provider_config=_config(),
             logging_obj=_CapturingLogger(),
         )
-        async for event in stream:
+        async for _ in stream:
             pass
         await asyncio.sleep(0.05)
         end_time = captured["end_time"]
@@ -222,7 +222,7 @@ class TestExactlyOnceTerminal:
         assert end_time.tzinfo is None
 
     @pytest.mark.asyncio
-    async def test_stale_error_after_done_returns_a_second_error_without_duplicate_logging(self):
+    async def test_late_error_after_done_does_not_emit_or_log_again(self):
         logger = _FakeLogger()
         payload = (
             'data: {"delta":"a","type":"transcript.text.delta"}\n\n'
@@ -360,7 +360,7 @@ class TestCallerDisconnect:
             provider_config=_config(),
             logging_obj=logger,
         )
-        async for event in stream:
+        async for _ in stream:
             pass
         await stream.aclose()
         assert len(logger.success_calls) == 1
@@ -386,6 +386,34 @@ class TestSyncFacade:
         with SyncNativeTranscriptionStream(model="m", response=transport, provider_config=_config()) as stream:
             list(stream)
         assert transport.close_count == 1
+
+    def test_closing_sync_before_terminal_only_closes_transport(self):
+        logger = _FakeLogger()
+        stream = SyncNativeTranscriptionStream(
+            model="m",
+            response=_FakeSyncTransport(_live_vocabulary_frames()),
+            provider_config=_config(),
+            logging_obj=logger,
+        )
+        iterator = iter(stream)
+        assert isinstance(next(iterator), NativeTranscriptDelta)
+        iterator.close()
+        assert logger.success_calls == []
+        assert logger.failure_calls == []
+        assert stream._response.close_count == 1
+
+    def test_sync_terminal_logger_failure_does_not_break_transcript_delivery(self):
+        class _FailingSink(_FakeLogger):
+            async def dispatch_success_handlers(self, result, **kwargs):
+                raise RuntimeError("logging sink failed")
+
+        stream = SyncNativeTranscriptionStream(
+            model="m",
+            response=_FakeSyncTransport(_live_vocabulary_frames()),
+            provider_config=_config(),
+            logging_obj=_FailingSink(),
+        )
+        assert isinstance(list(stream)[-1], NativeTranscriptDone)
 
     def test_sync_done_routes_terminal_success_through_real_logger(self):
         from litellm.litellm_core_utils.litellm_logging import Logging
@@ -677,3 +705,46 @@ class TestHandlerStreamingBranch:
                 headers={},
                 provider_config=NvidiaNimAudioTranscriptionConfig(),
             )
+
+
+@pytest.mark.asyncio
+async def test_atranscription_uses_async_upstream_transport_without_an_injected_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import litellm
+    from litellm.llms.custom_httpx import llm_http_handler as handler_module
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+    requests: Final[list[httpx.Request]] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            status_code=200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"text":"four score","type":"transcript.text.done"}\n\n',
+        )
+
+    monkeypatch.setattr(
+        handler_module,
+        "get_async_httpx_client",
+        lambda **kwargs: AsyncHTTPHandler(timeout=30, transport=httpx.MockTransport(responder)),
+    )
+    response: Final = await litellm.atranscription(
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        file=("speech.wav", b"RIFF-audio", "audio/wav"),
+        custom_llm_provider="nvidia_nim",
+        api_base="http://localhost:12352/v1",
+        api_key="fake_nim_key",
+        stream=True,
+    )
+
+    assert isinstance(response, OpenedNativeAudioStream)
+    assert len(requests) == 1
+    events: Final = [event async for event in response.events]
+    assert len(events) == 1
+    event: Final = events[0]
+    assert isinstance(event, NativeTranscriptDone)
+    assert event.text == "four score"
+    assert event.native_event["type"] == "transcript.text.done"
+    await response.aclose()

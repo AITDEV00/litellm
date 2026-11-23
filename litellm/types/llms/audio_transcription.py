@@ -98,14 +98,15 @@ async def _noop_close() -> None:
 
 @dataclass(frozen=True, slots=True)
 class OpenedNativeAudioStream:
-    """An initialized native transcript SSE stream, before first iteration.
+    """One owned native transcript SSE stream, before first iteration.
 
-    The HTTP layer returns this instead of a final result when the provider
-    supports multipart streaming and the caller requested one. Headers and
-    status were already validated against the provider's contract, so the
-    proxy can inspect ``hidden_params`` and commit headers before consuming
-    a single event; the transport stays open until the consumer iterates
-    ``events`` to completion or calls ``aclose``.
+    ``events`` is a one-shot iterator with transport and lifecycle state; the
+    frozen container does not make those resources immutable or reusable.
+    The HTTP layer returns this instead of a final result after validating
+    status and media type. The proxy inspects ``hidden_params`` and commits
+    headers before consuming an event. ``hidden_params`` retains the
+    framework's internal mutable metadata surface; transport stays open until
+    iteration completes, caller cancellation, or explicit ``aclose``.
 
     Mirrors the ``HttpxBinaryResponseContent`` precedent (a closeable
     streaming response owned by a first-class route), except it yields typed

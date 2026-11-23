@@ -13,7 +13,6 @@ import io
 import json
 
 import httpx
-import pytest
 
 from litellm.llms.nvidia_nim.audio_transcription.transformation import (
     NvidiaNimAudioTranscriptionConfig,
@@ -176,21 +175,11 @@ class TestNvidiaNimStreamingSupport:
 
         assert HostedVLLMAudioTranscriptionConfig().supports_multipart_streaming is False
 
-    def test_base_config_default_is_no_streaming(self):
-        from litellm.llms.base_llm.audio_transcription.transformation import (
-            BaseAudioTranscriptionConfig,
-        )
-
-        # The base property itself defaults False; a config that does not
-        # override it stays non-streaming, so the truthful 400 keeps firing.
-        assert BaseAudioTranscriptionConfig.supports_multipart_streaming.fget is not None
+    def test_hosted_vllm_has_no_transcript_event_vocabulary(self):
         from litellm.llms.hosted_vllm.transcriptions.transformation import (
             HostedVLLMAudioTranscriptionConfig,
         )
 
-        assert HostedVLLMAudioTranscriptionConfig().supports_multipart_streaming is False
-        # The base config maps no vocabulary at all, so a payload it is asked
-        # about surfaces as the generic unrecognized-event path, never silence.
         assert HostedVLLMAudioTranscriptionConfig().transform_streaming_event("m", {"type": "x"}) is None
 
     def test_delta_event_maps_with_native_fields_preserved(self):

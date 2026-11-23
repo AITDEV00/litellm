@@ -194,10 +194,6 @@ def audio_document_response(
     )
 
 
-def is_audio_document_response(response: object) -> bool:
-    return isinstance(response, NativeAudioDocumentResponse)
-
-
 def is_opened_native_audio_stream(response: object) -> bool:
     return isinstance(response, OpenedNativeAudioStream)
 
@@ -297,13 +293,12 @@ def audio_stream_response(
 __all__ = [
     "apply_audio_post_call_processing",
     "apply_audio_response_headers_hook",
-    "reject_incompatible_native_transcript_guardrails",
     "audio_document_response",
     "audio_json_response",
     "audio_stream_response",
     "build_audio_custom_headers",
     "build_audio_stream_custom_headers",
-    "is_audio_document_response",
     "is_opened_native_audio_stream",
+    "reject_incompatible_native_transcript_guardrails",
     "serialize_native_transcript_event",
 ]

@@ -23,7 +23,7 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
 )
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.secret_managers.main import get_secret_str
-from litellm.types.llms.audio_transcription import NativeTranscriptEvent
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse, NativeTranscriptEvent
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -37,7 +37,7 @@ class NvidiaNimAudioTranscriptionError(BaseLLMException):
         status_code: int,
         message: str,
         headers: dict | httpx.Headers | None = None,
-    ):
+    ) -> None:
         super().__init__(status_code=status_code, message=message, headers=headers)
 
 
@@ -135,7 +135,7 @@ class NvidiaNimAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
     def transform_audio_transcription_response(
         self,
         raw_response: httpx.Response,
-    ) -> TranscriptionResponse:
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
         return self._native_multipart.parse_native_audio_response(raw_response)
 
     def get_error_class(self, error_message: str, status_code: int, headers: dict | httpx.Headers) -> BaseLLMException:

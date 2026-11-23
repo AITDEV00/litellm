@@ -38,8 +38,8 @@ _DOCUMENT_MEDIA_TYPES: Final = frozenset(
 
 
 def _charset_from_content_type(content_type: str) -> str | None:
-    for part in content_type.split(";"):
-        part = part.strip()
+    for raw_part in content_type.split(";"):
+        part: Final = raw_part.strip()
         if part.lower().startswith("charset="):
             return part.split("=", 1)[1].strip().strip('"')
     return None

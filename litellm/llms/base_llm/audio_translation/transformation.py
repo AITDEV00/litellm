@@ -18,8 +18,9 @@ from typing import Any, Final
 import httpx
 
 from litellm.llms.base_llm.chat.transformation import BaseConfig
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.llms.openai import AllMessageValues
-from litellm.types.utils import FileTypes, ModelResponse
+from litellm.types.utils import FileTypes, ModelResponse, TranscriptionResponse
 
 
 @dataclass
@@ -110,7 +111,7 @@ class BaseAudioTranslationConfig(BaseConfig, ABC):
     def transform_audio_translation_response(
         self,
         raw_response: httpx.Response,
-    ) -> Any:
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
         """Parse the provider response.
 
         Returns a ``TranscriptionResponse`` for JSON bodies (translation

@@ -12,7 +12,6 @@ import io
 import json
 
 import httpx
-import pytest
 
 from litellm.llms.base_llm.audio_translation.transformation import AudioTranslationRequestData
 from litellm.llms.nvidia_nim.audio_translation.transformation import (
@@ -74,7 +73,9 @@ class TestNvidiaNimAudioTranslationRequest:
         result = self._transform({"target_language": "en"})
         fields = _field_dict(result)
         assert fields["target_language"] == "en"
-        assert "language" not in fields, "translation must not alias target_language to the transcription source language"
+        assert "language" not in fields, (
+            "translation must not alias target_language to the transcription source language"
+        )
 
     def test_standard_translation_params_reach_the_wire(self):
         result = self._transform({"prompt": "keep names", "temperature": 0.1, "response_format": "json"})

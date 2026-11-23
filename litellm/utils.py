@@ -4073,16 +4073,14 @@ def get_optional_params_translation(
         )
         special_transport = "native_multipart" if _uses_native_translation_transport(provider_config) else "default"
 
-    optional_params = add_provider_specific_params_to_optional_params(
+    return add_provider_specific_params_to_optional_params(
         optional_params=optional_params,
         passed_params=passed_params,
         custom_llm_provider=custom_llm_provider,
         openai_params=OPENAI_TRANSLATION_PARAMS,
-        additional_drop_params=kwargs.get("additional_drop_params", None),
+        additional_drop_params=kwargs.get("additional_drop_params"),
         transport=special_transport,
     )
-
-    return optional_params
 
 
 def _uses_native_translation_transport(provider_config: BaseAudioTranslationConfig) -> bool:

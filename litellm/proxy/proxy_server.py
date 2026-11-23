@@ -13215,7 +13215,6 @@ async def audio_transcriptions(
             audio_stream_response,
             build_audio_custom_headers,
             build_audio_stream_custom_headers,
-            is_audio_document_response,
             is_opened_native_audio_stream,
         )
         from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse

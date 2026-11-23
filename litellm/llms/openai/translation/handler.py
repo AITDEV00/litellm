@@ -38,8 +38,7 @@ class OpenAIAudioTranslation(OpenAIChatCompletion):
         data: dict,
         timeout: float | httpx.Timeout,
     ):
-        raw_response = await openai_aclient.audio.translations.with_raw_response.create(**data, timeout=timeout)
-        return raw_response
+        return await openai_aclient.audio.translations.with_raw_response.create(**data, timeout=timeout)
 
     def make_sync_openai_audio_translation_request(
         self,
@@ -47,8 +46,7 @@ class OpenAIAudioTranslation(OpenAIChatCompletion):
         data: dict,
         timeout: float | httpx.Timeout,
     ):
-        raw_response = openai_client.audio.translations.with_raw_response.create(**data, timeout=timeout)
-        return raw_response
+        return openai_client.audio.translations.with_raw_response.create(**data, timeout=timeout)
 
     async def async_audio_translations(
         self,
@@ -232,7 +230,11 @@ def _media_type(headers: Mapping[str, str]) -> str:
 def _charset(headers: Mapping[str, str]) -> str | None:
     header: Final = next((v for k, v in headers.items() if k.lower() == "content-type"), "")
     return next(
-        (part.partition("=")[2].strip().strip(chr(34)) for part in header.split(";") if part.strip().startswith("charset=")),
+        (
+            part.partition("=")[2].strip().strip(chr(34))
+            for part in header.split(";")
+            if part.strip().startswith("charset=")
+        ),
         None,
     )
 
