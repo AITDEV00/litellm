@@ -134,8 +134,8 @@ async def audio_translations(
             proxy_server.proxy_logging_obj.update_request_status(litellm_call_id=litellm_call_id, status="success")
         )
 
-        ### RESPONSE HEADERS ###
         from litellm.proxy.audio_response_helpers import (  # noqa: PLC0415  # co-located audio slice, defer to import time
+            apply_audio_post_call_processing,
             apply_audio_response_headers_hook,
             audio_document_response,
             audio_json_response,
@@ -143,8 +143,18 @@ async def audio_translations(
         )
         from litellm.types.llms.audio_transcription import (  # noqa: PLC0415  # type-only slice import, defer
             NativeAudioDocumentResponse,
+            TranscriptionResponse,
         )
 
+        if isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse)):
+            response = await apply_audio_post_call_processing(
+                proxy_logging_obj=proxy_server.proxy_logging_obj,
+                data=data,
+                user_api_key_dict=user_api_key_dict,
+                response=response,
+            )
+
+        ### RESPONSE HEADERS ###
         fastapi_response.headers.update(
             build_audio_custom_headers(
                 response=response,

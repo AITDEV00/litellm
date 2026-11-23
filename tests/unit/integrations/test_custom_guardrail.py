@@ -2695,6 +2695,45 @@ class _NativeApplyGuardrail(_InheritedApplyGuardrail):
     use_native_lifecycle_hooks: ClassVar[bool] = True
 
 
+class _NativeRecordingGuardrail(CustomGuardrail):
+    use_native_lifecycle_hooks: ClassVar[bool] = True
+
+    def __init__(self):
+        super().__init__(guardrail_name="once", event_hook=GuardrailEventHooks.post_call)
+        self.calls: list[str] = []
+
+    async def async_post_call_success_hook(self, data, response, user_api_key_dict):
+        self.calls.append(response.text)
+        from litellm.types.utils import TranscriptionResponse
+
+        return TranscriptionResponse(text="redacted")
+
+
+@pytest.mark.asyncio
+async def test_native_deployment_output_scan_is_deduplicated():
+    from litellm.proxy.utils import ProxyLogging
+    from litellm.types.utils import TranscriptionResponse
+
+    guardrail = _NativeRecordingGuardrail()
+    data = {"metadata": {}, "guardrails": ["once"]}
+    response = TranscriptionResponse(text="hello")
+    processed = await guardrail.async_post_call_success_deployment_hook(
+        request_data=data,
+        call_type=None,
+        response=response,
+    )
+    assert guardrail.calls == ["hello"]
+    assert processed is not None and guardrail.post_call_already_checked(data, processed)
+    proxy = ProxyLogging(None)
+    final = await proxy.post_call_success_hook(
+        data=data,
+        user_api_key_dict=UserAPIKeyAuth(),
+        response=processed,
+    )
+    assert guardrail.calls == ["hello"]
+    assert final.text == "redacted"
+
+
 @pytest.mark.parametrize("guardrail_type", (CustomGuardrail, _NativeApplyGuardrail, _InheritedApplyGuardrail))
 @pytest.mark.parametrize(
     "event_hook",

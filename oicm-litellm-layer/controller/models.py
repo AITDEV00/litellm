@@ -498,7 +498,8 @@ def detect_provider(owned_by: str, model_id: str, paths: FrozenSet[str] = frozen
 # only ever reachable through ``detect_nim_audio_protocol``'s compound gate:
 # never add "nvidia" or "nim" to KNOWN_PROVIDERS, whose substring match would
 # fire on any owned_by or model id that merely mentions NVIDIA.
-_NIM_SERVER_NAME_TOKENS: Final[Tuple[str, ...]] = ("nvidia", "nim")
+_NIM_TRANSCRIBE_SERVER_NAME: Final[str] = "nvidia nim nemotron transcribe"
+_NIM_TRANSCRIPT_STREAM_TAGS: Final[FrozenSet[str]] = frozenset({"1.0.0"})
 
 # The paths that prove a NIM transcribe service's native audio surface is
 # actually mounted. Both must be present: the NIM audio protocol differs from
@@ -528,11 +529,9 @@ def detect_nim_audio_protocol(
     """
     if declaration is None:
         return False
-    server_name = (declaration.model_server_name or "").lower()
-    if not server_name:
+    server_name: Final = (declaration.model_server_name or "").strip().casefold()
+    if server_name != _NIM_TRANSCRIBE_SERVER_NAME:
         return False
-    if not all(token in server_name for token in _NIM_SERVER_NAME_TOKENS):
-        return False
-    if not declaration.model_server_tag:
+    if (declaration.model_server_tag or "").strip() not in _NIM_TRANSCRIPT_STREAM_TAGS:
         return False
     return _NIM_AUDIO_PATHS <= paths

@@ -78,7 +78,7 @@ def build_audio_custom_headers(
 
 async def apply_audio_response_headers_hook(
     *,
-    proxy_logging_obj: "ProxyLogging",
+    proxy_logging_obj: ProxyLogging,
     data: dict,
     user_api_key_dict: UserAPIKeyAuth,
     response: TranscriptionResponse | NativeAudioDocumentResponse,
@@ -92,6 +92,67 @@ async def apply_audio_response_headers_hook(
         request_headers=request_headers,
     )
     return callback_headers or {}
+
+
+async def apply_audio_post_call_processing(
+    *,
+    proxy_logging_obj: ProxyLogging,
+    data: dict,
+    user_api_key_dict: UserAPIKeyAuth,
+    response: TranscriptionResponse | NativeAudioDocumentResponse,
+) -> TranscriptionResponse | NativeAudioDocumentResponse:
+    processed: Final = await proxy_logging_obj.post_call_success_hook(
+        data=data,
+        user_api_key_dict=user_api_key_dict,
+        response=response,
+    )
+    if isinstance(processed, (TranscriptionResponse, NativeAudioDocumentResponse)):
+        return processed
+    if isinstance(processed, Mapping) and isinstance(processed.get("text"), str):
+        from litellm.litellm_core_utils.llm_response_utils.transcriptions import hydrate_transcription_response
+
+        return hydrate_transcription_response(
+            response_object=processed,
+            hidden_params=response.hidden_params,
+            response_headers=getattr(response, "_response_headers", None),
+        )
+    raise TypeError(f"Audio post-call processing returned an unsupported result: {type(processed).__name__}")
+
+
+async def reject_incompatible_native_transcript_guardrails(*, data: dict) -> None:
+    import litellm
+    from litellm.exceptions import BadRequestError
+    from litellm.integrations.custom_guardrail import CustomGuardrail
+    from litellm.proxy import proxy_server
+    from litellm.proxy.utils import check_and_merge_model_level_guardrails, pipeline_managed_guardrail_names
+    from litellm.types.guardrails import GuardrailEventHooks
+
+    guardrail_data: Final = check_and_merge_model_level_guardrails(data=data, llm_router=proxy_server.llm_router)
+    if pipeline_managed_guardrail_names(guardrail_data, "post_call"):
+        raise BadRequestError(
+            message=(
+                "Streaming native transcripts cannot apply post-call guardrail pipelines; "
+                "resend with stream=false for whole-transcript processing"
+            ),
+            model=str(data.get("model") or ""),
+            llm_provider="",
+        )
+    configured: Final = tuple(
+        callback.guardrail_name
+        for callback in litellm.callbacks
+        if isinstance(callback, CustomGuardrail)
+        and callback.should_run_guardrail(data=guardrail_data, event_type=GuardrailEventHooks.post_call)
+    )
+    if not configured:
+        return
+    raise BadRequestError(
+        message=(
+            f"Streaming native transcripts cannot apply whole-response guardrails {configured}; "
+            "resend with stream=false so LiteLLM can inspect the complete transcript before returning it"
+        ),
+        model=str(data.get("model") or ""),
+        llm_provider="",
+    )
 
 
 def audio_json_response(
@@ -124,9 +185,11 @@ def audio_document_response(
     the one the provider declared (or the derived default for a bare 200
     text/plain), and private transport metadata stays out of the body.
     """
+    charset: Final = response.charset or "utf-8"
+    media_type: Final = f"{response.media_type}; charset={charset}"
     return Response(
-        content=response.body.encode(response.charset or "utf-8"),
-        media_type=response.media_type,
+        content=response.body.encode(charset),
+        media_type=media_type,
         headers=headers,
     )
 
@@ -233,7 +296,9 @@ def audio_stream_response(
 
 
 __all__ = [
+    "apply_audio_post_call_processing",
     "apply_audio_response_headers_hook",
+    "reject_incompatible_native_transcript_guardrails",
     "audio_document_response",
     "audio_json_response",
     "audio_stream_response",

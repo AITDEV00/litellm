@@ -94,6 +94,7 @@ class NvidiaNimConfig(OpenAIGPTConfig):
                 "tools",
                 "tool_choice",
                 "parallel_tool_calls",
+                "stream_options",
                 "response_format",
             ]
 

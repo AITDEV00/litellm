@@ -41,6 +41,16 @@ def test_embedding_nvidia_nim():
     assert response.data[0]["embedding"] == [0.1, 0.2, 0.3]
 
 
+def test_nvidia_nim_audio_chat_preserves_stream_usage_options():
+    mapped = litellm.NvidiaNimConfig().map_openai_params(
+        non_default_params={"stream_options": {"include_usage": True}},
+        optional_params={},
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        drop_params=True,
+    )
+    assert mapped == {"stream_options": {"include_usage": True}}
+
+
 def test_chat_completion_nvidia_nim_with_tools():
     from openai import OpenAI
 

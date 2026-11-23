@@ -390,6 +390,19 @@ def test_public_nvidia_nim_endpoint_still_requires_a_real_key(monkeypatch: pytes
     assert api_base == "https://integrate.api.nvidia.com/v1"
     assert dynamic_api_key is None
 
+
+@pytest.mark.usefixtures("_vcr_outcome_gate", "isolate_litellm_state", "setup_and_teardown")
+def test_explicit_public_nvidia_nim_base_still_requires_a_real_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("NVIDIA_NIM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_NIM_API_BASE", raising=False)
+    _, _, dynamic_api_key, api_base = litellm.get_llm_provider(
+        model="nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct",
+        api_base="https://integrate.api.nvidia.com/v1/",
+        api_key=None,
+    )
+    assert api_base == "https://integrate.api.nvidia.com/v1/"
+    assert dynamic_api_key is None
+
 @pytest.mark.usefixtures("_vcr_outcome_gate", "isolate_litellm_state", "setup_and_teardown")
 def test_get_llm_provider_llamafile():
     model, custom_llm_provider, dynamic_api_key, api_base = litellm.get_llm_provider(

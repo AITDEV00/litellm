@@ -672,7 +672,10 @@ def _get_openai_compatible_provider_info(
         # give in-cluster pods); the OpenAI SDK client refuses to construct
         # without some key, so fall back to the same placeholder they use. The
         # public NVIDIA endpoint still requires a real key.
-        if explicit_nim_base:
+        from urllib.parse import urlsplit
+
+        public_host: Final = urlsplit(str(explicit_nim_base or "https://integrate.api.nvidia.com/v1")).hostname
+        if explicit_nim_base and public_host != "integrate.api.nvidia.com":
             dynamic_api_key = api_key or get_secret_str("NVIDIA_NIM_API_KEY") or "fake-api-key"
         else:
             dynamic_api_key = api_key or get_secret_str("NVIDIA_NIM_API_KEY")

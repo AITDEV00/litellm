@@ -20,7 +20,7 @@ import io
 import json
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Optional
+from typing import Final, Optional
 from unittest.mock import MagicMock
 
 import httpx
@@ -108,10 +108,10 @@ class _FakeLogger:
         self.success_calls = []
         self.failure_calls = []
 
-    def dispatch_success_handlers(self, result, **kwargs):
+    async def dispatch_success_handlers(self, result, **kwargs):
         self.success_calls.append(result)
 
-    def failure_handler(self, exception, traceback_exception, **kwargs):
+    async def dispatch_failure_handlers(self, exception, traceback_exception, **kwargs):
         self.failure_calls.append(exception)
 
 
@@ -222,10 +222,7 @@ class TestExactlyOnceTerminal:
         assert end_time.tzinfo is None
 
     @pytest.mark.asyncio
-    async def test_a_terminal_after_done_never_dispatches_twice(self):
-        """The first terminal event ends iteration exactly once; a stray
-        second terminal in the same transport window can never dispatch a
-        second success or failure log."""
+    async def test_stale_error_after_done_returns_a_second_error_without_duplicate_logging(self):
         logger = _FakeLogger()
         payload = (
             'data: {"delta":"a","type":"transcript.text.delta"}\n\n'
@@ -303,10 +300,9 @@ class TestCallerDisconnect:
         assert logger.failure_calls == []
 
     @pytest.mark.asyncio
-    async def test_midstream_exception_dispatches_failure_once_and_reraises(self):
-        """An exception from the provider transport mid-stream surfaces to the
-        caller (never a silent clean stream), dispatches terminal failure
-        logging exactly once, and closes the upstream transport."""
+    async def test_midstream_exception_yields_an_error_frame_and_dispatches_failure_once(self):
+        """A reset after HTTP 200 is committed becomes one structured audio
+        error event, not a socket truncation that looks like an incomplete 200."""
         logger = _FakeLogger()
 
         class _ExplodingTransport:
@@ -327,12 +323,47 @@ class TestCallerDisconnect:
             provider_config=_config(),
             logging_obj=logger,
         )
-        with pytest.raises(RuntimeError, match="provider connection reset"):
-            async for event in stream:
-                pass
+        events = [event async for event in stream]
+        assert isinstance(events[-1], NativeTranscriptStreamError)
+        assert "provider connection reset" in events[-1].message
+        assert serialize_native_transcript_event(events[-1]).startswith("event: error")
         assert transport.closed is True
         assert len(logger.failure_calls) == 1
         assert logger.success_calls == []
+
+    @pytest.mark.asyncio
+    async def test_terminal_logger_failure_does_not_break_transcript_delivery(self):
+        class _FailingSink(_FakeLogger):
+            async def dispatch_success_handlers(self, result, **kwargs):
+                raise RuntimeError("logging sink failed")
+
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=_FakeAsyncTransport(_live_vocabulary_frames()),
+            provider_config=_config(),
+            logging_obj=_FailingSink(),
+        )
+        events = [event async for event in stream]
+        assert isinstance(events[-1], NativeTranscriptDone)
+
+    @pytest.mark.asyncio
+    async def test_close_waits_for_terminal_async_callbacks(self):
+        class WaitingLogger(_FakeLogger):
+            async def dispatch_success_handlers(self, result, **kwargs):
+                await asyncio.sleep(0.01)
+                self.success_calls.append(result)
+
+        logger = WaitingLogger()
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=_FakeAsyncTransport(_live_vocabulary_frames()),
+            provider_config=_config(),
+            logging_obj=logger,
+        )
+        async for event in stream:
+            pass
+        await stream.aclose()
+        assert len(logger.success_calls) == 1
 
 
 class TestSyncFacade:
@@ -355,6 +386,56 @@ class TestSyncFacade:
         with SyncNativeTranscriptionStream(model="m", response=transport, provider_config=_config()) as stream:
             list(stream)
         assert transport.close_count == 1
+
+    def test_sync_done_routes_terminal_success_through_real_logger(self):
+        from litellm.litellm_core_utils.litellm_logging import Logging
+
+        logging_obj = Logging(
+            model="nvidia_nim/m",
+            messages=[{"role": "user", "content": "transcribe"}],
+            stream=True,
+            call_type="transcription",
+            start_time=None,
+            litellm_call_id="sync-complete",
+            function_id="",
+        )
+        stream = SyncNativeTranscriptionStream(
+            model="m",
+            response=_FakeSyncTransport(_live_vocabulary_frames()),
+            provider_config=_config(),
+            logging_obj=logging_obj,
+        )
+        list(stream)
+        assert logging_obj.model_call_details.get("standard_logging_object") is not None
+        assert logging_obj.stream is False
+
+    def test_sync_error_routes_terminal_failure_through_real_logger(self):
+        from litellm.litellm_core_utils.litellm_logging import Logging
+
+        logging_obj = Logging(
+            model="nvidia_nim/m",
+            messages=[{"role": "user", "content": "transcribe"}],
+            stream=True,
+            call_type="transcription",
+            start_time=None,
+            litellm_call_id="sync-failure",
+            function_id="",
+        )
+
+        class _ExplodingTransport:
+            def iter_bytes(self):
+                yield b'data: {"type":"transcript.text.delta","delta":"partial"}\n\n'
+                raise RuntimeError("reset")
+
+            def close(self):
+                return None
+
+        stream = SyncNativeTranscriptionStream(
+            model="m", response=_ExplodingTransport(), provider_config=_config(), logging_obj=logging_obj
+        )
+        with pytest.raises(RuntimeError, match="reset"):
+            list(stream)
+        assert logging_obj.model_call_details.get("has_logged_sync_failure") is True
 
     def test_sync_handler_string_stream_value_opens_the_stream(self):
         """The sync handler shares the multipart string contract: stream="true"

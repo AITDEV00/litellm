@@ -171,6 +171,62 @@ def native_multipart_fields(
     return tuple(fields)
 
 
+def native_audio_cache_identity(
+    *,
+    model: str,
+    operation: str,
+    custom_llm_provider: str | None,
+    api_base: str | None,
+    params: Mapping[str, object],
+) -> dict[str, object] | None:
+    from litellm.litellm_core_utils.get_llm_provider_logic import get_llm_provider
+    from litellm.types.utils import LlmProviders
+    from litellm.utils import ProviderConfigManager
+
+    _, provider, _, _ = get_llm_provider(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+        api_base=api_base,
+    )
+    if operation in ("transcription", "atranscription"):
+        config = ProviderConfigManager.get_provider_audio_transcription_config(
+            model=model,
+            provider=LlmProviders(provider),
+        )
+    elif operation in ("translation", "atranslation"):
+        config = ProviderConfigManager.get_provider_audio_translation_config(
+            model=model,
+            provider=LlmProviders(provider),
+        )
+    else:
+        return None
+    if config is None or not getattr(config, "uses_native_multipart_transport", False):
+        return None
+    extra_body: Final = params.get("extra_body")
+    fields: Final = native_multipart_fields(
+        params,
+        extra_body=extra_body if isinstance(extra_body, Mapping) else None,
+    )
+    return {"provider": provider, "fields": fields}
+
+
+def prepare_native_audio_cache_identity(
+    *,
+    operation: str,
+    model: str | None,
+    params: dict,
+) -> None:
+    identity: Final = native_audio_cache_identity(
+        model=model or "",
+        operation=operation,
+        custom_llm_provider=cast(str | None, params.get("custom_llm_provider")),
+        api_base=cast(str | None, params.get("api_base") or params.get("base_url")),
+        params=params,
+    )
+    if identity is not None:
+        params["_native_multipart_cache_identity"] = identity
+
+
 def ensure_extra_body_is_safe(extra_body: dict[str, object] | None) -> dict[str, object] | None:
     """
     Ensure that the extra_body sent in the request is safe,  otherwise users will see this error

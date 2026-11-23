@@ -53,6 +53,7 @@ def _patch_common(monkeypatch: pytest.MonkeyPatch, router: _CapturedRouter) -> N
         "proxy_logging_obj",
         MagicMock(
             pre_call_hook=AsyncMock(side_effect=lambda **kw: kw["data"]),
+            post_call_success_hook=AsyncMock(side_effect=lambda **kw: kw["response"]),
             post_call_failure_hook=AsyncMock(),
             post_call_response_headers_hook=AsyncMock(return_value={}),
             update_request_status=AsyncMock(),
@@ -126,9 +127,7 @@ def auth_as(app):
 
 class TestHappyPath:
     @pytest.mark.parametrize("path", ["/v1/audio/translations", "/audio/translations"])
-    def test_returns_native_json_body(
-        self, client, auth_as, patched_route, path: str
-    ) -> None:
+    def test_returns_native_json_body(self, client, auth_as, patched_route, path: str) -> None:
         with auth_as():
             response = client.post(path, files=_FILES, data={"model": "nemotron-audio"})
         assert response.status_code == 200
@@ -138,9 +137,7 @@ class TestHappyPath:
         assert response.headers.get("content-type", "").split(";")[0] == "application/json"
 
     @pytest.mark.parametrize("path", ["/v1/audio/translations", "/audio/translations"])
-    def test_custom_headers_ride_the_returned_response(
-        self, client, auth_as, patched_route, path: str
-    ) -> None:
+    def test_custom_headers_ride_the_returned_response(self, client, auth_as, patched_route, path: str) -> None:
         """The route returns an explicit Response, so FastAPI never merges the
         injected response parameter's headers; the built custom headers must ride
         the returned Response or every translation loses its x-litellm headers."""
@@ -150,9 +147,7 @@ class TestHappyPath:
         assert response.headers.get("x-litellm-call-id") is not None
         assert response.headers["x-litellm-call-id"] != ""
 
-    def test_target_language_reaches_the_router_dispatch(
-        self, client, auth_as, patched_route
-    ) -> None:
+    def test_target_language_reaches_the_router_dispatch(self, client, auth_as, patched_route) -> None:
         with auth_as():
             response = client.post(
                 "/v1/audio/translations",
@@ -166,9 +161,7 @@ class TestHappyPath:
         assert isinstance(dispatched["file"], io.BytesIO)
         assert dispatched["file"].name == "meeting.mp3"
 
-    def test_deployment_injected_extras_are_not_forwarded_by_the_route(
-        self, client, auth_as, patched_route
-    ) -> None:
+    def test_deployment_injected_extras_are_not_forwarded_by_the_route(self, client, auth_as, patched_route) -> None:
         """keepalive_seconds arrives via deployment merge, not the form; the route must not add it."""
         with auth_as():
             response = client.post("/v1/audio/translations", files=_FILES, data={"model": "nemotron-audio"})
@@ -186,6 +179,46 @@ class TestHappyPath:
         assert response.headers["content-type"].split(";")[0] == "application/x-subrip"
         assert "hello" in response.text
         assert b'{"text"' not in response.content
+
+    def test_document_guardrail_replaces_body_without_changing_media_type(
+        self, client, auth_as, patched_route, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from litellm.llms.openai.transcriptions.guardrail_translation.handler import OpenAIAudioTranscriptionHandler
+
+        patched_route._response = NativeAudioDocumentResponse(
+            body="caf\N{LATIN SMALL LETTER E WITH ACUTE}", media_type="text/plain", charset="iso-8859-1"
+        )
+
+        class Guardrail:
+            async def apply_guardrail(self, **kwargs):
+                return {"texts": ["redacted"]}
+
+        async def run(**kwargs):
+            return await OpenAIAudioTranscriptionHandler().process_output_response(
+                response=kwargs["response"], guardrail_to_apply=Guardrail()
+            )
+
+        monkeypatch.setattr(proxy_server.proxy_logging_obj, "post_call_success_hook", run)
+        with auth_as():
+            response = client.post("/v1/audio/translations", files=_FILES, data={"model": "nemotron-audio"})
+        assert response.status_code == 200
+        assert response.content == "redacted".encode("iso-8859-1")
+        assert "iso-8859-1" in response.headers["content-type"]
+
+    @pytest.mark.asyncio
+    async def test_mapping_hook_replacement_keeps_metadata(self) -> None:
+        from litellm.proxy.audio_response_helpers import apply_audio_post_call_processing
+
+        response = TranscriptionResponse(text="original")
+        response.hidden_params.update({"model_id": "deployment", "cache_key": "cache", "response_cost": 0.25})
+        result = await apply_audio_post_call_processing(
+            proxy_logging_obj=MagicMock(post_call_success_hook=AsyncMock(return_value={"text": "redacted"})),
+            data={},
+            user_api_key_dict=MagicMock(),
+            response=response,
+        )
+        assert result.hidden_params == response.hidden_params
+        assert result.text == "redacted"
 
 
 class TestErrors:
@@ -220,9 +253,7 @@ class TestErrors:
         assert "Streaming is not supported" in response.json()["error"]["message"]
         assert router.calls, "the request must still reach the router before the truthful 400"
 
-    def test_generic_failure_is_wrapped_not_swallowed(
-        self, client, auth_as, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_generic_failure_is_wrapped_not_swallowed(self, client, auth_as, monkeypatch: pytest.MonkeyPatch) -> None:
         router = _CapturedRouter(exc=ValueError("translation boom"))
         _patch_common(monkeypatch, router)
 
@@ -249,6 +280,6 @@ class TestErrors:
         request = MagicMock(spec=FastAPIRequest)
         request.method = "POST"
         for path in ("/audio/translations", "/v1/audio/translations"):
-            assert RouteChecks.is_virtual_key_allowed_to_call_route(
-                route=path, valid_token=token, request=request
-            ), f"a llm_api key must reach {path}"
+            assert RouteChecks.is_virtual_key_allowed_to_call_route(route=path, valid_token=token, request=request), (
+                f"a llm_api key must reach {path}"
+            )

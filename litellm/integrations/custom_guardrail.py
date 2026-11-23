@@ -1160,8 +1160,6 @@ class CustomGuardrail(CustomLogger):
             )
 
         returned: Final = result if self._is_valid_response_type(result) else None
-        if target is self:
-            return returned
         checked: Final = returned if returned is not None else response
         marker: Final = self._post_call_check_marker(checked)
         _record_guardrail_marker(

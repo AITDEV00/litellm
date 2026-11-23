@@ -6,10 +6,12 @@ The handler processes the output transcribed text (input is audio, so no text to
 """
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 from litellm._logging import verbose_proxy_logger
 from litellm.llms.base_llm.guardrail_translation.base_translation import BaseTranslation
+from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
 from litellm.types.utils import GenericGuardrailAPIInputs
 
 if TYPE_CHECKING:
@@ -74,12 +76,15 @@ class OpenAIAudioTranscriptionHandler(BaseTranslation):
         Returns:
             Modified response with guardrails applied to transcribed text
         """
-        if not hasattr(response, "text") or response.text is None:
+        if isinstance(response, NativeAudioDocumentResponse):
+            original_text: Final = response.body
+        elif hasattr(response, "text") and response.text is not None:
+            original_text = response.text
+        else:
             verbose_proxy_logger.debug("OpenAI Audio Transcription: No text in response to process")
             return response
 
-        if isinstance(response.text, str):
-            original_text: Final = response.text
+        if isinstance(original_text, str):
             # Use the real request_data if provided (proxy path), otherwise
             # create a standalone dict (SDK / direct-call path).
             if request_data is None:
@@ -105,7 +110,10 @@ class OpenAIAudioTranscriptionHandler(BaseTranslation):
                 logging_obj=litellm_logging_obj,
             )
             guardrailed_texts: Final = guardrailed_inputs.get("texts", [])
-            response.text = guardrailed_texts[0] if guardrailed_texts else original_text
+            guardrailed_text: Final = guardrailed_texts[0] if guardrailed_texts else original_text
+            if isinstance(response, NativeAudioDocumentResponse):
+                return replace(response, body=guardrailed_text)
+            response.text = guardrailed_text
 
             verbose_proxy_logger.debug(
                 "OpenAI Audio Transcription: Applied guardrail to transcribed text. "
@@ -116,7 +124,7 @@ class OpenAIAudioTranscriptionHandler(BaseTranslation):
         else:
             verbose_proxy_logger.debug(
                 "OpenAI Audio Transcription: Unexpected text type: %s. Expected string.",
-                type(response.text),
+                type(original_text),
             )
 
         return response

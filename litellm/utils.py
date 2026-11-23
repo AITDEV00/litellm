@@ -1841,6 +1841,16 @@ def client(original_function):
             if max_retries_per_request_hit(kwargs, litellm.num_retries_per_request):
                 raise Exception("Max retries per request hit!")
 
+            if call_type in (
+                CallTypes.transcription.value,
+                CallTypes.atranscription.value,
+                CallTypes.translation.value,
+                CallTypes.atranslation.value,
+            ):
+                from litellm.litellm_core_utils.llm_request_utils import prepare_native_audio_cache_identity
+
+                prepare_native_audio_cache_identity(operation=call_type, model=model, params=kwargs)
+
             # [OPTIONAL] CHECK CACHE
             print_verbose(
                 f"SYNC kwargs[caching]: {kwargs.get('caching', False)}; litellm.cache: {litellm.cache}; kwargs.get('cache')['no-cache']: {kwargs.get('cache', {}).get('no-cache', False)}"
@@ -2104,6 +2114,11 @@ def client(original_function):
             modified_kwargs: Final = await async_pre_call_deployment_hook(kwargs, call_type)
             if modified_kwargs is not None:
                 kwargs = modified_kwargs
+
+            if call_type in (CallTypes.atranscription.value, CallTypes.atranslation.value):
+                from litellm.litellm_core_utils.llm_request_utils import prepare_native_audio_cache_identity
+
+                prepare_native_audio_cache_identity(operation=call_type, model=model, params=kwargs)
 
             # Sync logging_obj.stream after deployment hooks (they may convert it).
             _hook_stream: Final = kwargs.get("stream")

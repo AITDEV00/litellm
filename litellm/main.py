@@ -786,7 +786,9 @@ def _model_response_from_cached_dict(cached_response_dict: Mapping[str, object])
 
 
 def _transcription_response_from_cached_dict(cached_response_dict: Mapping[str, object]) -> TranscriptionResponse:
-    return TranscriptionResponse(**cached_response_dict)
+    from litellm.litellm_core_utils.llm_response_utils.transcriptions import hydrate_transcription_response
+
+    return hydrate_transcription_response(cached_response_dict)
 
 
 async def _async_streaming(response, model, custom_llm_provider, args):

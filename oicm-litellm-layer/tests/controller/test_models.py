@@ -550,6 +550,24 @@ class TestNimAudioProtocolGate:
             is False
         )
 
+    def test_unknown_transcribe_generation_is_no_claim(self):
+        assert not detect_nim_audio_protocol(
+            InferenceDeclaration(
+                model_server_name="NVIDIA NIM Nemotron Transcribe",
+                model_server_tag="99.0.0",
+            ),
+            self._NIM_PATHS,
+        )
+
+    def test_unrelated_nim_server_never_activates_the_nemotron_decoder(self):
+        assert not detect_nim_audio_protocol(
+            InferenceDeclaration(
+                model_server_name="NVIDIA NIM Other Audio Service",
+                model_server_tag="1.0.0",
+            ),
+            self._NIM_PATHS,
+        )
+
     def test_missing_tag_is_no_claim(self):
         assert (
             detect_nim_audio_protocol(

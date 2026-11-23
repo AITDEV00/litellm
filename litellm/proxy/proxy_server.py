@@ -13176,6 +13176,9 @@ async def audio_transcriptions(
                 data=data,
                 call_type="transcription",
             )
+            from litellm.proxy.audio_response_helpers import reject_incompatible_native_transcript_guardrails
+
+            await reject_incompatible_native_transcript_guardrails(data=data)
 
             ## ROUTE TO CORRECT ENDPOINT ##
             llm_call: Final = await route_request(
@@ -13205,6 +13208,7 @@ async def audio_transcriptions(
 
         ### RESPONSE HEADERS ###
         from litellm.proxy.audio_response_helpers import (
+            apply_audio_post_call_processing,
             apply_audio_response_headers_hook,
             audio_document_response,
             audio_json_response,
@@ -13215,6 +13219,15 @@ async def audio_transcriptions(
             is_opened_native_audio_stream,
         )
         from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+        from litellm.types.utils import TranscriptionResponse
+
+        if isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse)):
+            response = await apply_audio_post_call_processing(
+                proxy_logging_obj=proxy_logging_obj,
+                data=data,
+                user_api_key_dict=user_api_key_dict,
+                response=response,
+            )
 
         if is_opened_native_audio_stream(response):
             # A native transcript SSE stream: headers commit from the opened

@@ -55,7 +55,7 @@ class _StreamingAudioTranscriptionConfigLike(Protocol):
 
     def transform_streaming_event(
         self, model: str, parsed_json: Mapping[str, object]
-    ) -> Optional[NativeTranscriptEvent]: ...
+    ) -> NativeTranscriptEvent | None: ...
 
 
 class SharedNativeTranscriptionStream:
@@ -79,8 +79,8 @@ class SharedNativeTranscriptionStream:
         model: str,
         response: _BytesResponseLike,
         provider_config: _StreamingAudioTranscriptionConfigLike,
-        logging_obj: Optional[LiteLLMLoggingObj] = None,
-        hidden_params: Optional[dict[str, object]] = None,
+        logging_obj: LiteLLMLoggingObj | None = None,
+        hidden_params: dict[str, object] | None = None,
         max_streaming_duration: float = LITELLM_MAX_STREAMING_DURATION_SECONDS,
     ):
         self.model = model
@@ -96,6 +96,9 @@ class SharedNativeTranscriptionStream:
         self._start_monotonic: Final[float] = time.monotonic()
         self._terminal_fired = False
         self._closed = False
+        self._terminal_tasks: set[asyncio.Task[object]] = (
+            set()
+        )  # mutable-ok: lifecycle bookkeeping, never public event state
 
     @property
     def meta(self) -> dict[str, object]:  # mutable-ok: same surface the proxy reads on results
@@ -111,11 +114,12 @@ class SharedNativeTranscriptionStream:
         await self.aclose()
 
     async def aclose(self) -> None:
-        """Cancel the upstream transport. Idempotent; never double-logs."""
-        if self._closed:
-            return
-        self._closed = True
-        await self._close_upstream()
+        """Close transport and await any terminal callbacks already created."""
+        if not self._closed:
+            self._closed = True
+            await self._close_upstream()
+        if self._terminal_tasks:
+            await self._finish_logging()
 
     async def _events(self) -> AsyncIterator[NativeTranscriptEvent]:
         try:
@@ -147,14 +151,22 @@ class SharedNativeTranscriptionStream:
             # so the ASGI server also observes the cancellation. No terminal
             # logging: the client aborted before the provider answered.
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # transport/decode failures become typed audio stream errors
             if not self._terminal_fired:
-                self._enter_terminal(NativeTranscriptStreamError(message=str(e)))
-            raise
+                error: Final = NativeTranscriptStreamError(message=str(e))
+                self._enter_terminal(error)
+                yield error
         finally:
             await self._close_upstream()
+            await self._finish_logging()
 
-    def _decode_event(self, sse: object) -> Optional[NativeTranscriptEvent]:
+    async def _finish_logging(self) -> None:
+        results: Final = await asyncio.gather(*tuple(self._terminal_tasks), return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                verbose_logger.debug("native transcript terminal callback failed: %s", result)
+
+    def _decode_event(self, sse: object) -> NativeTranscriptEvent | None:
         payload = getattr(sse, "data", None)
         if payload is None:
             return None
@@ -194,49 +206,80 @@ class SharedNativeTranscriptionStream:
         else:
             self._log_failure(event)
 
-    def _log_success(self, done: NativeTranscriptDone) -> None:
-        if self._logging_obj is None:
-            return
+    def _summary(self, done: NativeTranscriptDone) -> TranscriptionResponse:
         duration: Final = self._extract_duration(done)
-        if duration is not None:
-            self.hidden_params["audio_transcription_duration"] = duration
+        hidden_params: Final = {
+            **self.hidden_params,
+            **({"audio_transcription_duration": duration} if duration is not None else {}),
+        }
         summary: Final = TranscriptionResponse(text=done.text)
-        summary._hidden_params = dict(self.hidden_params)  # rebind-ok: dynamic-attr model contract
-        end_time: Final = datetime.now()
+        summary._hidden_params = hidden_params  # rebind-ok: dynamic-attr model contract
+        for key, event in done.native_event.items():
+            if key not in ("type", "text"):
+                setattr(summary, key, event)
+        return summary
+
+    def _log_success(self, done: NativeTranscriptDone) -> None:
+        logger: Final = self._logging_obj
+        if logger is None:
+            return
+        summary: Final = self._summary(done)
+        end_time: Final = datetime.now()  # noqa: DTZ005  # LiteLLM logging uses naive timestamps
         try:
-            # The wrapper marked this call as streaming, which makes the
-            # generic success handler defer the standard logging payload to
-            # the chunk-assembly path that never runs here: the terminal
-            # event IS the final result, so the logging object is flipped
-            # back to final-response semantics before the one dispatch.
-            self._logging_obj.stream = False  # rebind-ok: terminal state transition
-            asyncio.create_task(
-                self._logging_obj.dispatch_success_handlers(
-                    summary,
-                    start_time=self._start_time,
-                    end_time=end_time,
-                    prefer_async_handlers=True,
-                )
+            self.hidden_params.update(summary.hidden_params)
+            logger.stream = False  # rebind-ok: native transcript terminal event is a final audio response
+            terminal: Final = logger.dispatch_success_handlers(
+                summary,
+                start_time=self._start_time,
+                end_time=end_time,
+                prefer_async_handlers=True,
             )
-        except Exception as e:
+            if hasattr(terminal, "__await__"):
+                self._terminal_tasks.add(asyncio.create_task(terminal))
+        except Exception as e:  # noqa: BLE001  # callback failures cannot corrupt transcript delivery
             verbose_logger.debug("error dispatching native stream success logging: %s", e)
 
     def _log_failure(self, error: NativeTranscriptStreamError) -> None:
-        if self._logging_obj is None:
+        logger: Final = self._logging_obj
+        if logger is None:
             return
         exception: Final = RuntimeError(error.message)
-        end_time: Final = datetime.now()
         try:
-            self._logging_obj.failure_handler(
+            logger.stream = False  # rebind-ok: terminal event carries final audio outcome, not chat chunks
+            terminal: Final = logger.dispatch_failure_handlers(
                 exception=exception,
                 traceback_exception=repr(exception),
-                start_time=self._start_time,
-                end_time=end_time,
+                prefer_async_handlers=True,
             )
-        except Exception as e:
+            if hasattr(terminal, "__await__"):
+                self._terminal_tasks.add(asyncio.create_task(terminal))
+        except Exception as e:  # noqa: BLE001  # callback failures cannot corrupt transcript delivery
             verbose_logger.debug("error dispatching native stream failure logging: %s", e)
 
-    def _extract_duration(self, done: NativeTranscriptDone) -> float | None:
+    def log_final_sync(self, event: NativeTranscriptEvent) -> None:
+        logger: Final = self._logging_obj
+        if logger is None:
+            return
+        try:
+            logger.stream = False  # rebind-ok: native transcript completion, not one chat token
+            if isinstance(event, NativeTranscriptDone):
+                logger.success_handler(
+                    self._summary(event),
+                    start_time=self._start_time,
+                    end_time=datetime.now(),  # noqa: DTZ005  # LiteLLM logging uses naive timestamps
+                )
+                return
+            logger.failure_handler(
+                exception=RuntimeError(event.message),
+                traceback_exception=repr(RuntimeError(event.message)),
+                start_time=self._start_time,
+                end_time=datetime.now(),  # noqa: DTZ005  # LiteLLM logging uses naive timestamps
+            )
+        except Exception as e:
+            verbose_logger.debug("error dispatching sync native stream terminal logging: %s", e)
+
+    @staticmethod
+    def _extract_duration(done: NativeTranscriptDone) -> float | None:
         usage = done.usage
         if isinstance(usage, Mapping):
             seconds = usage.get("seconds")
@@ -267,12 +310,14 @@ class SyncNativeTranscriptionStream:
         model: str,
         response: "SyncBytesResponseLike",
         provider_config: _StreamingAudioTranscriptionConfigLike,
-        hidden_params: Optional[dict[str, object]] = None,
+        logging_obj: LiteLLMLoggingObj | None = None,
+        hidden_params: dict[str, object] | None = None,
         max_streaming_duration: float = LITELLM_MAX_STREAMING_DURATION_SECONDS,
     ):
         self.model = model
         self._response = response
         self._provider_config = provider_config
+        self._logging_obj = logging_obj
         self.hidden_params: dict[str, object] = dict(hidden_params or {})
         self._max_streaming_duration = (
             max_streaming_duration if max_streaming_duration is not None else LITELLM_MAX_STREAMING_DURATION_SECONDS
@@ -281,6 +326,14 @@ class SyncNativeTranscriptionStream:
         self._start_monotonic: Final = time.monotonic()
         self._terminal_fired = False
         self._closed = False
+        self._start_time: Final[datetime] = datetime.now()  # noqa: DTZ005  # naive framework logging clock
+        self._terminal_logging = SharedNativeTranscriptionStream(
+            model=model,
+            response=response,
+            provider_config=provider_config,
+            logging_obj=logging_obj,
+            hidden_params=self.hidden_params,
+        ).log_final_sync
 
     @property
     def meta(self) -> dict[str, object]:  # mutable-ok: same surface the proxy reads on results
@@ -318,6 +371,7 @@ class SyncNativeTranscriptionStream:
                 if self._terminal_fired:
                     raise RuntimeError("provider sent a second terminal transcript event")
                 self._terminal_fired = True
+                self._terminal_logging(event)
                 yield event
                 return
             if not self._terminal_fired:
@@ -325,11 +379,19 @@ class SyncNativeTranscriptionStream:
                     message="provider closed the transcript stream without a terminal event"
                 )
                 self._terminal_fired = True
+                self._terminal_logging(missing)
                 yield missing
+        except GeneratorExit:
+            raise
+        except Exception as e:
+            if not self._terminal_fired:
+                self._terminal_fired = True
+                self._terminal_logging(NativeTranscriptStreamError(message=str(e)))
+            raise
         finally:
             self.close()
 
-    def _decode_event(self, sse: object) -> Optional[NativeTranscriptEvent]:
+    def _decode_event(self, sse: object) -> NativeTranscriptEvent | None:
         payload = getattr(sse, "data", None)
         if payload is None:
             return None

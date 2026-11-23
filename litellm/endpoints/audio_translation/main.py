@@ -32,6 +32,8 @@ from litellm.litellm_core_utils.audio_utils.utils import calculate_request_durat
 from litellm.litellm_core_utils.get_litellm_params import get_litellm_params
 from litellm.litellm_core_utils.get_llm_provider_logic import get_llm_provider
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
+from litellm.litellm_core_utils.llm_response_utils.transcriptions import hydrate_transcription_response
+from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler, HTTPHandler
 from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
 from litellm.types.llms.audio_transcription import (
     NativeAudioDocumentResponse,
@@ -63,7 +65,7 @@ async def atranslation(*args, **kwargs) -> NonStreamingNativeAudioResult:
         init_response: Final = await loop.run_in_executor(None, func_with_context)
         response: TranscriptionResponse | NativeAudioDocumentResponse | None
         if isinstance(init_response, dict):
-            response = TranscriptionResponse(**init_response)
+            response = hydrate_transcription_response(init_response)
         elif isinstance(init_response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             response = init_response
         elif asyncio.iscoroutine(init_response):
@@ -132,7 +134,11 @@ def translation(
     kwargs.pop("tags", [])
     non_default_params: Final = get_non_default_transcription_params(kwargs)
 
-    client: openai.AsyncOpenAI | openai.OpenAI | None = kwargs.pop("client", None)
+    supplied_client: Final = kwargs.pop("client", None)
+    client: Final = supplied_client if isinstance(supplied_client, (openai.AsyncOpenAI, openai.OpenAI)) else None
+    native_client: Final = (
+        supplied_client if isinstance(supplied_client, (HTTPHandler, AsyncHTTPHandler, httpx.Client, httpx.AsyncClient)) else None
+    )
 
     if litellm_logging_obj:
         litellm_logging_obj.model_call_details["client"] = str(client)
@@ -238,7 +244,7 @@ def translation(
             model_response=model_response,
             atranslation=atranslation,
             max_retries=max_retries,
-            client=client if isinstance(client, (httpx.Client, httpx.AsyncClient)) else None,
+            client=native_client,
             timeout=timeout,
             logging_obj=litellm_logging_obj,
             api_base=api_base,

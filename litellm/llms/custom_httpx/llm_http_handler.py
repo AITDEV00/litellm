@@ -1954,6 +1954,7 @@ class BaseLLMHTTPHandler:
                 timeout=timeout,
                 provider_config=provider_config,
                 model=model,
+                logging_obj=logging_obj,
             )
 
         try:
@@ -2170,6 +2171,7 @@ class BaseLLMHTTPHandler:
         timeout: float,
         provider_config: BaseAudioTranscriptionConfig,
         model: str,
+        logging_obj: LiteLLMLoggingObj,
     ) -> SyncNativeTranscriptionStream:
         """Synchronous counterpart of the async stream opener.
 
@@ -2214,6 +2216,7 @@ class BaseLLMHTTPHandler:
             model=model,
             response=response,
             provider_config=provider_config,
+            logging_obj=logging_obj,
             hidden_params=hidden_params,
         )
 

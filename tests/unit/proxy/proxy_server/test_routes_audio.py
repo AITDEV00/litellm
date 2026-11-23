@@ -109,6 +109,7 @@ def patched_transcription(monkeypatch):
         "proxy_logging_obj",
         MagicMock(
             pre_call_hook=AsyncMock(side_effect=lambda **kw: kw["data"]),
+            post_call_success_hook=AsyncMock(side_effect=lambda **kw: kw["response"]),
             post_call_failure_hook=AsyncMock(),
             post_call_response_headers_hook=AsyncMock(return_value={}),
             update_request_status=AsyncMock(),
@@ -119,9 +120,7 @@ def patched_transcription(monkeypatch):
         return data
 
     monkeypatch.setattr(proxy_server, "add_litellm_data_to_request", _add_data)
-    monkeypatch.setattr(
-        proxy_server, "check_file_size_under_limit", lambda **kwargs: True
-    )
+    monkeypatch.setattr(proxy_server, "check_file_size_under_limit", lambda **kwargs: True)
 
     async def _form_data(request):
         from starlette.datastructures import FormData, UploadFile
@@ -135,13 +134,34 @@ def patched_transcription(monkeypatch):
     monkeypatch.setattr(proxy_server, "get_form_data", _form_data)
 
     async def _llm_call():
-        return {"text": "hello world"}
+        from litellm.types.utils import TranscriptionResponse
+
+        return TranscriptionResponse(text="hello world")
 
     async def _fake_route_request(*args, **kwargs):
         return _llm_call()
 
     monkeypatch.setattr(proxy_server, "route_request", _fake_route_request)
     yield
+
+
+def test_audio_transcription_post_call_hook_can_replace_json(client, auth_as, patched_transcription, monkeypatch):
+    async def replace(**kwargs):
+        kwargs["response"].hidden_params["model_id"] = "deployment"
+        kwargs["response"].hidden_params["cache_key"] = "audio-cache"
+        return {"text": "redacted"}
+
+    monkeypatch.setattr(proxy_server.proxy_logging_obj, "post_call_success_hook", replace)
+    with auth_as():
+        response = client.post(
+            "/v1/audio/transcriptions",
+            files={"file": ("audio.mp3", b"\x00\x01\x02", "audio/mpeg")},
+            data={"model": "whisper-1"},
+        )
+    assert response.status_code == 200
+    assert response.json()["text"] == "redacted"
+    assert response.headers["x-litellm-model-id"] == "deployment"
+    assert response.headers["x-litellm-cache-key"] == "audio-cache"
 
 
 @pytest.fixture
@@ -232,7 +252,7 @@ def test_audio_transcription_happy_path(client, auth_as, patched_transcription, 
         response = client.post(path, files=files, data=data)
     assert response.status_code == 200
     body = response.json()
-    assert body == {"text": "hello world"}
+    assert body == {"text": "hello world", "usage": None}
     response_summary = {
         "status_code": response.status_code,
         "text_field": body["text"],
@@ -347,3 +367,36 @@ def test_audio_transcription_stream_returns_sse_with_delta_then_done(
     assert frames[-1].startswith("event: transcript.text.done\n")
     assert '"text":"hello world"' in frames[-1]
     assert '"seconds":1.25' in frames[-1]
+
+
+def test_streaming_transcript_does_not_skip_selected_output_guardrails(
+    client, auth_as, patched_transcription_stream, monkeypatch
+):
+    """Before committing SSE, fail explicitly instead of letting configured
+    output governance skip this new response protocol. Nonstreaming audio is
+    still supported and now executes the ordinary post-call hook."""
+    import litellm
+    from litellm.integrations.custom_guardrail import CustomGuardrail
+    from litellm.types.guardrails import GuardrailEventHooks
+
+    class Guardrail(CustomGuardrail):
+        def should_run_guardrail(self, data, event_type):
+            return event_type == GuardrailEventHooks.post_call
+
+        async def apply_guardrail(self, **kwargs):
+            return {"texts": []}
+
+    guardrail = Guardrail(guardrail_name="block-transcripts")
+    upstream = AsyncMock()
+    monkeypatch.setattr(proxy_server, "route_request", upstream)
+    monkeypatch.setattr(litellm, "callbacks", [guardrail])
+    with auth_as():
+        response = client.post(
+            "/v1/audio/transcriptions",
+            files={"file": ("audio.mp3", b"\x00\x01\x02", "audio/mpeg")},
+            data={"model": "whisper-1", "stream": "true"},
+        )
+    assert response.status_code == 400
+    assert "stream=false" in response.json()["error"]["message"]
+    assert not response.headers["content-type"].startswith("text/event-stream")
+    upstream.assert_not_awaited()

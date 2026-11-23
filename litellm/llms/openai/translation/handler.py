@@ -108,9 +108,9 @@ class OpenAIAudioTranslation(OpenAIChatCompletion):
 
             if _is_document_media_type(headers):
                 document: Final[NativeAudioDocumentResponse] = NativeAudioDocumentResponse(
-                    body=str(getattr(parsed, "text", "") or ""),
+                    body=_sdk_document_body(parsed),
                     media_type=_media_type(headers),
-                    charset=None,
+                    charset=_charset(headers),
                     provider_response_headers={str(k): v for k, v in headers.items()},
                 )
                 document.hidden_params.update(hidden_params)
@@ -206,9 +206,9 @@ class OpenAIAudioTranslation(OpenAIChatCompletion):
 
         if _is_document_media_type(headers):
             document: Final[NativeAudioDocumentResponse] = NativeAudioDocumentResponse(
-                body=str(getattr(parsed, "text", "") or ""),
+                body=_sdk_document_body(parsed),
                 media_type=_media_type(headers),
-                charset=None,
+                charset=_charset(headers),
                 provider_response_headers={str(k): v for k, v in headers.items()},
             )
             document.hidden_params.update(hidden_params)
@@ -227,6 +227,18 @@ class OpenAIAudioTranslation(OpenAIChatCompletion):
 
 def _media_type(headers: Mapping[str, str]) -> str:
     return next((v for k, v in headers.items() if k.lower() == "content-type"), "").split(";")[0].strip().lower()
+
+
+def _charset(headers: Mapping[str, str]) -> str | None:
+    header: Final = next((v for k, v in headers.items() if k.lower() == "content-type"), "")
+    return next(
+        (part.partition("=")[2].strip().strip(chr(34)) for part in header.split(";") if part.strip().startswith("charset=")),
+        None,
+    )
+
+
+def _sdk_document_body(parsed: object) -> str:
+    return parsed if isinstance(parsed, str) else str(getattr(parsed, "text", "") or "")
 
 
 def _is_document_media_type(headers: Mapping[str, str]) -> bool:
