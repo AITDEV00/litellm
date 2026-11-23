@@ -20,7 +20,9 @@ import io
 import json
 from collections.abc import AsyncIterator
 from typing import Optional
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from litellm.llms.base_llm.audio_transcription.streaming import (
@@ -35,6 +37,7 @@ from litellm.types.llms.audio_transcription import (
     NativeTranscriptDelta,
     NativeTranscriptDone,
     NativeTranscriptStreamError,
+    OpenedNativeAudioStream,
 )
 
 
@@ -124,9 +127,7 @@ class TestDecodingAcrossNetworkBoundaries:
     async def test_chunk_cuts_do_not_change_decoded_events(self, chunk_size):
         payload: bytes = _live_vocabulary_frames()
         transport = _FakeAsyncTransport(payload, chunk_size=chunk_size)
-        stream = SharedNativeTranscriptionStream(
-            model="m", response=transport, provider_config=_config()
-        )
+        stream = SharedNativeTranscriptionStream(model="m", response=transport, provider_config=_config())
         events = [event async for event in stream]
         assert [type(e) for e in events] == [
             NativeTranscriptDelta,
@@ -292,18 +293,53 @@ class TestSyncFacade:
     def test_sync_context_manager_closes_once(self):
         payload = _live_vocabulary_frames()
         transport = _FakeSyncTransport(payload)
-        with SyncNativeTranscriptionStream(
-            model="m", response=transport, provider_config=_config()
-        ) as stream:
+        with SyncNativeTranscriptionStream(model="m", response=transport, provider_config=_config()) as stream:
             list(stream)
         assert transport.close_count == 1
+
+    def test_sync_handler_string_stream_value_opens_the_stream(self):
+        """The sync handler shares the multipart string contract: stream="true"
+        opens the SSE stream, not a silent non-streaming call."""
+        from litellm.llms.custom_httpx.http_handler import HTTPHandler
+        from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=_live_vocabulary_frames(),
+            )
+
+        handler = BaseLLMHTTPHandler()
+        client = HTTPHandler(timeout=30, client=httpx.Client(transport=httpx.MockTransport(responder)))
+        result = handler.audio_transcriptions(
+            model="nvidia_nim/m",
+            audio_file=io.BytesIO(b"fake audio"),
+            optional_params={"stream": "true"},
+            litellm_params={},
+            model_response=None,
+            timeout=30,
+            max_retries=0,
+            logging_obj=MagicMock(),
+            api_key=None,
+            api_base="http://nim",
+            custom_llm_provider="nvidia_nim",
+            client=client,
+            headers={},
+            provider_config=NvidiaNimAudioTranscriptionConfig(),
+        )
+        assert isinstance(result, SyncNativeTranscriptionStream)
+        events = list(result)
+        assert [type(e) for e in events] == [
+            NativeTranscriptDelta,
+            NativeTranscriptDelta,
+            NativeTranscriptDone,
+        ]
 
 
 class TestProxySerialization:
     def test_delta_frame_keeps_native_event_vocabulary_and_fields(self):
-        event = _config().transform_streaming_event(
-            "m", {"delta": "Four", "type": "transcript.text.delta"}
-        )
+        event = _config().transform_streaming_event("m", {"delta": "Four", "type": "transcript.text.delta"})
         frame = serialize_native_transcript_event(event)
         assert frame.startswith("event: transcript.text.delta\ndata: ")
         payload = json.loads(frame.split("data: ", 1)[1].strip())
@@ -325,9 +361,7 @@ class TestProxySerialization:
         assert payload["vendor_future_field"] == {"nested": True}
 
     def test_error_frame_carries_message(self):
-        frame = serialize_native_transcript_event(
-            NativeTranscriptStreamError(message="boom")
-        )
+        frame = serialize_native_transcript_event(NativeTranscriptStreamError(message="boom"))
         assert frame.startswith("event: error\ndata: ")
         payload = json.loads(frame.split("data: ", 1)[1].strip())
         assert payload["message"] == "boom"
@@ -371,9 +405,7 @@ class TestHandlerStreamingBranch:
             )
 
         handler = self._handler()
-        client = AsyncHTTPHandler(
-            timeout=30, transport=httpx.MockTransport(responder)
-        )
+        client = AsyncHTTPHandler(timeout=30, transport=httpx.MockTransport(responder))
         result = await handler.async_audio_transcriptions(
             model="nvidia_nim/m",
             audio_file=io.BytesIO(b"fake audio"),
@@ -401,6 +433,48 @@ class TestHandlerStreamingBranch:
             NativeTranscriptDone,
         ]
         assert events[1].text == "ab"
+
+    @pytest.mark.asyncio
+    async def test_multipart_string_stream_value_opens_the_stream(self):
+        """The proxy route forwards multipart form fields verbatim, so
+        stream=true arrives as the string "true": the handler must read the
+        same client intent as the SDK's boolean True instead of silently
+        dropping the field mid-flow (the provider would then answer SSE to a
+        non-streaming call and the gateway would reject its own client)."""
+        from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=_live_vocabulary_frames(),
+            )
+
+        handler = self._handler()
+        client = AsyncHTTPHandler(timeout=30, transport=httpx.MockTransport(responder))
+        result = await handler.async_audio_transcriptions(
+            model="nvidia_nim/m",
+            audio_file=io.BytesIO(b"fake audio"),
+            optional_params={"stream": "true"},
+            litellm_params={},
+            model_response=None,
+            timeout=30,
+            max_retries=0,
+            logging_obj=self._logging_obj(),
+            api_key=None,
+            api_base="http://nim",
+            custom_llm_provider="nvidia_nim",
+            client=client,
+            headers={},
+            provider_config=NvidiaNimAudioTranscriptionConfig(),
+        )
+        assert isinstance(result, OpenedNativeAudioStream)
+        events = [event async for event in result.events]
+        assert [type(e) for e in events] == [
+            NativeTranscriptDelta,
+            NativeTranscriptDelta,
+            NativeTranscriptDone,
+        ]
 
     @pytest.mark.asyncio
     async def test_unsupported_provider_stream_is_a_truthful_400(self):
@@ -434,7 +508,6 @@ class TestHandlerStreamingBranch:
         import httpx
 
         import litellm
-
         from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
         def responder(request: httpx.Request) -> httpx.Response:
@@ -445,9 +518,7 @@ class TestHandlerStreamingBranch:
             )
 
         handler = self._handler()
-        client = AsyncHTTPHandler(
-            timeout=30, transport=httpx.MockTransport(responder)
-        )
+        client = AsyncHTTPHandler(timeout=30, transport=httpx.MockTransport(responder))
         with pytest.raises(litellm.BadRequestError, match="cannot relay"):
             await handler.async_audio_transcriptions(
                 model="nvidia_nim/m",

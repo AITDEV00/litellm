@@ -79,10 +79,6 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
 from litellm.llms.base_llm.audio_translation.transformation import (
     BaseAudioTranslationConfig,
 )
-from litellm.types.llms.audio_transcription import (
-    NativeAudioDocumentResponse,
-    OpenedNativeAudioStream,
-)
 from litellm.llms.base_llm.base_model_iterator import (
     BaseModelResponseIterator,
     MockResponseIterator,
@@ -91,6 +87,9 @@ from litellm.llms.base_llm.batches.transformation import BaseBatchesConfig
 from litellm.llms.base_llm.chat.transformation import BaseConfig, BaseLLMException
 from litellm.llms.base_llm.containers.transformation import BaseContainerConfig
 from litellm.llms.base_llm.decisions.transformation import BaseDecisionsConfig
+from litellm.llms.base_llm.diarization.transformation import (
+    BaseDiarizationConfig,
+)
 from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
 from litellm.llms.base_llm.evals.transformation import BaseEvalsAPIConfig
 from litellm.llms.base_llm.files.transformation import (
@@ -110,11 +109,7 @@ from litellm.llms.base_llm.rerank.transformation import BaseRerankConfig
 from litellm.llms.base_llm.responses.transformation import BaseResponsesAPIConfig
 from litellm.llms.base_llm.search.transformation import BaseSearchConfig, SearchResponse
 from litellm.llms.base_llm.skills.transformation import BaseSkillsAPIConfig
-from litellm.llms.base_llm.diarization.transformation import (
-    BaseDiarizationConfig,
-)
 from litellm.llms.base_llm.text_to_speech.transformation import BaseTextToSpeechConfig
-from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
 from litellm.llms.base_llm.vector_store.transformation import (
     BaseDirectVectorStoreConfig,
     BaseQueryEmbeddingVectorStoreConfig,
@@ -125,6 +120,7 @@ from litellm.llms.base_llm.vector_store_files.transformation import (
     BaseVectorStoreFilesConfig,
 )
 from litellm.llms.base_llm.videos.transformation import BaseVideoConfig
+from litellm.llms.base_llm.voice.transformation import BaseVoiceConfig
 from litellm.llms.bedrock.base_aws_llm import SignsRequestsWithAWS, run_aws_signing, sign_request_off_loop_if_aws
 from litellm.llms.custom_httpx.container_handler import raise_for_error_status
 from litellm.llms.custom_httpx.http_handler import (
@@ -142,6 +138,7 @@ from litellm.responses.streaming_iterator import (
     ResponsesWebSocketStreaming,
     SyncResponsesAPIStreamingIterator,
 )
+from litellm.secret_managers.main import str_to_bool
 from litellm.types.containers.main import (
     ContainerFileListResponse,
     ContainerListResponse,
@@ -165,6 +162,10 @@ from litellm.types.llms.anthropic_skills import (
     DeleteSkillResponse,
     ListSkillsResponse,
     Skill,
+)
+from litellm.types.llms.audio_transcription import (
+    NativeAudioDocumentResponse,
+    OpenedNativeAudioStream,
 )
 from litellm.types.llms.openai import (
     AllMessageValues,
@@ -1933,7 +1934,9 @@ class BaseLLMHTTPHandler:
 
         json_data: Final = data if files is None and isinstance(data, dict) else None
 
-        streaming_requested: Final[bool] = optional_params.get("stream") is True
+        streaming_requested: Final[bool] = (
+            optional_params.get("stream") is True or str_to_bool(str(optional_params.get("stream"))) is True
+        )
         if streaming_requested and not provider_config.supports_multipart_streaming:
             raise litellm.BadRequestError(
                 message=f"Provider {custom_llm_provider} does not support streaming for audio transcription. Resend without stream=true.",
@@ -2025,7 +2028,11 @@ class BaseLLMHTTPHandler:
 
         json_data: Final = data if files is None and isinstance(data, dict) else None
 
-        streaming_requested: Final[bool] = optional_params.get("stream") is True
+        # A multipart form field arrives as a string ("true"), the SDK and
+        # JSON bodies as a bool: both spell the same client intent.
+        streaming_requested: Final[bool] = (
+            optional_params.get("stream") is True or str_to_bool(str(optional_params.get("stream"))) is True
+        )
         if streaming_requested and not provider_config.supports_multipart_streaming:
             raise litellm.BadRequestError(
                 message=f"Provider {custom_llm_provider} does not support streaming for audio transcription. Resend without stream=true.",
