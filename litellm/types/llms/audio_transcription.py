@@ -58,9 +58,7 @@ class NativeTranscriptStreamError:
     native_event: Mapping[str, object] = field(default_factory=dict)
 
 
-NativeTranscriptEvent: TypeAlias = (
-    NativeTranscriptDelta | NativeTranscriptDone | NativeTranscriptStreamError
-)
+NativeTranscriptEvent: TypeAlias = NativeTranscriptDelta | NativeTranscriptDone | NativeTranscriptStreamError
 
 
 @dataclass(frozen=True, slots=True)

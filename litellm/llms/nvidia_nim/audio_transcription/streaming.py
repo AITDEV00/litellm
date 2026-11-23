@@ -47,16 +47,12 @@ def transform_streaming_audio_response(
     if event_type == _DELTA_EVENT_TYPE:
         delta = parsed_json.get("delta")
         if not isinstance(delta, str):
-            return NativeTranscriptStreamError(
-                message="NIM transcript.text.delta carried no string delta field"
-            )
+            return NativeTranscriptStreamError(message="NIM transcript.text.delta carried no string delta field")
         return NativeTranscriptDelta(delta=delta, native_event=dict(parsed_json))
     if event_type == _DONE_EVENT_TYPE:
         text = parsed_json.get("text")
         if not isinstance(text, str):
-            return NativeTranscriptStreamError(
-                message="NIM transcript.text.done carried no string text field"
-            )
+            return NativeTranscriptStreamError(message="NIM transcript.text.done carried no string text field")
         usage = parsed_json.get("usage")
         return NativeTranscriptDone(
             text=text,

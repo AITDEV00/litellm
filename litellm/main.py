@@ -8114,7 +8114,9 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
         else:
             # Call the synchronous function using run_in_executor
             response = await loop.run_in_executor(None, func_with_context)
-        if not isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse, SyncNativeTranscriptionStream)):
+        if not isinstance(
+            response, (TranscriptionResponse, NativeAudioDocumentResponse, SyncNativeTranscriptionStream)
+        ):
             raise ValueError(
                 f"Invalid response from transcription provider, expected TranscriptionResponse or NativeAudioDocumentResponse, but got {type(response)}"
             )

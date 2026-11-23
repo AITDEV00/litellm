@@ -192,7 +192,7 @@ def serialize_native_transcript_event(event: NativeTranscriptEvent) -> str:
     payload: Final = dict(getattr(event, "native_event", {}) or {})
     if isinstance(event, NativeTranscriptStreamError):
         payload.setdefault("message", event.message)
-    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(",", ":"))}\n\n"
+    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 async def _native_transcript_sse_body(
@@ -243,4 +243,3 @@ __all__ = [
     "is_opened_native_audio_stream",
     "serialize_native_transcript_event",
 ]
-

@@ -89,9 +89,7 @@ class SharedNativeTranscriptionStream:
         self._logging_obj = logging_obj
         self.hidden_params: dict[str, object] = dict(hidden_params or {})
         self._max_streaming_duration = (
-            max_streaming_duration
-            if max_streaming_duration is not None
-            else LITELLM_MAX_STREAMING_DURATION_SECONDS
+            max_streaming_duration if max_streaming_duration is not None else LITELLM_MAX_STREAMING_DURATION_SECONDS
         )
         self._sse = SSEDecoder()
         self._start_time: Final[datetime] = datetime.now(timezone.utc)
@@ -165,9 +163,7 @@ class SharedNativeTranscriptionStream:
         try:
             parsed = json.loads(payload)
         except ValueError:
-            return NativeTranscriptStreamError(
-                message=f"provider sent a non-JSON SSE data payload: {payload[:120]!r}"
-            )
+            return NativeTranscriptStreamError(message=f"provider sent a non-JSON SSE data payload: {payload[:120]!r}")
         if not isinstance(parsed, dict):
             return NativeTranscriptStreamError(
                 message=f"provider sent an SSE data payload that is not a JSON object: {payload[:120]!r}"
@@ -273,9 +269,7 @@ class SyncNativeTranscriptionStream:
         self._provider_config = provider_config
         self.hidden_params: dict[str, object] = dict(hidden_params or {})
         self._max_streaming_duration = (
-            max_streaming_duration
-            if max_streaming_duration is not None
-            else LITELLM_MAX_STREAMING_DURATION_SECONDS
+            max_streaming_duration if max_streaming_duration is not None else LITELLM_MAX_STREAMING_DURATION_SECONDS
         )
         self._sse = SSEDecoder()
         self._start_monotonic: Final = time.monotonic()
@@ -338,9 +332,7 @@ class SyncNativeTranscriptionStream:
         try:
             parsed = json.loads(payload)
         except ValueError:
-            return NativeTranscriptStreamError(
-                message=f"provider sent a non-JSON SSE data payload: {payload[:120]!r}"
-            )
+            return NativeTranscriptStreamError(message=f"provider sent a non-JSON SSE data payload: {payload[:120]!r}")
         if not isinstance(parsed, dict):
             return NativeTranscriptStreamError(
                 message=f"provider sent an SSE data payload that is not a JSON object: {payload[:120]!r}"
