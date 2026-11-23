@@ -19,6 +19,7 @@ import asyncio
 import io
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Optional
 from unittest.mock import MagicMock
 
@@ -194,6 +195,31 @@ class TestExactlyOnceTerminal:
         assert payload is not None
         assert payload["id"] == "stream-log-test"
         assert logging_obj.stream is False
+
+    @pytest.mark.asyncio
+    async def test_terminal_dispatch_uses_framework_naive_datetimes(self):
+        """The logging framework times calls with naive datetimes; an
+        offset-aware terminal end_time makes prometheus latency metrics die
+        mid-subtraction, so the stream must stamp naive times like every
+        other call path."""
+        captured: Final[dict[str, object]] = {}
+
+        class _CapturingLogger:
+            async def dispatch_success_handlers(self, result, **kwargs):
+                captured.update(kwargs)
+
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=_FakeAsyncTransport(_live_done_frame_with_usage()),
+            provider_config=_config(),
+            logging_obj=_CapturingLogger(),
+        )
+        async for event in stream:
+            pass
+        await asyncio.sleep(0.05)
+        end_time = captured["end_time"]
+        assert isinstance(end_time, datetime)
+        assert end_time.tzinfo is None
 
     @pytest.mark.asyncio
     async def test_a_terminal_after_done_never_dispatches_twice(self):

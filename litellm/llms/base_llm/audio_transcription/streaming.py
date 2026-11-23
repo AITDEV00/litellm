@@ -15,7 +15,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Iterator, Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Final, Optional, Protocol
 
 from openai._streaming import SSEDecoder
@@ -92,7 +92,7 @@ class SharedNativeTranscriptionStream:
             max_streaming_duration if max_streaming_duration is not None else LITELLM_MAX_STREAMING_DURATION_SECONDS
         )
         self._sse = SSEDecoder()
-        self._start_time: Final[datetime] = datetime.now(timezone.utc)
+        self._start_time: Final[datetime] = datetime.now()
         self._start_monotonic: Final[float] = time.monotonic()
         self._terminal_fired = False
         self._closed = False
@@ -202,7 +202,7 @@ class SharedNativeTranscriptionStream:
             self.hidden_params["audio_transcription_duration"] = duration
         summary: Final = TranscriptionResponse(text=done.text)
         summary._hidden_params = dict(self.hidden_params)  # rebind-ok: dynamic-attr model contract
-        end_time: Final = datetime.now(timezone.utc)
+        end_time: Final = datetime.now()
         try:
             # The wrapper marked this call as streaming, which makes the
             # generic success handler defer the standard logging payload to
@@ -225,7 +225,7 @@ class SharedNativeTranscriptionStream:
         if self._logging_obj is None:
             return
         exception: Final = RuntimeError(error.message)
-        end_time: Final = datetime.now(timezone.utc)
+        end_time: Final = datetime.now()
         try:
             self._logging_obj.failure_handler(
                 exception=exception,
