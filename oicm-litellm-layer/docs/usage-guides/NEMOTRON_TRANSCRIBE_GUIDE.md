@@ -97,7 +97,13 @@ Set `response_format=json` explicitly: that is the gateway's safe default.
 Direct NIM calls produce `{text, usage}` for omission and for `json`, but
 LiteLLM's transformer internally asks the NIM for `verbose_json` when an
 OpenAI client leaves the format omitted and then normalizes the result.
-`stream` is **omitted** deliberately (see streaming limitations).
+`stream` is **omitted** from the basic recipe because the non-streaming call
+is the simplest contract to verify. For incremental delivery, `stream=true`
+now returns the native SSE event stream (verified dev 2026-11-23, see the
+section 4 matrix): `transcript.text.delta` frames in order, one terminal
+`transcript.text.done` carrying the full text and `usage`, and no `[DONE]`
+marker, so clients reading frames should end on the terminal event or
+connection close rather than scanning for a marker
 
 Successful default response:
 
@@ -242,7 +248,7 @@ coverage suite.
 | OpenAI-style `prompt` | Phrase boosting/prompt injection rejected by NIM | **HTTP 400 observed: `invalid_request_error`**, not a supported Whisper-style free-form prompt |
 | `response_format=text` | Plain text at HTTP 200 | **200 `text/plain`, body is the transcript, not a JSON envelope** (verified on dev 2026-11-20) |
 | `response_format=srt` or `vtt` | Subtitle response at HTTP 200 | **200 `application/x-subrip` / `text/vtt`, true subtitle document bytes** (verified on dev 2026-11-20; cold and cached responses are byte-identical) |
-| `stream=true` multipart transcription | SSE text stream | **200 buffered JSON `{text, usage}`**, so no incremental multipart parity |
+| `stream=true` multipart transcription | SSE text stream | **200 `text/event-stream`**: `event: transcript.text.delta` frames arrive in order, one terminal `event: transcript.text.done` carries the full `text`, `transcription`, and `usage` (seconds = audio duration); no `[DONE]` marker is sent, the stream ends by close (dev 2026-11-23; spend row written by the terminal event) |
 | `/v1/audio/translations` | Native translation works; with `target_language=en` produces translated text | **200 translated text** (dev 2026-11-20: `target_language=en` returned "Eighty-seven years ago..." for the same clip; cold and cached responses match; works with and without `/v1`) |
 | `/v1/audio/translations` without `target_language` | Provider validates the field | **200**: the pod translates to its default language; the gateway forwards truthfully and adds no field |
 | `/v1/audio/translations` + `response_format=text` | Plain text at HTTP 200 | **200 `text/plain`, translated body as a true document**, cold and cached byte-identical (dev 2026-11-20) |
@@ -253,7 +259,7 @@ coverage suite.
 | `/openai/v1/audio/translations` | Not applicable (native NIM path) | 500 `OpenAIException` accompanied by upstream-provider context, not a supported public translation route |
 | `GET /health/liveness` / `/health/readiness` | 404 on native audio listener | **200 proxy health** only |
 | `GET /v1/health/ready`, `/v1/health/live` | 200 NIM health | **404 public gateway** |
-| `/v1/audio/translations` + multipart `stream=true` | Rejected HTTP 400 in the native test | **400 truthful error**: this pod answered the nonstreaming call with an SSE stream, so the gateway reports `streaming is not supported for this operation. Resend without stream=true` (dev 2026-11-20; the pod streams rather than rejecting, unlike the earlier native test) |
+| `/v1/audio/translations` + multipart `stream=true` | Rejected HTTP 400 in the native test | **400 truthful error**: this pod answered the nonstreaming call with an SSE stream, so the gateway reports `streaming is not supported for this operation. Resend without stream=true` (dev 2026-11-20; re-verified unchanged 2026-11-23 after transcription streaming shipped: translation has not opted into multipart streaming, so the mismatch stays a truthful 400) |
 | `GET /v1/models/{encoded-full-model-id}` | Not a required native lookup route | **404**: slashes in the model name are not usable in this path lookup |
 | Native `/v1/metrics`, `/v1/license`, `/v1/manifest`, `/v1/metadata`, `/v1/version` | Mounted on native OpenAPI listener | **Not model inference APIs; treated as private operations endpoints, not public Nemotron endpoints** |
 
@@ -350,10 +356,14 @@ different architectures:
    when inspected live. The checked-in ingress annotation says
    `proxy-request-buffering: "false"`, but ingress-nginx accepts `on`/`off`
    rather than `false`; this discrepancy needs an operational fix separately.
-3. LiteLLM uses non-streaming multipart upstream forwarding for the default
-   transcription route and applies its own transcription-response schema
-   validation afterward. For the (text, SRT, VTT) formats, this can turn a
-   successful native non-JSON response into an HTTP 500.
+3. For non-streaming calls the gateway buffers the complete multipart body
+   upstream and applies its own transcription-response handling afterward
+   (document formats are relayed as true document bytes since the Phase A/B
+   work; the older schema-validation 500s are gone). With `stream=true` the
+   gateway now relays the provider's SSE events incrementally, but the WAV
+   upload itself is still fully materialized at the route before the
+   upstream call begins, so streaming does not change the upload-side
+   buffering profile described in points 1 and 2.
 4. The custom alias instead forwards bounded 64 KiB chunks for uploads and
    responses with no large-request buffering. That is the path supporting the
    prior 768/768 in-pod native admission result.
@@ -399,6 +409,21 @@ payload is needed in a result file and this guide does not include either.
 
 This tested harness lives under
 `oicm-litellm-layer/examples/usage/nemotron-transcribe/`.
+
+For native multipart SSE streaming, the curl form is (no script needed):
+
+```bash
+curl -sS --no-buffer -X POST "$LITELLM_BASE/v1/audio/transcriptions" \
+  -H "Authorization: Bearer $LITELLM_API_KEY" \
+  -F "model=$NEMOTRON_MODEL" \
+  -F "stream=true" \
+  -F "file=@$NEMOTRON_AUDIO"
+```
+
+Frames arrive as `event: transcript.text.delta` with `data: {"delta": ...}`,
+ending at exactly one `event: transcript.text.done` whose data carries the
+full `text`, `transcription`, and `usage`. No marker follows; stop
+at the terminal event or connection close (verified on dev 2026-11-23).
 
 - `test_gateway.py`: one reference WAV exercises multipart JSON/verbose JSON,
   word timestamps, chat audio/SSE, model listing, gateway health; the response

@@ -1442,7 +1442,91 @@ Live dev proof:
   `text/plain` document bytes; translation with `target_language=en` 200
   genuinely translated. Chat-audio streaming re-proven after the rebuild
 
-Phase C2-C4 (native multipart SSE streaming) remain not started
+### Phase C2-C4 (native transcript SSE streaming), delivered 2026-11-23
+
+Commits `bf9e82d1fd0` (streaming stack), `6f77596f5e1` (mutation-driven test
+hardening), `817cf4cc381` (format), `56a223f96d5`, `6109ef17f95`,
+`1e8818df5b0`, `cb14a8e6f47` (four live-found fixes) on `jya0-v1.108.5`.
+Dev gateway image `litellm-src:jya0-v1.108.5` rebuilt after each fix
+
+Vocabulary verified live before implementation (direct pod probe,
+stream=true + Accept: text/event-stream): frames are
+`event: transcript.text.delta` with `{"delta", "type"}` and exactly one
+terminal `event: transcript.text.done` carrying `text`, the full
+`transcription` object, and `usage` with `seconds` = audio duration. No
+`[DONE]` marker is sent; the stream ends by connection close
+
+Delivered, per the ownership rule (NIM owns event parsing, generic code owns
+framing and lifecycle):
+
+- `OpenedNativeAudioStream` as the initialized handle the handler returns
+  before first iteration: metadata readable for header commit with the
+  transport still open, `events` bound, `aclose` idempotent
+- `SharedNativeTranscriptionStream` (async) and `SyncNativeTranscriptionStream`
+  (sync twin) as the generic lifecycle: SSE decoding through the official
+  OpenAI SDK `SSEDecoder` with the whole byte iterator handed to it once
+  (per-chunk calls re-seat its framing buffer and split frames at network
+  boundaries, pinned by a chunk-size parametrized test), a
+  delta-then-terminal state machine, exactly-once terminal dispatch, a
+  structured error when the provider closes without a terminal event, caller
+  disconnect closing the upstream transport without terminal logging, a
+  midstream exception dispatching failure exactly once and re-raising, the
+  max streaming duration guard (None-safe), and naive datetimes matching
+  the logging framework's convention
+- the NIM decoder maps the verified vocabulary with `native_event` preserved
+  verbatim; an unknown event type is an explicit structured error, never
+  silence; `supports_multipart_streaming` is True only on the NIM config
+  (hosted_vllm stays False and answers stream=true with a truthful 400)
+- the transcription handler opens the SSE transport only for opted-in
+  configs (Accept: text/event-stream, stream=True post), rejects a non-SSE
+  answer as a truthful 400, and stamps provider headers into the handle
+- the proxy transcription route recognizes the handle, commits custom
+  headers before iteration, returns a StreamingResponse with deterministic
+  SSE frames preserving the native event vocabulary, and does not mark the
+  request successful before the provider's terminal event
+
+Live dev proof (port-forward 14001, master key, gettysburg.wav):
+
+- `stream=true` answers `200` `content-type: text/event-stream; charset=utf-8`
+  with 17 `transcript.text.delta` frames in order, one terminal
+  `transcript.text.done` carrying the full text, `transcription`, and
+  `usage` (seconds 17.5770625), no `[DONE]`
+- the spend row for the streamed call id is written by the terminal event
+  with `call_type=atranscription`, sane timing, and the same schema as a
+  non-streaming transcription row; pod logs show zero logging,
+  cost-tracking, or serialization errors
+- regressions unchanged: non-stream transcription 200 JSON, translation 200
+  genuinely translated, chat-audio with one `input_audio` part 200, chat
+  contract 400s still truthful (max_tokens rejected, missing input_audio
+  rejected), 401 without a key
+
+Four real bugs found by the live proof, each fixed with a mutation-verified
+regression test:
+
+1. the proxy forwards multipart form fields verbatim, so stream=true
+   arrived as the string "true" and the handler's boolean-only check took
+   the non-streaming path while the provider answered SSE; the handler now
+   reads both spellings (sync and async)
+2. the `@client` wrapper's response-type guard still listed only the final
+   result types, so every streaming call died as APIConnectionError before
+   reaching the route
+3. the wrapper flagged the call as streaming, so the terminal success
+   dispatch deferred the standard logging payload to the chunk-assembly
+   path that never runs for a native transcript: cost tracking, prometheus,
+   and router accounting all rejected the missing payload, and the wrapper
+   also cache-serialized the live handle through the final-result branch.
+   The terminal event now flips the logging object back to final-response
+   semantics before its one dispatch, and `_is_streaming_request` reads the
+   string form so the wrapper takes the streaming branch
+4. prometheus latency metrics subtract the terminal end_time from the
+   framework's naive start_time; an offset-aware stamp raised TypeError in
+   every success dispatch. The stream now stamps naive datetimes
+
+Mutation score: 15 mutants run across the streaming stack, the handler
+branches, the route, the wrapper, and the logging integration; all 15 killed
+(three initially survived and gained the tests that now pin the summary
+facts, the midstream failure contract, the route status ordering, the
+string stream form, and the naive datetime convention)
 
 ---
 
