@@ -335,6 +335,11 @@ def test_audio_transcription_stream_returns_sse_with_delta_then_done(
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers.get("x-litellm-model-id") == "dep-1"
 
+    # A native stream answers nothing at route time, so the request must not
+    # be marked successful before the provider's terminal event: a mid-stream
+    # upstream failure would otherwise be logged as a completed request.
+    proxy_server.proxy_logging_obj.update_request_status.assert_not_called()
+
     frames = [f for f in response.text.split("\n\n") if f.strip()]
     assert len(frames) == 3
     assert frames[0].startswith("event: transcript.text.delta\n")

@@ -111,6 +111,13 @@ class _FakeLogger:
         self.failure_calls.append(exception)
 
 
+def _live_done_frame_with_usage() -> bytes:
+    return (
+        'data: {"delta":"hello ","type":"transcript.text.delta"}\n\n'
+        'data: {"text":"hello world","usage":{"seconds":17.5770625},"type":"transcript.text.done"}\n\n'
+    ).encode()
+
+
 class TestDecodingAcrossNetworkBoundaries:
     @pytest.mark.parametrize("chunk_size", [1, 3, 7, 64, 1024])
     @pytest.mark.asyncio
@@ -132,6 +139,28 @@ class TestDecodingAcrossNetworkBoundaries:
 
 
 class TestExactlyOnceTerminal:
+    @pytest.mark.asyncio
+    async def test_success_logging_carries_text_and_duration_facts(self):
+        """The spend row is built from the logged summary: its text is the
+        provider's terminal transcript and its hidden params carry the audio
+        duration from the native usage, so cost logging survives the stream
+        lifecycle instead of silently recording an empty transcript."""
+        logger = _FakeLogger()
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=_FakeAsyncTransport(_live_done_frame_with_usage()),
+            provider_config=_config(),
+            logging_obj=logger,
+            hidden_params={"model_id": "dep-1"},
+        )
+        events = [event async for event in stream]
+        assert isinstance(events[-1], NativeTranscriptDone)
+        assert len(logger.success_calls) == 1
+        summary = logger.success_calls[0]
+        assert summary.text == "hello world"
+        assert summary._hidden_params["audio_transcription_duration"] == 17.5770625
+        assert summary._hidden_params["model_id"] == "dep-1"
+
     @pytest.mark.asyncio
     async def test_a_terminal_after_done_never_dispatches_twice(self):
         """The first terminal event ends iteration exactly once; a stray
@@ -212,6 +241,38 @@ class TestCallerDisconnect:
         assert transport.closed is True
         assert logger.success_calls == []
         assert logger.failure_calls == []
+
+    @pytest.mark.asyncio
+    async def test_midstream_exception_dispatches_failure_once_and_reraises(self):
+        """An exception from the provider transport mid-stream surfaces to the
+        caller (never a silent clean stream), dispatches terminal failure
+        logging exactly once, and closes the upstream transport."""
+        logger = _FakeLogger()
+
+        class _ExplodingTransport:
+            def __init__(self):
+                self.closed = False
+
+            async def aiter_bytes(self):
+                yield b'data: {"delta":"par","type":"transcript.text.delta"}\n\n'
+                raise RuntimeError("provider connection reset")
+
+            async def aclose(self):
+                self.closed = True
+
+        transport = _ExplodingTransport()
+        stream = SharedNativeTranscriptionStream(
+            model="m",
+            response=transport,
+            provider_config=_config(),
+            logging_obj=logger,
+        )
+        with pytest.raises(RuntimeError, match="provider connection reset"):
+            async for event in stream:
+                pass
+        assert transport.closed is True
+        assert len(logger.failure_calls) == 1
+        assert logger.success_calls == []
 
 
 class TestSyncFacade:
