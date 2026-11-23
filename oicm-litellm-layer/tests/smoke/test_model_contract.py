@@ -13,6 +13,7 @@ import json
 import os
 import struct
 import wave
+from pathlib import Path
 
 import pytest
 
@@ -129,6 +130,155 @@ class TestSpeechToText:
                     data = message.get("data")
                     assert isinstance(data, dict) and data.get("transcription"), f"No realtime transcription: {message}"
                     break
+
+
+class TestNemotronNativeAudio:
+    MODEL = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
+
+    @pytest.mark.parametrize("path", ["/v1/audio/translations", "/audio/translations"])
+    def test_scoped_key_can_use_translation_aliases(self, gw: Gateway, path: str) -> None:
+        with open(GETTYSBURG, "rb") as audio:
+            result = gw.post(
+                path,
+                key=_need_scoped(gw),
+                files={"file": ("speech.wav", audio, "audio/wav")},
+                data={"model": self.MODEL, "target_language": "en"},
+            )
+        assert isinstance(result, Success), f"{path} failed: {error_detail(result)}"
+        assert result.body.get("text")
+
+    @pytest.mark.parametrize(
+        ("operation", "response_format", "media_type"),
+        (
+            ("transcriptions", "text", "text/plain"),
+            ("transcriptions", "srt", "application/x-subrip"),
+            ("transcriptions", "vtt", "text/vtt"),
+            ("translations", "text", "text/plain"),
+        ),
+    )
+    def test_native_documents_are_not_json_envelopes(
+        self, gw: Gateway, operation: str, response_format: str, media_type: str
+    ) -> None:
+        import httpx
+
+        with open(GETTYSBURG, "rb") as audio, httpx.Client(
+            base_url=gw.base,
+            headers={"Authorization": f"Bearer {_need_scoped(gw)}"},
+            timeout=180,
+            verify=False,
+        ) as client:
+            response = client.post(
+                f"/v1/audio/{operation}",
+                files={"file": ("speech.wav", audio, "audio/wav")},
+                data={
+                    "model": self.MODEL,
+                    "response_format": response_format,
+                    **({"target_language": "en"} if operation == "translations" else {}),
+                },
+            )
+            assert response.status_code == 200, response.text[:500]
+            assert response.headers["content-type"].split(";")[0] == media_type
+            assert response.content.strip()
+            assert not response.content.lstrip().startswith(b'{"text"')
+            repeat = client.post(
+                f"/v1/audio/{operation}",
+                files={"file": ("speech.wav", Path(GETTYSBURG).read_bytes(), "audio/wav")},
+                data={
+                    "model": self.MODEL,
+                    "response_format": response_format,
+                    **({"target_language": "en"} if operation == "translations" else {}),
+                },
+            )
+        assert repeat.status_code == 200, repeat.text[:500]
+        assert repeat.content == response.content
+
+    def test_translation_targets_have_independent_cache_entries(self, gw: Gateway) -> None:
+        key = _need_scoped(gw)
+        responses = []
+        for target in ("en", "fr", "en"):
+            with open(GETTYSBURG, "rb") as audio:
+                result = gw.post(
+                    "/v1/audio/translations",
+                    key=key,
+                    files={"file": ("speech.wav", audio, "audio/wav")},
+                    data={"model": self.MODEL, "response_format": "json", "target_language": target},
+                )
+            assert isinstance(result, Success), f"translation {target} failed: {error_detail(result)}"
+            assert result.body.get("text")
+            assert result.body.get("usage")
+            responses.append(result.body)
+        assert responses[2] == responses[0]
+        assert responses != [responses[0]] * 3
+
+    def test_native_transcript_stream_ends_with_exactly_one_done(self, gw: Gateway) -> None:
+        import httpx
+
+        with open(GETTYSBURG, "rb") as audio, httpx.Client(
+            base_url=gw.base,
+            headers={"Authorization": f"Bearer {_need_scoped(gw)}"},
+            timeout=180,
+            verify=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                "/v1/audio/transcriptions",
+                files={"file": ("speech.wav", audio, "audio/wav")},
+                data={"model": self.MODEL, "response_format": "json", "stream": "true"},
+            ) as response:
+                assert response.status_code == 200, response.read()[:500]
+                assert response.headers["content-type"].split(";")[0] == "text/event-stream"
+                payload = "".join(response.iter_text())
+        events = [json.loads(line.removeprefix("data: ")) for line in payload.splitlines() if line.startswith("data: ")]
+        assert [event["type"] for event in events[:-1]] == ["transcript.text.delta"] * (len(events) - 1)
+        assert len(events) > 1
+        assert all(event.get("delta") for event in events[:-1])
+        assert events[-1]["type"] == "transcript.text.done"
+        assert events[-1].get("text")
+        assert events[-1].get("usage")
+        assert "[DONE]" not in payload
+
+    def test_chat_audio_still_forwards_usage_option(self, gw: Gateway) -> None:
+        import httpx
+
+        with httpx.Client(
+            base_url=gw.base,
+            headers={"Authorization": f"Bearer {_need_scoped(gw)}"},
+            timeout=180,
+            verify=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                "/v1/chat/completions",
+                json={
+                    "model": self.MODEL,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_audio",
+                                    "input_audio": {
+                                        "data": base64.b64encode(Path(GETTYSBURG).read_bytes()).decode(),
+                                        "format": "wav",
+                                    },
+                                },
+                                {"type": "text", "text": "Transcribe this audio."},
+                            ],
+                        }
+                    ],
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                },
+            ) as response:
+                assert response.status_code == 200, response.read()[:500]
+                body = "".join(response.iter_text())
+        assert "[DONE]" in body
+        assert any(
+            data.get("usage")
+            for line in body.splitlines()
+            if line.startswith("data: ") and line.removeprefix("data: ") != "[DONE]"
+            for data in [json.loads(line.removeprefix("data: "))]
+        )
 
 
 class TestTextToSpeech:

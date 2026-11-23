@@ -1528,6 +1528,64 @@ branches, the route, the wrapper, and the logging integration; all 15 killed
 facts, the midstream failure contract, the route status ordering, the
 string stream form, and the naive datetime convention)
 
+### Review hardening, 2026-11-23, commit `bca55b92fc8`
+
+Review fixed empty OpenAI translation string documents, native cache-key
+collisions for multipart fields and `extra_body`, rich cached translations,
+injected sync/async clients, terminal stream callbacks, post-call guardrail
+coverage and duplicate native scans, mapping-hook metadata preservation,
+`stream_options` chat forwarding, and public-NIM key validation. NIM
+activation now requires the verified server name, `1.0.0` tag, and both audio
+paths. Unknown server generations do not opt in by name alone. A guarded
+native transcript stream returns `400` before calling the provider and asks
+for `stream=false` when complete-output inspection is incompatible
+
+The focused gateway run passed 313 tests, the controller selection run passed
+104, and the new nine-test NIM customer-contract smoke class passed against
+the decoded final image on dev. Sync and async public translation caches were
+proven against real HTTP transports, with `en -> fr -> en` proving each result
+is scoped to the selected language and the repeated English request reuses
+only its own entry. This exposed and fixed omission of synchronous
+`:translation` call types from cache identity preparation
+
+Dev proof used a temporary `key_type=llm_api` key restricted to the NIM model,
+loopback port-forward `14002` for this session, and the real 17.577 s
+Gettysburg fixture. The earlier prepare-before-cache image in this review was
+rebuilt and replaced with commit `bca55b92fc8`. Final gateway pod
+`litellm-proxy-dev-6b76f8fc6-ps7gx` serves manifest digest
+`sha256:7367d2a29bad351adea81ebb20518053be590f10365cc51056b585dcddb5e1b6`;
+no prod ingress, prod registry registration, or NIM workload change was used
+
+Observed endpoint results:
+
+- native JSON 200 with text and usage; text/SRT/VTT 200 with actual document
+  bodies and their content types, then byte-identical repeated responses
+- translation `en -> fr -> en` 200, semantically distinct requested targets,
+  original English restored on third request, with the third request's
+  `x-litellm-cache-key` matching the first English request; its admin spend
+  endpoint confirms an `atranslation` cache hit. Another repeated text/SRT/
+  VTT request has a cache key and native document bytes identical to cold
+- transcript SSE 200 with 17 delta frames, exactly one terminal native done
+  carrying transcript/usage, no `[DONE]`, and `status=success` for its
+  completed `atranscription` spend row. Callback failures are intentionally
+  isolated from a successfully delivered done event and still logged locally
+- chat audio with `stream_options.include_usage` retains content, usage, and
+  a terminal `[DONE]` across 19 frames on this fixture; translation stream
+  400 truthful
+- unauthenticated transcription 401, outside-model-scope chat 403, temporary
+  scoped-key deletion 200 and reuse 401. One temporary smoke key also deleted
+  after the durable tests returned 9 passed. Master key was used for admin
+  lifecycle and read-only log queries, never to prove customer inference
+
+`make check` is not green in this checkout. It fails at the unavailable
+user-local Go sidecar toolchain `/tmp/sa-build/bin/go` and at pre-existing
+branch-wide delta comparisons against `origin/main`, especially unrelated DB
+transaction queue files and OpenAPI/UI checks. Patch-local strict lint,
+formatter, test lint, `git diff --check`, and the focused behaviors pass.
+This review does not assert byte-for-byte generic chat compatibility with
+hosted-vLLM rather than the specifically restored `stream_options` behavior,
+nor semantic timestamp accuracy from this short speech fixture
+
 ---
 
 ## Appendix A: Implementation-time facts to verify, not code assumptions
