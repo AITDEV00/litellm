@@ -48,6 +48,11 @@ from litellm.types.litellm_params import ControlOptions
 from litellm.types.llms.openai import AllMessageValues, HttpxBinaryResponseContent
 from litellm.types.prompts.init_prompts import PromptSpec
 from litellm.types.utils import Delta, ModelResponseStream, StandardCallbackDynamicParams, StreamingChoices, Usage
+from litellm.types.llms.audio_transcription import (
+    NativeTranscriptDelta,
+    NativeTranscriptDone,
+    OpenedNativeAudioStream,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -8718,6 +8723,51 @@ async def test_atranscription_routes_a_bare_model_name_to_its_explicit_provider(
     assert route.called
     assert b'name="model"\r\n\r\nmy-whisper' in route.calls[0].request.content
     assert response.text == "four score"
+
+
+@pytest.mark.asyncio
+async def test_atranscription_returns_a_native_stream_handle_whole(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """A streaming-capable provider answering stream=true yields the initialized
+    handle through the @client wrapper untouched: the wrapper neither rejects
+    it as an invalid response type nor stamps audio duration onto it (the
+    stream's own terminal event owns those facts)."""
+    api_base: Final = "http://localhost:12352/v1"
+    sse_body: Final = (
+        'data: {"delta":"four ","type":"transcript.text.delta"}\n\n'
+        'data: {"delta":"score","type":"transcript.text.delta"}\n\n'
+        'data: {"text":"four score","usage":{"seconds":1.25},"type":"transcript.text.done"}\n\n'
+    ).encode()
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            headers={"content-type": "text/event-stream"},
+            content=sse_body,
+        )
+
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+    response: Final = await litellm.atranscription(
+        model="nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+        file=("speech.wav", b"RIFF-audio", "audio/wav"),
+        custom_llm_provider="nvidia_nim",
+        api_base=api_base,
+        api_key="fake_nim_key",
+        stream=True,
+        client=AsyncHTTPHandler(timeout=30, transport=httpx.MockTransport(responder)),
+    )
+
+    assert isinstance(response, OpenedNativeAudioStream)
+    events: Final = [event async for event in response.events]
+    assert [type(e) for e in events] == [
+        NativeTranscriptDelta,
+        NativeTranscriptDelta,
+        NativeTranscriptDone,
+    ]
+    assert events[-1].text == "four score"
+    assert "audio_transcription_duration" not in response.hidden_params
 
 
 @pytest.mark.asyncio

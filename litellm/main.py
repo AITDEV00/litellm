@@ -8104,10 +8104,11 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
             response = _transcription_response_from_cached_dict(init_response)
         elif isinstance(init_response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             response = init_response
-        elif isinstance(init_response, SyncNativeTranscriptionStream):
-            # The sync streaming handle crosses the executor boundary whole:
-            # iteration is blocking (safe in the executor), and the async
-            # caller may wrap or hand it off; it is not awaited here.
+        elif isinstance(init_response, (SyncNativeTranscriptionStream, OpenedNativeAudioStream)):
+            # A streaming handle crosses the executor boundary whole: the
+            # async handle's event iterator is already bound to the upstream
+            # transport, and the sync handle's iteration is blocking (safe in
+            # the executor); neither is awaited here.
             response = init_response
         elif asyncio.iscoroutine(init_response):
             response = await init_response
@@ -8115,7 +8116,13 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
             # Call the synchronous function using run_in_executor
             response = await loop.run_in_executor(None, func_with_context)
         if not isinstance(
-            response, (TranscriptionResponse, NativeAudioDocumentResponse, SyncNativeTranscriptionStream)
+            response,
+            (
+                TranscriptionResponse,
+                NativeAudioDocumentResponse,
+                SyncNativeTranscriptionStream,
+                OpenedNativeAudioStream,
+            ),
         ):
             raise ValueError(
                 f"Invalid response from transcription provider, expected TranscriptionResponse or NativeAudioDocumentResponse, but got {type(response)}"
@@ -8127,7 +8134,7 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
         # a plain Transcription is a TranscriptionVerbose/Diarized type.
         if (
             response is not None
-            and not isinstance(response, (Coroutine, SyncNativeTranscriptionStream))
+            and not isinstance(response, (Coroutine, SyncNativeTranscriptionStream, OpenedNativeAudioStream))
             and file is not None
         ):
             existing_duration: Final = getattr(response, "duration", None)
