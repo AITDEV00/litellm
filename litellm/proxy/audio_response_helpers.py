@@ -11,15 +11,23 @@ becoming a JSON envelope with a ``text`` field.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, Final
 
 from fastapi import Response
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
-from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+from litellm.types.llms.audio_transcription import (
+    NativeAudioDocumentResponse,
+    NativeTranscriptDelta,
+    NativeTranscriptDone,
+    NativeTranscriptEvent,
+    NativeTranscriptStreamError,
+    OpenedNativeAudioStream,
+)
 from litellm.types.utils import TranscriptionResponse
 
 if TYPE_CHECKING:
@@ -127,11 +135,112 @@ def is_audio_document_response(response: object) -> bool:
     return isinstance(response, NativeAudioDocumentResponse)
 
 
+def is_opened_native_audio_stream(response: object) -> bool:
+    return isinstance(response, OpenedNativeAudioStream)
+
+
+def build_audio_stream_custom_headers(
+    *,
+    stream: OpenedNativeAudioStream,
+    user_api_key_dict: UserAPIKeyAuth,
+    version: str,
+    request_data: dict,
+) -> dict[str, str]:
+    """Custom headers for a native transcript stream, before first iteration.
+
+    Same explicit hidden-param reads as ``build_audio_custom_headers`` (the
+    stream handle carries the same surface), so header commit happens with
+    real model/cost facts while the transport is still open and no event has
+    been consumed.
+    """
+    hidden_params: Final[dict[str, object]] = stream.hidden_params or {}
+    model_id: Final = hidden_params.get("model_id", None) or ""
+    cache_key: Final = hidden_params.get("cache_key", None) or ""
+    api_base: Final = hidden_params.get("api_base", None) or ""
+    response_cost: Final = hidden_params.get("response_cost", None) or ""
+    response_call_id: Final = hidden_params.get("litellm_call_id", None) or ""
+    additional_headers: Final = hidden_params.get("additional_headers", {}) or {}
+
+    return ProxyBaseLLMRequestProcessing.get_custom_headers(
+        user_api_key_dict=user_api_key_dict,
+        model_id=model_id,
+        cache_key=cache_key,
+        api_base=api_base,
+        version=version,
+        response_cost=response_cost,
+        model_region=getattr(user_api_key_dict, "allowed_model_region", ""),
+        call_id=response_call_id,
+        request_data=request_data,
+        hidden_params=hidden_params,
+        **additional_headers,
+    )
+
+
+def serialize_native_transcript_event(event: NativeTranscriptEvent) -> str:
+    """Deterministic SSE frame for one typed transcript event.
+
+    The public frame keeps the provider's event vocabulary (``event:`` name
+    and the native ``type`` field) plus every native field the provider sent,
+    so gateway clients see the provider's stream, not an invented dialect.
+    """
+    if isinstance(event, NativeTranscriptDelta):
+        event_name: Final = "transcript.text.delta"
+    elif isinstance(event, NativeTranscriptDone):
+        event_name = "transcript.text.done"
+    else:
+        event_name = "error"
+    payload: Final = dict(getattr(event, "native_event", {}) or {})
+    if isinstance(event, NativeTranscriptStreamError):
+        payload.setdefault("message", event.message)
+    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(",", ":"))}\n\n"
+
+
+async def _native_transcript_sse_body(
+    stream: OpenedNativeAudioStream,
+) -> AsyncIterator[bytes]:
+    """Serialize each typed event, then close the stream exactly once.
+
+    The route's StreamingResponse holds this generator open; when the client
+    disconnects, starlette closes the generator (GeneratorExit inside the
+    async generator), which the shared stream turns into upstream transport
+    cancellation with no terminal logging.
+    """
+    aclose: Final = stream.aclose
+    try:
+        async for event in stream.events:
+            yield serialize_native_transcript_event(event).encode("utf-8")
+    finally:
+        if aclose is not None:
+            await aclose()
+
+
+def audio_stream_response(
+    stream: OpenedNativeAudioStream,
+    *,
+    headers: dict[str, str],
+) -> StreamingResponse:
+    """Return a ``text/event-stream`` response over the opened native stream.
+
+    ``background`` is not used for terminal logging: the stream's own
+    terminal event dispatches success/failure exactly once when the provider
+    answers, and repeated generator closure only cancels the transport.
+    """
+    return StreamingResponse(
+        content=_native_transcript_sse_body(stream),
+        media_type="text/event-stream",
+        headers=headers,
+    )
+
+
 __all__ = [
     "apply_audio_response_headers_hook",
     "audio_document_response",
     "audio_json_response",
+    "audio_stream_response",
     "build_audio_custom_headers",
+    "build_audio_stream_custom_headers",
     "is_audio_document_response",
+    "is_opened_native_audio_stream",
+    "serialize_native_transcript_event",
 ]
 

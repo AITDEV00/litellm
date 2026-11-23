@@ -161,3 +161,82 @@ class TestNvidiaNimAudioTranscriptionResponse:
         assert isinstance(error, NvidiaNimAudioTranscriptionError)
         assert error.status_code == 422
         assert error.message == "audio decoding failed"
+
+
+class TestNvidiaNimStreamingSupport:
+    """The Phase C streaming opt-in and the NIM event vocabulary mapping."""
+
+    def test_config_opts_into_multipart_streaming(self):
+        assert NvidiaNimAudioTranscriptionConfig().supports_multipart_streaming is True
+
+    def test_hosted_vllm_stays_non_streaming(self):
+        from litellm.llms.hosted_vllm.transcriptions.transformation import (
+            HostedVLLMAudioTranscriptionConfig,
+        )
+
+        assert HostedVLLMAudioTranscriptionConfig().supports_multipart_streaming is False
+
+    def test_base_config_default_is_no_streaming(self):
+        from litellm.llms.base_llm.audio_transcription.transformation import (
+            BaseAudioTranscriptionConfig,
+        )
+
+        # The base property itself defaults False; a config that does not
+        # override it stays non-streaming, so the truthful 400 keeps firing.
+        assert BaseAudioTranscriptionConfig.supports_multipart_streaming.fget is not None
+        from litellm.llms.hosted_vllm.transcriptions.transformation import (
+            HostedVLLMAudioTranscriptionConfig,
+        )
+
+        assert HostedVLLMAudioTranscriptionConfig().supports_multipart_streaming is False
+        # The base config maps no vocabulary at all, so a payload it is asked
+        # about surfaces as the generic unrecognized-event path, never silence.
+        assert HostedVLLMAudioTranscriptionConfig().transform_streaming_event("m", {"type": "x"}) is None
+
+    def test_delta_event_maps_with_native_fields_preserved(self):
+        from litellm.types.llms.audio_transcription import NativeTranscriptDelta
+
+        event = NvidiaNimAudioTranscriptionConfig().transform_streaming_event(
+            "m",
+            {"delta": "Four", "type": "transcript.text.delta", "vendor_extra": 1},
+        )
+        assert isinstance(event, NativeTranscriptDelta)
+        assert event.delta == "Four"
+        assert event.native_event["vendor_extra"] == 1
+
+    def test_done_event_maps_text_and_usage(self):
+        from litellm.types.llms.audio_transcription import NativeTranscriptDone
+
+        event = NvidiaNimAudioTranscriptionConfig().transform_streaming_event(
+            "m",
+            {
+                "text": "full transcript",
+                "transcription": {"duration": 17.5},
+                "usage": {"seconds": 17.5, "prompt_tokens": 272},
+                "type": "transcript.text.done",
+            },
+        )
+        assert isinstance(event, NativeTranscriptDone)
+        assert event.text == "full transcript"
+        assert event.usage["seconds"] == 17.5
+        assert event.native_event["transcription"]["duration"] == 17.5
+
+    def test_error_event_maps_message(self):
+        from litellm.types.llms.audio_transcription import NativeTranscriptStreamError
+
+        event = NvidiaNimAudioTranscriptionConfig().transform_streaming_event(
+            "m", {"message": "audio too short", "type": "error"}
+        )
+        assert isinstance(event, NativeTranscriptStreamError)
+        assert event.message == "audio too short"
+
+    def test_unknown_event_type_is_an_explicit_error_not_silence(self):
+        """The live vocabulary is delta/done/error; a future vendor event must
+        surface as a structured error rather than disappearing."""
+        from litellm.types.llms.audio_transcription import NativeTranscriptStreamError
+
+        event = NvidiaNimAudioTranscriptionConfig().transform_streaming_event(
+            "m", {"type": "transcript.something.new", "payload": {}}
+        )
+        assert isinstance(event, NativeTranscriptStreamError)
+        assert "unrecognized" in event.message

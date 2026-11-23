@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Optional
 
 import httpx
 
 from litellm.llms.base_llm.chat.transformation import BaseConfig
+from litellm.types.llms.audio_transcription import NativeTranscriptEvent
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -119,6 +121,20 @@ class BaseAudioTranscriptionConfig(BaseConfig, ABC):
         raise NotImplementedError(
             "AudioTranscriptionConfig does not need a response transformation for audio transcription models"
         )
+
+    def transform_streaming_event(
+        self,
+        model: str,
+        parsed_json: Mapping[str, object],
+    ) -> Optional[NativeTranscriptEvent]:
+        """Map one decoded SSE ``data:`` JSON payload to one typed event.
+
+        Only providers with ``supports_multipart_streaming`` are ever asked;
+        the default implementation treats any payload as unrecognized so a
+        config that opts into streaming without implementing the vocabulary
+        fails loudly in tests rather than silently at runtime.
+        """
+        return None
 
     def transform_request(
         self,

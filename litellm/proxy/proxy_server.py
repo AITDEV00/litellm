@@ -13190,17 +13190,58 @@ async def audio_transcriptions(
         finally:
             file_object.close()  # close the file read in by io library
 
-        ### ALERTING ###
-        asyncio.create_task(proxy_logging_obj.update_request_status(litellm_call_id=litellm_call_id, status="success"))
+        from litellm.proxy.audio_response_helpers import is_opened_native_audio_stream
+
+        if not is_opened_native_audio_stream(response):
+            # Final-result paths record success here; a native transcript
+            # stream does not, because nothing has been answered yet: the
+            # provider's terminal event (observed during iteration) is what
+            # dispatches the stream's own terminal logging, and marking the
+            # request successful before a single event would misreport an
+            # upstream failure mid-stream.
+            asyncio.create_task(
+                proxy_logging_obj.update_request_status(litellm_call_id=litellm_call_id, status="success")
+            )
 
         ### RESPONSE HEADERS ###
         from litellm.proxy.audio_response_helpers import (
             apply_audio_response_headers_hook,
             audio_document_response,
             audio_json_response,
+            audio_stream_response,
             build_audio_custom_headers,
+            build_audio_stream_custom_headers,
+            is_audio_document_response,
+            is_opened_native_audio_stream,
         )
         from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+
+        if is_opened_native_audio_stream(response):
+            # A native transcript SSE stream: headers commit from the opened
+            # stream's metadata before the first event is consumed, and the
+            # success status is recorded only once the provider's terminal
+            # event has been observed by the stream's own lifecycle (which
+            # dispatches logging exactly once).
+            fastapi_response.headers.update(
+                build_audio_stream_custom_headers(
+                    stream=response,
+                    user_api_key_dict=user_api_key_dict,
+                    version=version,
+                    request_data=data,
+                )
+            )
+            callback_headers: Final = await apply_audio_response_headers_hook(
+                proxy_logging_obj=proxy_logging_obj,
+                data=data,
+                user_api_key_dict=user_api_key_dict,
+                response=response,
+                request_headers=dict(request.headers),
+            )
+            response_headers: Final[dict[str, str]] = {
+                **dict(fastapi_response.headers),
+                **callback_headers,
+            }
+            return audio_stream_response(response, headers=response_headers)
 
         fastapi_response.headers.update(
             build_audio_custom_headers(

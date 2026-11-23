@@ -269,3 +269,76 @@ def test_audio_transcription_happy_path_returns_custom_headers(client, auth_as, 
     assert response.status_code == 200
     assert response.headers.get("x-litellm-call-id") is not None
     assert response.headers["x-litellm-call-id"] != ""
+
+
+@pytest.fixture
+def patched_transcription_stream(monkeypatch, patched_transcription):
+    """The route resolves an OpenedNativeAudioStream with two deltas and one
+    terminal done, built through the real generic stream lifecycle so the
+    route's serialization and exactly-once behavior are exercised end to
+    end."""
+    from litellm.llms.base_llm.audio_transcription.streaming import (
+        SharedNativeTranscriptionStream,
+    )
+    from litellm.llms.nvidia_nim.audio_transcription.transformation import (
+        NvidiaNimAudioTranscriptionConfig,
+    )
+    from litellm.types.llms.audio_transcription import OpenedNativeAudioStream
+
+    class _FakeTransport:
+        async def aiter_bytes(self):
+            payload = (
+                'data: {"delta":"hello ","type":"transcript.text.delta"}\n\n'
+                'data: {"delta":"world","type":"transcript.text.delta"}\n\n'
+                'data: {"text":"hello world","usage":{"seconds":1.25},"type":"transcript.text.done"}\n\n'
+            ).encode()
+            for i in range(0, len(payload), 9):
+                yield payload[i : i + 9]
+
+        async def aclose(self):
+            return
+
+    async def _llm_call():
+        stream = SharedNativeTranscriptionStream(
+            model="whisper-1",
+            response=_FakeTransport(),
+            provider_config=NvidiaNimAudioTranscriptionConfig(),
+            hidden_params={"model_id": "dep-1", "api_base": "http://dep"},
+        )
+        return OpenedNativeAudioStream(
+            model="whisper-1",
+            events=stream.__aiter__(),
+            hidden_params={"model_id": "dep-1", "api_base": "http://dep"},
+            aclose=stream.aclose,
+        )
+
+    async def _fake_route_request(*args, **kwargs):
+        return _llm_call()
+
+    monkeypatch.setattr(proxy_server, "route_request", _fake_route_request)
+    yield
+
+
+@pytest.mark.parametrize("path", ["/v1/audio/transcriptions", "/audio/transcriptions"])
+def test_audio_transcription_stream_returns_sse_with_delta_then_done(
+    client, auth_as, patched_transcription_stream, path
+):
+    """A native transcript stream rides the route as text/event-stream: the
+    client sees the provider's event vocabulary, a delta precedes the
+    terminal done, and the done carries the native usage facts."""
+    files = {"file": ("audio.mp3", b"\x00\x01\x02", "audio/mpeg")}
+    data = {"model": "whisper-1", "stream": "true"}
+    with auth_as():
+        response = client.post(path, files=files, data=data)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers.get("x-litellm-model-id") == "dep-1"
+
+    frames = [f for f in response.text.split("\n\n") if f.strip()]
+    assert len(frames) == 3
+    assert frames[0].startswith("event: transcript.text.delta\n")
+    assert '"delta":"hello "' in frames[0]
+    assert frames[-1].startswith("event: transcript.text.done\n")
+    assert '"text":"hello world"' in frames[-1]
+    assert '"seconds":1.25' in frames[-1]

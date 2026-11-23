@@ -137,6 +137,9 @@ from litellm.llms.vertex_ai.common_utils import (
 )
 from litellm.realtime_api.main import realtime_health_check
 from litellm.responses.mcp.tool_precheck import may_name_litellm_mcp_gateway
+from litellm.llms.base_llm.audio_transcription.streaming import (
+    SyncNativeTranscriptionStream,
+)
 from litellm.secret_managers.main import get_secret_bool, get_secret_str
 from litellm.types.completion import (
     CompletionDispatchContext,
@@ -145,7 +148,9 @@ from litellm.types.completion import (
 from litellm.types.litellm_params import ControlOptions, RetryStrategy
 from litellm.types.llms.audio_transcription import (
     NativeAudioDocumentResponse,
+    NativeAudioStreamResult,
     NonStreamingNativeAudioResult,
+    OpenedNativeAudioStream,
 )
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.router import GenericLiteLLMParams
@@ -8099,12 +8104,17 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
             response = _transcription_response_from_cached_dict(init_response)
         elif isinstance(init_response, (TranscriptionResponse, NativeAudioDocumentResponse)):
             response = init_response
+        elif isinstance(init_response, SyncNativeTranscriptionStream):
+            # The sync streaming handle crosses the executor boundary whole:
+            # iteration is blocking (safe in the executor), and the async
+            # caller may wrap or hand it off; it is not awaited here.
+            response = init_response
         elif asyncio.iscoroutine(init_response):
             response = await init_response
         else:
             # Call the synchronous function using run_in_executor
             response = await loop.run_in_executor(None, func_with_context)
-        if not isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse)):
+        if not isinstance(response, (TranscriptionResponse, NativeAudioDocumentResponse, SyncNativeTranscriptionStream)):
             raise ValueError(
                 f"Invalid response from transcription provider, expected TranscriptionResponse or NativeAudioDocumentResponse, but got {type(response)}"
             )
@@ -8113,7 +8123,11 @@ async def atranscription(*args, **kwargs) -> TranscriptionResponse:
         # exposing it in the response body. Adding duration to the response
         # tricks the OpenAI SDK's "best match deserialization" into thinking
         # a plain Transcription is a TranscriptionVerbose/Diarized type.
-        if response is not None and not isinstance(response, Coroutine) and file is not None:
+        if (
+            response is not None
+            and not isinstance(response, (Coroutine, SyncNativeTranscriptionStream))
+            and file is not None
+        ):
             existing_duration: Final = getattr(response, "duration", None)
             if existing_duration is None:
                 calculated_duration: Final = calculate_request_duration(file)
@@ -8151,7 +8165,7 @@ def transcription(
     custom_llm_provider=None,
     base_url: str | None = None,
     **kwargs,
-) -> NonStreamingNativeAudioResult | Coroutine[object, object, NonStreamingNativeAudioResult]:
+) -> NativeAudioStreamResult | Coroutine[object, object, NativeAudioStreamResult]:
     """
     Calls openai + azure whisper endpoints.
 
@@ -8218,7 +8232,7 @@ def transcription(
         custom_llm_provider=custom_llm_provider,
     )
 
-    response: NonStreamingNativeAudioResult | Coroutine[object, object, NonStreamingNativeAudioResult] | None = None
+    response: NativeAudioStreamResult | Coroutine[object, object, NativeAudioStreamResult] | None = None
 
     provider_config: Final = ProviderConfigManager.get_provider_audio_transcription_config(
         model=model,
@@ -8383,7 +8397,7 @@ def transcription(
 
     # Store duration in _hidden_params for cost calculation without
     # exposing it in the response body (see sync path comment above).
-    if response is not None and not isinstance(response, Coroutine):
+    if response is not None and not isinstance(response, (Coroutine, OpenedNativeAudioStream)):
         existing_duration: Final = getattr(response, "duration", None)
         if existing_duration is None:
             calculated_duration: Final = calculate_request_duration(file)
@@ -8395,6 +8409,8 @@ def transcription(
 
     if response is None:
         raise ValueError("Unmapped provider passed in. Unable to get the response.")
+    if isinstance(response, OpenedNativeAudioStream):
+        return response
     if isinstance(response, NativeAudioDocumentResponse) and not (
         provider_config is not None and provider_config.uses_native_multipart_transport
     ):

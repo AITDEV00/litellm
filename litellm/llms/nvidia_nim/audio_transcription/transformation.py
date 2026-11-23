@@ -9,7 +9,8 @@ gated by the controller's compound NIM identity check (server name + tag +
 mounted paths), never by a checkpoint name.
 """
 
-from typing import Final
+from collections.abc import Mapping
+from typing import Final, Optional
 
 import httpx
 
@@ -22,6 +23,7 @@ from litellm.llms.base_llm.audio_transcription.transformation import (
 )
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.secret_managers.main import get_secret_str
+from litellm.types.llms.audio_transcription import NativeTranscriptEvent
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -45,6 +47,25 @@ class NvidiaNimAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
     @property
     def uses_native_multipart_transport(self) -> bool:
         return True
+
+    @property
+    def supports_multipart_streaming(self) -> bool:
+        """The NIM transcribe service answers ``stream=true`` with an SSE body
+        of typed ``transcript.text.delta`` frames and one terminal
+        ``transcript.text.done`` frame, verified live against the serving
+        pod."""
+        return True
+
+    def transform_streaming_event(
+        self,
+        model: str,
+        parsed_json: Mapping[str, object],
+    ) -> Optional[NativeTranscriptEvent]:
+        from litellm.llms.nvidia_nim.audio_transcription.streaming import (
+            transform_streaming_audio_response,
+        )
+
+        return transform_streaming_audio_response(model, parsed_json)
 
     def get_complete_url(
         self,

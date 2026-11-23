@@ -12,13 +12,55 @@ SDK entry points, and the proxy route return. JSON results stay
 ``NativeAudioDocumentResponse`` and flow out to a raw ``Response``.
 """
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from litellm.types.utils import TranscriptionResponse
 
 NativeAudioJsonResult: TypeAlias = TranscriptionResponse
+
+
+@dataclass(frozen=True, slots=True)
+class NativeTranscriptDelta:
+    """One incremental transcript fragment, in arrival order.
+
+    ``native_event`` preserves the provider's own event fields beyond the
+    mapped ones so downstream consumers can inspect vendor metadata without
+    the gateway hardcoding a per-field list.
+    """
+
+    delta: str
+    native_event: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeTranscriptDone:
+    """The single terminal success event of a native transcript stream.
+
+    ``text`` is the complete final transcript. ``usage`` carries the
+    provider's native usage payload (NIM: audio/completion/prompt token
+    counts plus ``seconds``), preserved as facts rather than re-interpreted
+    as chat tokens. ``native_event`` keeps the full provider frame.
+    """
+
+    text: str
+    usage: Mapping[str, object] = field(default_factory=dict)
+    native_event: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeTranscriptStreamError:
+    """A structured mid-stream failure: the client already has headers and
+    prior deltas, so the stream emits this typed event once, then ends."""
+
+    message: str
+    native_event: Mapping[str, object] = field(default_factory=dict)
+
+
+NativeTranscriptEvent: TypeAlias = (
+    NativeTranscriptDelta | NativeTranscriptDone | NativeTranscriptStreamError
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,3 +92,33 @@ class NativeAudioDocumentResponse:
 
 
 NonStreamingNativeAudioResult: TypeAlias = TranscriptionResponse | NativeAudioDocumentResponse
+
+
+@dataclass(frozen=True, slots=True)
+class OpenedNativeAudioStream:
+    """An initialized native transcript SSE stream, before first iteration.
+
+    The HTTP layer returns this instead of a final result when the provider
+    supports multipart streaming and the caller requested one. Headers and
+    status were already validated against the provider's contract, so the
+    proxy can inspect ``hidden_params`` and commit headers before consuming
+    a single event; the transport stays open until the consumer iterates
+    ``events`` to completion or calls ``aclose``.
+
+    Mirrors the ``HttpxBinaryResponseContent`` precedent (a closeable
+    streaming response owned by a first-class route), except it yields typed
+    transcript events rather than audio chunks.
+    """
+
+    model: str
+    events: AsyncIterator[NativeTranscriptEvent]
+    hidden_params: dict[str, object] = field(default_factory=dict)
+    aclose: object = field(default=None)
+
+    @property
+    def meta(self) -> dict[str, object]:  # mutable-ok: same surface as TranscriptionResponse
+        """Alias for the hidden-params surface the proxy already reads."""
+        return self.hidden_params
+
+
+NativeAudioStreamResult: TypeAlias = OpenedNativeAudioStream | TranscriptionResponse | NativeAudioDocumentResponse

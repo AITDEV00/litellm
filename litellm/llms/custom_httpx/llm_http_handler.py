@@ -52,7 +52,10 @@ from litellm.litellm_core_utils.audio_utils.subtitle_utils import (
     SUBTITLE_RESPONSE_FORMATS,
     synthesize_subtitle_document,
 )
-from litellm.litellm_core_utils.core_helpers import set_provider_response_headers_in_hidden_params
+from litellm.litellm_core_utils.core_helpers import (
+    process_response_headers,
+    set_provider_response_headers_in_hidden_params,
+)
 from litellm.litellm_core_utils.dot_notation_indexing import delete_nested_value
 from litellm.litellm_core_utils.get_litellm_params import AWS_CREDENTIAL_KWARGS_KEYS
 from litellm.litellm_core_utils.llm_request_utils import serialize_multipart_form_fields
@@ -66,13 +69,20 @@ from litellm.litellm_core_utils.url_utils import encode_url_path_segment
 from litellm.llms.base_llm.anthropic_messages.transformation import (
     BaseAnthropicMessagesConfig,
 )
+from litellm.llms.base_llm.audio_transcription.streaming import (
+    SharedNativeTranscriptionStream,
+    SyncNativeTranscriptionStream,
+)
 from litellm.llms.base_llm.audio_transcription.transformation import (
     BaseAudioTranscriptionConfig,
 )
 from litellm.llms.base_llm.audio_translation.transformation import (
     BaseAudioTranslationConfig,
 )
-from litellm.types.llms.audio_transcription import NativeAudioDocumentResponse
+from litellm.types.llms.audio_transcription import (
+    NativeAudioDocumentResponse,
+    OpenedNativeAudioStream,
+)
 from litellm.llms.base_llm.base_model_iterator import (
     BaseModelResponseIterator,
     MockResponseIterator,
@@ -1875,7 +1885,8 @@ class BaseLLMHTTPHandler:
     ) -> (
         TranscriptionResponse
         | NativeAudioDocumentResponse
-        | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse]
+        | OpenedNativeAudioStream
+        | Coroutine[object, object, TranscriptionResponse | NativeAudioDocumentResponse | OpenedNativeAudioStream]
     ):
         if provider_config is None:
             raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
@@ -1922,6 +1933,26 @@ class BaseLLMHTTPHandler:
 
         json_data: Final = data if files is None and isinstance(data, dict) else None
 
+        streaming_requested: Final[bool] = optional_params.get("stream") is True
+        if streaming_requested and not provider_config.supports_multipart_streaming:
+            raise litellm.BadRequestError(
+                message=f"Provider {custom_llm_provider} does not support streaming for audio transcription. Resend without stream=true.",
+                model=model,
+                llm_provider=custom_llm_provider,
+            )
+        if streaming_requested:
+            return self._open_sync_native_audio_transcription_stream(
+                httpx_client=client,
+                complete_url=complete_url,
+                headers=headers,
+                data=data if json_data is None else None,
+                files=files,
+                json_data=json_data,
+                timeout=timeout,
+                provider_config=provider_config,
+                model=model,
+            )
+
         try:
             response: Final = client.post(
                 url=complete_url,
@@ -1961,7 +1992,7 @@ class BaseLLMHTTPHandler:
         headers: dict[str, object] | None = None,
         provider_config: BaseAudioTranscriptionConfig | None = None,
         shared_session: Optional["ClientSession"] = None,
-    ) -> TranscriptionResponse | NativeAudioDocumentResponse:
+    ) -> TranscriptionResponse | NativeAudioDocumentResponse | OpenedNativeAudioStream:
         if provider_config is None:
             raise ValueError(f"No provider config found for model: {model} and provider: {custom_llm_provider}")
 
@@ -1994,6 +2025,28 @@ class BaseLLMHTTPHandler:
 
         json_data: Final = data if files is None and isinstance(data, dict) else None
 
+        streaming_requested: Final[bool] = optional_params.get("stream") is True
+        if streaming_requested and not provider_config.supports_multipart_streaming:
+            raise litellm.BadRequestError(
+                message=f"Provider {custom_llm_provider} does not support streaming for audio transcription. Resend without stream=true.",
+                model=model,
+                llm_provider=custom_llm_provider,
+            )
+        if streaming_requested:
+            return await self._open_native_audio_transcription_stream(
+                async_httpx_client=async_httpx_client,
+                complete_url=complete_url,
+                headers=headers,
+                data=data if json_data is None else None,
+                files=files,
+                json_data=json_data,
+                timeout=timeout,
+                provider_config=provider_config,
+                model=model,
+                logging_obj=logging_obj,
+                litellm_params=litellm_params,
+            )
+
         try:
             response: Final = await async_httpx_client.post(
                 url=complete_url,
@@ -2014,6 +2067,147 @@ class BaseLLMHTTPHandler:
             logging_obj=logging_obj,
             optional_params=optional_params,
             api_key=api_key,
+        )
+
+    async def _open_native_audio_transcription_stream(
+        self,
+        *,
+        async_httpx_client: AsyncHTTPHandler,
+        complete_url: str,
+        headers: dict[str, object],
+        data: object,
+        files: object,
+        json_data: object,
+        timeout: float,
+        provider_config: BaseAudioTranscriptionConfig,
+        model: str,
+        logging_obj: LiteLLMLoggingObj,
+        litellm_params: dict,
+    ) -> OpenedNativeAudioStream:
+        """Send the multipart request with ``stream=True`` and wrap the opened
+        SSE transport in the generic lifecycle before any byte is consumed.
+
+        Status and headers are validated here so a non-2xx or a non-SSE answer
+        raises before the caller ever sees a stream object; the returned
+        handle defers event consumption to the consumer's iteration.
+        """
+        try:
+            response: Final = await async_httpx_client.post(
+                url=complete_url,
+                headers={**headers, "Accept": "text/event-stream"},
+                data=data,
+                files=files,
+                json=json_data,
+                timeout=timeout,
+                stream=True,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        if response.status_code >= 400:
+            await response.aread()
+            await response.aclose()
+            raise self._handle_error(
+                e=httpx.HTTPStatusError(
+                    message=f"Provider returned status {response.status_code}",
+                    request=response.request,
+                    response=response,
+                ),
+                provider_config=provider_config,
+            )
+        content_type: Final = response.headers.get("content-type", "")
+        if "text/event-stream" not in content_type:
+            await response.aread()
+            await response.aclose()
+            raise litellm.BadRequestError(
+                message=(
+                    f"Provider answered a streaming audio request with Content-Type {content_type!r}; "
+                    "the gateway cannot relay it as a transcript event stream."
+                ),
+                model=model,
+                llm_provider=provider_config.__class__.__name__,
+            )
+
+        # The same metadata surface a TranscriptionResponse would carry: the
+        # proxy's header builder and cost calculators read model_id /
+        # additional_headers from here before the first event is consumed.
+        hidden_params: Final[dict[str, object]] = {
+            "additional_headers": process_response_headers(dict(response.headers)),
+            "headers": dict(response.headers),
+            "model": model,
+        }
+
+        stream: Final = SharedNativeTranscriptionStream(
+            model=model,
+            response=response,
+            provider_config=provider_config,
+            logging_obj=logging_obj,
+            hidden_params=hidden_params,
+        )
+        return OpenedNativeAudioStream(
+            model=model,
+            events=stream.__aiter__(),
+            hidden_params=hidden_params,
+            aclose=stream.aclose,
+        )
+
+    def _open_sync_native_audio_transcription_stream(
+        self,
+        *,
+        httpx_client: HTTPHandler,
+        complete_url: str,
+        headers: dict[str, object],
+        data: object,
+        files: object,
+        json_data: object,
+        timeout: float,
+        provider_config: BaseAudioTranscriptionConfig,
+        model: str,
+    ) -> SyncNativeTranscriptionStream:
+        """Synchronous counterpart of the async stream opener.
+
+        The transport opens with a blocking send (no event loop, so running
+        it through the executor wrapper never blocks a loop), and the
+        returned handle iterates with the same SSE framing and provider
+        vocabulary as the async stream.
+        """
+        try:
+            response: Final = httpx_client.post(
+                url=complete_url,
+                headers={**headers, "Accept": "text/event-stream"},
+                data=data,
+                files=files,
+                json=json_data,
+                timeout=timeout,
+                stream=True,
+            )
+        except Exception as e:
+            raise self._handle_error(e=e, provider_config=provider_config)
+
+        content_type: Final = response.headers.get("content-type", "")
+        if "text/event-stream" not in content_type:
+            response.read()
+            response.close()
+            raise litellm.BadRequestError(
+                message=(
+                    f"Provider answered a streaming audio request with Content-Type {content_type!r}; "
+                    "the gateway cannot relay it as a transcript event stream."
+                ),
+                model=model,
+                llm_provider=provider_config.__class__.__name__,
+            )
+
+        hidden_params: Final[dict[str, object]] = {
+            "additional_headers": process_response_headers(dict(response.headers)),
+            "headers": dict(response.headers),
+            "model": model,
+        }
+
+        return SyncNativeTranscriptionStream(
+            model=model,
+            response=response,
+            provider_config=provider_config,
+            hidden_params=hidden_params,
         )
 
     def _prepare_audio_translation_request(
