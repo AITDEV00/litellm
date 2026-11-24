@@ -244,6 +244,8 @@ nav:
   - Discovery Controller:
       - README: discovery-controller/README.md
       - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
+  - Performance:
+      - Spend Dashboard View Repair: performance/spend-view-repair-plan.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Model Pricing:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md

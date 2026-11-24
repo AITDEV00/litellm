@@ -158,6 +158,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Retention flags + OOM logic map v2 | `docs/performance/retention-flags-and-oom-LOGIC-MAP-v2.md` |
 | Spend logs + RAM logic map | `docs/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md` |
 | Routing-strategy sync-task leak OOM logic map | `docs/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md` |
+| Spend-view repair plan, dev worker prompt, prod runbook | `docs/performance/spend-view-repair-plan.md` |
 
 ## Custom routes
 
