@@ -12,8 +12,9 @@ is the usual reason people get stuck.
 | Credential your app stores | The returned JWT | Nothing; it forwards the user's token |
 | Config | none extra | `enable_jwt_auth` + `JWT_PUBLIC_KEY_URL` / `JWT_AUDIENCE` / `JWT_ISSUER` |
 
-Both were run for real against `litellm-proxy-dev` on 2026-11-24. The evidence is
-quoted in each section.
+Both were run for real on 2026-11-24: Flow B on **prod**
+(`https://litellm.ecouncil.ae`) and dev, Flow A on dev. The evidence is quoted in
+each section.
 
 ---
 
@@ -79,9 +80,14 @@ From `litellm/proxy/auth/user_api_key_auth.py`:
 - Claims map to identity through `general_settings.litellm_jwtauth`
   (`user_id_jwt_field`, `user_email_jwt_field`, `team_id_jwt_field`, ...).
 
-### Config used on dev
+### Config on dev and prod
 
-`deploy/overlays/dev/gateway/config.yaml`:
+Both environments run the same block. Only `JWT_AUDIENCE` differs, because each
+environment has its own Entra app registration. The JWKS URL and issuer are the
+same tenant, so they are identical.
+
+`general_settings` in `deploy/overlays/dev/gateway/config.yaml` and
+`deploy/overlays/prod/gateway/config.yaml`:
 
 ```yaml
 general_settings:
@@ -93,18 +99,25 @@ general_settings:
     user_id_upsert: true
 ```
 
-`deploy/overlays/dev/gateway/deployment.yaml`:
+Env in `deploy/overlays/{dev,prod}/gateway/deployment.yaml`:
 
-```yaml
-- name: JWT_PUBLIC_KEY_URL
-  value: "https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys"
-- name: JWT_AUDIENCE
-  value: "<app id>"
-- name: JWT_ISSUER
-  value: "https://sts.windows.net/<tenant>/"
+| Var | dev (staging app) | prod (prod app) |
+|---|---|---|
+| `JWT_PUBLIC_KEY_URL` | `.../99cf3350-.../discovery/v2.0/keys` | same (same tenant) |
+| `JWT_ISSUER` | `https://sts.windows.net/99cf3350-.../` | same (same tenant) |
+| `JWT_AUDIENCE` | staging client id | prod client id |
+
+### Real run, prod
+
+```
+$ python3 flow_b_microsoft_jwt_to_litellm.py call --base-url https://litellm.ecouncil.ae --token "$PROD_TOK"
+HTTP 200
+{"data":[{"id":"Qwen3.6-35B-A3B-FP8",...},{"id":"deepseek-ai/DeepSeek-V4.1-Flash",...}]}
 ```
 
-### Real run
+The prod gateway accepted a real Entra token from the prod app registration.
+
+### Real run, dev
 
 Get a real Entra token, inspect it, present it:
 
@@ -129,12 +142,17 @@ plane.** No virtual key, no second login, no shared secret.
 
 ### Negative cases, all verified
 
-| Case | Result |
-|---|---|
-| Tampered token (last char changed) | `401` signature verification failed |
-| Token issued for a different audience (Graph) | `401` |
-| Admin route `/user/list` with a user JWT | `403` |
-| `enable_jwt_auth` off, JWT presented | `401` with the "Set `enable_jwt_auth: true`" hint |
+| Case | dev | prod |
+|---|---|---|
+| Tampered token (last char changed) | `401` | `401` |
+| Token issued for a different audience (Graph) | `401` | n/a |
+| Staging-app token presented to the other environment | n/a | `401` |
+| Admin route `/user/list` with a user JWT | `403` | `403` |
+| `enable_jwt_auth` off, JWT presented | `401` + hint | n/a |
+
+The staging-token-rejected-by-prod row is the important one: it proves the
+environments are audience-isolated, so a dev credential cannot be replayed
+against prod.
 
 ### The audience trap, which will bite you
 
@@ -196,7 +214,9 @@ Do not try to scrape a key out of the Admin UI session. The UI cookie is a
 ## Exercising the exemplars
 
 ```
-export LITELLM_BASE=http://localhost:14001
+# dev is reached over the port-forward; prod through its ingress.
+export LITELLM_BASE=http://localhost:14001          # dev
+export LITELLM_BASE=https://litellm.ecouncil.ae     # prod
 
 # Flow A: prints a URL, then polls. Complete the URL in a browser to get a token.
 python3 flow_a_cli_sso_virtual_key.py --base-url "$LITELLM_BASE" --wait-seconds 300
@@ -209,12 +229,29 @@ python3 flow_b_microsoft_jwt_to_litellm.py call --base-url "$LITELLM_BASE" --tok
 python3 flow_b_microsoft_jwt_to_litellm.py device-code --tenant "$TENANT" --client-id "$CLIENT_ID" --client-secret "$SECRET"
 ```
 
+On prod, `LITELLM_BASE` is the ingress host, so an Entra token from the **prod**
+app registration is the one to present. A staging-app token is rejected there by
+design (audience mismatch), which is the isolation the negative-case table shows.
+
 Flow A notes: `--team-id` skips the interactive team prompt. The flow is
 single-use; the server deletes the session when it returns the token.
 
-## Not yet done
+## Rollout status
 
-Flow B is enabled on **dev only**. Prod still runs browser SSO plus password.
-Before enabling it on prod, decide the prod app registration's audience (see the
-audience trap) and add `JWT_*` to the prod overlay. The parity test lists these
-keys as dev-only on purpose so the difference cannot drift silently.
+Flow B is enabled on **dev and prod** as of 2026-11-24, both through the kustomize
+overlays (`kubectl apply -k deploy/overlays/prod`), not hand-edited cluster state.
+
+Flow A needs no extra config and works anywhere the proxy serves `/sso/cli/*`.
+
+### The prod config patch has a maintenance rule
+
+`deploy/base/gateway/config/litellm-config.yaml` stores the whole proxy config as
+one YAML block scalar, which kustomize treats as an opaque string. A patch
+replaces that string wholesale, so `deploy/overlays/prod/gateway/config.yaml`
+reproduces the entire base body plus the JWT block.
+
+That means **editing the base config without regenerating the prod patch silently
+drops the change from prod**. `tests/deploy/test_prod_config_patch.py` fails when
+the two drift apart, so run `make check` (or that test) after any base config
+edit. Note dev also fully replaces the string, and its patch carries dev-only
+settings, so the same rule applies there.

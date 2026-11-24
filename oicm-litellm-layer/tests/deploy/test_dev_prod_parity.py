@@ -69,6 +69,10 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
         "MICROSOFT_CLIENT_ID",  # dev and prod are separate Entra app registrations
         "MICROSOFT_CLIENT_SECRET",  # dev: litellm-microsoft-sso-dev Secret
         "MICROSOFT_TENANT",  # dev: litellm-microsoft-sso-dev Secret
+        # JWT bearer auth: same keys both sides, but each environment validates
+        # against its own Entra app registration, so the audience differs. The
+        # JWKS and issuer are the same tenant.
+        "JWT_AUDIENCE",  # dev: staging app id, prod: prod app id
     }
 )
 
@@ -87,13 +91,6 @@ _DEV_ONLY_ENV_VARS: Final = frozenset(
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
         "HAMSA_API_KEY",
-        # JWT auth (enable_jwt_auth) is proven on dev first. Prod keeps
-        # username/password + browser SSO until the audience question for the
-        # prod app registration is settled; when it is wired, these move to the
-        # expected-diff list like the SSO keys did.
-        "JWT_PUBLIC_KEY_URL",
-        "JWT_AUDIENCE",
-        "JWT_ISSUER",
     }
 )
 
@@ -158,14 +155,6 @@ _EXPECTED_CONFIG_DIFFS: Final = frozenset()
 _EXPECTED_TOP_LEVEL_CONFIG_DIFFS: Final = frozenset(
     {
         "litellm_settings.callbacks",
-        # JWT bearer auth is enabled on dev to prove the SSO-to-token flow.
-        # Prod keeps browser SSO + password until its app registration has a
-        # scope for LiteLLM's audience. See _DEV_ONLY_ENV_VARS.
-        "general_settings.enable_jwt_auth",
-        "general_settings.litellm_jwtauth.user_id_jwt_field",
-        "general_settings.litellm_jwtauth.user_email_jwt_field",
-        "general_settings.litellm_jwtauth.team_id_jwt_field",
-        "general_settings.litellm_jwtauth.user_id_upsert",
     }
 )
 

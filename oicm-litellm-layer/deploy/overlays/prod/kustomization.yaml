@@ -16,3 +16,4 @@ resources:
 
 patches:
   - path: gateway/deployment.yaml
+  - path: gateway/config.yaml

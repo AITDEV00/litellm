@@ -164,5 +164,11 @@ coverage-rust.xml
 oicm-litellm-layer/site/
 .image-relay/
 
+# The blanket `config.yaml` rule above exists to keep local runtime configs out of
+# git. The OICM overlays ship config PATCHES that must be tracked, or a fresh
+# checkout renders a gateway without them and prod silently loses the JWT auth
+# block. Dev's copy is tracked because it predates the rule.
+!oicm-litellm-layer/deploy/overlays/*/gateway/config.yaml
+
 # Separate repo checked out beside this one, not a declared submodule.
 cc-switch-cli/
