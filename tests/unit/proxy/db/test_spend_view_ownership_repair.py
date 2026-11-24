@@ -380,11 +380,11 @@ class TestOperatorRepair:
             "'--snapshot-out', %r];\n"
             "sys.path.insert(0, %r);\n"
             "import scripts.repair_legacy_spend_views as m;\n"
-            "def boom(conn, schema, app_role, grants):\n"
-            "    m._repair_inner(conn, schema, app_role, grants)\n"
+            "orig = m._repair;\n"
+            "def boom(conn, schema, app_role):\n"
+            "    orig(conn, schema, app_role);\n"
             "    raise RuntimeError('injected mid-repair failure')\n"
             "m._repair = boom;\n"
-            "m._repair_inner = __import__('scripts.repair_legacy_spend_views', fromlist=['x']).__dict__['_repair']\n"
             "raise SystemExit(m.main())\n"
         ) % (_SUPER_URL, app_role, str(tmp_path / "snapshot.json"), str(REPO_ROOT))
         result = subprocess.run(  # test-quality-ok: TQ009 same injection harness as above: it must import the repo's scripts package to monkeypatch _repair, which needs the checkout on sys.path
@@ -395,6 +395,9 @@ class TestOperatorRepair:
         )
         assert result.returncode != 0
         combined = result.stdout + result.stderr
+        assert "injected mid-repair failure" in combined, (
+            "the failure must come from the injected post-DDL raise, not a harness TypeError"
+        )
         assert "rolled back" in combined
         owner, _, _ = _view_state(clean_schema, "Last30dModelsBySpend")
         assert owner == "postgres", "rollback must restore the foreign owner"
