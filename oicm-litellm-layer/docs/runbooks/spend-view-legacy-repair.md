@@ -452,10 +452,13 @@ meta, CREATE on the database; a real `SET ROLE oicm` session could read the
 spend logs and the rollup (`LIMIT 0` probes, no unbounded reads).
 
 Janitor lifecycle: the 12:00Z run (`spend-logs-janitor-prod-29925360`,
-pre-cleanup) completed its normal cycle; the first post-cleanup scheduled run is
-14:00Z. Its log is to be attached to the operator evidence when it lands; the
-12:33Z privilege probes above already prove the exact rights the janitor's
-connect path uses (`oicm` with `litellm` membership).
+pre-cleanup) completed its normal cycle; the first post-cleanup scheduled run,
+`spend-logs-janitor-prod-29925480` at 14:00Z, also completed its normal cycle:
+archive tick, no work, no permission errors (log saved as
+`prod-janitor-1400z.log` in the operator evidence directory). Its only warning
+line is the disk-pressure notice that the pre-cleanup 12:00Z run already
+emitted, so it predates the cleanup. The janitor's connect path (`oicm` with
+`litellm` membership) works unchanged after cleanup.
 
 Public ingress acceptance (12:33Z): admin `/global/spend/models?limit=5` 200,
 `/global/spend/keys?limit=5` 200, `/global/spend/all_tag_names` 200,
