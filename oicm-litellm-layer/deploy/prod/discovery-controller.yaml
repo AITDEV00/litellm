@@ -127,7 +127,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: controller
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261123-6edfbec@sha256:1894d14b1e6690fcc00e52325301b01075db5d1f26fd161fcd1e5da70b86ebb2
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/oicm-discovery-controller:0.1.0-20261123-6edfbec@sha256:1f37d94c50eaf49228acf945854fc21e8c16f464dfe14b72827d074013f8a9e0
           # The version tag is immutable (semver + date + git SHA), so prod can
           # never silently change builds on a rollout or node reboot. Bump it
           # deliberately with `make controller-release`.

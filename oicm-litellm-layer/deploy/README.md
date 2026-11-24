@@ -74,10 +74,10 @@ place; a digest cannot, so a prod rollout is reproducible and a dev rebuild is n
 
 | Component | Repo / tag | Digest |
 | --------- | ---------- | ------ |
-| gateway | `litellm-src:jya0-v1.108.5-prod` | `sha256:e15f122ace8e99b3d11ad5041e007acf6237978079b33baa1f7c9edbd9222e84` |
+| gateway | `litellm-src:jya0-v1.108.5-prod` | `sha256:00e7e55da32094ab1e3af8a984c83fb6525f38439c2fdacbdb64d63f2554b07a` |
 | broker | `litellm-mcp-broker:jya0-v1.108.5-prod` | `sha256:2728d6a738d13156e05fee5671a46c892654a50044029b391e317935a98bee89` |
 | sidecar | `mcp-source-link-worker:jya0-v1.108.5-prod` | `sha256:ce3c214c205b32aaa34010fff1466ef9f8b790c7e45fc27f836d9c2b9091242c` |
-| controller | `oicm-discovery-controller:0.1.0-20261123-6edfbec` | `sha256:1894d14b1e6690fcc00e52325301b01075db5d1f26fd161fcd1e5da70b86ebb2` |
+| controller | `oicm-discovery-controller:0.1.0-20261123-6edfbec` | `sha256:1f37d94c50eaf49228acf945854fc21e8c16f464dfe14b72827d074013f8a9e0` |
 | rustfs | `rustfs/rustfs:1.0.1` | tag only (upstream image, not rebuilt locally) |
 
 The base gateway deployment names `litellm-src:jya0-v1.108.5` **without** a
