@@ -160,6 +160,19 @@ spec:
                   name: litellm-microsoft-sso-dev
                   key: MICROSOFT_TENANT
                   optional: true
+            # JWT auth (general_settings.enable_jwt_auth in config.yaml) needs
+            # three things to validate an Entra token as a bearer:
+            #   JWT_PUBLIC_KEY_URL -> the tenant JWKS
+            #   JWT_AUDIENCE       -> the `aud` the token carries (the app id)
+            #   JWT_ISSUER         -> the literal `iss` claim (exact match)
+            # Leaving AUDIENCE/ISSUER unset makes validation signature-only,
+            # which trusts any app sharing Entra's signing keys.
+            - name: JWT_PUBLIC_KEY_URL
+              value: "https://login.microsoftonline.com/99cf3350-40c8-4260-bb84-1dada4a029c0/discovery/v2.0/keys"
+            - name: JWT_AUDIENCE
+              value: "e1ad1372-fbaa-4013-a288-8547d8b7dbe7"
+            - name: JWT_ISSUER
+              value: "https://sts.windows.net/99cf3350-40c8-4260-bb84-1dada4a029c0/"
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
             # Standard data-plane Service port for the MCP source broker.

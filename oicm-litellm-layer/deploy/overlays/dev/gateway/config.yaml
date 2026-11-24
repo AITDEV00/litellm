@@ -127,3 +127,22 @@ data:
       # when the DB is down. Spend-log queueing stays bounded (64MB,
       # drop-oldest) so RAM cannot grow unboundedly while the DB is down.
       allow_requests_on_db_unavailable: true
+      # Accept a Microsoft Entra JWT as the bearer on data-plane routes, so a
+      # service that already holds the user's Microsoft token can call LiteLLM
+      # with it directly (no second login, no shared secret). Enterprise only;
+      # /health/license must report a license.
+      #
+      # JWT_AUDIENCE and JWT_ISSUER are NOT optional. With both unset,
+      # _build_decode_kwargs only checks signature and expiry, so any token
+      # minted by any app sharing Entra's signing keys would be accepted.
+      #
+      # The issuer is the literal `iss` the token carries. Entra emits the
+      # v1 form (sts.windows.net/...) on app-only tokens and the v2 form
+      # (login.microsoftonline.com/<tid>/v2.0) on delegated ones, and PyJWT
+      # matches `iss` exactly, so pin whichever form your callers present.
+      enable_jwt_auth: true
+      litellm_jwtauth:
+        user_id_jwt_field: "oid"
+        user_email_jwt_field: "upn"
+        team_id_jwt_field: null
+        user_id_upsert: true
