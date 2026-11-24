@@ -22,8 +22,9 @@ Use this folder to keep growing answers as questions come up. Each file is one t
 | [`12-microsoft-saml-airgap.md`](12-microsoft-saml-airgap.md) | Verified: Microsoft SAML with inline `SAML_IDP_METADATA_XML` needs no Microsoft egress, native OIDC does, plus four corrections to the research and the invariants to preserve. |
 | [`13-dev-microsoft-sso-deployed.md`](13-dev-microsoft-sso-deployed.md) | What was actually deployed to dev for Microsoft OIDC SSO, the verification results, the exact redirect URI, and the remaining Entra localhost/confidential-client blocker. |
 | [`14-sso-application-integration.md`](14-sso-application-integration.md) | Current guide for application developers who already have Entra SSO and for proxy admins configuring organizations, teams, users, and model/MCP access groups. |
+| [`15-opencode-sso-mcp-skills-pilot.md`](15-opencode-sso-mcp-skills-pilot.md) | Implementation plan for local OpenCode V2 Microsoft SSO/native MCP OAuth and private skill loading, with separate mandatory dev then prod stages. |
 
-Read 14 for the current application integration design. Earlier files are dated research and can describe pre-SSO deployment state
+Read 14 for the current application integration design. Read 15 for the OpenCode native harness pilot. Earlier files are dated research and can describe pre-SSO deployment state
 
 ## Conventions in these files
 
