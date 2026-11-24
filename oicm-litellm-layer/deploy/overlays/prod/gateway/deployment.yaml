@@ -15,7 +15,7 @@ spec:
         - name: litellm
           # Prod pins the exact bytes it validated. The base names only the
           # mutable `jya0-v1.108.5` tag, which dev rebuilds overwrite.
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.108.5-prod@sha256:00e7e55da32094ab1e3af8a984c83fb6525f38439c2fdacbdb64d63f2554b07a
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.108.5-prod@sha256:9ff9cd4f9c13e2eccb886410ad2455333d4ba2331ad23e33d44d6a25fe6e6d6e
           env:
             - name: LITELLM_PUBLIC_BASE_URL
               value: "https://litellm.ecouncil.ae"
