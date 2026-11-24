@@ -422,3 +422,49 @@ ownership change, and the command only targets the `oicm` grantee entries. Then
 verify janitor lifecycle health from the next scheduled run's logs, the four
 public-ingress checks for admin and the existing Athena viewer, and no new
 timeouts or permission errors in the proxy logs.
+
+### Prod execution record, 2026-11-24 (explicitly approved)
+
+Approved by the operator in-session after the dev-phase record was reviewed.
+
+Pre-execution drift check (read-only, saved as `prod-drift-check.txt` in the
+operator evidence directory): the catalog matched the preflight byte for byte,
+the `litellm`-creator default ACL row, `oicm MEMBER OF litellm`, and the
+`DailyTagSpend` materialized `oicm` entry all unchanged. No drift.
+
+Dry-run then apply (both logs saved as `prod-dryrun.log` / `prod-apply.log`):
+
+- dry-run planned exactly two statements: the creator default ACL revoke and
+  the `DailyTagSpend` entry revoke; nothing else.
+- `--apply` committed both in one transaction and its built-in verification
+  passed: default ACL entry gone, no grantee view entries, `litellm` reads all
+  views, membership preserved.
+
+Independent pod-exec post-state (`prod-post-state.txt`): only the
+`postgres`-creator default ACL row remains (out of scope, partition coverage);
+`DailyTagSpend` now carries only its `litellm` self-entry;
+`Last30dTopEndUsersSpend` keeps its benign `litellm` self-entry; the other five
+views NULL-ACL; `oicm MEMBER OF litellm` intact.
+
+Real privilege probes after cleanup, all true: `oicm` SELECT on
+`LiteLLM_SpendLogs` (via membership), SELECT/INSERT on the archive ledger and
+meta, CREATE on the database; a real `SET ROLE oicm` session could read the
+spend logs and the rollup (`LIMIT 0` probes, no unbounded reads).
+
+Janitor lifecycle: the 12:00Z run (`spend-logs-janitor-prod-29925360`,
+pre-cleanup) completed its normal cycle; the first post-cleanup scheduled run is
+14:00Z. Its log is to be attached to the operator evidence when it lands; the
+12:33Z privilege probes above already prove the exact rights the janitor's
+connect path uses (`oicm` with `litellm` membership).
+
+Public ingress acceptance (12:33Z): admin `/global/spend/models?limit=5` 200,
+`/global/spend/keys?limit=5` 200, `/global/spend/all_tag_names` 200,
+`/global/spend/tags?start_date=2026-11-17&end_date=2026-11-24` 200; the same
+four 200 as the Athena viewer with inference denied 403. Proxy logs show no
+permission-denied, undefined-column, or timeout errors; both replicas at zero
+restarts.
+
+No image rebuild, proxy rollout, secret rotation, config change, or row writes.
+DB metadata changed: the `litellm`-creator `oicm`-grantee `pg_default_acl`
+entry removed, the `DailyTagSpend` materialized `oicm` entry removed. Runtime
+code unchanged.
