@@ -113,6 +113,7 @@ OVERLAY_DEV  := deploy/overlays/dev
 OVERLAY_PROD := deploy/overlays/prod
 
 GATEWAY_MANIFEST := deploy/base/gateway/proxy/deployment.yaml
+GATEWAY_PROD_MANIFEST := deploy/overlays/prod/gateway/deployment.yaml
 GATEWAY_DEPLOYMENT_DEV  := litellm-proxy-dev
 GATEWAY_DEPLOYMENT_PROD := litellm-proxy
 SERVICEMONITOR_PROD := deploy/prod/litellm-servicemonitor.yaml
@@ -129,6 +130,17 @@ define pin_image
 for f in $(3); do sed -i 's|image: $(1):.*|image: $(1):$(2)|' $$f; echo "  $$f -> $(1):$(2)"; done
 endef
 
+# Resolve the registry MANIFEST digest for $(1)<repo>:<tag>.
+#
+# This must be the registry's `Docker-Content-Digest`, which is what a runtime
+# resolves on pull. Do NOT use `podman image inspect --format '{{.Digest}}'`:
+# that prints the config blob digest, and pinning it makes the kubelet fail with
+# `NotFound` and ImagePullBackOff. `podman manifest inspect` refuses single-arch
+# images, and `skopeo` is not installed on every box, so a small script reads the
+# registry header directly. See scripts/image_manifest_digest.py.
+IMAGE_DIGEST_SCRIPT := $(CURDIR)/scripts/image_manifest_digest.py
+resolve_manifest_digest = $(shell HARBOR_USER=$(HARBOR_USER) HARBOR_PASS=$(HARBOR_PASS) python3 $(IMAGE_DIGEST_SCRIPT) $(1):$(2) 2>/dev/null)
+
 # Pin a MUTABLE dev tag and append the repo digest it resolved to. $(1) image
 # repo, $(2) tag, $(3) manifest paths. The `-dev` tag is rewritten by every
 # build, so on its own it does not say which bytes a manifest means; the digest
@@ -136,7 +148,7 @@ endef
 # A re-pin strips the previous digest first so the pattern stays anchored.
 define pin_dev_image_with_digest
 for f in $(3); do \
-    digest=$$(skopeo inspect --tls-verify=false docker://$(1):$(2) --format '{{.Digest}}' 2>/dev/null); \
+    digest=$$(HARBOR_USER=$(HARBOR_USER) HARBOR_PASS=$(HARBOR_PASS) python3 $(IMAGE_DIGEST_SCRIPT) $(1):$(2) 2>/dev/null); \
     sed -i 's|image: $(1):[^ ]*|image: $(1):$(2)@@DIGEST@@|' $$f; \
     if [ -n "$$digest" ]; then \
         sed -i "s|@@DIGEST@@|@$$digest|" $$f; \
@@ -145,6 +157,26 @@ for f in $(3); do \
         sed -i 's|@@DIGEST@@||' $$f; \
         echo "  $$f -> $(1):$(2) (no digest; run make login)"; \
     fi; \
+done
+endef
+
+# Pin an IMMUTABLE prod tag together with its registry manifest digest. $(1)
+# image repo, $(2) tag, $(3) manifest paths. Prod must name the exact bytes it
+# validated, and the digest half must be the manifest digest a runtime resolves,
+# not the config blob digest, or the rollout dies on ImagePullBackOff. This
+# target FAILS LOUDLY when the digest cannot be resolved rather than writing a
+# bare tag, because a bare prod tag silently follows a rebuild.
+define pin_prod_image_with_digest
+for f in $(3); do \
+    digest=$$(HARBOR_USER=$(HARBOR_USER) HARBOR_PASS=$(HARBOR_PASS) python3 $(IMAGE_DIGEST_SCRIPT) $(1):$(2) 2>/dev/null); \
+    if [ -z "$$digest" ]; then \
+        echo "ERROR: cannot resolve manifest digest for $(1):$(2)." >&2; \
+        echo "       Run 'make login', then verify it exists:" >&2; \
+        echo "       python3 scripts/image_manifest_digest.py $(1):$(2)" >&2; \
+        exit 1; \
+    fi; \
+    sed -i "s|image: $(1):[^ ]*|image: $(1):$(2)@$$digest|" $$f; \
+    echo "  $$f -> $(1):$(2)@$$digest"; \
 done
 endef
 
@@ -170,6 +202,7 @@ endef
 	prod-config prod-controller prod-gateway prod-extras deploy \
 	dev-config dev-controller dev-gateway deploy-dev \
 	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-pin \
+	litellm-src-pin-prod litellm-src-release-prod-image \
 	litellm-src-deploy litellm-src-release litellm-src-deploy-dev litellm-src-release-dev \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
 	smoke smoke-fast smoke-models smoke-leaks smoke-leaks-mutate \
@@ -217,6 +250,10 @@ help:
 	@echo "  litellm-src-build-push        build + push litellm-src:\$$(LITELLM_SRC_TAG)"
 	@echo "  litellm-src-release-dev       build, push, pin, roll out DEV only"
 	@echo "  litellm-src-release           same for prod"
+	@echo "  litellm-src-release-prod-image  build, tag -prod, push, pin prod overlay"
+	@echo "         ^ use this for prod. It pins <tag>-prod@sha256:<manifest digest>."
+	@echo "         A tag with no digest, or a digest from 'podman image inspect'"
+	@echo "         (the config blob), causes ErrImagePull/ImagePullBackOff."
 	@echo ""
 	@echo "MCP source broker images. Both dev images are one mutable"
 	@echo "  tag: \$$(LITELLM_SRC_TAG)-dev, pinned by digest in the overlay."
@@ -405,8 +442,8 @@ controller-pin-dev:
 	@echo "Prod manifest untouched."
 
 controller-pin-prod:
-	@echo "Pinning $(DISCOVERY_IMG):$(TAG) in $(CONTROLLER_MANIFEST_PROD)"
-	$(call pin_image,$(DISCOVERY_IMG),$(TAG),$(CONTROLLER_MANIFEST_PROD))
+	@echo "Pinning $(DISCOVERY_IMG):$(TAG) + manifest digest in $(CONTROLLER_MANIFEST_PROD)"
+	$(call pin_prod_image_with_digest,$(DISCOVERY_IMG),$(TAG),$(CONTROLLER_MANIFEST_PROD))
 	@echo "Dev manifest untouched."
 
 ## Point both manifests at $(TAG). Useful when both environments run one build.
@@ -575,11 +612,26 @@ litellm-src-pin:
 	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in $(GATEWAY_MANIFEST)"
 	$(call pin_image,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_TAG),$(GATEWAY_MANIFEST))
 
-## Apply all prod manifests, then move the prod gateway to the pinned image.
-## Build first with litellm-src-build-push (or use litellm-src-release).
-litellm-src-deploy: litellm-src-pin prod-gateway
-	@echo "Restarting $(GATEWAY_DEPLOYMENT_PROD) to pull the freshly tagged image"
-	$(call rollout,$(GATEWAY_DEPLOYMENT_PROD))
+## Build, push, and pin the PROD gateway overlay at the -prod tag plus its
+## registry manifest digest. No cluster access; roll out with prod-gateway.
+##
+## Prod does NOT use the base tag: the base names only the mutable branch tag,
+## which every dev rebuild overwrites. This writes
+## `litellm-src:$(LITELLM_SRC_TAG)-prod@sha256:<manifest digest>` into
+## overlays/prod/gateway/deployment.yaml. The digest is the registry's
+## Docker-Content-Digest, which is what a runtime resolves. A tag without the
+## digest, or a digest taken from `podman image inspect` (the config blob), is
+## what produced ImagePullBackOff on prod.
+litellm-src-pin-prod:
+	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod + manifest digest in $(GATEWAY_PROD_MANIFEST)"
+	$(call pin_prod_image_with_digest,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_TAG)-prod,$(GATEWAY_PROD_MANIFEST))
+
+## Push the gateway image with its -prod tag, then pin the prod overlay.
+## Run after litellm-src-build. Does not touch the cluster.
+litellm-src-release-prod-image: litellm-src-build
+	podman tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod
+	podman push --tls-verify=false $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod
+	$(MAKE) litellm-src-pin-prod
 	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
 ## Build, pin, and roll the prod gateway out.
