@@ -5,8 +5,47 @@ by the wrong role (the legacy state: created by `postgres` instead of the gatewa
 application role). The regular Prisma migration refuses that state on purpose, so
 this is the only sanctioned path out of it.
 
-Status: proven against a legacy-state fixture (2026-11-24). Not yet run against any
-live environment.
+Status: prod repair and rollout independently verified 2026-11-24. The regression
+fixture and this runbook are available for a future legacy installation only. Do not
+re-run the repair on the already repaired prod DB merely to check it is working.
+
+## Completed prod outcome, 2026-11-24
+
+The fork's guarded migration and legacy ownership repair are live in prod:
+
+- Commit `ac831e149f` pins prod gateway image `litellm-src:jya0-v1.108.5-prod` at
+  digest `sha256:9ff9cd4f9c13e2eccb886410ad2455333d4ba2331a
+  d23e33d44d6a25fe6e6d6e`.
+- Both replicas run the same digest with no restarts as independently checked after
+  rollout.
+- `20261124120000_spend_view_definitions_and_ownership` applied successfully during
+  boot and the migration ledger has no unfinished migration.
+- All seven views belong to `litellm`, including the four-column
+  `individual_request_tag, spend_date, log_count, total_spend` tag-view contract.
+- Admin and the existing `proxy_admin_viewer` Athena reader each received 200 on
+  `/global/spend/models`, `/global/spend/keys`, `/global/spend/tags`, and
+  `/global/spend/all_tag_names`. Athena still receives 403 on inference.
+- Representative public-ingress reads were about 8-10s for model/key aggregate
+  views, about 0.2s for tag aggregation, and about 0.05s for tag names. Model/key
+  are not unbounded history scans but attractive follow-up optimization candidates.
+- Tag `log_count` is now `SUM(api_requests)`, documented in the repair plan. This is
+  caller-facing request count (excluding internal calls and billed retries), not
+  the former raw physical-log count.
+- The first reader-verification attempt timed out after commit, but the final
+  `LIMIT 0` autocommit proof succeeded. No rollback was executed and no data rows
+  were changed.
+
+Operator artifacts were retained outside git at
+`~/adeo-prod-ops/spend-view-repair-2026-11-24`: pre/post snapshots, catalog checks,
+migration reference, and the verification log. Do not put credentials or gateway
+connection URLs into that directory or into Git.
+
+The first operator-run verification attempted a bounded-by-result `LIMIT 1` tag
+probe, but the full-history view aggregation timed out at the configured statement
+timeout. The DDL had already committed and the output said so. The script was then
+hardened to `LIMIT 0` plus autocommit verification and the second run succeeded.
+This was a verification-time issue, not an endpoint regression. The final tag HTTP
+proof did not hit the raw log at all.
 
 ## When to run
 
@@ -60,34 +99,53 @@ this runbook applies.
    the exact guarded migration SQL under `SET LOCAL ROLE` proving the application
    role can converge the views itself, then re-issues the recorded reader
    grants. A failure anywhere rolls the whole transaction back: no partially
-   repaired state survives.
-6. After that transaction commits, opens a SEPARATE connection and verifies the
-   post-state catalog (ownership, relkind, 4-column tag contract) BEFORE any
-   read, then performs real SELECTs as the application role: a trivial probe for
-   the six ordinary views, and for the tag view only a narrow checked date window
-   (yesterday..today), never an unbounded scan of retained tag history. A failure
-   here is reported explicitly as "DDL committed but verification failed", never
-   as total failure. No row rewrites, no `GRANT ALL`, no blanket `REVOKE`, no
-   `CASCADE`.
+   repaired state survives. `oicm` is not a legacy grant on prod because the
+   pre-repair catalog had `relacl NULL` on all seven views, so the restore set is
+   empty there. Any pre-existing admin grant from unrelated DB default privileges
+   is a separate cleanup decision, not a reader-grant restoration.
+6. After that transaction commits, opens a SEPARATE autocommit connection and
+   verifies the post-state catalog (ownership, relkind, four-column tag contract)
+   BEFORE any read. All probes are `LIMIT 0`, so they prove ACL and view parsing
+   without executing raw-tag aggregation or fetching rows. A failure is reported
+   explicitly as "DDL committed but verification failed", never as total failure.
+   No row rewrites, no explicit `GRANT ALL`, no blanket owner `REVOKE`, no `CASCADE`.
 
 ## Invocation
 
-From a machine with superuser access to the target database (CNPG pod exec or a
-port-forward with the superuser secret). Never run against prod without the change
-window and approval described in the spend-view repair plan.
+Run from the operator workstation using the repo's `.venv/bin/python`, so installed
+psycopg and LiteLLM dependencies are available. Local TCP to a CNPG port-forward is
+not trusted in the same manner as the container's local Unix socket, so provide the
+prod superuser password in memory through its protected secret. Never use an
+unqualified `postgresql://postgres@localhost` URL for the remote forwarded prod DB.
+The CNPG pod itself has psql but no psycopg, so do not simply copy this Python
+invocation directly into the pod.
+
+The command must make the expected application-role cross-check explicit for prod.
+The script's `--gateway-url-env` option is otherwise optional. Obtain the gateway's
+`DATABASE_URL` value into memory but do not write or echo it:
 
 ```bash
-# dev example (port-forward the dev cluster first):
-kubectl -n adeo-litellm port-forward svc/adeo-litellm-postgres-dev-rw 15432:5432
+kubectl -n adeo-litellm port-forward svc/adeo-litellm-postgres-rw 15432:5432
 
-python scripts/repair_legacy_spend_views.py \
-  --superuser-url postgresql://postgres@127.0.0.1:15432/litellm \
-  --app-role litellm
+PG_SUPERUSER_PASSWORD="$(kubectl -n adeo-litellm get secret adeo-litellm-postgres-superuser -o jsonpath='{.data.password}' | base64 -d)"
+export DATABASE_URL="$(kubectl -n adeo-litellm get secret litellm-db-credentials -o jsonpath='{.data.DATABASE_URL}' | base64 -d)"
+.venv/bin/python scripts/repair_legacy_spend_views.py \
+  --superuser-url "postgresql://postgres:${PG_SUPERUSER_PASSWORD}@127.0.0.1:15432/litellm" \
+  --app-role litellm \
+  --gateway-url-env DATABASE_URL \
+  --snapshot-out ~/adeo-prod-ops/spend-view-repair-YYYYMMDD/pre-repair-snapshot.json
 ```
 
-For CNPG the superuser URL can come from the pod's trust auth (run the script inside
-the postgres container, or forward and use the `<cluster>-superuser` secret). Do not
-put the URL in shell history files that are shared; prefer an env var or pod exec.
+Run these in the operator's private shell rather than a shared terminal log. Close
+the forward and clear those in-memory values afterward. The script only parses the
+gateway role from `DATABASE_URL` in memory, never its password for the repair proof.
+Local Unix-socket trust is for interactive psql inside the CNPG postgres container,
+not an instruction to drop password authentication from port-forwarded connections.
+
+Default privileges like `ALTER DEFAULT PRIVILEGES ... GRANT ALL` are outside the
+reader-grant capture/restore semantics and can reapply at view recreation. Audit the
+final catalog ACLs and any new inherited grants before signing off; the guarded
+migration cannot reset them because it deliberately runs under the application role.
 
 After the repair, the next gateway rollout runs the guarded migration, which now
 finds every view owned by the application role and converges definitions in place.
@@ -114,3 +172,137 @@ tests: a mid-transaction DDL failure rolls the whole repair back to the legacy
 state, a post-commit verification failure is reported as "DDL committed" rather
 than total failure, and a view with a dependent materialized view is refused
 before any DDL runs.
+
+## Follow-up task: clean up broad default view grants
+
+This is a planning task only; no live grant has been changed as part of this doc
+update. Do not alter live privileges until the implementation is separately approved
+and dev proof is recorded here.
+
+### Verified baseline and conditions to act
+
+The upstream `v1.108.5` `litellm/proxy/db/create_views.py`, `db_scripts/create_views.py`,
+and `litellm-proxy-extras/litellm_proxy_extras/migrations/` contain no `GRANT`,
+`REVOKE`, `ALTER DEFAULT PRIVILEGES`, or `OWNER TO` statements for the ordinary
+views. Creating a view under `litellm` gives the application role implicit complete
+view rights without an explicit admin grant, but does not widen any other principal's
+grant on that view. In this narrow sense the upstream contract is better because it does not grant
+unrelated admin access when an app-owned view is created.
+
+The fork-local prod janitor bootstrap contains:
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO oicm;
+```
+
+This policy applies to all later-created tables **and views**, not just archive
+partitions, and reintroduces broad grants whenever tag-view repair or a migration
+recreates the view. After the actual prod repair the tag view acquired
+`oicm=arwdDxtm/litellm`, `Last30dTopEndUsersSpend` acquired a non-NULL self-all ACL,
+and actual pre-repair ACLs were NULL on all seven. Removing only the bootstrap line
+does not clean up the already effective `pg_default_acl` row.
+
+The grant does not add a new administrative category for the current janitor: prod
+`oicm` has explicit `litellm` role membership so that it can dump/detach partitions
+already owned by `litellm`. Nevertheless the broad grant is not needed for the
+role-membership design, weakens least privilege, and obscures the intended view
+permission contract when inspecting the catalog. A staged cleanup is justified for
+these reasons, not by claiming the current janitor would become harmless.
+
+No equivalent upstream change is needed because upstream has no explicit alternate
+reader/admin grant to restore. Keep this fork-local.
+
+### Exact targeted state
+
+Only target the `litellm`-creator `oicm`-grantee `r` table default grant that the
+fork uses for future partitions. Leave the separate `postgres`-creator `litellm`
+default grant alone, because it exists to cover historical superuser-created
+partitions and cannot be conflated with the automatic `oicm` view problem.
+
+The cleanup needs two coordinated actions, separately verified:
+
+1. Remove the broad per-database default grant by `ALTER DEFAULT PRIVILEGES FOR ROLE
+   litellm REVOKE ALL ON TABLES FROM oicm;` executed under `postgres` superuser.
+   Preserve any other default entries and `GRANT litellm TO oicm` membership, `CREATE`
+   DB permission, and ledger access. Do not remove `litellm` role access itself.
+2. For exactly the seven named spend views and only any residual janitor-specific
+   `ALL ON TABLE "LiteLLM_SpendLogs"` grant the Janitor actually does not need (see
+   below), revoke excessive non-owner privileges while retaining intended dedicated
+   reader grants where applicable. On the standard prod baseline expected outcome
+   for `DailyTagSpend` is NULL ACL to `oicm`, not empty `{}` and not another
+   auto-created admin row. Because Postgres `DEFAULT PRIVILEGES` auto-materialize
+   after every view recreation, clean persistent grant configuration before cleaning
+   existing views.
+
+`CREATE OR REPLACE VIEW` does not reset ACLs for all stable views, so do not expect
+an automatic global grant reset. Manually review actual `aclexplode` before touching
+each object. Use an existence guard and collect its explicit `oicm` non-read entries
+into the operator evidence; if the grantee/privilege changed after the prod snapshot,
+treat that as unexpected configuration and request review rather than revoking it.
+
+Do not revoke any legitimate non-inherited, explicitly granted reader role as a side
+effect. Decide what "janitor access to raw `LiteLLM_SpendLogs`" specifically remains
+needed: the partition conversion document instructs access via short-lived
+`SET ROLE litellm`. `pg_dump` on the parent needs that ownership, while direct SELECT
+privileges inherited through role inheritance are sufficient without a default
+`GRANT ALL` for every future object. Prove this with a running fixture or an
+appropriate dev data trial rather than checking SQL text alone.
+
+Leave `LiteLLM_VerificationTokenView` outside scope: it powers authentication and
+already has the correct owner. Avoid registry-wide default privilege rewrites for
+other tables and other services.
+
+### Implementation steps
+
+1. Create a dev real-Postgres fixture with the actual roles: superuser `postgres`,
+   non-superuser `litellm`, and `oicm MEMBER OF litellm`, with `CREATE DATABASE` and
+   ledger grants. Recreate the exact `pg_default_acl` row and the seven canonical
+   views, not just one dummy view.
+2. Confirm negative behavior first: new tag view creates `oicm=arwdDxtm/litellm`, so
+   default privileges recreate the reported failure. Grant a separate fixture
+   `dashboard_reader SELECT` explicitly, test that capture/restore retains the
+   intended reader role without incidental removal.
+3. Implement a separate OICM layer SQL/script operator command with explicit prod /
+   dev selectors. Default it to dry-run: fetch `pg_default_acl`, `pg_roles`,
+   role-membership, current view ACLs, ownership, and dependencies and produce only a
+   proposed change list. Refuse unknown entries and refuse any rollback that would
+   require owner downgrade or third-party object alteration. The script may not run
+   at proxy boot or as a `SET ROLE`-capable opportunistic superuser: ordinary
+   migrations cannot downgrade this database-level grant.
+4. In the privileged explicitly-gated run, one transaction with bounded
+   `lock_timeout`, `statement_timeout`, and idle-in-transaction timeout does (a)
+   persistent default-grant cleanup, (b) scoped excessive-view-grant cleanup, (c)
+   catalog verification. No user-row updates, no table drop, and no rebuild. Use
+   parameterized SQL for role identities. Preserve explicitly-authorized read grants
+   and original view owner. `REVOKE ALL ... FROM <view-owner>` is banned. End state
+   app owner should be able to read every view whether it relies on default implicit
+   owner rights or explicitly recorded owner ACL.
+5. Re-run the exact existing view repair path once in fixture and in dev to prove
+   default grants no longer return `ALL` to `oicm`. A no-mutation revoking test must
+   demonstrate `pg_default_acl` is gone, then another recreate does not resurrect it.
+6. Dev database verification: apply only chosen janitor default-grant cleanup after
+   capturing default and view ACLs. Verify `Litellm_SpendLogs` partitions remain
+   litellm-owned, `oicm` remains member of `litellm`, `LITEllM_DailyTagSpend` spend
+   writer still works, and go through a noteably controlled dev spend-archive cycle.
+   Check one finished shell janitor job rather than delete/schedule the production
+   job. Validate actual janitor permissions for pg_dump and archive detachment/restore
+   at a data level on dev, not only psycopg's `has_table_privilege` result.
+7. Run the prod acceptance HTTP checks through public ingress for admin and the
+   existing Athena viewer from this runbook. Check four reads return 200, test key
+   creation of any fixture is explicitly authorized and cleaned up, no privileged
+   writes are performed, and inference remains 403 for viewer.
+8. Run focused tests and actual-Postgres 16 privilege regressions, run docs build,
+   and commit/push before live prod work. Do not treat a skipped fixture or a
+   regular `psql` success as proof the role mismatch was fixed.
+
+Only after dev proof, have a separate approval to invoke the same operator workflow
+against prod. Capture role/membership/default/view ACL state, execute least-privilege
+cleanup with no proxy rollout necessary for pure metadata changes, verify janitor
+tasks and UI functionality remain healthy, and record the return status separately
+from runtime code/migration evidence. If the janitor breaks on unsupported future
+partition behavior, restore only the targeted previously captured privilege needed
+for it, not automatic unrelated table/view admin access.
+
+Keep the accepted tag metrics and raw-log scope restriction (`/spend/tags` remains
+unmodified) outside this follow-up. It is not permission to start another raw-log
+workload or proxy app release.
