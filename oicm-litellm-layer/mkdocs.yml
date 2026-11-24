@@ -181,6 +181,7 @@ nav:
       - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
+      - Application SSO Authorization Best Practices: admin-api/APPLICATION-AUTHORIZATION-BEST-PRACTICES.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
   - Custom Providers:
       - HAMSA Research: custom-providers/HAMSA_RESEARCH.md

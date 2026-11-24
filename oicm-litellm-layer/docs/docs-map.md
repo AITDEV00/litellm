@@ -67,6 +67,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Full admin REST API guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` |
+| Application authorization: delegated Microsoft JWT vs virtual keys, with team and access-group selection | `docs/admin-api/APPLICATION-AUTHORIZATION-BEST-PRACTICES.md` |
 | Athena read-only key guide | `docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` |
 
 ## Rate limiting / priority
