@@ -300,10 +300,14 @@ def _verify_reads_as_app_role(conn: psycopg.Connection, schema: str, app_role: s
     """Live read proof on a connection that is NOT the repair transaction's session.
 
     Runs under SET ROLE on the caller-provided connection, which the caller opens
-    separately from the committed repair. Reads are bounded: the six ordinary
-    views get a LIMIT 1 probe (their underlying scans are 30-day bounded by
-    definition), and the tag view is read only through a narrow checked date
-    window, never as an unbounded scan of retained tag history.
+    separately from the committed repair, in AUTOCOMMIT mode: a failed probe then
+    aborts only its own implicit transaction and RESET ROLE in the finally block
+    still runs, instead of dying on a poisoned multi-statement transaction.
+    Reads are bounded at any data scale: every probe is ``LIMIT 0``, which still
+    executes the full parse/plan/ACL path (a revoked grant fails the probe) but
+    pulls zero rows and never scans the underlying logs. The tag view is probed
+    with the same LIMIT 0 inside a checked narrow date window, never as an
+    unbounded scan of retained tag history.
     """
     conn.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(app_role)))
     try:
@@ -318,17 +322,17 @@ def _verify_reads_as_app_role(conn: psycopg.Connection, schema: str, app_role: s
                 conn.execute(
                     sql.SQL(
                         "SELECT individual_request_tag, spend_date, log_count, total_spend "
-                        "FROM {}.{} WHERE spend_date >= %s::date AND spend_date <= %s::date LIMIT 1"
+                        "FROM {}.{} WHERE spend_date >= %s::date AND spend_date <= %s::date LIMIT 0"
                     ).format(sql.Identifier(schema), sql.Identifier(name)),
                     (window_start, window_end),
                 )
             else:
                 conn.execute(
-                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 1").format(sql.Identifier(schema), sql.Identifier(name))
+                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(sql.Identifier(schema), sql.Identifier(name))
                 )
         print(  # noqa: T201
-            f"all seven views readable as {current}; tag view probed only inside "
-            f"the {window_start}..{window_end} window"
+            f"all seven views readable as {current}; every probe was LIMIT 0 (zero rows "
+            f"pulled), tag view inside the {window_start}..{window_end} window"
         )
     finally:
         conn.execute("RESET ROLE")
@@ -415,7 +419,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("repair transaction committed")  # noqa: T201
 
     try:
-        with psycopg.connect(args.superuser_url, connect_timeout=10) as verify_conn:
+        with psycopg.connect(args.superuser_url, connect_timeout=10, autocommit=True) as verify_conn:
             verify_conn.execute("SET statement_timeout = '30s'")
             _verify_catalog(verify_conn, args.schema, args.app_role)
             _verify_reads_as_app_role(verify_conn, args.schema, args.app_role)
