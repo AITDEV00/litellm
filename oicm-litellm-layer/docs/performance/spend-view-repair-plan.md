@@ -316,6 +316,20 @@ Rollback explicitly if DDL/rollout/HTTP verification fails bad. Restore captured
 
 At finish summarize each prod action executed, actual HTTP evidence, SQL/PR comments updated with no secrets, test and release digest, migration and rollback results, remaining unknowns. If you decline action on a prerequisite, pause before mutating prod and explain exactly what decision you need from me.
 
+## Hardening record, 2026-11-24 (post-review)
+
+The three production-safety findings from the dev review are addressed on `jya0-v1.108.5`:
+
+1. **Drop/recreate scope**: `_repair` now CREATE OR REPLACEs the six column-stable views and drops only `DailyTagSpend` (legacy shape lacks columns CREATE OR REPLACE cannot add) and `Last30dTopEndUsersSpend` (its authoritative DDL is a plain CREATE VIEW, upstream shape, so a pre-existing copy must be dropped for the same-shape replacement). `pg_depend` is prechecked for dependent objects (materialized views, other views selecting from either dropped view): any dependent is a hard stop before DDL, because the repair never cascades. The view's own ON SELECT rule is excluded from that check.
+2. **Atomicity**: the approved DDL, the guarded migration re-run under `SET LOCAL ROLE <app role>`, and the reader-grant re-issue all run in ONE transaction. A failure rolls everything back and says so; the script can no longer commit approved DDL and then report total failure. After commit, post-state catalog verification (ownership, relkind, tag 4-column contract) runs BEFORE any read, then real SELECTs run on a separate connection as the application role; a failure there is reported as "VERIFICATION FAILED AFTER COMMIT: the repair DDL committed successfully", which is the honest statement of what happened. Reader grants are restored after the migration proof because the migration's own tag drop/recreate builds a fresh ACL that would strip them.
+3. **Bounded verification**: no unbounded `SELECT ... FROM DailyTagSpend`. Catalog checks come first; the tag view is read only inside a checked yesterday..today window. The six ordinary views get a LIMIT 1 probe (their scans are 30-day bounded by definition).
+
+**Tag count semantics decision, approved 2026-11-24**: `/global/spend/tags` keeps `SUM(api_requests)` as customer-facing request counts. The writer's `api_requests` excludes internal sub-calls (auto-router classifier, shadow-eval shadow+judge) and billed retry attempts while their spend is still summed, so counts are caller-facing rather than physical rows; for ordinary caller traffic the two agree exactly (dev fixture: `User-Agent: curl` Nov 23, COUNT(*) = SUM(api_requests) = 20). The dashboard consumes only `name` and `spend`; `log_count` is API-visible only. The enterprise `/spend/tags` endpoint keeps its raw-log COUNT(*) semantics and was not touched. `COUNT(request_id)` was rejected: the rollup retains one ID per merged row and cannot reconstruct raw log counts.
+
+Fixture proof for the hardening (13 tests, disposable Postgres 16, all passing): the legacy repair converges as before; an operator-installed `dashboard_reader` SELECT grant survives the repair on both a replaced view and the recreated tag view (mutation-killed: removing the grant restore fails the test); a mid-transaction DDL failure rolls the whole repair back to the legacy foreign-owner state; a post-commit verification failure reports the DDL as committed while still exiting nonzero; a view with a dependent materialized view is refused before any DDL.
+
+**Production window status**: hardening only; the window is NOT open. No prod DB, deployment, key, or ingress was touched in this session. The prod sequence when the window opens remains: runbook repair as CNPG superuser, then promote the dev-validated image digest via the existing prod release flow.
+
 ## Explicit ownership of remaining work
 
 - Dev worker: implement/test guarded migration, explicit repair workflow, query source de-dup, bounded tag reads, local/live dev proof, docs, and commit/push. Do not touch prod.

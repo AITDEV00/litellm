@@ -12,23 +12,31 @@ The script:
 1. connects using the CNPG superuser mechanism (the pod's local trust auth or
    an operator-supplied connection target), never by reading a password from
    the application's ``DATABASE_URL``;
-2. prechecks the target role exists, is not a superuser-borrowed role, and
-   matches the role the gateway actually connects as;
+2. prechecks the target role exists, is not a superuser-borrowed role, matches
+   the role the gateway actually connects as, and that no view has dependent
+   objects (rules, triggers, materialized views) that a drop would cascade to;
 3. snapshots each view's owner, relkind, ACL and definition to a JSON file on
    the operator's machine (never inside the database, never with credentials);
-4. in one bounded transaction: drops and recreates ``DailyTagSpend`` (legacy
-   three-column shape), CREATE OR REPLACEs the other six from the single
-   authoritative source (``litellm/proxy/db/spend_view_definitions.py``), and
-   reassigns ownership of all seven to the application role;
-5. re-runs the exact guarded migration SQL under ``SET ROLE <app role>`` in the
-   same session, proving the application role can now converge the views
-   itself, and asserts ``current_user`` at each stage;
-6. verifies each view is readable and correctly shaped **as the application
-   role**, not merely via a superuser privilege helper.
+4. in ONE bounded transaction: CREATE OR REPLACEs the six column-stable views
+   and drops/recreates only ``DailyTagSpend`` (the one view whose legacy shape
+   lacks columns CREATE OR REPLACE cannot add), reassigns ownership of all
+   seven to the application role, restores any non-owner reader grants the
+   views carried, and re-runs the exact guarded migration SQL under
+   ``SET ROLE <app role>`` proving the application role can now converge the
+   views itself. If any step fails the whole transaction rolls back: no
+   partially-repaired state survives;
+5. after that transaction commits (and only then), verifies the post-state
+   catalog as the superuser, then opens a SEPARATE connection as the
+   application role for the live read proof, so a verification failure is
+   reported as "DDL committed but verification failed", never as total failure;
+6. per-view reads are bounded: the six ordinary views get a trivial SELECT,
+   and the tag view is read only through a checked narrow date window, never
+   as an unbounded scan of retained tag history.
 
 Fails closed on any precondition: unknown role, mismatched gateway role,
-non-view object, unexpected schema, or a lock that cannot be obtained within
-the bounded wait. Never prints connection strings or credentials.
+non-view object, dependent objects, unexpected schema, or a lock that cannot
+be obtained within the bounded wait. Never prints connection strings or
+credentials.
 
 Usage (from the repo root, with superuser access to the target database):
 
@@ -40,15 +48,16 @@ Usage (from the repo root, with superuser access to the target database):
 The superuser connection is operator-supplied (CNPG pod trust auth or a
 port-forward with the superuser secret). The app-role password is never needed:
 ownership changes and grants run as the superuser and the final readability
-proof runs under ``SET ROLE``, which requires only membership, not the role's
-password.
+proof runs under a SET ROLE session, which requires only membership, not the
+role's password.
 """
 
 import argparse
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Final, LiteralString, NamedTuple
 from urllib.parse import urlparse
@@ -71,6 +80,62 @@ from scripts.render_spend_view_migration import (  # noqa: E402
 )
 
 _SNAPSHOT_COLUMNS: Final = ("owner", "relkind", "relacl", "definition")
+
+_TAG_VIEW: Final = "DailyTagSpend"
+
+
+def _reader_grants(conn: psycopg.Connection, schema: str, name: str, owner: str) -> list[tuple[str, str]]:
+    """Non-owner principals with an explicit grant on one view, as (grantee, privilege).
+
+    The owner's own ACL entry is excluded: owner access is implicit in Postgres and
+    the repair end state keeps it that way. Everything else (a read-only dashboard
+    role, a replication helper, an operator group) is a grant an earlier operator
+    installed on purpose, so the repair recreates it after replacing the view rather
+    than silently stripping readers.
+    """
+    rows: list[tuple[str, str]] = conn.execute(
+        """
+        SELECT pg_get_userbyid(a.grantee), a.privilege_type
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r'::"char", c.relowner))) AS a
+        WHERE n.nspname = %s AND c.relname = %s
+          AND pg_get_userbyid(a.grantee) <> %s
+        ORDER BY 1, 2
+        """,
+        (schema, name, owner),
+    ).fetchall()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
+def _check_no_dependents(conn: psycopg.Connection, schema: str, name: str) -> None:
+    """Refuse to touch a view that other catalog objects depend on internally.
+
+    A materialized view over this one (its rewrite rule references our view) or
+    another view selecting from it would make DROP VIEW either cascade or fail;
+    the repair must never cascade, so any such dependency is a hard stop. The
+    view's own ON SELECT rule is excluded: every view has one, it *is* the view.
+    """
+    dependents: list[tuple[object, ...]] = conn.execute(
+        """
+        SELECT DISTINCT rn.nspname || '.' || rc.relname
+        FROM pg_depend dep
+        JOIN pg_class ref ON ref.oid = dep.refobjid
+        JOIN pg_namespace n ON n.oid = ref.relnamespace
+        JOIN pg_rewrite rw ON rw.oid = dep.objid
+        JOIN pg_class rc ON rc.oid = rw.ev_class
+        JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+        WHERE n.nspname = %s AND ref.relname = %s
+          AND dep.classid = 'pg_rewrite'::regclass
+          AND rc.oid <> ref.oid
+        """,
+        (schema, name),
+    ).fetchall()
+    if dependents:
+        names: str = ", ".join(str(d[0]) for d in dependents)
+        raise RuntimeError(
+            f"view {schema}.{name} has dependent objects ({names}); the repair never cascades, so resolve them first"
+        )
 
 
 def _view_state(conn: psycopg.Connection, schema: str, name: str) -> tuple[str, str, str | None, str | None]:
@@ -122,6 +187,8 @@ def _precheck(conn: psycopg.Connection, schema: str, app_role: str, gateway_role
                 f"view {schema}.{name} is owned by {owner!r}, neither the running superuser {db_role!r} "
                 f"nor the target application role {app_role!r}; refusing to touch a third party's object"
             )
+        if name == _TAG_VIEW or name == "Last30dTopEndUsersSpend":
+            _check_no_dependents(conn, schema, name)
 
 
 def _snapshot(conn: psycopg.Connection, schema: str, out_path: Path) -> None:
@@ -131,55 +198,138 @@ def _snapshot(conn: psycopg.Connection, schema: str, out_path: Path) -> None:
     print(f"pre-repair snapshot written to {out_path} (no credentials included)")  # noqa: T201
 
 
-def _repair(conn: psycopg.Connection, schema: str, app_role: str) -> None:
+def _repair(
+    conn: psycopg.Connection,
+    schema: str,
+    app_role: str,
+) -> None:
+    """Converge the seven views inside the caller's transaction.
+
+    Only ``DailyTagSpend`` is dropped: its legacy shape lacks columns that
+    ``CREATE OR REPLACE VIEW`` cannot add, so it must be recreated. The other
+    six have a stable column list and are replaced in place, which preserves
+    their OID-dependent state (comments, policies) and cannot cascade.
+    Reader grants are NOT restored here: the guarded migration proof below
+    drops and recreates the tag view once more, which would strip them, so
+    grant restoration runs after that proof instead.
+    """
     for name in SPEND_VIEW_NAMES:
         target = sql.Identifier(schema, name)
-        conn.execute(sql.SQL("DROP VIEW IF EXISTS {}").format(target))
+        if name == _TAG_VIEW:
+            conn.execute(sql.SQL("DROP VIEW IF EXISTS {}").format(target))
+        elif name == "Last30dTopEndUsersSpend":
+            # Its authoritative DDL is a plain CREATE VIEW (upstream shape), so a
+            # pre-existing copy must be dropped first; unlike the tag view this is
+            # a same-shape replacement, done only because OR REPLACE is not in its
+            # definition. No dependents exist or the precheck already refused.
+            conn.execute(sql.SQL("DROP VIEW IF EXISTS {}").format(target))
         conn.execute(sql.SQL("{}").format(sql.SQL(spend_view_ddl(name))))  # pyright: ignore[reportArgumentType]  # psycopg wants LiteralString for raw SQL; the DDL is a repo-owned constant, not user input
         conn.execute(sql.SQL("ALTER VIEW {} OWNER TO {}").format(target, sql.Identifier(app_role)))
-        print(f"recreated {schema}.{name}, owner set to {app_role}")  # noqa: T201
+        action = "recreated" if name == _TAG_VIEW else "replaced"
+        print(f"{action} {schema}.{name}, owner set to {app_role}")  # noqa: T201
+
+
+def _restore_reader_grants(
+    conn: psycopg.Connection,
+    schema: str,
+    reader_grants: Mapping[str, tuple[tuple[str, str], ...]],
+) -> None:
+    """Re-issue the recorded reader grants after the guarded migration proof.
+
+    This runs after the migration's own tag drop/recreate (inside the same
+    transaction), because that recreate builds a fresh default ACL and would
+    strip any grant restored earlier. Owner access stays implicit.
+    """
+    for name, grants in reader_grants.items():
+        target = sql.Identifier(schema, name)
+        for grantee, privilege in grants:
+            conn.execute(sql.SQL("GRANT {} ON {} TO {}").format(sql.SQL(privilege), target, sql.Identifier(grantee)))  # pyright: ignore[reportArgumentType]  # privilege strings come from aclexplode over the operator's own catalog, restricted to known grant privilege names
 
 
 def _run_guarded_migration_as_app_role(conn: psycopg.Connection, app_role: str) -> None:
+    """Re-run the guarded migration under the app role, inside the repair transaction.
+
+    SET LOCAL scopes the role change to this transaction, so the superuser
+    session cannot leak the borrowed role past a rollback. The migration's own
+    DO block runs CREATE OR REPLACE and the tag drop/recreate again: that is
+    deliberate, it proves the application role can now converge the views
+    itself, which is exactly what the next pod's ``prisma migrate deploy`` does.
+    """
     rendered: str = render_migration_sql()
     if not MIGRATION_PATH.is_file() or MIGRATION_PATH.read_text() != rendered:
         raise RuntimeError("the shipped migration.sql does not match the authoritative view definitions")
     session_user_row: tuple[object, ...] | None = conn.execute("SELECT session_user").fetchone()
     session_user: str = str(session_user_row[0]) if session_user_row else ""
+    conn.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(app_role)))
+    current_row: tuple[object, ...] | None = conn.execute("SELECT current_user").fetchone()
+    current: str = str(current_row[0]) if current_row else ""
+    if current != app_role:
+        raise RuntimeError(f"SET ROLE landed on {current!r}, expected {app_role!r}")
+    conn.execute(sql.SQL("{}").format(sql.SQL(rendered)))  # pyright: ignore[reportArgumentType]  # psycopg wants LiteralString for raw SQL; the guarded migration text is a repo-owned constant
+    print(f"guarded migration SQL re-run under SET ROLE {app_role} (session_user={session_user}): OK")  # noqa: T201
+
+
+def _verify_catalog(conn: psycopg.Connection, schema: str, app_role: str) -> None:
+    """Post-state catalog verification, run on the superuser connection after commit.
+
+    Ownership and shape are proven here, BEFORE any read: a permission or
+    undefined-column problem is caught without executing a query against the
+    view's data.
+    """
+    for name in SPEND_VIEW_NAMES:
+        owner, relkind, _, _ = _view_state(conn, schema, name)
+        if owner != app_role:
+            raise RuntimeError(f"view {schema}.{name} owned by {owner!r}, expected {app_role!r}")
+        if relkind != "v":
+            raise RuntimeError(f"view {schema}.{name} has relkind {relkind!r}")
+    tag_columns: list[tuple[object, ...]] = conn.execute(
+        """
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = 'DailyTagSpend'
+        ORDER BY ordinal_position
+        """,
+        (schema,),
+    ).fetchall()
+    actual: list[str] = [str(c[0]) for c in tag_columns]
+    expected: list[str] = ["individual_request_tag", "spend_date", "log_count", "total_spend"]
+    if actual != expected:
+        raise RuntimeError(f"DailyTagSpend columns {actual} do not match the 4-column contract {expected}")
+
+
+def _verify_reads_as_app_role(conn: psycopg.Connection, schema: str, app_role: str) -> None:
+    """Live read proof on a connection that is NOT the repair transaction's session.
+
+    Runs under SET ROLE on the caller-provided connection, which the caller opens
+    separately from the committed repair. Reads are bounded: the six ordinary
+    views get a LIMIT 1 probe (their underlying scans are 30-day bounded by
+    definition), and the tag view is read only through a narrow checked date
+    window, never as an unbounded scan of retained tag history.
+    """
     conn.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(app_role)))
     try:
         current_row: tuple[object, ...] | None = conn.execute("SELECT current_user").fetchone()
         current: str = str(current_row[0]) if current_row else ""
         if current != app_role:
             raise RuntimeError(f"SET ROLE landed on {current!r}, expected {app_role!r}")
-        conn.execute(sql.SQL("{}").format(sql.SQL(rendered)))  # pyright: ignore[reportArgumentType]  # psycopg wants LiteralString for raw SQL; the guarded migration text is a repo-owned constant
-        print(f"guarded migration SQL re-run under SET ROLE {app_role} (session_user={session_user}): OK")  # noqa: T201
-    finally:
-        conn.execute("RESET ROLE")
-
-
-def _verify_as_app_role(conn: psycopg.Connection, schema: str, app_role: str) -> None:
-    conn.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(app_role)))
-    try:
-        current_row: tuple[object, ...] | None = conn.execute("SELECT current_user").fetchone()
-        current: str = str(current_row[0]) if current_row else ""
+        window_start: str = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        window_end: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for name in SPEND_VIEW_NAMES:
-            owner, relkind, acl, _ = _view_state(conn, schema, name)
-            if owner != app_role:
-                raise RuntimeError(f"view {schema}.{name} owned by {owner!r}, expected {app_role!r}")
-            if relkind != "v":
-                raise RuntimeError(f"view {schema}.{name} has relkind {relkind!r}")
-            if acl is not None:
-                raise RuntimeError(
-                    f"view {schema}.{name} carries a non-default ACL {acl!r}; the intended state is relacl IS NULL"
+            if name == _TAG_VIEW:
+                conn.execute(
+                    sql.SQL(
+                        "SELECT individual_request_tag, spend_date, log_count, total_spend "
+                        "FROM {}.{} WHERE spend_date >= %s::date AND spend_date <= %s::date LIMIT 1"
+                    ).format(sql.Identifier(schema), sql.Identifier(name)),
+                    (window_start, window_end),
                 )
-            conn.execute(sql.SQL("SELECT 1 FROM {}.{} LIMIT 1").format(sql.Identifier(schema), sql.Identifier(name)))
-        conn.execute(
-            sql.SQL("SELECT individual_request_tag, spend_date, log_count, total_spend FROM {}.{} LIMIT 1").format(
-                sql.Identifier(schema), sql.Identifier("DailyTagSpend")
-            )
+            else:
+                conn.execute(
+                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 1").format(sql.Identifier(schema), sql.Identifier(name))
+                )
+        print(  # noqa: T201
+            f"all seven views readable as {current}; tag view probed only inside "
+            f"the {window_start}..{window_end} window"
         )
-        print(f"all seven views readable as {current}; DailyTagSpend exposes the 4-column contract")  # noqa: T201
     finally:
         conn.execute("RESET ROLE")
 
@@ -247,10 +397,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         conn.execute("SET statement_timeout = '120s'")
         _precheck(conn, args.schema, args.app_role, gateway_role)
         _snapshot(conn, args.schema, Path(args.snapshot_out))
-        with conn.transaction():
-            _repair(conn, args.schema, args.app_role)
-        _run_guarded_migration_as_app_role(conn, args.app_role)
-        _verify_as_app_role(conn, args.schema, args.app_role)
+        grants: Final[dict[str, tuple[tuple[str, str], ...]]] = {
+            name: tuple(_reader_grants(conn, args.schema, name, owner))
+            for name in SPEND_VIEW_NAMES
+            if (owner := _view_state(conn, args.schema, name)[0]) != ""
+        }
+        try:
+            with conn.transaction():
+                _repair(conn, args.schema, args.app_role)
+                _run_guarded_migration_as_app_role(conn, args.app_role)
+                _restore_reader_grants(conn, args.schema, grants)
+        except Exception:
+            print(  # noqa: T201
+                "repair transaction rolled back; no view definitions or ownership were changed"
+            )
+            raise
+    print("repair transaction committed")  # noqa: T201
+
+    try:
+        with psycopg.connect(args.superuser_url, connect_timeout=10) as verify_conn:
+            verify_conn.execute("SET statement_timeout = '30s'")
+            _verify_catalog(verify_conn, args.schema, args.app_role)
+            _verify_reads_as_app_role(verify_conn, args.schema, args.app_role)
+    except Exception as exc:
+        print(  # noqa: T201
+            f"VERIFICATION FAILED AFTER COMMIT: the repair DDL committed successfully, "
+            f"but post-state verification failed: {exc}"
+        )
+        raise
     print("repair complete; the next prisma migrate deploy will now converge these views")  # noqa: T201
     return 0
 

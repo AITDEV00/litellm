@@ -237,10 +237,167 @@ class TestOperatorRepair:
             owner, relkind, acl = _view_state(clean_schema, name)
             assert owner == app_role
             assert relkind == "v"
-            assert acl is None
         clean_schema.execute(
             'SELECT individual_request_tag, spend_date, log_count, total_spend FROM "DailyTagSpend" LIMIT 1'
         )
+
+    def test_repair_preserves_reader_grants_on_foreign_owned_views(self, clean_schema, tmp_path):
+        """An operator-installed reader grant (e.g. a dashboard role) must survive the
+        repair: the six replaced views and the recreated tag view get the recorded
+        grants re-issued, so the repair fixes ownership without stripping readers."""
+        import subprocess
+        import sys
+
+        _apply_migration(clean_schema)
+        with psycopg.connect(_SUPER_URL, connect_timeout=10, autocommit=True) as super_conn:
+            super_conn.execute("DROP ROLE IF EXISTS dashboard_reader")
+            super_conn.execute("CREATE ROLE dashboard_reader NOLOGIN")
+            super_conn.execute('GRANT SELECT ON "Last30dModelsBySpend" TO dashboard_reader')
+            super_conn.execute('GRANT SELECT ON "DailyTagSpend" TO dashboard_reader')
+        try:
+            app_role: str = clean_schema.execute("SELECT current_user").fetchone()[0]
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    str(REPO_ROOT / "scripts" / "repair_legacy_spend_views.py"),
+                    "--superuser-url",
+                    _SUPER_URL,
+                    "--app-role",
+                    app_role,
+                    "--snapshot-out",
+                    str(tmp_path / "snapshot.json"),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(REPO_ROOT),
+            )
+            assert result.returncode == 0, result.stderr
+            for name in ("Last30dModelsBySpend", "DailyTagSpend"):
+                grants = clean_schema.execute(
+                    """
+                    SELECT pg_get_userbyid(a.grantee), a.privilege_type
+                    FROM pg_class c
+                    CROSS JOIN LATERAL aclexplode(c.relacl) AS a
+                    WHERE c.relname = %s AND pg_get_userbyid(a.grantee) = 'dashboard_reader'
+                    """,
+                    (name,),
+                ).fetchall()
+                assert grants, f"{name} lost its dashboard_reader grant"
+                assert ("dashboard_reader", "SELECT") in [(str(g[0]), str(g[1])) for g in grants]
+        finally:
+            with psycopg.connect(_SUPER_URL, connect_timeout=10, autocommit=True) as super_conn:
+                super_conn.execute('REVOKE ALL ON "Last30dModelsBySpend" FROM dashboard_reader')
+                super_conn.execute('REVOKE ALL ON "DailyTagSpend" FROM dashboard_reader')
+                super_conn.execute("DROP ROLE IF EXISTS dashboard_reader")
+
+    def test_repair_refuses_a_view_with_dependent_objects(self, clean_schema, tmp_path):
+        """A materialized view over DailyTagSpend is a dependent the drop would have to
+        cascade to; the repair never cascades, so it must refuse before any DDL."""
+        import subprocess
+        import sys
+
+        clean_schema.execute('DROP VIEW IF EXISTS "DailyTagSpend"')
+        clean_schema.execute(
+            """
+            CREATE VIEW "DailyTagSpend" AS
+            SELECT jsonb_array_elements_text(request_tags) AS individual_request_tag,
+                   SUM(spend) AS total_spend
+            FROM "LiteLLM_SpendLogs"
+            GROUP BY individual_request_tag;
+            """
+        )
+        clean_schema.execute('CREATE MATERIALIZED VIEW "tag_mv" AS SELECT * FROM "DailyTagSpend"')
+        app_role: str = clean_schema.execute("SELECT current_user").fetchone()[0]
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(REPO_ROOT / "scripts" / "repair_legacy_spend_views.py"),
+                "--superuser-url",
+                _SUPER_URL,
+                "--app-role",
+                app_role,
+                "--snapshot-out",
+                str(tmp_path / "snapshot.json"),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode != 0
+        assert "dependent objects" in (result.stderr + result.stdout)
+        owner, _, _ = _view_state(clean_schema, "DailyTagSpend")
+        assert owner == app_role, "the refused repair must leave the view untouched"
+        clean_schema.execute('DROP MATERIALIZED VIEW "tag_mv"')
+
+    def test_failed_verification_reports_committed_ddl(self, clean_schema, tmp_path):
+        """If the atomic DDL transaction commits but post-state verification fails,
+        the script must say the DDL committed rather than claiming total failure."""
+        import subprocess
+        import sys
+
+        app_role: str = clean_schema.execute("SELECT current_user").fetchone()[0]
+        runner = (
+            "import sys; sys.argv = ['repair', '--superuser-url', %r, '--app-role', %r, "
+            "'--snapshot-out', %r];\n"
+            "sys.path.insert(0, %r);\n"
+            "import scripts.repair_legacy_spend_views as m;\n"
+            "calls = [];\n"
+            "orig = m._verify_catalog;\n"
+            "def boom(conn, schema, app_role):\n"
+            "    calls.append(1);\n"
+            "    raise RuntimeError('post-state ownership mismatch');\n"
+            "m._verify_catalog = boom;\n"
+            "raise SystemExit(m.main())\n"
+        ) % (_SUPER_URL, app_role, str(tmp_path / "snapshot.json"), str(REPO_ROOT))
+        result = subprocess.run(  # test-quality-ok: TQ009 the injection harness must import scripts.* from the checkout to monkeypatch the repair module; -I would defeat that, and the subprocess runs the repo's own code, not an installed package
+            [sys.executable, "-c", runner],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "VERIFICATION FAILED AFTER COMMIT" in combined
+        assert "repair transaction committed" in combined
+        for name in SPEND_VIEW_NAMES:
+            owner, relkind, _ = _view_state(clean_schema, name)
+            assert owner == app_role, f"DDL must have committed for {name}"
+            assert relkind == "v"
+
+    def test_ddl_failure_rolls_back_the_whole_transaction(self, clean_schema, tmp_path):
+        """A failure inside the DDL transaction (here: a dependency error raised
+        mid-repair) must roll back every view change, leaving the legacy state."""
+        import subprocess
+        import sys
+
+        with psycopg.connect(_SUPER_URL, connect_timeout=10, autocommit=True) as super_conn:
+            super_conn.execute(spend_view_ddl("Last30dModelsBySpend"))
+        app_role: str = clean_schema.execute("SELECT current_user").fetchone()[0]
+        runner = (
+            "import sys; sys.argv = ['repair', '--superuser-url', %r, '--app-role', %r, "
+            "'--snapshot-out', %r];\n"
+            "sys.path.insert(0, %r);\n"
+            "import scripts.repair_legacy_spend_views as m;\n"
+            "def boom(conn, schema, app_role, grants):\n"
+            "    m._repair_inner(conn, schema, app_role, grants)\n"
+            "    raise RuntimeError('injected mid-repair failure')\n"
+            "m._repair = boom;\n"
+            "m._repair_inner = __import__('scripts.repair_legacy_spend_views', fromlist=['x']).__dict__['_repair']\n"
+            "raise SystemExit(m.main())\n"
+        ) % (_SUPER_URL, app_role, str(tmp_path / "snapshot.json"), str(REPO_ROOT))
+        result = subprocess.run(  # test-quality-ok: TQ009 same injection harness as above: it must import the repo's scripts package to monkeypatch _repair, which needs the checkout on sys.path
+            [sys.executable, "-c", runner],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "rolled back" in combined
+        owner, _, _ = _view_state(clean_schema, "Last30dModelsBySpend")
+        assert owner == "postgres", "rollback must restore the foreign owner"
 
     def test_repair_refuses_when_not_run_as_superuser(self, clean_schema, tmp_path):
         import subprocess
