@@ -1,0 +1,431 @@
+{
+  "server_arguments": [
+    {
+      "name": "trust_remote_code",
+      "label": "trust-remote-code",
+      "required": false,
+      "default": null,
+      "type": "boolean",
+      "category": "model",
+      "desc": "Whether you want to execute hub modelling code. Explicitly passing a `revision` is encouraged when loading a model with custom code to ensure no malicious code has been contributed in a newer revision"
+    },
+    {
+      "name": "dtype",
+      "label": "dtype",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "options": [
+        null,
+        "float16",
+        "bfloat16"
+      ],
+      "category": "model",
+      "desc": "The dtype to be forced upon the model. This option cannot be used with `--quantize`"
+    },
+    {
+      "name": "kv_cache_dtype",
+      "label": "kv-cache-dtype",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "options": [
+        null,
+        "fp8_e4m3fn",
+        "fp8_e5m2"
+      ],
+      "category": "performance",
+      "desc": "Specify the dtype for the key-value cache. When this option is not provided, the dtype of the model is used (typically `float16` or `bfloat16`). Currently the only supported value are `fp8_e4m3fn` and `fp8_e5m2` on CUDA"
+    },
+    {
+      "name": "quantize",
+      "label": "quantize",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "options": [
+        null,
+        "awq",
+        "compressed-tensors",
+        "eetq",
+        "exl2",
+        "gptq",
+        "marlin",
+        "bitsandbytes",
+        "bitsandbytes-nf4",
+        "bitsandbytes-fp4",
+        "fp8"
+      ],
+      "category": "quantization",
+      "desc": "Quantization method to use for the model. It is not necessary to specify this option for pre-quantized models, since the quantization method is read from the model configuration"
+    },
+    {
+      "name": "max_concurrent_requests",
+      "label": "max-concurrent-requests",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "The maximum amount of concurrent requests for this particular deployment. Having a low limit will refuse clients requests instead of having them wait for too long and is usually good to handle backpressure correctly"
+    },
+    {
+      "name": "max_input_tokens",
+      "label": "max-input-tokens",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "default": null,
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This is the maximum allowed input length (expressed in number of tokens) for users. The larger this value, the longer prompt users can send which can impact the overall memory required to handle the load. Please note that some models have a finite range of sequence they can handle. Default to min(max_allocatable, max_position_embeddings) - 1"
+    },
+    {
+      "name": "max_total_tokens",
+      "label": "max-total-tokens",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This is the most important value to set as it defines the 'memory budget' of running clients requests. Clients will send input sequences and ask to generate `max_new_tokens` on top. with a value of `1512` users can send either a prompt of `1000` and ask for `512` new tokens, or send a prompt of `1` and ask for `1511` max_new_tokens. The larger this value, the larger amount each request will be in your RAM and the less effective batching can be. Default to min(max_allocatable, max_position_embeddings)"
+    },
+    {
+      "name": "max_batch_prefill_tokens",
+      "label": "max-batch-prefill-tokens",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "Limits the number of tokens for the prefill operation. Since this operation take the most memory and is compute bound, it is interesting to limit the number of requests that can be sent. Default to `max_input_tokens + 50` to give a bit of room"
+    },
+    {
+      "name": "max_batch_total_tokens",
+      "label": "max-batch-total-tokens",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "**IMPORTANT** This is one critical control to allow maximum usage of the available hardware. \nThis represents the total amount of potential tokens within a batch. When using padding (not recommended) this would be equivalent of `batch_size` * `max_total_tokens`. \nHowever in the non-padded (flash attention) version this can be much finer. \nFor `max_batch_total_tokens=1000`, you could fit `10` queries of `total_tokens=100` or a single query of `1000` tokens. \nOverall this number should be the largest possible amount that fits the remaining memory (after the model is loaded). Since the actual memory overhead depends on other parameters like if you're using quantization, flash attention or the model implementation, text-generation-inference cannot infer this number automatically."
+    },
+    {
+      "name": "max_waiting_tokens",
+      "label": "max-waiting-tokens",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This setting defines how many tokens can be passed before forcing the waiting queries to be put on the batch (if the size of the batch allows for it). New queries require 1 `prefill` forward, which is different from `decode` and therefore you need to pause the running batch in order to run `prefill` to create the correct values for the waiting queries to be able to join the batch."
+    },
+    {
+      "name": "max_batch_size",
+      "label": "max-batch-size",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "Enforce a maximum number of requests per batch Specific flag for hardware targets that do not support unpadded inference"
+    },
+    {
+      "name": "max_client_batch_size",
+      "label": "max-client-batch-size",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "Control the maximum number of inputs that a client can send in a single request"
+    },
+    {
+      "name": "enable_prefill_logprobs",
+      "label": "enable-prefill-logprobs",
+      "required": false,
+      "default": null,
+      "type": "boolean",
+      "category": "other",
+      "desc": "Logprobs in the prompt are deactivated by default because they consume a large amount of VRAM (especially for long prompts). Using this flag reallows users to ask for them"
+    },
+    {
+      "name": "cuda_graphs",
+      "label": "cuda-graphs",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "performance",
+      "desc": "Specify the batch sizes to compute cuda graphs for. Use '0' to disable"
+    },
+    {
+      "name": "rope_scaling",
+      "label": "rope-scaling",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "options": [
+        null,
+        "linear",
+        "dynamic"
+      ],
+      "category": "model",
+      "desc": "Rope scaling will only be used for RoPE models and allow rescaling the position rotary to accomodate for larger prompts. \nGoes together with `rope_factor`. \n`--rope-factor 2.0` gives linear scaling with a factor of 2.0 `--rope-scaling dynamic` gives dynamic scaling with a factor of 1.0 `--rope-scaling linear` gives linear scaling with a factor of 1.0 (Nothing will be changed basically) \n`--rope-scaling linear --rope-factor` fully describes the scaling you want"
+    },
+    {
+      "name": "rope_factor",
+      "label": "rope-factor",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "float",
+      "category": "model",
+      "desc": "Rope scaling will only be used for RoPE models See `rope_scaling`"
+    },
+    {
+      "name": "waiting_served_ratio",
+      "label": "waiting-served-ratio",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "float",
+      "max": 1.0,
+      "min": 0.1,
+      "category": "capacity_and_limits",
+      "desc": "This represents the ratio of waiting queries vs running queries where you want to start considering pausing the running queries to include the waiting ones into the same batch. `waiting_served_ratio=1.2` Means when 12 queries are waiting and there's only 10 queries left in the current batch we check if we can fit those 12 waiting queries into the batching strategy, and if yes, then batching happens delaying the 10 running queries by a `prefill` run. \nThis setting is only applied if there is room in the batch as defined by `max_batch_total_tokens`."
+    },
+    {
+      "name": "max_best_of",
+      "label": "max-best-of",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This is the maximum allowed value for clients to set `best_of`. Best of makes `n` generations at the same time, and return the best in terms of overall log probability over the entire generated sequence"
+    },
+    {
+      "name": "max_stop_sequences",
+      "label": "max-stop-sequences",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This is the maximum allowed value for clients to set `stop_sequences`. Stop sequences are used to allow the model to stop on more than just the EOS token, and enable more complex 'prompting' where users can preprompt the model in a specific way and define their 'own' stop token aligned with their prompt"
+    },
+    {
+      "name": "max_top_n_tokens",
+      "label": "max-top-n-tokens",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "capacity_and_limits",
+      "desc": "This is the maximum allowed value for clients to set `top_n_tokens`. `top_n_tokens` is used to return information about the the `n` most likely tokens at each generation step, instead of just the sampled token. This information can be used for downstream tasks like for classification or ranking"
+    },
+    {
+      "name": "validation_workers",
+      "label": "validation-workers",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "category": "performance",
+      "desc": "The number of tokenizer workers used for payload validation and truncation inside the router"
+    },
+    {
+      "name": "disable_custom_kernels",
+      "label": "disable-custom-kernels",
+      "required": false,
+      "default": null,
+      "type": "boolean",
+      "category": "performance",
+      "desc": "For some models (like bloom), text-generation-inference implemented custom cuda kernels to speed up inference. Those kernels were only tested on A100. Use this flag to disable them if you're running on different hardware and encounter issues"
+    },
+    {
+      "name": "cuda_memory_fraction",
+      "label": "cuda-memory-fraction",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "float",
+      "min": 0.1,
+      "max": 1.0,
+      "category": "capacity_and_limits",
+      "desc": "Limit the CUDA available memory. The allowed value equals the total visible memory multiplied by cuda-memory-fraction"
+    },
+    {
+      "name": "disable_grammar_support",
+      "label": "disable-grammar-support",
+      "required": false,
+      "default": null,
+      "type": "boolean",
+      "category": "other",
+      "desc": "Disable outlines grammar constrained generation. This is a feature that allows you to generate text that follows a specific grammar"
+    }
+  ],
+  "inference_arguments": [
+    {
+      "inference_task": "Text Generation",
+      "arguments": [
+        {
+          "name": "temperature",
+          "label": "temperature",
+          "required": false,
+          "default": 0.7,
+          "min": 0,
+          "max": 2,
+          "type": "number",
+          "format": "float",
+          "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "required": false,
+          "default": 0.9,
+          "type": "number",
+          "format": "float",
+          "min": 0.01,
+          "max": 1,
+          "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+        },
+        {
+          "name": "top_k",
+          "label": "top_k",
+          "required": false,
+          "default": 5,
+          "type": "number",
+          "format": "integer",
+          "min": 1,
+          "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering"
+        },
+        {
+          "name": "max_tokens",
+          "label": "max_tokens",
+          "required": false,
+          "default": 256,
+          "min": 1,
+          "type": "number",
+          "format": "integer",
+          "desc": "The maximum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "min_tokens",
+          "label": "min_tokens",
+          "required": false,
+          "default": 0,
+          "min": 0,
+          "type": "number",
+          "format": "integer",
+          "desc": "The minimum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "stop",
+          "label": "stop_sequences",
+          "required": false,
+          "default": [],
+          "type": "list",
+          "desc": "Up to 4 sequences where the API will stop generating further tokens"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "presence_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "frequency_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+        },
+        {
+          "name": "logit_bias",
+          "label": "logit_bias",
+          "required": false,
+          "default": false,
+          "type": "dict",
+          "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling"
+        },
+        {
+          "name": "ignore_eos",
+          "label": "ignore_eos",
+          "required": false,
+          "default": false,
+          "type": "boolean",
+          "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated."
+        },
+        {
+          "name": "use_beam_search",
+          "label": "use_beam_search",
+          "required": false,
+          "default": false,
+          "type": "boolean",
+          "desc": "Whether to use beam search instead of sampling."
+        },
+        {
+          "name": "stop_token_ids",
+          "label": "stop_token_ids",
+          "required": false,
+          "default": null,
+          "type": "list",
+          "desc": "List of tokens that stop the generation when they are generated. The returned output will contain the stop tokens unless the stop tokens are special tokens."
+        },
+        {
+          "name": "skip_special_tokens",
+          "label": "skip_special_tokens",
+          "required": false,
+          "default": true,
+          "type": "boolean",
+          "desc": "Whether to skip special tokens in the output."
+        },
+        {
+          "name": "n",
+          "label": "n",
+          "required": false,
+          "default": 1,
+          "type": "number",
+          "format": "integer",
+          "min": 1,
+          "max": 5,
+          "desc": "number of answers to generate"
+        }
+      ]
+    }
+  ],
+  "lora_config": "--lora-adapters {modules_config}",
+  "lora_modules_separator": ",",
+  "tasks_base_url": [
+    {
+      "inference_task": "Text Generation",
+      "base_url": "/v1"
+    }
+  ],
+  "supported_auto_scaling_metrics": [
+    "ml_model_concurrent_requests",
+    "num_of_requests_waiting_in_queue"
+  ]
+}

@@ -1,0 +1,196 @@
+{
+  "server_arguments": [
+    {
+      "name": "dtype",
+      "label": "dtype",
+      "required": true,
+      "default": "bfloat16",
+      "options": [
+        "float32",
+        "bfloat16",
+        "float16"
+      ],
+      "type": "string",
+      "category": "model",
+      "desc": "The dtype to be forced upon the model"
+    },
+    {
+      "name": "trust_remote_code",
+      "label": "trust remote code",
+      "required": false,
+      "default": null,
+      "type": "boolean",
+      "category": "model",
+      "desc": "Determines whether to trust and execute code from remote sources.",
+      "detailed_desc": "Controls whether the system should trust and execute code loaded from remote sources. Enabling this can increase functionality by allowing dynamic updates and extensions, but it may pose security risks if the source is not secure. It is important to ensure that remote sources are reliable and secure before enabling this option."
+    },
+    {
+      "name": "source_lang",
+      "label": "source language",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "Source language of the model. If the source and target languages not specified together, the default translation pipeline will be launched"
+    },
+    {
+      "name": "target_lang",
+      "label": "target language",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "Target language to translate to"
+    },
+    {
+      "name": "variant",
+      "label": "variant",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "Load weights from a specified variant filename such as 'fp16' or 'ema'."
+    },
+    {
+      "name": "refiner_dtype",
+      "label": "refiner dtype",
+      "required": false,
+      "default": "bfloat16",
+      "options": [
+        "float32",
+        "bfloat16",
+        "float16"
+      ],
+      "type": "string",
+      "category": "model",
+      "desc": "The dtype to be forced upon the refiner model"
+    },
+    {
+      "name": "refiner_variant",
+      "label": "refiner variant",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "Load weights for the refiner model from a specified variant filename such as 'fp16' or 'ema'."
+    }
+  ],
+  "inference_arguments": [
+    {
+      "inference_task": "Text-to-Image",
+      "arguments": [
+        {
+          "name": "prompt",
+          "label": "prompt",
+          "required": true,
+          "default": null,
+          "type": "string",
+          "desc": "The text to generate iamge for"
+        },
+        {
+          "name": "num_inference_steps",
+          "label": "num_inference_steps",
+          "required": true,
+          "default": 20,
+          "type": "number",
+          "format": "integer",
+          "min": 1,
+          "max": 100,
+          "desc": "The number of inference steps to use for the image generation"
+        },
+        {
+          "name": "high_noise_frac",
+          "label": "high_noise_frac",
+          "required": true,
+          "default": 0.9,
+          "type": "number",
+          "format": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "desc": "The high noise fraction to use for the image generation"
+        }
+      ]
+    },
+    {
+      "inference_task": "Translation",
+      "arguments": [
+        {
+          "name": "text",
+          "label": "text",
+          "required": true,
+          "default": null,
+          "type": "string",
+          "desc": "The text to translate"
+        }
+      ]
+    },
+    {
+      "inference_task": "Automatic Speech Recognition",
+      "arguments": []
+    },
+    {
+      "inference_task": "Diarization",
+      "arguments": []
+    },
+    {
+      "inference_task": "Text-to-Speech",
+      "arguments": [
+        {
+          "name": "prompt",
+          "label": "prompt",
+          "required": true,
+          "default": null,
+          "type": "string",
+          "desc": "The text to generate speech for"
+        },
+        {
+          "name": "description",
+          "label": "description",
+          "required": false,
+          "default": null,
+          "type": "string",
+          "desc": "The description of the speech"
+        }
+      ]
+    },
+    {
+      "inference_task": "Text Classification",
+      "arguments": [
+        {
+          "name": "inputs",
+          "label": "inputs",
+          "required": true,
+          "default": null,
+          "type": "string",
+          "desc": "The input string to embed"
+        }
+      ]
+    }
+  ],
+  "tasks_base_url": [
+    {
+      "inference_task": "Text-to-Image",
+      "base_url": "/v1/images/generations"
+    },
+    {
+      "inference_task": "Diarization",
+      "base_url": "/v1/audio/diarization"
+    },
+    {
+      "inference_task": "Text-to-Speech",
+      "base_url": "/v1/audio/speech"
+    },
+    {
+      "inference_task": "Text Classification",
+      "base_url": "/v1/classify"
+    },
+    {
+      "inference_task": "Automatic Speech Recognition",
+      "base_url": "/v1/audio/transcriptions"
+    },
+    {
+      "inference_task": "Translation",
+      "base_url": "/v1/translate"
+    }
+  ]
+}

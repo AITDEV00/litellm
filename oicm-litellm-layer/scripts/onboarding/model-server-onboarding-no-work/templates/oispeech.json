@@ -1,0 +1,15 @@
+{
+    "server_arguments": [],
+    "inference_arguments": [
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "arguments": []
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "base_url": "/v1/audio/transcriptions"
+        }
+    ]
+}

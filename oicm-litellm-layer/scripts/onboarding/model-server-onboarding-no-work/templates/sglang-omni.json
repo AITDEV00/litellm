@@ -1,0 +1,854 @@
+{
+    "server_arguments": [
+        {
+            "name": "text_only",
+            "label": "text-only",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "model",
+            "desc": "Use thinker-only pipeline (1 GPU, no talker/speech output)."
+        },
+        {
+            "name": "log_level",
+            "label": "log-level",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "other",
+            "desc": "Log level (default: info).",
+            "options": [
+                null,
+                "debug",
+                "info",
+                "warning",
+                "error",
+                "critical"
+            ]
+        },
+        {
+            "name": "enable_realtime",
+            "label": "enable-realtime",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "Mount the OpenAI Realtime WebSocket endpoint at /v1/realtime."
+        },
+        {
+            "name": "mem_fraction_static",
+            "label": "mem-fraction-static",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "min": 0,
+            "max": 1.0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Set SGLang mem_fraction_static for supported SGLang AR stages. If omitted, SGLang chooses the value automatically."
+        },
+        {
+            "name": "thinker_mem_fraction_static",
+            "label": "thinker-mem-fraction-static",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "min": 0,
+            "max": 1.0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Set SGLang mem_fraction_static for the thinker stage. Overrides --mem-fraction-static for thinker."
+        },
+        {
+            "name": "talker_mem_fraction_static",
+            "label": "talker-mem-fraction-static",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "min": 0,
+            "max": 1.0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Set SGLang mem_fraction_static for supported talker AR stages. Overrides --mem-fraction-static for talker."
+        },
+        {
+            "name": "encoder_mem_reserve",
+            "label": "encoder-mem-reserve",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "min": 0,
+            "max": 1.0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Subtract this fraction from SGLang's auto-picked Qwen thinker mem_fraction_static for colocated external encoders. Valid only when thinker mem_fraction_static is not explicitly pinned. Mutually exclusive with --mem-fraction-static and --thinker-mem-fraction-static."
+        },
+        {
+            "name": "cpu_offload_gb",
+            "label": "cpu-offload-gb",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Set SGLang cpu_offload_gb for the thinker stage."
+        },
+        {
+            "name": "quantization",
+            "label": "quantization",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "quantization",
+            "desc": "Set SGLang quantization mode for the thinker stage."
+        },
+        {
+            "name": "thinker_cuda_graph",
+            "label": "thinker-cuda-graph",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "CUDA graph mode for thinker stage: default|on|off.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "talker_cuda_graph",
+            "label": "talker-cuda-graph",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "CUDA graph mode for supported SGLang talker stage: default|on|off.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "talker_partial_start",
+            "label": "talker-partial-start",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "other",
+            "desc": "Partial-start mode for the Qwen3-Omni talker stage: default|on|off. When on, the talker begins audio generation from a partial thinker text stream instead of waiting for the full text. 'default' uses the pipeline config default.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "thinker_torch_compile",
+            "label": "thinker-torch-compile",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "torch.compile mode for thinker stage: default|on|off.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "talker_torch_compile",
+            "label": "talker-torch-compile",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "torch.compile mode for supported SGLang talker stage: default|on|off.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "thinker_torch_compile_max_bs",
+            "label": "thinker-torch-compile-max-bs",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 1,
+            "default": null,
+            "category": "performance",
+            "desc": "Override torch_compile_max_bs for thinker stage."
+        },
+        {
+            "name": "talker_torch_compile_max_bs",
+            "label": "talker-torch-compile-max-bs",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 1,
+            "default": null,
+            "category": "performance",
+            "desc": "Override torch_compile_max_bs for supported SGLang talker stage."
+        },
+        {
+            "name": "async_decode",
+            "label": "async-decode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "One-step-lookahead async decode for the tts_engine stage: default|on|off. When on, per-step host collect overlaps the next GPU forward. 'default' uses the pipeline config default (on for Higgs TTS). Currently supported by Higgs TTS.",
+            "options": [
+                "default",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "name": "async_decode_min_batch_size",
+            "label": "async-decode-min-batch-size",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 1,
+            "default": null,
+            "category": "performance",
+            "desc": "Decode batches smaller than this bypass the async-decode lookahead and run synchronously (fast path). Default 2."
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Text Generation",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Audio-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Video-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Any-to-Any",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "base_url": "/v1/audio/transcriptions"
+        },
+        {
+            "inference_task": "Text-to-Speech",
+            "base_url": "/v1/audio/speech"
+        }
+    ],
+    "inference_arguments": [
+        {
+            "inference_task": "Text Generation",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature. Higher values make output more random, lower values more focused and deterministic."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling: the model considers only the tokens comprising the top_p probability mass."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": -1,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of highest-probability vocabulary tokens to keep for top-k filtering. -1 disables top-k."
+                },
+                {
+                    "name": "min_p",
+                    "label": "min_p",
+                    "required": false,
+                    "default": 0.0,
+                    "min": 0,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Minimum token probability, scaled by the probability of the most likely token. Tokens below this are filtered out."
+                },
+                {
+                    "name": "repetition_penalty",
+                    "label": "repetition_penalty",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Penalizes repeated tokens. Values above 1.0 discourage repetition; 1.0 disables the penalty."
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the completion. Aliased by max_completion_tokens."
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Sequences where the API will stop generating further tokens."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible sampling."
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature. Higher values make output more random, lower values more focused and deterministic."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling: the model considers only the tokens comprising the top_p probability mass."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": -1,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of highest-probability vocabulary tokens to keep for top-k filtering. -1 disables top-k."
+                },
+                {
+                    "name": "min_p",
+                    "label": "min_p",
+                    "required": false,
+                    "default": 0.0,
+                    "min": 0,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Minimum token probability, scaled by the probability of the most likely token. Tokens below this are filtered out."
+                },
+                {
+                    "name": "repetition_penalty",
+                    "label": "repetition_penalty",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Penalizes repeated tokens. Values above 1.0 discourage repetition; 1.0 disables the penalty."
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the completion. Aliased by max_completion_tokens."
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Sequences where the API will stop generating further tokens."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible sampling."
+                }
+            ]
+        },
+        {
+            "inference_task": "Audio-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature. Higher values make output more random, lower values more focused and deterministic."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling: the model considers only the tokens comprising the top_p probability mass."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": -1,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of highest-probability vocabulary tokens to keep for top-k filtering. -1 disables top-k."
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the completion."
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Sequences where the API will stop generating further tokens."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible sampling."
+                }
+            ]
+        },
+        {
+            "inference_task": "Video-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature. Higher values make output more random, lower values more focused and deterministic."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling: the model considers only the tokens comprising the top_p probability mass."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": -1,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of highest-probability vocabulary tokens to keep for top-k filtering. -1 disables top-k."
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the completion."
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Sequences where the API will stop generating further tokens."
+                },
+                {
+                    "name": "video_fps",
+                    "label": "video_fps",
+                    "required": false,
+                    "default": null,
+                    "min": 0.1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Frames-per-second to sample from input video before feeding the model."
+                },
+                {
+                    "name": "video_max_frames",
+                    "label": "video_max_frames",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum number of frames to sample from the input video."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible sampling."
+                }
+            ]
+        },
+        {
+            "inference_task": "Any-to-Any",
+            "arguments": [
+                {
+                    "name": "modalities",
+                    "label": "modalities",
+                    "required": false,
+                    "default": [
+                        "text"
+                    ],
+                    "type": "list",
+                    "desc": "Output modalities to return, e.g. [\"text\"] or [\"text\", \"audio\"]."
+                },
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature for the text/thinker output."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling for the text/thinker output."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": -1,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Top-k filtering for the text/thinker output. -1 disables top-k."
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of text tokens to generate."
+                },
+                {
+                    "name": "talker_temperature",
+                    "label": "talker_temperature",
+                    "required": false,
+                    "default": null,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature for the speech (talker) output stage."
+                },
+                {
+                    "name": "talker_top_p",
+                    "label": "talker_top_p",
+                    "required": false,
+                    "default": null,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling for the speech (talker) output stage."
+                },
+                {
+                    "name": "talker_top_k",
+                    "label": "talker_top_k",
+                    "required": false,
+                    "default": null,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Top-k filtering for the speech (talker) output stage."
+                },
+                {
+                    "name": "talker_max_new_tokens",
+                    "label": "talker_max_new_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum number of audio codec tokens to generate for the speech output."
+                }
+            ]
+        },
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "arguments": [
+                {
+                    "name": "language",
+                    "label": "language",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The language of the input audio (ISO-639-1). Improves accuracy and latency when provided."
+                },
+                {
+                    "name": "prompt",
+                    "label": "prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Optional text to guide the model's style or continue a prior audio segment."
+                },
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": null,
+                    "min": 0,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature for transcription decoding."
+                },
+                {
+                    "name": "response_format",
+                    "label": "response_format",
+                    "required": false,
+                    "default": "json",
+                    "type": "string",
+                    "desc": "The format of the transcript output.",
+                    "options": [
+                        "json",
+                        "verbose_json",
+                        "text"
+                    ]
+                }
+            ]
+        },
+        {
+            "inference_task": "Text-to-Speech",
+            "arguments": [
+                {
+                    "name": "voice",
+                    "label": "voice",
+                    "required": false,
+                    "default": "default",
+                    "type": "string",
+                    "desc": "The voice to use for speech synthesis. Supported voices vary by model."
+                },
+                {
+                    "name": "response_format",
+                    "label": "response_format",
+                    "required": false,
+                    "default": "wav",
+                    "type": "string",
+                    "desc": "The format of the output audio.",
+                    "options": [
+                        "wav",
+                        "mp3",
+                        "flac",
+                        "opus",
+                        "aac",
+                        "pcm"
+                    ]
+                },
+                {
+                    "name": "speed",
+                    "label": "speed",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.25,
+                    "max": 4.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "The speed of the generated audio."
+                },
+                {
+                    "name": "instructions",
+                    "label": "instructions",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Style/emotion instructions to control delivery (model-dependent)."
+                },
+                {
+                    "name": "language",
+                    "label": "language",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Target language for synthesis (model-dependent)."
+                },
+                {
+                    "name": "ref_audio",
+                    "label": "ref_audio",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Path or URL to a reference audio clip for voice cloning."
+                },
+                {
+                    "name": "ref_text",
+                    "label": "ref_text",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Transcript of the reference audio used for voice cloning."
+                },
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": null,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Sampling temperature for the TTS autoregressive stage."
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": null,
+                    "min": 0.01,
+                    "max": 1,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Nucleus sampling for the TTS autoregressive stage."
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": null,
+                    "min": -1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Top-k filtering for the TTS autoregressive stage."
+                },
+                {
+                    "name": "repetition_penalty",
+                    "label": "repetition_penalty",
+                    "required": false,
+                    "default": null,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Penalizes repeated tokens during audio token generation."
+                },
+                {
+                    "name": "max_new_tokens",
+                    "label": "max_new_tokens",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum number of audio tokens to generate."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible synthesis."
+                }
+            ]
+        }
+    ]
+}

@@ -125,6 +125,41 @@ spec:
             # Dev is reached via port-forward; prod uses its ingress host.
             - name: LITELLM_PUBLIC_BASE_URL
               value: "http://localhost:14001"
+            # Microsoft Entra OIDC for Admin UI SSO.
+            #
+            # PROXY_BASE_URL is what LiteLLM uses to build the OAuth redirect
+            # URI: it appends /sso/callback to this value (get_custom_url in
+            # litellm/proxy/utils.py). It must match the redirect URI registered
+            # on the Entra app EXACTLY, including scheme, host and port. Dev has
+            # no ingress, so the browser reaches the gateway over the 14001
+            # port-forward and this stays a localhost origin.
+            #
+            # Microsoft only permits http://localhost redirect URIs for PUBLIC
+            # clients; this app is confidential (client secret), so the Entra
+            # app must be a web platform registration and the redirect URI must
+            # be the https form the ticket registers. If the registered callback
+            # is an https host, change this value to that host and expose dev
+            # behind it; the two must not drift.
+            - name: PROXY_BASE_URL
+              value: "http://localhost:14001"
+            - name: MICROSOFT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-dev
+                  key: MICROSOFT_CLIENT_ID
+                  optional: true
+            - name: MICROSOFT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-dev
+                  key: MICROSOFT_CLIENT_SECRET
+                  optional: true
+            - name: MICROSOFT_TENANT
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-dev
+                  key: MICROSOFT_TENANT
+                  optional: true
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
             # Standard data-plane Service port for the MCP source broker.

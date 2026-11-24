@@ -1,0 +1,213 @@
+{
+    "server_arguments": [
+        {
+            "name": "max_input_bytes",
+            "label": "max-input-bytes",
+            "required": false,
+            "default": 2147483648,
+            "type": "number",
+            "format": "integer",
+            "category": "capacity_and_limits",
+            "desc": "Per-request input size limit in bytes (default 2 GB). Submissions larger than this are rejected with HTTP 413 before they hit the queue."
+        },
+        {
+            "name": "max_input_duration_seconds",
+            "label": "max-input-duration-seconds",
+            "required": false,
+            "default": 1800,
+            "type": "number",
+            "format": "integer",
+            "category": "capacity_and_limits",
+            "desc": "Maximum allowed input video duration, in seconds (default 30 minutes). Validated by ffprobe at submit time."
+        },
+        {
+            "name": "max_input_resolution",
+            "label": "max-input-resolution",
+            "required": false,
+            "default": "2048x2048",
+            "type": "string",
+            "category": "capacity_and_limits",
+            "desc": "Maximum allowed input resolution as 'WxH' (e.g. '1920x1080', '2048x2048'). Validated by ffprobe; inputs above this cap are rejected with HTTP 400."
+        },
+        {
+            "name": "allowed_video_extensions",
+            "label": "allowed-video-extensions",
+            "required": false,
+            "default": ".mp4,.mov,.mkv,.webm,.avi",
+            "type": "string",
+            "category": "other",
+            "desc": "Comma-separated whitelist of accepted file extensions (must include the leading dot). Anything else returns HTTP 415 fast, before content probing."
+        },
+        {
+            "name": "allowed_video_codecs",
+            "label": "allowed-video-codecs",
+            "required": false,
+            "default": "h264,hevc,vp9,av1,mpeg4,prores",
+            "type": "string",
+            "category": "other",
+            "desc": "Comma-separated whitelist of accepted video codec names as reported by ffprobe's codec_name field. Anything else is rejected with HTTP 400 + unsupported_codec."
+        },
+        {
+            "name": "output_codec",
+            "label": "output-codec",
+            "required": false,
+            "default": "h264",
+            "type": "string",
+            "category": "other",
+            "desc": "Output video codec passed to ffmpeg as -c:v. Pinning the output to one codec keeps caller-side decoding predictable."
+        },
+        {
+            "name": "output_container",
+            "label": "output-container",
+            "required": false,
+            "default": "mp4",
+            "type": "string",
+            "category": "other",
+            "desc": "Output container format. Combined with output-codec to produce a single deterministic output type per deployment."
+        },
+        {
+            "name": "queue_capacity",
+            "label": "queue-capacity",
+            "required": false,
+            "default": 64,
+            "type": "number",
+            "format": "integer",
+            "category": "capacity_and_limits",
+            "desc": "**IMPORTANT** primary backpressure control. Maximum number of submitted-but-not-yet-completed jobs the in-process queue holds. Beyond this, POST /jobs returns 503 Retry-After. Higher values absorb more burst load but use more memory and scratch disk per job."
+        },
+        {
+            "name": "max_work_dir_bytes",
+            "label": "max-work-dir-bytes",
+            "required": false,
+            "default": 107374182400,
+            "type": "number",
+            "format": "integer",
+            "category": "capacity_and_limits",
+            "desc": "Local writeable scratch directory size limit in bytes (default 100 GB). When usage approaches this cap, POST /jobs returns 503 even if the queue is not full — protects the node from runaway disk use."
+        },
+        {
+            "name": "job_retention_seconds",
+            "label": "job-retention-seconds",
+            "required": false,
+            "default": 3600,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "How long terminal jobs (succeeded / failed / canceled) and their output files are kept after completion before the TTL sweeper deletes them."
+        },
+        {
+            "name": "gpu_memory_fraction",
+            "label": "gpu-memory-fraction",
+            "required": false,
+            "default": 0.92,
+            "type": "number",
+            "category": "capacity_and_limits",
+            "desc": "Fraction of total VRAM that PyTorch is allowed to allocate (passed to torch.cuda.set_per_process_memory_fraction). Leaving headroom prevents kernel-level OOM kills; PyTorch raises a clean OutOfMemoryError at the cap instead."
+        },
+        {
+            "name": "chunk_frames",
+            "label": "chunk-frames",
+            "required": false,
+            "default": 81,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "Temporal chunk size — number of frames the model processes per pass. Long videos are split into windows of this size (with overlap-frames overlap), processed sequentially, and stitched."
+        },
+        {
+            "name": "overlap_frames",
+            "label": "overlap-frames",
+            "required": false,
+            "default": 8,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "Number of overlapping frames between consecutive temporal chunks, used for smooth stitching of the restored output."
+        },
+        {
+            "name": "min_chunk_frames",
+            "label": "min-chunk-frames",
+            "required": false,
+            "default": 16,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "Floor for the adaptive shrinking inside the per-chunk OOM trap. If a chunk OOMs we retry once at half size; this is the minimum size we'll go down to before failing the job with insufficient_vram."
+        },
+        {
+            "name": "vae_tile_size",
+            "label": "vae-tile-size",
+            "required": false,
+            "default": 512,
+            "type": "number",
+            "format": "integer",
+            "category": "performance",
+            "desc": "VAE decode tile size in pixels. Tiling the VAE decoder bounds peak VRAM at high output resolutions, where the decoder is otherwise the largest single allocation."
+        },
+        {
+            "name": "inference_dtype",
+            "label": "inference-dtype",
+            "required": false,
+            "default": "fp16",
+            "type": "string",
+            "category": "model",
+            "desc": "Numeric type for inference. fp16 is the trained dtype and is fastest on H200; bf16 is more numerically forgiving but slightly slower.",
+            "options": [
+                "fp16",
+                "bf16"
+            ]
+        },
+        {
+            "name": "worker_heartbeat_seconds",
+            "label": "worker-heartbeat-seconds",
+            "required": false,
+            "default": 5,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "How often the GPU worker subprocess emits a heartbeat to the supervisor."
+        },
+        {
+            "name": "worker_heartbeat_timeout",
+            "label": "worker-heartbeat-timeout",
+            "required": false,
+            "default": 30,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "Supervisor restarts the worker if no heartbeat is received within this many seconds. Should be greater than worker-heartbeat-seconds plus the slowest expected chunk time on healthy hardware."
+        },
+        {
+            "name": "shutdown_grace_seconds",
+            "label": "shutdown-grace-seconds",
+            "required": false,
+            "default": 120,
+            "type": "number",
+            "format": "integer",
+            "category": "other",
+            "desc": "On SIGTERM, the server stops accepting new requests and waits up to this many seconds for the in-flight job to finish before failing it with code=shutdown. Set Kubernetes terminationGracePeriodSeconds >= this + 10."
+        },
+        {
+            "name": "log_level",
+            "label": "log-level",
+            "required": false,
+            "default": "INFO",
+            "type": "string",
+            "category": "other",
+            "desc": "Python logging level for the structured JSON logs.",
+            "options": [
+                "DEBUG",
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+            ]
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Video-to-Video",
+            "base_url": "/jobs"
+        }
+    ]
+}

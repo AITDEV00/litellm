@@ -1,0 +1,115 @@
+{
+  "server_arguments": [
+    {
+      "name": "revision",
+      "label": "revision",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "The actual revision of the model if you're referring to a model on the hub. You can use a specific commit id or a branch like `refs/pr/2`"
+    },
+    {
+      "name": "tokenization_workers",
+      "label": "tokenization-workers",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "performance",
+      "desc": "Optionally control the number of tokenizer workers used for payload tokenization, validation and truncation. Default to the number of CPU cores on the machine"
+    },
+    {
+      "name": "dtype",
+      "label": "dtype",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "The dtype to be forced upon the model",
+      "options": [
+        null,
+        "float16",
+        "float32"
+      ]
+    },
+    {
+      "name": "pooling",
+      "label": "pooling",
+      "required": false,
+      "default": null,
+      "type": "string",
+      "category": "model",
+      "desc": "Optionally control the pooling method for embedding models.\n\nIf `pooling` is not set, the pooling configuration will be parsed from the model `1_Pooling/config.json` configuration.\n\nIf `pooling` is set, it will override the model pooling configuration",
+      "options": [
+        null,
+        "cls",
+        "mean",
+        "splade"
+      ]
+    },
+    {
+      "name": "max_concurrent_requests",
+      "label": "max-concurrent-requests",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "category": "capacity_and_limits",
+      "desc": "The maximum amount of concurrent requests for this particular deployment.\nHaving a low limit will refuse clients requests instead of having them wait for too long and is usually good to handle backpressure correctly"
+    },
+    {
+      "name": "max_batch_tokens",
+      "label": "max-batch-tokens",
+      "required": false,
+      "default": 16384,
+      "type": "number",
+      "format": "integer",
+      "category": "capacity_and_limits",
+      "desc": "**IMPORTANT** This is one critical control to allow maximum usage of the available hardware.\n\nThis represents the total amount of potential tokens within a batch.\n\nFor `max_batch_tokens=1000`, you could fit `10` queries of `total_tokens=100` or a single query of `1000` tokens.\n\nOverall this number should be the largest possible until the model is compute bound. Since the actual memory\noverhead depends on the model implementation, text-embeddings-inference cannot infer this number automatically."
+    },
+    {
+      "name": "max_batch_requests",
+      "label": "max-batch-requests",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "category": "capacity_and_limits",
+      "desc": "Optionally control the maximum number of individual requests in a batch"
+    },
+    {
+      "name": "max_client_batch_size",
+      "label": "max-client-batch-size",
+      "required": false,
+      "default": null,
+      "type": "number",
+      "format": "integer",
+      "category": "capacity_and_limits",
+      "desc": "Control the maximum number of inputs that a client can send in a single request"
+    },
+    {
+      "name": "payload_limit",
+      "label": "payload-limit",
+      "required": false,
+      "default": 2000000,
+      "type": "number",
+      "format": "integer",
+      "category": "capacity_and_limits",
+      "desc": "Payload size limit in bytes"
+    }
+  ],
+  "tasks_base_url": [
+    {
+      "inference_task": "Text Embedding",
+      "base_url": "/v1/embeddings"
+    },
+    {
+      "inference_task": "Text Ranking",
+      "base_url": "/rerank"
+    },
+    {
+      "inference_task": "Text Classification",
+      "base_url": "/predict"
+    }
+  ]
+}

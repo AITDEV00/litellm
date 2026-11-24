@@ -1,0 +1,1209 @@
+{
+    "server_arguments": [
+        {
+            "name": "backend",
+            "label": "backend",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "auto",
+                "sglang",
+                "diffusers"
+            ],
+            "category": "model",
+            "desc": "Model backend. 'auto' prefers the SGLang native implementation and falls back to diffusers; 'sglang' forces the native optimized path; 'diffusers' runs the vanilla diffusers pipeline."
+        },
+        {
+            "name": "trust_remote_code",
+            "label": "trust-remote-code",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "model",
+            "desc": "Trust remote code when loading HuggingFace models."
+        },
+        {
+            "name": "resolution",
+            "label": "resolution",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "Override the selected pipeline config's resolution. Only applies to pipelines that define a resolution field."
+        },
+        {
+            "name": "flow_shift",
+            "label": "flow-shift",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "category": "model",
+            "desc": "Flow shift parameter for the sampling schedule."
+        },
+        {
+            "name": "performance_mode",
+            "label": "performance-mode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "manual",
+                "auto",
+                "speed",
+                "memory"
+            ],
+            "category": "performance",
+            "desc": "Preset for performance and memory defaults. 'manual' leaves performance args under explicit control; 'auto' keeps safe defaults plus high-confidence FSDP/CFG improvements; 'speed' favors GPU-resident execution for lower latency and may OOM; 'memory' favors lower GPU memory usage. Explicit offload/FSDP/parallelism flags take precedence."
+        },
+        {
+            "name": "enable_torch_compile",
+            "label": "enable-torch-compile",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Compile the transformer with torch.compile. Increases startup time in exchange for faster steps."
+        },
+        {
+            "name": "regional_compile",
+            "label": "regional-compile",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Compile repeated DiT submodules selected by the model's _compile_conditions instead of the whole transformer. Requires enable-torch-compile."
+        },
+        {
+            "name": "dit_precision",
+            "label": "dit-precision",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "fp32",
+                "fp16",
+                "bf16"
+            ],
+            "category": "performance",
+            "desc": "Precision for the DiT model."
+        },
+        {
+            "name": "vae_precision",
+            "label": "vae-precision",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "fp32",
+                "fp16",
+                "bf16"
+            ],
+            "category": "performance",
+            "desc": "Precision for the VAE."
+        },
+        {
+            "name": "image_encoder_precision",
+            "label": "image-encoder-precision",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "fp32",
+                "fp16",
+                "bf16"
+            ],
+            "category": "performance",
+            "desc": "Precision for the image encoder."
+        },
+        {
+            "name": "warmup_mode",
+            "label": "warmup-mode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "off",
+                "request",
+                "server"
+            ],
+            "category": "performance",
+            "desc": "Warmup mode. 'off' disables warmup; 'request' warms on real incoming requests; 'server' issues a synthetic warmup request once the server is ready, before traffic. sglang serve defaults to 'server'."
+        },
+        {
+            "name": "warmup_steps",
+            "label": "warmup-steps",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 0,
+            "default": null,
+            "category": "performance",
+            "desc": "Number of warmup steps to perform for each resolution."
+        },
+        {
+            "name": "sp_degree",
+            "label": "sp-degree",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 1,
+            "default": null,
+            "category": "performance",
+            "desc": "Sequence parallelism size. If unset, uses all remaining GPUs after accounting for TP and DP."
+        },
+        {
+            "name": "use_fsdp_inference",
+            "label": "use-fsdp-inference",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Shard DiT weights across GPUs with FSDP. For single-GPU memory pressure prefer CPU or layerwise offload."
+        },
+        {
+            "name": "dit_cpu_offload",
+            "label": "dit-cpu-offload",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Use CPU offload for DiT inference. Enable when running out of memory with FSDP."
+        },
+        {
+            "name": "dit_layerwise_offload",
+            "label": "dit-layerwise-offload",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Layerwise CPU offload with async host-to-device prefetch overlap for DiTs. Cannot be combined with use-fsdp-inference; takes precedence over the other DiT offload flags."
+        },
+        {
+            "name": "vae_cpu_offload",
+            "label": "vae-cpu-offload",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Use CPU offload for the VAE. Enable when running out of memory."
+        },
+        {
+            "name": "text_encoder_cpu_offload",
+            "label": "text-encoder-cpu-offload",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Use CPU offload for the text encoder. Enable when running out of memory."
+        },
+        {
+            "name": "image_encoder_cpu_offload",
+            "label": "image-encoder-cpu-offload",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Use CPU offload for the image encoder. Enable when running out of memory."
+        },
+        {
+            "name": "pin_cpu_memory",
+            "label": "pin-cpu-memory",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Pin host memory for CPU offload. Should stay enabled in almost all cases; disable only as a workaround for 'CUDA error: invalid argument'."
+        },
+        {
+            "name": "vae_tiling",
+            "label": "vae-tiling",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Enable VAE tiling."
+        },
+        {
+            "name": "vae_slicing",
+            "label": "vae-slicing",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Enable VAE slicing."
+        },
+        {
+            "name": "batching_mode",
+            "label": "batching-mode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "options": [
+                null,
+                "dynamic"
+            ],
+            "category": "capacity_and_limits",
+            "desc": "Request batching scheduler mode. Only 'dynamic' is implemented."
+        },
+        {
+            "name": "batching_max_size",
+            "label": "batching-max-size",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "min": 1,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Maximum number of compatible generation requests to merge into one batch."
+        },
+        {
+            "name": "batching_delay_ms",
+            "label": "batching-delay-ms",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "min": 0,
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Maximum time in milliseconds to wait for a larger batch to form before dispatch."
+        },
+        {
+            "name": "quantization",
+            "label": "quantization",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "quantization",
+            "desc": "Quantization method for the transformer. Auto-detected from the checkpoint when omitted. Online quantization from a BF16/FP16 checkpoint supports 'fp8' and 'mxfp4'; the other methods require a pre-quantized checkpoint."
+        },
+        {
+            "name": "quantization_precision",
+            "label": "quantization-precision",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "quantization",
+            "desc": "Override the precision used by the selected quantization method."
+        },
+        {
+            "name": "enable_svdquant",
+            "label": "enable-svdquant",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "quantization",
+            "desc": "Enable Nunchaku SVDQuant (W4A4-style) inference."
+        },
+        {
+            "name": "enable_batching_metrics",
+            "label": "enable-batching-metrics",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "Log periodic batch efficiency metrics such as realized batch size and queue wait time. The diffusion backend exposes no /metrics endpoint, so this only writes to the server log."
+        },
+        {
+            "name": "enable_cache_report",
+            "label": "enable-cache-report",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "Return the number of cached tokens in usage.prompt_tokens_details on OpenAI-compatible responses."
+        }
+    ],
+    "inference_arguments": [
+        {
+            "inference_task": "Text-to-Image",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 4,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of images to generate."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": "1024x1024",
+                    "type": "string",
+                    "options": [
+                        "256x256",
+                        "512x512",
+                        "1024x1024",
+                        "1024x1792",
+                        "1792x1024"
+                    ],
+                    "desc": "The size of the generated images."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "max": 100,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "true_cfg_scale",
+                    "label": "true_cfg_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "True CFG scale, for models that distinguish guidance distillation from real CFG (e.g. Qwen-Image)."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Prompt describing what to exclude from the generated image."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible generations."
+                },
+                {
+                    "name": "response_format",
+                    "label": "response_format",
+                    "required": false,
+                    "default": "url",
+                    "type": "string",
+                    "options": [
+                        "url",
+                        "b64_json"
+                    ],
+                    "desc": "Format of the returned images."
+                },
+                {
+                    "name": "output_format",
+                    "label": "output_format",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "options": [
+                        null,
+                        "png",
+                        "jpeg",
+                        "webp"
+                    ],
+                    "desc": "Encoding of the returned image file."
+                },
+                {
+                    "name": "background",
+                    "label": "background",
+                    "required": false,
+                    "default": "auto",
+                    "type": "string",
+                    "options": [
+                        "auto",
+                        "transparent",
+                        "opaque"
+                    ],
+                    "desc": "Background handling for models that support transparency."
+                },
+                {
+                    "name": "quality",
+                    "label": "quality",
+                    "required": false,
+                    "default": "auto",
+                    "type": "string",
+                    "desc": "Requested output quality."
+                },
+                {
+                    "name": "max_sequence_length",
+                    "label": "max_sequence_length",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum prompt sequence length passed to the text encoder."
+                },
+                {
+                    "name": "flow_shift",
+                    "label": "flow_shift",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Per-request flow shift override for the sampling schedule."
+                },
+                {
+                    "name": "enable_teacache",
+                    "label": "enable_teacache",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Enable TeaCache step reuse for faster generation."
+                },
+                {
+                    "name": "enable_upscaling",
+                    "label": "enable_upscaling",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Upscale the generated image after denoising."
+                },
+                {
+                    "name": "upscaling_scale",
+                    "label": "upscaling_scale",
+                    "required": false,
+                    "default": 4,
+                    "min": 2,
+                    "max": 8,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Upscaling factor applied when enable_upscaling is set."
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-to-Image",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 4,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of images to generate."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": "1024x1024",
+                    "type": "string",
+                    "options": [
+                        "256x256",
+                        "512x512",
+                        "1024x1024",
+                        "1024x1792",
+                        "1792x1024"
+                    ],
+                    "desc": "The size of the generated images."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "max": 100,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "true_cfg_scale",
+                    "label": "true_cfg_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "True CFG scale, for models that distinguish guidance distillation from real CFG (e.g. Qwen-Image)."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Prompt describing what to exclude from the generated image."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible generations."
+                },
+                {
+                    "name": "response_format",
+                    "label": "response_format",
+                    "required": false,
+                    "default": "url",
+                    "type": "string",
+                    "options": [
+                        "url",
+                        "b64_json"
+                    ],
+                    "desc": "Format of the returned images."
+                },
+                {
+                    "name": "output_format",
+                    "label": "output_format",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "options": [
+                        null,
+                        "png",
+                        "jpeg",
+                        "webp"
+                    ],
+                    "desc": "Encoding of the returned image file."
+                },
+                {
+                    "name": "background",
+                    "label": "background",
+                    "required": false,
+                    "default": "auto",
+                    "type": "string",
+                    "options": [
+                        "auto",
+                        "transparent",
+                        "opaque"
+                    ],
+                    "desc": "Background handling for models that support transparency."
+                },
+                {
+                    "name": "quality",
+                    "label": "quality",
+                    "required": false,
+                    "default": "auto",
+                    "type": "string",
+                    "desc": "Requested output quality."
+                },
+                {
+                    "name": "enable_upscaling",
+                    "label": "enable_upscaling",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Upscale the generated image after denoising."
+                },
+                {
+                    "name": "upscaling_scale",
+                    "label": "upscaling_scale",
+                    "required": false,
+                    "default": 4,
+                    "min": 2,
+                    "max": 8,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Upscaling factor applied when enable_upscaling is set."
+                }
+            ]
+        },
+        {
+            "inference_task": "Text-to-Video",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 4,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of videos to generate."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second of the generated video."
+                },
+                {
+                    "name": "num_frames",
+                    "label": "num_frames",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Total frames to generate. Overrides seconds/fps when set."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The size of the generated video, as WIDTHxHEIGHT."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "max": 100,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "guidance_scale_2",
+                    "label": "guidance_scale_2",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Second-stage guidance scale, for pipelines with a two-expert denoiser (e.g. Wan 2.2)."
+                },
+                {
+                    "name": "true_cfg_scale",
+                    "label": "true_cfg_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "True CFG scale, for models that distinguish guidance distillation from real CFG."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Prompt describing what to exclude from the generated video."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible generations."
+                },
+                {
+                    "name": "max_sequence_length",
+                    "label": "max_sequence_length",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum prompt sequence length passed to the text encoder."
+                },
+                {
+                    "name": "flow_shift",
+                    "label": "flow_shift",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Per-request flow shift override for the sampling schedule."
+                },
+                {
+                    "name": "enable_teacache",
+                    "label": "enable_teacache",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Enable TeaCache step reuse for faster generation."
+                },
+                {
+                    "name": "enable_frame_interpolation",
+                    "label": "enable_frame_interpolation",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Interpolate additional frames after denoising."
+                },
+                {
+                    "name": "frame_interpolation_exp",
+                    "label": "frame_interpolation_exp",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 2,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frame interpolation exponent: 1 doubles the frame count, 2 quadruples it."
+                },
+                {
+                    "name": "enable_upscaling",
+                    "label": "enable_upscaling",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Upscale the generated video after denoising."
+                },
+                {
+                    "name": "upscaling_scale",
+                    "label": "upscaling_scale",
+                    "required": false,
+                    "default": 4,
+                    "min": 2,
+                    "max": 8,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Upscaling factor applied when enable_upscaling is set."
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-to-Video",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 4,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of videos to generate."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second of the generated video."
+                },
+                {
+                    "name": "num_frames",
+                    "label": "num_frames",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Total frames to generate. Overrides seconds/fps when set."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The size of the generated video, as WIDTHxHEIGHT."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "max": 100,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "guidance_scale_2",
+                    "label": "guidance_scale_2",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Second-stage guidance scale, for pipelines with a two-expert denoiser (e.g. Wan 2.2)."
+                },
+                {
+                    "name": "true_cfg_scale",
+                    "label": "true_cfg_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "True CFG scale, for models that distinguish guidance distillation from real CFG."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Prompt describing what to exclude from the generated video."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible generations."
+                },
+                {
+                    "name": "max_sequence_length",
+                    "label": "max_sequence_length",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum prompt sequence length passed to the text encoder."
+                },
+                {
+                    "name": "flow_shift",
+                    "label": "flow_shift",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Per-request flow shift override for the sampling schedule."
+                },
+                {
+                    "name": "enable_teacache",
+                    "label": "enable_teacache",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Enable TeaCache step reuse for faster generation."
+                },
+                {
+                    "name": "enable_frame_interpolation",
+                    "label": "enable_frame_interpolation",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Interpolate additional frames after denoising."
+                },
+                {
+                    "name": "frame_interpolation_exp",
+                    "label": "frame_interpolation_exp",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 2,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frame interpolation exponent: 1 doubles the frame count, 2 quadruples it."
+                },
+                {
+                    "name": "enable_upscaling",
+                    "label": "enable_upscaling",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Upscale the generated video after denoising."
+                },
+                {
+                    "name": "upscaling_scale",
+                    "label": "upscaling_scale",
+                    "required": false,
+                    "default": 4,
+                    "min": 2,
+                    "max": 8,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Upscaling factor applied when enable_upscaling is set."
+                }
+            ]
+        },
+        {
+            "inference_task": "Video-to-Video",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 4,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of videos to generate."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second of the generated video."
+                },
+                {
+                    "name": "num_frames",
+                    "label": "num_frames",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Total frames to generate. Overrides seconds/fps when set."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The size of the generated video, as WIDTHxHEIGHT."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "max": 100,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "guidance_scale_2",
+                    "label": "guidance_scale_2",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Second-stage guidance scale, for pipelines with a two-expert denoiser (e.g. Wan 2.2)."
+                },
+                {
+                    "name": "true_cfg_scale",
+                    "label": "true_cfg_scale",
+                    "required": false,
+                    "default": null,
+                    "min": 0.0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "True CFG scale, for models that distinguish guidance distillation from real CFG."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "Prompt describing what to exclude from the generated video."
+                },
+                {
+                    "name": "seed",
+                    "label": "seed",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Random seed for reproducible generations."
+                },
+                {
+                    "name": "max_sequence_length",
+                    "label": "max_sequence_length",
+                    "required": false,
+                    "default": null,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum prompt sequence length passed to the text encoder."
+                },
+                {
+                    "name": "flow_shift",
+                    "label": "flow_shift",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Per-request flow shift override for the sampling schedule."
+                },
+                {
+                    "name": "enable_teacache",
+                    "label": "enable_teacache",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Enable TeaCache step reuse for faster generation."
+                },
+                {
+                    "name": "enable_frame_interpolation",
+                    "label": "enable_frame_interpolation",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Interpolate additional frames after denoising."
+                },
+                {
+                    "name": "frame_interpolation_exp",
+                    "label": "frame_interpolation_exp",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 2,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frame interpolation exponent: 1 doubles the frame count, 2 quadruples it."
+                },
+                {
+                    "name": "enable_upscaling",
+                    "label": "enable_upscaling",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Upscale the generated video after denoising."
+                },
+                {
+                    "name": "upscaling_scale",
+                    "label": "upscaling_scale",
+                    "required": false,
+                    "default": 4,
+                    "min": 2,
+                    "max": 8,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Upscaling factor applied when enable_upscaling is set."
+                }
+            ]
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Text-to-Image",
+            "base_url": "/v1/images/generations"
+        },
+        {
+            "inference_task": "Image-to-Image",
+            "base_url": "/v1/images/edits"
+        },
+        {
+            "inference_task": "Text-to-Video",
+            "base_url": "/v1/videos"
+        },
+        {
+            "inference_task": "Image-to-Video",
+            "base_url": "/v1/videos"
+        },
+        {
+            "inference_task": "Video-to-Video",
+            "base_url": "/v1/videos"
+        }
+    ]
+}

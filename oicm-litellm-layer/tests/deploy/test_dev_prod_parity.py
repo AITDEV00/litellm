@@ -80,6 +80,13 @@ _DEV_ONLY_ENV_VARS: Final = frozenset(
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
         "HAMSA_API_KEY",
+        # Microsoft Entra OIDC for Admin UI SSO, enabled on dev first. Prod is
+        # not wired to SSO yet; when it is, these move to the base and this
+        # entry goes away.
+        "PROXY_BASE_URL",
+        "MICROSOFT_CLIENT_ID",
+        "MICROSOFT_CLIENT_SECRET",
+        "MICROSOFT_TENANT",
     }
 )
 

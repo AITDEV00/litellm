@@ -1,0 +1,1257 @@
+{
+  "server_arguments": [
+    {
+      "name": "tokenizer",
+      "label": "tokenizer",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The path of the tokenizer. Only needed when it differs from the model path."
+    },
+    {
+      "name": "tokenizer_mode",
+      "label": "tokenizer-mode",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Tokenizer mode. 'auto' uses the fast tokenizer and model-specific tokenizer hooks if available, 'slow' always uses the slow tokenizer.",
+      "options": [
+        null,
+        "auto",
+        "slow",
+        "deepseek_v4"
+      ]
+    },
+    {
+      "name": "skip_tokenizer_init",
+      "label": "skip-tokenizer-init",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "If set, skip tokenizer initialization and pass input_ids in the generate request."
+    },
+    {
+      "name": "load_format",
+      "label": "load-format",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The format of the model weights to load. 'auto' tries safetensors and falls back to pytorch bin.",
+      "options": [
+        null,
+        "auto",
+        "pt",
+        "safetensors",
+        "npcache",
+        "dummy",
+        "extensible"
+      ]
+    },
+    {
+      "name": "trust_remote_code",
+      "label": "trust-remote-code",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Whether to allow custom model code from the model repository. Enabled by default in TokenSpeed; pass --no-trust-remote-code to disable."
+    },
+    {
+      "name": "revision",
+      "label": "revision",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The specific model version to use. Branch name, tag name, or commit id."
+    },
+    {
+      "name": "download_dir",
+      "label": "download-dir",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Model download / Hugging Face cache directory."
+    },
+    {
+      "name": "hf_overrides",
+      "label": "hf-overrides",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "A dictionary in JSON string format used to override default model configuration values."
+    },
+    {
+      "name": "language_model_only",
+      "label": "language-model-only",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Skip the vision/audio encoders on a multimodal checkpoint and run text-only. Multimodal requests are rejected."
+    },
+    {
+      "name": "dtype",
+      "label": "dtype",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Data type for model weights and activations. 'auto' follows the model metadata.",
+      "options": [
+        null,
+        "auto",
+        "half",
+        "float16",
+        "bfloat16",
+        "float",
+        "float32"
+      ]
+    },
+    {
+      "name": "kv_cache_dtype",
+      "label": "kv-cache-dtype",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Data type for KV cache storage. 'auto' uses the model data type. 'fp8' is an alias for 'fp8_e4m3'.",
+      "options": [
+        null,
+        "auto",
+        "fp8",
+        "fp8_e4m3",
+        "mxfp8"
+      ]
+    },
+    {
+      "name": "kv_cache_quant_method",
+      "label": "kv-cache-quant-method",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "KV cache quantization method.",
+      "options": [
+        null,
+        "none",
+        "per_token_head"
+      ]
+    },
+    {
+      "name": "quantization",
+      "label": "quantization",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The weight quantization method.",
+      "options": [
+        null,
+        "fp8",
+        "mxfp4",
+        "nvfp4",
+        "w8a8_fp8",
+        "compressed-tensors"
+      ]
+    },
+    {
+      "name": "quantization_param_path",
+      "label": "quantization-param-path",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Path to the JSON file containing the KV cache scaling factors. Generally required when the KV cache dtype is FP8."
+    },
+    {
+      "name": "moe_activation_dtype",
+      "label": "moe-activation-dtype",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "MoE activation precision for the Kimi-K3 fused SiTU MoE. 'bf16' keeps bf16 activations (default), 'mxfp8' uses block-scaled activations.",
+      "options": [
+        null,
+        "bf16",
+        "mxfp8"
+      ]
+    },
+    {
+      "name": "max_model_len",
+      "label": "max-model-len",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The model's maximum context length. Defaults to the value from the model's config.json."
+    },
+    {
+      "name": "gpu_memory_utilization",
+      "label": "gpu-memory-utilization",
+      "required": false,
+      "type": "number",
+      "format": "float",
+      "min": 0,
+      "max": 1.0,
+      "default": null,
+      "desc": "The fraction of GPU memory used for model weights and KV cache. Lower it if you see out-of-memory errors."
+    },
+    {
+      "name": "max_num_seqs",
+      "label": "max-num-seqs",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Maximum number of sequences processed concurrently."
+    },
+    {
+      "name": "max_total_tokens",
+      "label": "max-total-tokens",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The maximum number of tokens in the memory pool. Calculated automatically when unset."
+    },
+    {
+      "name": "chunked_prefill_size",
+      "label": "chunked-prefill-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "default": null,
+      "desc": "Maximum number of tokens the scheduler may issue in a single iteration. Set to -1 to disable chunked prefill. This is TokenSpeed's equivalent of --max-num-batched-tokens."
+    },
+    {
+      "name": "max_prefill_tokens",
+      "label": "max-prefill-tokens",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": 8192,
+      "desc": "Maximum prefill-token budget used when chunked prefill is disabled."
+    },
+    {
+      "name": "block_size",
+      "label": "block-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": 64,
+      "desc": "KV cache block size."
+    },
+    {
+      "name": "enable_mixed_batch",
+      "label": "enable-mixed-batch",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Allow the scheduler to issue prefill and decode requests in the same iteration."
+    },
+    {
+      "name": "no_enable_prefix_caching",
+      "label": "no-enable-prefix-caching",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable prefix caching. Prefix caching is enabled by default in TokenSpeed."
+    },
+    {
+      "name": "disable_kvstore",
+      "label": "disable-kvstore",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable KVStore, the host-memory KV cache offload tier."
+    },
+    {
+      "name": "kvstore_ratio",
+      "label": "kvstore-ratio",
+      "required": false,
+      "type": "number",
+      "format": "float",
+      "min": 0,
+      "default": null,
+      "desc": "Ratio of the KVStore host memory pool size to the device pool size."
+    },
+    {
+      "name": "kvstore_size",
+      "label": "kvstore-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 0,
+      "default": null,
+      "desc": "The size of the KVStore host memory pool in gigabytes. Overrides --kvstore-ratio when set."
+    },
+    {
+      "name": "kvstore_io_backend",
+      "label": "kvstore-io-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "IO backend for KVStore transfers between CPU and GPU.",
+      "options": [
+        null,
+        "direct",
+        "kernel"
+      ]
+    },
+    {
+      "name": "kvstore_mem_layout",
+      "label": "kvstore-mem-layout",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Layout of the KVStore host memory pool.",
+      "options": [
+        null,
+        "layer_first",
+        "page_first",
+        "page_head"
+      ]
+    },
+    {
+      "name": "stream_interval",
+      "label": "stream-interval",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The interval (buffer size) for streaming, in generated tokens. Smaller values stream more frequently."
+    },
+    {
+      "name": "stream_output",
+      "label": "stream-output",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Return generated text as a sequence of disjoint streaming segments."
+    },
+    {
+      "name": "data_parallel_size",
+      "label": "data-parallel-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The data parallelism size. Inferred from world size and attention TP size when unset."
+    },
+    {
+      "name": "dense_tp_size",
+      "label": "dense-tp-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Tensor parallel size for the dense part of the model. Defaults to the number of processes per node."
+    },
+    {
+      "name": "moe_tp_size",
+      "label": "moe-tp-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Tensor parallel size for the MoE part of the model. Defaults to the number of processes per node."
+    },
+    {
+      "name": "expert_parallel_size",
+      "label": "expert-parallel-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The expert parallelism size."
+    },
+    {
+      "name": "enable_expert_parallel",
+      "label": "enable-expert-parallel",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable expert parallelism by automatically setting the expert parallel size to the world size."
+    },
+    {
+      "name": "enable_eplb",
+      "label": "enable-eplb",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable the expert-parallel load balancing (EPLB) algorithm."
+    },
+    {
+      "name": "ep_num_redundant_experts",
+      "label": "ep-num-redundant-experts",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 0,
+      "default": null,
+      "desc": "Number of redundant experts to allocate in expert parallel mode."
+    },
+    {
+      "name": "load_balance_method",
+      "label": "load-balance-method",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The load balancing strategy used for data parallelism.",
+      "options": [
+        null,
+        "round_robin",
+        "shortest_queue",
+        "minimum_cache_usage"
+      ]
+    },
+    {
+      "name": "attention_backend",
+      "label": "attention-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Choose the kernels for attention layers. Selected automatically when unset.",
+      "options": [
+        null,
+        "mha",
+        "mla",
+        "fa3",
+        "fa4",
+        "triton",
+        "flashinfer",
+        "trtllm",
+        "trtllm_mla",
+        "flashmla",
+        "tokenspeed_mla",
+        "hybrid_linear_attn"
+      ]
+    },
+    {
+      "name": "kda_backend",
+      "label": "kda-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "KDA (Kimi Delta Attention) prefill kernel policy. 'auto' picks the fastest available kernel.",
+      "options": [
+        null,
+        "auto",
+        "fla",
+        "flashkda",
+        "cutedsl_kda"
+      ]
+    },
+    {
+      "name": "moe_backend",
+      "label": "moe-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "MoE runner backend.",
+      "options": [
+        null,
+        "auto",
+        "triton",
+        "gluon",
+        "flashinfer_trtllm"
+      ]
+    },
+    {
+      "name": "all2all_backend",
+      "label": "all2all-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "MoE all-to-all communication backend.",
+      "options": [
+        null,
+        "none",
+        "deepep"
+      ]
+    },
+    {
+      "name": "deepep_mode",
+      "label": "deepep-mode",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Mode used when DeepEP MoE is enabled. 'auto' selects per batch type.",
+      "options": [
+        null,
+        "normal",
+        "low_latency",
+        "auto"
+      ]
+    },
+    {
+      "name": "sampling_backend",
+      "label": "sampling-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Choose the kernels for sampling layers. 'greedy' skips sampling-param plumbing entirely.",
+      "options": [
+        null,
+        "greedy",
+        "flashinfer",
+        "flashinfer_full",
+        "triton",
+        "triton_full"
+      ]
+    },
+    {
+      "name": "mm_attention_backend",
+      "label": "mm-attention-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Attention backend used by the multimodal encoder.",
+      "options": [
+        null,
+        "fa3",
+        "fa4",
+        "triton_attn",
+        "flashinfer_cudnn"
+      ]
+    },
+    {
+      "name": "mm_encoder_tp_mode",
+      "label": "mm-encoder-tp-mode",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Multimodal encoder parallelism within each attention TP group. 'weights' shards encoder weights (default), 'data' replicates weights and distributes whole items across ranks.",
+      "options": [
+        null,
+        "weights",
+        "data"
+      ]
+    },
+    {
+      "name": "grammar_backend",
+      "label": "grammar-backend",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Backend for grammar-guided (structured output) decoding. 'none' disables it entirely and is the TokenSpeed default.",
+      "options": [
+        null,
+        "xgrammar",
+        "none"
+      ]
+    },
+    {
+      "name": "grammar_compile_timeout_secs",
+      "label": "grammar-compile-timeout-secs",
+      "required": false,
+      "type": "number",
+      "format": "float",
+      "min": 0,
+      "default": null,
+      "desc": "Per-compile wallclock budget before a grammar-constrained request is aborted."
+    },
+    {
+      "name": "disable_any_whitespace",
+      "label": "disable-any-whitespace",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Compile xgrammar JSON grammars in tight mode, with no arbitrary whitespace between tokens."
+    },
+    {
+      "name": "reasoning_parser",
+      "label": "reasoning-parser",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Reasoning-output parser name, e.g. 'deepseek_v31', 'glm45', 'inkling', 'kimi_k25', 'kimi_k3', 'minimax', or 'passthrough'. Also defers JSON schema grammars past the model's reasoning channel."
+    },
+    {
+      "name": "tool_call_parser",
+      "label": "tool-call-parser",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Parser for tool-call interactions, e.g. 'deepseek_v4', 'glm47_moe', 'inkling', or 'kimi_k3'. Handled by the OpenAI-compatible gateway."
+    },
+    {
+      "name": "chat_template",
+      "label": "chat-template",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Built-in chat template name or path to a chat template file. Handled by the OpenAI-compatible gateway."
+    },
+    {
+      "name": "speculative_algorithm",
+      "label": "speculative-algorithm",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "Speculative decoding algorithm.",
+      "options": [
+        null,
+        "EAGLE3",
+        "MTP",
+        "DFLASH"
+      ]
+    },
+    {
+      "name": "speculative_draft_model_path",
+      "label": "speculative-draft-model-path",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The path of the draft model weights. A local folder or a Hugging Face repo ID."
+    },
+    {
+      "name": "draft_model_path_use_base",
+      "label": "draft-model-path-use-base",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Load the draft model from the base model path. Used by MTP checkpoints that ship the draft layers inline."
+    },
+    {
+      "name": "speculative_num_steps",
+      "label": "speculative-num-steps",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The number of steps sampled from the draft model in speculative decoding."
+    },
+    {
+      "name": "speculative_eagle_topk",
+      "label": "speculative-eagle-topk",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "default": null,
+      "desc": "The number of tokens sampled from the draft model in each speculative step. Only 1 is supported.",
+      "options": [
+        null,
+        1
+      ]
+    },
+    {
+      "name": "speculative_num_draft_tokens",
+      "label": "speculative-num-draft-tokens",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The number of draft tokens verified per step in speculative decoding."
+    },
+    {
+      "name": "speculative_config",
+      "label": "speculative-config",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "JSON speculative decoding configuration. Supported keys are method, model, and num_speculative_tokens."
+    },
+    {
+      "name": "enforce_eager",
+      "label": "enforce-eager",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable CUDA graph execution and run eagerly."
+    },
+    {
+      "name": "disable_cuda_graph_padding",
+      "label": "disable-cuda-graph-padding",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable CUDA graph when padding is needed. Still uses CUDA graph when padding is not needed."
+    },
+    {
+      "name": "max_cudagraph_capture_size",
+      "label": "max-cudagraph-capture-size",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The maximum batch size captured for CUDA graph replay."
+    },
+    {
+      "name": "disable_prefill_graph",
+      "label": "disable-prefill-graph",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable the breakable prefill CUDA graph."
+    },
+    {
+      "name": "prefill_graph_max_tokens",
+      "label": "prefill-graph-max-tokens",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Largest token bucket captured by the breakable prefill CUDA graph. Defaults to min(2048, chunked-prefill-size)."
+    },
+    {
+      "name": "enable_allreduce_fusion",
+      "label": "enable-allreduce-fusion",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable all-reduce fusion for improved decode performance. Auto-enabled on supported single-node TP configurations."
+    },
+    {
+      "name": "enable_nccl_nvls",
+      "label": "enable-nccl-nvls",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable NCCL NVLS for prefill-heavy requests when available."
+    },
+    {
+      "name": "enable_symm_mem",
+      "label": "enable-symm-mem",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable NCCL symmetric memory for fast collectives."
+    },
+    {
+      "name": "disable_custom_all_reduce",
+      "label": "disable-custom-all-reduce",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable the custom all-reduce kernel and fall back to NCCL."
+    },
+    {
+      "name": "disable_overlap_schedule",
+      "label": "disable-overlap-schedule",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable the overlap scheduler, which overlaps the CPU scheduler with the GPU model worker."
+    },
+    {
+      "name": "disable_tf32",
+      "label": "disable-tf32",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable forcing TF32 on for cuBLAS/cuDNN. TF32 is enabled by default."
+    },
+    {
+      "name": "disable_pdl",
+      "label": "disable-pdl",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Disable programmatic dependent launch (PDL) for kernel launches."
+    },
+    {
+      "name": "weight_loader_prefetch_num_threads",
+      "label": "weight-loader-prefetch-num-threads",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Number of background threads per rank used to prefetch checkpoint shards into the OS page cache."
+    },
+    {
+      "name": "delete_ckpt_after_loading",
+      "label": "delete-ckpt-after-loading",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Delete the model checkpoint after loading the model."
+    },
+    {
+      "name": "skip_server_warmup",
+      "label": "skip-server-warmup",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Skip the warmup requests issued before the server starts serving."
+    },
+    {
+      "name": "seed",
+      "label": "seed",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "default": null,
+      "desc": "The random seed."
+    },
+    {
+      "name": "distributed_timeout_seconds",
+      "label": "distributed-timeout-seconds",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "Timeout for torch.distributed initialization, in seconds."
+    },
+    {
+      "name": "enable_cache_report",
+      "label": "enable-cache-report",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Return the number of cached tokens in usage.prompt_tokens_details for each OpenAI request."
+    },
+    {
+      "name": "enable_output_logprobs",
+      "label": "enable-output-logprobs",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable per-token sampled-token logprobs. Off by default; enabling extends the captured CUDA graph footprint."
+    },
+    {
+      "name": "enable_custom_logit_processor",
+      "label": "enable-custom-logit-processor",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Allow requests to pass custom logit processors to the server. Disabled by default for security."
+    },
+    {
+      "name": "enable_memory_saver",
+      "label": "enable-memory-saver",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Allow saving memory using release_memory_occupation and resume_memory_occupation."
+    },
+    {
+      "name": "enable_nan_detection",
+      "label": "enable-nan-detection",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable the NaN guard: sanitize non-finite logits before sampling and flag affected requests."
+    },
+    {
+      "name": "enable_p2p_check",
+      "label": "enable-p2p-check",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Enable the full GPU peer-to-peer access check instead of trusting the driver's P2P report."
+    },
+    {
+      "name": "triton_attention_reduce_in_fp32",
+      "label": "triton-attention-reduce-in-fp32",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Cast intermediate attention results to fp32 to avoid fp16-related crashes. Only affects the Triton attention backend."
+    },
+    {
+      "name": "log_level",
+      "label": "log-level",
+      "required": false,
+      "type": "string",
+      "default": null,
+      "desc": "The logging level of all loggers.",
+      "options": [
+        null,
+        "debug",
+        "info",
+        "warning",
+        "error",
+        "critical"
+      ]
+    },
+    {
+      "name": "enable_log_requests",
+      "label": "enable-log-requests",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Log metadata, inputs, and outputs of all requests. Verbosity is controlled by --log-requests-level."
+    },
+    {
+      "name": "log_requests_level",
+      "label": "log-requests-level",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "default": null,
+      "desc": "0: log metadata. 1: log metadata and partial input/output. 2: log every input/output.",
+      "options": [
+        null,
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "enable_log_request_stats",
+      "label": "enable-log-request-stats",
+      "required": false,
+      "type": "boolean",
+      "default": null,
+      "desc": "Log a one-line per-request performance summary (queue/prefill/TTFT timings) when each request finishes or aborts."
+    },
+    {
+      "name": "decode_log_interval",
+      "label": "decode-log-interval",
+      "required": false,
+      "type": "number",
+      "format": "integer",
+      "min": 1,
+      "default": null,
+      "desc": "The log interval of the decode batch."
+    }
+  ],
+  "inference_arguments": [
+    {
+      "inference_task": "Text Generation",
+      "arguments": [
+        {
+          "name": "temperature",
+          "label": "temperature",
+          "required": false,
+          "default": 0.7,
+          "min": 0,
+          "max": 2,
+          "type": "number",
+          "format": "float",
+          "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "required": false,
+          "default": 0.9,
+          "type": "number",
+          "format": "float",
+          "min": 0.01,
+          "max": 1,
+          "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+        },
+        {
+          "name": "top_k",
+          "label": "top_k",
+          "required": false,
+          "default": -1,
+          "type": "number",
+          "format": "integer",
+          "min": -1,
+          "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering. -1 disables top-k filtering"
+        },
+        {
+          "name": "min_p",
+          "label": "min_p",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": 0,
+          "max": 1,
+          "desc": "Minimum token probability, scaled by the probability of the most likely token. Tokens below the threshold are filtered out"
+        },
+        {
+          "name": "max_tokens",
+          "label": "max_tokens",
+          "required": false,
+          "default": 256,
+          "min": 1,
+          "type": "number",
+          "format": "integer",
+          "desc": "The maximum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "min_tokens",
+          "label": "min_tokens",
+          "required": false,
+          "default": 0,
+          "min": 0,
+          "type": "number",
+          "format": "integer",
+          "desc": "The minimum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "stop",
+          "label": "stop_sequences",
+          "required": false,
+          "default": [],
+          "type": "list",
+          "desc": "Sequences where the API will stop generating further tokens"
+        },
+        {
+          "name": "stop_token_ids",
+          "label": "stop_token_ids",
+          "required": false,
+          "default": null,
+          "type": "list",
+          "desc": "List of token ids that stop generation when they are generated. The returned output contains the stop tokens unless they are special tokens"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "presence_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "frequency_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+        },
+        {
+          "name": "repetition_penalty",
+          "label": "repetition_penalty",
+          "required": false,
+          "default": 1.0,
+          "type": "number",
+          "format": "float",
+          "min": 0.0,
+          "max": 2.0,
+          "desc": "Penalize tokens based on whether they appeared in the prompt or generated text so far. Values above 1.0 discourage repetition, 1.0 disables the penalty"
+        },
+        {
+          "name": "logit_bias",
+          "label": "logit_bias",
+          "required": false,
+          "default": null,
+          "type": "dict",
+          "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value. The bias is added to the logits generated by the model prior to sampling"
+        },
+        {
+          "name": "seed",
+          "label": "seed",
+          "required": false,
+          "default": null,
+          "type": "number",
+          "format": "integer",
+          "desc": "Per-request random seed for reproducible sampling"
+        },
+        {
+          "name": "ignore_eos",
+          "label": "ignore_eos",
+          "required": false,
+          "default": false,
+          "type": "boolean",
+          "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated"
+        },
+        {
+          "name": "skip_special_tokens",
+          "label": "skip_special_tokens",
+          "required": false,
+          "default": true,
+          "type": "boolean",
+          "desc": "Whether to skip special tokens in the output"
+        },
+        {
+          "name": "thinking_budget",
+          "label": "thinking_budget",
+          "required": false,
+          "default": null,
+          "type": "number",
+          "format": "integer",
+          "min": 0,
+          "desc": "Maximum number of tokens the model may spend in its reasoning channel before the answer is forced. Requires a matching --reasoning-parser"
+        }
+      ]
+    },
+    {
+      "inference_task": "Image-Text-to-Text",
+      "arguments": [
+        {
+          "name": "temperature",
+          "label": "temperature",
+          "required": false,
+          "default": 0.7,
+          "min": 0,
+          "max": 2,
+          "type": "number",
+          "format": "float",
+          "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "required": false,
+          "default": 0.9,
+          "type": "number",
+          "format": "float",
+          "min": 0.01,
+          "max": 1,
+          "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+        },
+        {
+          "name": "top_k",
+          "label": "top_k",
+          "required": false,
+          "default": -1,
+          "type": "number",
+          "format": "integer",
+          "min": -1,
+          "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering. -1 disables top-k filtering"
+        },
+        {
+          "name": "min_p",
+          "label": "min_p",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": 0,
+          "max": 1,
+          "desc": "Minimum token probability, scaled by the probability of the most likely token. Tokens below the threshold are filtered out"
+        },
+        {
+          "name": "max_tokens",
+          "label": "max_tokens",
+          "required": false,
+          "default": 256,
+          "min": 1,
+          "type": "number",
+          "format": "integer",
+          "desc": "The maximum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "min_tokens",
+          "label": "min_tokens",
+          "required": false,
+          "default": 0,
+          "min": 0,
+          "type": "number",
+          "format": "integer",
+          "desc": "The minimum number of tokens to generate in the chat completion"
+        },
+        {
+          "name": "stop",
+          "label": "stop_sequences",
+          "required": false,
+          "default": [],
+          "type": "list",
+          "desc": "Sequences where the API will stop generating further tokens"
+        },
+        {
+          "name": "stop_token_ids",
+          "label": "stop_token_ids",
+          "required": false,
+          "default": null,
+          "type": "list",
+          "desc": "List of token ids that stop generation when they are generated. The returned output contains the stop tokens unless they are special tokens"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "presence_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "frequency_penalty",
+          "required": false,
+          "default": 0.0,
+          "type": "number",
+          "format": "float",
+          "min": -2.0,
+          "max": 2.0,
+          "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+        },
+        {
+          "name": "repetition_penalty",
+          "label": "repetition_penalty",
+          "required": false,
+          "default": 1.0,
+          "type": "number",
+          "format": "float",
+          "min": 0.0,
+          "max": 2.0,
+          "desc": "Penalize tokens based on whether they appeared in the prompt or generated text so far. Values above 1.0 discourage repetition, 1.0 disables the penalty"
+        },
+        {
+          "name": "logit_bias",
+          "label": "logit_bias",
+          "required": false,
+          "default": null,
+          "type": "dict",
+          "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value. The bias is added to the logits generated by the model prior to sampling"
+        },
+        {
+          "name": "seed",
+          "label": "seed",
+          "required": false,
+          "default": null,
+          "type": "number",
+          "format": "integer",
+          "desc": "Per-request random seed for reproducible sampling"
+        },
+        {
+          "name": "ignore_eos",
+          "label": "ignore_eos",
+          "required": false,
+          "default": false,
+          "type": "boolean",
+          "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated"
+        },
+        {
+          "name": "skip_special_tokens",
+          "label": "skip_special_tokens",
+          "required": false,
+          "default": true,
+          "type": "boolean",
+          "desc": "Whether to skip special tokens in the output"
+        },
+        {
+          "name": "thinking_budget",
+          "label": "thinking_budget",
+          "required": false,
+          "default": null,
+          "type": "number",
+          "format": "integer",
+          "min": 0,
+          "desc": "Maximum number of tokens the model may spend in its reasoning channel before the answer is forced. Requires a matching --reasoning-parser"
+        }
+      ]
+    }
+  ],
+  "tasks_base_url": [
+    {
+      "inference_task": "Text Generation",
+      "base_url": "/v1"
+    },
+    {
+      "inference_task": "Image-Text-to-Text",
+      "base_url": "/v1"
+    }
+  ],
+  "lora_config": null,
+  "lora_modules_separator": null,
+  "supported_auto_scaling_metrics": [
+    "ml_model_concurrent_requests",
+    "num_of_requests_waiting_in_queue"
+  ]
+}

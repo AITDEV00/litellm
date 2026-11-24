@@ -1,0 +1,10 @@
+{
+  "server_arguments": [],
+  "inference_arguments": [],
+  "tasks_base_url": [
+    {
+      "inference_task": "Generic",
+      "base_url": "/predict"
+    }
+  ]
+}

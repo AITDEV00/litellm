@@ -1,0 +1,938 @@
+{
+    "server_arguments": [
+        {
+            "name": "profile",
+            "label": "profile",
+            "required": false,
+            "type": "string",
+            "default": "qwen3-omni",
+            "desc": "Capability profile — determines which routes exist and what they accept. Built-ins mimic real vLLM-Omni models; each only lights up a subset of endpoints.",
+            "options": [
+                "qwen3-omni",
+                "qwen-image",
+                "wan2.2",
+                "qwen3-tts",
+                "stable-audio",
+                "all"
+            ]
+        },
+        {
+            "name": "served_model_name",
+            "label": "served-model-name",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "desc": "Override the profile's model name in responses, without writing a whole profile for it."
+        },
+        {
+            "name": "seed",
+            "label": "seed",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": 0,
+            "desc": "Seed for fake media generation. Same request + same seed always produces the same bytes."
+        },
+        {
+            "name": "latency_profile",
+            "label": "latency-profile",
+            "required": false,
+            "type": "string",
+            "default": "instant",
+            "desc": "instant returns as soon as the fake can compute a response (fast CI). realistic streams tokens/audio/video at roughly the wall-clock rate a real model would, exercising TTFB and backpressure handling.",
+            "options": [
+                "instant",
+                "realistic"
+            ]
+        },
+        {
+            "name": "video_job_duration",
+            "label": "video-job-duration",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "desc": "Seconds a /v1/videos job spends queued (20%) then in_progress (80%) before completed. Defaults to 0.5s under instant or 4.0s under realistic if unset."
+        },
+        {
+            "name": "ws_timeout_scale",
+            "required": false,
+            "label": "ws-timeout-scale",
+            "type": "number",
+            "format": "float",
+            "default": 1.0,
+            "desc": "Multiplies every WebSocket protocol timeout by this factor. 0 disables timeouts entirely; a fractional value shrinks them so a client's timeout handling can be tested without waiting."
+        },
+        {
+            "name": "max_generated_image_size",
+            "label": "max-generated-image-size",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "desc": "Makes /v1/images/generations and /v1/images/edits return 400 when the requested dimensions exceed this."
+        },
+        {
+            "name": "video_fidelity",
+            "label": "video-fidelity",
+            "required": false,
+            "type": "string",
+            "default": "canned",
+            "desc": "Video output fidelity. canned (the only mode today) reuses tiny stock MP4s picked by closest aspect ratio, so duration/fps/num_frames in the response will not match what was requested.",
+            "options": [
+                "canned"
+            ]
+        },
+        {
+            "name": "forced_aligner",
+            "label": "forced-aligner",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "desc": "Pretend a forced-alignment model is loaded, enabling word_timestamps=true on the /v1/audio/speech/stream WebSocket."
+        },
+        {
+            "name": "enable_profiler_endpoints",
+            "label": "enable-profiler-endpoints",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "desc": "Force-register /start_profile + /stop_profile, overriding whatever the active profile set for enable_profiler_endpoints."
+        },
+        {
+            "name": "log_level",
+            "label": "log-level",
+            "required": false,
+            "type": "string",
+            "default": "info",
+            "desc": "uvicorn log level.",
+            "options": [
+                "critical",
+                "error",
+                "warning",
+                "info",
+                "debug",
+                "trace"
+            ]
+        },
+        {
+            "name": "no_logo",
+            "label": "no-logo",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "desc": "Suppress the startup ASCII banner, for scripts that scrape stdout and choke on it."
+        }
+    ],
+    "inference_arguments": [
+        {
+            "inference_task": "Text Generation",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": 5,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "min_tokens",
+                    "label": "min_tokens",
+                    "required": false,
+                    "default": 0,
+                    "min": 0,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The minimum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "presence_penalty",
+                    "label": "presence_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+                },
+                {
+                    "name": "frequency_penalty",
+                    "label": "frequency_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+                },
+                {
+                    "name": "logit_bias",
+                    "label": "logit_bias",
+                    "required": false,
+                    "default": false,
+                    "type": "dict",
+                    "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling"
+                },
+                {
+                    "name": "ignore_eos",
+                    "label": "ignore_eos",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated."
+                },
+                {
+                    "name": "use_beam_search",
+                    "label": "use_beam_search",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to use beam search instead of sampling."
+                },
+                {
+                    "name": "stop_token_ids",
+                    "label": "stop_token_ids",
+                    "required": false,
+                    "default": null,
+                    "type": "list",
+                    "desc": "List of tokens that stop the generation when they are generated. The returned output will contain the stop tokens unless the stop tokens are special tokens."
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                },
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "max": 5,
+                    "desc": "number of answers to generate"
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": 5,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "min_tokens",
+                    "label": "min_tokens",
+                    "required": false,
+                    "default": 0,
+                    "min": 0,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The minimum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "presence_penalty",
+                    "label": "presence_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+                },
+                {
+                    "name": "frequency_penalty",
+                    "label": "frequency_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+                },
+                {
+                    "name": "logit_bias",
+                    "label": "logit_bias",
+                    "required": false,
+                    "default": false,
+                    "type": "dict",
+                    "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling"
+                },
+                {
+                    "name": "ignore_eos",
+                    "label": "ignore_eos",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated."
+                },
+                {
+                    "name": "use_beam_search",
+                    "label": "use_beam_search",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to use beam search instead of sampling."
+                },
+                {
+                    "name": "stop_token_ids",
+                    "label": "stop_token_ids",
+                    "required": false,
+                    "default": null,
+                    "type": "list",
+                    "desc": "List of tokens that stop the generation when they are generated. The returned output will contain the stop tokens unless the stop tokens are special tokens."
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                },
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "max": 5,
+                    "desc": "number of answers to generate"
+                }
+            ]
+        },
+        {
+            "inference_task": "Audio-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the response"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                }
+            ]
+        },
+        {
+            "inference_task": "Video-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the response"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                }
+            ]
+        },
+        {
+            "inference_task": "Any-to-Any",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the response"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                }
+            ]
+        },
+        {
+            "inference_task": "Text-to-Speech",
+            "arguments": [
+                {
+                    "name": "voice",
+                    "label": "voice",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The voice to use for speech synthesis. Supported voices vary by model."
+                },
+                {
+                    "name": "speed",
+                    "label": "speed",
+                    "required": false,
+                    "default": 1.0,
+                    "min": 0.25,
+                    "max": 4.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "The speed of the generated audio. Ranges from 0.25 to 4.0."
+                },
+                {
+                    "name": "response_format",
+                    "label": "response_format",
+                    "required": false,
+                    "default": "wav",
+                    "type": "string",
+                    "desc": "The format of the output audio.",
+                    "options": [
+                        "wav",
+                        "pcm",
+                        "flac",
+                        "mp3",
+                        "opus"
+                    ]
+                }
+            ]
+        },
+        {
+            "inference_task": "Text-to-Image",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 10,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of images to generate."
+                },
+                {
+                    "name": "size",
+                    "label": "size",
+                    "required": false,
+                    "default": "1024x1024",
+                    "type": "string",
+                    "desc": "The size of the generated images, WIDTHxHEIGHT."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": 7.5,
+                    "min": 0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": 20,
+                    "min": 1,
+                    "max": 200,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The prompt to guide what to not include in image generation."
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-to-Image",
+            "arguments": [
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "min": 1,
+                    "max": 10,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The number of images to generate."
+                },
+                {
+                    "name": "strength",
+                    "label": "strength",
+                    "required": false,
+                    "default": 0.8,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Indicates how much to transform the reference image. 0 means no change, 1 means maximum transformation."
+                },
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": 7.5,
+                    "min": 0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": 20,
+                    "min": 1,
+                    "max": 200,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The prompt to guide what to not include in image generation."
+                }
+            ]
+        },
+        {
+            "inference_task": "Text-to-Video",
+            "arguments": [
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": 7.5,
+                    "min": 0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": 20,
+                    "min": 1,
+                    "max": 200,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video, in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": 24,
+                    "min": 1,
+                    "max": 60,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second for the generated video."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The prompt to guide what to not include in video generation."
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-to-Video",
+            "arguments": [
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": 7.5,
+                    "min": 0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": 20,
+                    "min": 1,
+                    "max": 200,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video, in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": 24,
+                    "min": 1,
+                    "max": 60,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second for the generated video."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The prompt to guide what to not include in video generation."
+                }
+            ]
+        },
+        {
+            "inference_task": "Video-to-Video",
+            "arguments": [
+                {
+                    "name": "guidance_scale",
+                    "label": "guidance_scale",
+                    "required": false,
+                    "default": 7.5,
+                    "min": 0,
+                    "max": 20.0,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "Classifier-free guidance scale. Higher values follow the prompt more closely."
+                },
+                {
+                    "name": "num_inference_steps",
+                    "label": "num_inference_steps",
+                    "required": false,
+                    "default": 20,
+                    "min": 1,
+                    "max": 200,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Number of denoising steps."
+                },
+                {
+                    "name": "seconds",
+                    "label": "seconds",
+                    "required": false,
+                    "default": 4,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Duration of the generated video, in seconds."
+                },
+                {
+                    "name": "fps",
+                    "label": "fps",
+                    "required": false,
+                    "default": 24,
+                    "min": 1,
+                    "max": 60,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Frames per second for the generated video."
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "negative_prompt",
+                    "required": false,
+                    "default": null,
+                    "type": "string",
+                    "desc": "The prompt to guide what to not include in video generation."
+                }
+            ]
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Text Generation",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Audio-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Video-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Any-to-Any",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "base_url": "/v1/audio/transcriptions"
+        },
+        {
+            "inference_task": "Text-to-Speech",
+            "base_url": "/v1/audio/speech"
+        },
+        {
+            "inference_task": "Text-to-Image",
+            "base_url": "/v1/images/generations"
+        },
+        {
+            "inference_task": "Image-to-Image",
+            "base_url": "/v1/images/edits"
+        },
+        {
+            "inference_task": "Text-to-Video",
+            "base_url": "/v1/videos"
+        },
+        {
+            "inference_task": "Image-to-Video",
+            "base_url": "/v1/videos"
+        },
+        {
+            "inference_task": "Video-to-Video",
+            "base_url": "/v1/videos"
+        }
+    ],
+    "lora_config": "--enable-lora --lora-modules {modules_config}",
+    "lora_modules_separator": " ",
+    "supported_auto_scaling_metrics": [
+        "ml_model_concurrent_requests",
+        "num_of_requests_waiting_in_queue"
+    ]
+}

@@ -1,0 +1,9 @@
+# Local datasource env, copied from .env.datasource.example and filled with real
+# cluster secrets for a local proxy run. The .example stays tracked.
+.env.datasource
+
+# Scratch tree the client-distribution build stages artifacts into.
+examples/client-distribution/.staging/
+
+# Local edge build tree, produced by the edge-litellm targets.
+edge-litellm/

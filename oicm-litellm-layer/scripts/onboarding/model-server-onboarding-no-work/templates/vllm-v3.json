@@ -1,0 +1,807 @@
+{
+    "server_arguments": [
+        {
+            "name": "reasoning_parser",
+            "label": "reasoning-parser",
+            "required": false,
+            "type": "string",
+            "category": "model",
+            "desc": "The parser to use for reasoning."
+        },
+        {
+            "name": "reasoning_config",
+            "label": "reasoning-config",
+            "required": false,
+            "type": "string",
+            "category": "model",
+            "desc": "Configuration for reasoning models. Set reasoning_start_str and reasoning_end_str to the strings that delimit the reasoning block."
+        },
+        {
+            "name": "decode_context_parallel_size",
+            "label": "decode-context-parallel-size",
+            "required": false,
+            "type": "number",
+            "category": "other",
+            "desc": "Number of decode context parallel groups, because the world size does not change by dcp, it simply reuse the GPUs of TP group, and tp_size needs to be divisible by dcp_size."
+        },
+        {
+            "name": "trust_remote_code",
+            "label": "trust-remote-code",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "category": "model",
+            "desc": "Trust remote code from huggingface"
+        },
+        {
+            "name": "runner",
+            "label": "runner",
+            "required": false,
+            "type": "string",
+            "default": "auto",
+            "category": "model",
+            "desc": "The type of model runner to use. Each vLLM instance only supports one model runner, even if the same model can be used for multiple types.",
+            "options": [
+                "auto",
+                "draft",
+                "generate",
+                "pooling"
+            ]
+        },
+        {
+            "name": "convert",
+            "label": "convert",
+            "required": false,
+            "type": "string",
+            "default": "auto",
+            "category": "model",
+            "desc": "Convert the model using adapters defined in [vllm.model_executor.models.adapters][]. The most common use case is to adapt a text generation model to be used for pooling tasks.",
+            "options": [
+                "auto",
+                "classify",
+                "embed",
+                "none",
+                "reward"
+            ]
+        },
+        {
+            "name": "dtype",
+            "label": "dtype",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "Data type for model weights and activations",
+            "options": [
+                null,
+                "auto",
+                "half",
+                "float16",
+                "bfloat16",
+                "float",
+                "float32"
+            ]
+        },
+        {
+            "name": "kv_cache_dtype",
+            "label": "kv-cache-dtype",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "Data type for kv cache storage. If “auto”, will use model data type. CUDA 11.8+ supports fp8 (=fp8_e4m3) and fp8_e5m2. ROCm (AMD GPU) supports fp8 (=fp8_e4m3)",
+            "options": [
+                null,
+                "auto",
+                "fp8",
+                "fp8_e5m2",
+                "fp8_e4m3"
+            ]
+        },
+        {
+            "name": "enable_expert_parallel",
+            "label": "enable-expert-parallel",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Use expert parallelism instead of tensor parallelism for MoE layers."
+        },
+        {
+            "name": "quantization",
+            "label": "quantization",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "quantization",
+            "desc": "Method used to quantize the weights. If null, we first check the quantization_config attribute in the model config file. If that is null, we assume the model weights are not quantized and use dtype to determine the data type of the weights.",
+            "options": [
+                null,
+                "aqlm",
+                "awq",
+                "deepspeedfp",
+                "fbgemm_fp8",
+                "modelopt",
+                "marlin",
+                "gguf",
+                "gptq_marlin_24",
+                "gptq_marlin",
+                "awq_marlin",
+                "gptq",
+                "compressed-tensors",
+                "bitsandbytes",
+                "qqq",
+                "hqq",
+                "experts_int8",
+                "neuron_quant",
+                "ipex"
+            ]
+        },
+        {
+            "name": "cpu_offload_gb",
+            "label": "cpu-offload-gb",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "The space in GiB to offload to CPU, per GPU. Default is 0, which means no offloading. Intuitively, this argument can be seen as a virtual way to increase the GPU memory size. For example, if you have one 24 GB GPU and set this to 10, virtually you can think of it as a 34 GB GPU. Then you can load a 13B model with BF16 weight, which requires at least 26GB GPU memory. Note that this requires fast CPU-GPU interconnect, as part of the model is loaded from CPU memory to GPU memory on the fly in each model forward pass."
+        },
+        {
+            "name": "gpu_memory_utilization",
+            "label": "gpu-memory-utilization",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "default": 0.9,
+            "max": 0.99,
+            "min": 0.1,
+            "category": "capacity_and_limits",
+            "desc": "The fraction of GPU memory to be used for the model executor, which can range from 0 to 1. For example, a value of 0.5 would imply 50% GPU memory utilization. If unspecified, will use the default value of 0.9. This is a per-instance limit, and only applies to the current vLLM instance. It does not matter if you have another vLLM instance running on the same GPU. For example, if you have two vLLM instances running on the same GPU, you can set the GPU memory utilization to 0.5 for each instance."
+        },
+        {
+            "name": "num_gpu_blocks_override",
+            "label": "num-gpu-blocks-override",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "If specified, ignore GPU profiling result and use this number of GPU blocks. Used for testing preemption"
+        },
+        {
+            "name": "chat_template",
+            "label": "chat-template",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "The file path to the chat template, or the template in single-line form for the specified model"
+        },
+        {
+            "name": "chat_template_content_format",
+            "label": "chat-template-content-format",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "The format to render message content within a chat template",
+            "options": [
+                null,
+                "auto",
+                "string",
+                "openai"
+            ]
+        },
+        {
+            "name": "max_model_len",
+            "label": "max-model-len",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Model context length. If unspecified, will be automatically derived from the model config."
+        },
+        {
+            "name": "max_num_batched_tokens",
+            "label": "max-num-batched-tokens",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Maximum number of batched tokens per iteration"
+        },
+        {
+            "name": "max_num_seqs",
+            "label": "max-num-seqs",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Maximum number of sequences per iteration."
+        },
+        {
+            "name": "max_logprobs",
+            "label": "max-logprobs",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Max number of log probs to return logprobs is specified in SamplingParams"
+        },
+        {
+            "name": "max_seq_len_to_capture",
+            "label": "max-seq-len-to-capture",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "performance",
+            "desc": "Maximum sequence length covered by CUDA graphs. When a sequence has context length larger than this, we fall back to eager mode. Additionally for encoder-decoder models, if the sequence length of the encoder input is larger than this, we fall back to the eager mode"
+        },
+        {
+            "name": "load_format",
+            "label": "load-format",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "The format of the model weights to load",
+            "options": [
+                null,
+                "auto",
+                "safetensors",
+                "pt",
+                "npcache",
+                "dummy",
+                "tensorizer",
+                "sharded_state",
+                "gguf",
+                "bitsandbytes",
+                "mistral"
+            ]
+        },
+        {
+            "name": "scheduling_policy",
+            "label": "scheduling-policy",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "The scheduling policy to use. “fcfs” (first come first served, i.e. requests are handled in order of arrival; default) or “priority” (requests are handled based on given priority (lower value means earlier handling) and time of arrival deciding any ties)",
+            "options": [
+                null,
+                "fcfs",
+                "priority"
+            ]
+        },
+        {
+            "name": "preemption_mode",
+            "label": "preemption-mode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "If ‘recompute’, the engine performs preemption by recomputing; If ‘swap’, the engine performs preemption by block swapping.",
+            "options": [
+                null,
+                "recompute",
+                "swap"
+            ]
+        },
+        {
+            "name": "enable_chunked_prefill",
+            "label": "enable-chunked-prefill",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "If set, the prefill requests can be chunked based on the max_num_batched_tokens."
+        },
+        {
+            "name": "limit_mm_per_prompt",
+            "label": "limit-mm-per-prompt",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "For each multimodal plugin, limit how many input instances to allow for each prompt. Expects a comma-separated list of items, e.g.: image=16,video=2 allows a maximum of 16 images and 2 videos per prompt. Defaults to 1 for each modality."
+        },
+        {
+            "name": "disable_mm_preprocessor_cache",
+            "label": "disable-mm-preprocessor-cache",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "If true, then disables caching of the multi-modal preprocessor/mapper. (not recommended)"
+        },
+        {
+            "name": "scheduler_delay_factor",
+            "label": "scheduler-delay-factor",
+            "required": false,
+            "type": "number",
+            "format": "float",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "Apply a delay (of delay factor multiplied by previous prompt latency) before scheduling next prompt"
+        },
+        {
+            "name": "skip_tokenizer_init",
+            "label": "skip-tokenizer-init",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "model",
+            "desc": "Skip initialization of tokenizer and detokenizer"
+        },
+        {
+            "name": "tokenizer_mode",
+            "label": "tokenizer-mode",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "“auto” will use the fast tokenizer if available. “slow” will always use the slow tokenizer. “mistral” will always use the mistral_common tokenizer.",
+            "options": [
+                null,
+                "auto",
+                "slow",
+                "slow"
+            ]
+        },
+        {
+            "name": "config_format",
+            "label": "config-format",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "“auto” will try to load the config in hf format if available else it will try to load in mistral format",
+            "options": [
+                null,
+                "auto",
+                "hf",
+                "mistral"
+            ]
+        },
+        {
+            "name": "enforce_eager",
+            "label": "enforce-eager",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Always use eager-mode PyTorch. If false, will use eager mode and CUDA graph in hybrid for maximal performance and flexibility."
+        },
+        {
+            "name": "max_parallel_loading_workers",
+            "label": "max-parallel-loading-workers",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "other",
+            "desc": "Load model sequentially in multiple batches, to avoid RAM OOM when using tensor parallel and large models."
+        },
+        {
+            "name": "enable_prefix_caching",
+            "label": "enable-prefix-caching",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "performance",
+            "desc": "Enables automatic prefix caching"
+        },
+        {
+            "name": "disable_sliding_window",
+            "label": "disable-sliding-window",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "model",
+            "desc": "Disables sliding window, capping to sliding window size"
+        },
+        {
+            "name": "enable_request_id_headers",
+            "label": "enable-request-id-headers",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "If specified, API server will add X-Request-Id header to responses. Caution: this hurts performance at high QPS"
+        },
+        {
+            "name": "enable_auto_tool_choice",
+            "label": "enable-auto-tool-choice",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "model",
+            "desc": "Enable auto tool choice for supported models. Use –-tool-call-parser to specify which parser to use"
+        },
+        {
+            "name": "tool_call_parser",
+            "label": "tool-call-parser",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "select the tool parser to use. Check: https://docs.vllm.ai/en/stable/features/tool_calling.html#automatic-function-calling . Additional tool parsers will continue to be added in the future, and also can register your own tool parsers in the --tool-parser-plugin"
+        },
+        {
+            "name": "tool_parser_plugin",
+            "label": "tool-parser-plugin",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "model",
+            "desc": "ool parser plugin used to register user defined tool parsers into vllm, the registered tool parser name can be specified in --tool-call-parser"
+        },
+        {
+            "name": "disable_fastapi_docs",
+            "label": "disable-fastapi-docs",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "Disable FastAPI’s OpenAPI schema, Swagger UI, and ReDoc endpoint"
+        },
+        {
+            "name": "enable_prompt_tokens_details",
+            "label": "enable-prompt-tokens-details",
+            "required": false,
+            "type": "boolean",
+            "default": null,
+            "category": "other",
+            "desc": "If set to true, enable prompt_tokens_details in usage"
+        },
+        {
+            "name": "long_prefill_token_threshold",
+            "label": "long-prefill-token-threshold",
+            "required": false,
+            "type": "number",
+            "format": "integer",
+            "default": null,
+            "category": "capacity_and_limits",
+            "desc": "For chunked prefill, a request is considered 'long' if the prompt is longer than this number of tokens"
+        },
+        {
+            "name": "speculative_config",
+            "label": "speculative-config",
+            "required": false,
+            "type": "string",
+            "default": null,
+            "category": "performance",
+            "desc": "Speculative Decoding schema to use with vLLM to reduce inter-token latency"
+        }
+    ],
+    "inference_arguments": [
+        {
+            "inference_task": "Text Generation",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": 5,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "min_tokens",
+                    "label": "min_tokens",
+                    "required": false,
+                    "default": 0,
+                    "min": 0,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The minimum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "presence_penalty",
+                    "label": "presence_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+                },
+                {
+                    "name": "frequency_penalty",
+                    "label": "frequency_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+                },
+                {
+                    "name": "thinking_token_budget",
+                    "label": "thinking_token_budget",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum number of tokens allowed for the model's reasoning/thinking phase. Set to -1 or omit for unlimited."
+                },
+                {
+                    "name": "logit_bias",
+                    "label": "logit_bias",
+                    "required": false,
+                    "default": false,
+                    "type": "dict",
+                    "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling"
+                },
+                {
+                    "name": "ignore_eos",
+                    "label": "ignore_eos",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated."
+                },
+                {
+                    "name": "use_beam_search",
+                    "label": "use_beam_search",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to use beam search instead of sampling."
+                },
+                {
+                    "name": "stop_token_ids",
+                    "label": "stop_token_ids",
+                    "required": false,
+                    "default": null,
+                    "type": "list",
+                    "desc": "List of tokens that stop the generation when they are generated. The returned output will contain the stop tokens unless the stop tokens are special tokens."
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                },
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "max": 5,
+                    "desc": "number of answers to generate"
+                }
+            ]
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "arguments": [
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "required": false,
+                    "default": 0.7,
+                    "min": 0,
+                    "max": 2,
+                    "type": "number",
+                    "format": "float",
+                    "desc": "What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic"
+                },
+                {
+                    "name": "top_p",
+                    "label": "top_p",
+                    "required": false,
+                    "default": 0.9,
+                    "type": "number",
+                    "format": "float",
+                    "min": 0.01,
+                    "max": 1,
+                    "desc": "An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. So 0.1 means only the tokens comprising the top 10% probability mass are considered"
+                },
+                {
+                    "name": "top_k",
+                    "label": "top_k",
+                    "required": false,
+                    "default": 5,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "desc": "The number of highest probability vocabulary tokens to keep for top-k-filtering"
+                },
+                {
+                    "name": "max_tokens",
+                    "label": "max_tokens",
+                    "required": false,
+                    "default": 256,
+                    "min": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The maximum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "min_tokens",
+                    "label": "min_tokens",
+                    "required": false,
+                    "default": 0,
+                    "min": 0,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "The minimum number of tokens to generate in the chat completion"
+                },
+                {
+                    "name": "thinking_token_budget",
+                    "label": "thinking_token_budget",
+                    "required": false,
+                    "default": null,
+                    "type": "number",
+                    "format": "integer",
+                    "desc": "Maximum number of tokens allowed for the model's reasoning/thinking phase. Set to -1 or omit for unlimited."
+                },
+                {
+                    "name": "stop",
+                    "label": "stop_sequences",
+                    "required": false,
+                    "default": [],
+                    "type": "list",
+                    "desc": "Up to 4 sequences where the API will stop generating further tokens"
+                },
+                {
+                    "name": "presence_penalty",
+                    "label": "presence_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics"
+                },
+                {
+                    "name": "frequency_penalty",
+                    "label": "frequency_penalty",
+                    "required": false,
+                    "default": 0.0,
+                    "type": "number",
+                    "format": "float",
+                    "min": -2.0,
+                    "max": 2.0,
+                    "desc": "Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim"
+                },
+                {
+                    "name": "logit_bias",
+                    "label": "logit_bias",
+                    "required": false,
+                    "default": false,
+                    "type": "dict",
+                    "desc": "Accepts a json object that maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100. Mathematically, the bias is added to the logits generated by the model prior to sampling"
+                },
+                {
+                    "name": "ignore_eos",
+                    "label": "ignore_eos",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to ignore the EOS token and continue generating tokens after the EOS token is generated."
+                },
+                {
+                    "name": "use_beam_search",
+                    "label": "use_beam_search",
+                    "required": false,
+                    "default": false,
+                    "type": "boolean",
+                    "desc": "Whether to use beam search instead of sampling."
+                },
+                {
+                    "name": "stop_token_ids",
+                    "label": "stop_token_ids",
+                    "required": false,
+                    "default": null,
+                    "type": "list",
+                    "desc": "List of tokens that stop the generation when they are generated. The returned output will contain the stop tokens unless the stop tokens are special tokens."
+                },
+                {
+                    "name": "skip_special_tokens",
+                    "label": "skip_special_tokens",
+                    "required": false,
+                    "default": true,
+                    "type": "boolean",
+                    "desc": "Whether to skip special tokens in the output."
+                },
+                {
+                    "name": "n",
+                    "label": "n",
+                    "required": false,
+                    "default": 1,
+                    "type": "number",
+                    "format": "integer",
+                    "min": 1,
+                    "max": 5,
+                    "desc": "number of answers to generate"
+                }
+            ]
+        }
+    ],
+    "tasks_base_url": [
+        {
+            "inference_task": "Text Generation",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Image-Text-to-Text",
+            "base_url": "/v1"
+        },
+        {
+            "inference_task": "Text Embedding",
+            "base_url": "/v1/embeddings"
+        },
+        {
+            "inference_task": "Automatic Speech Recognition",
+            "base_url": "/v1/audio/transcriptions"
+        },
+        {
+            "inference_task": "Text Ranking",
+            "base_url": "/v1/rerank"
+        }
+    ],
+    "lora_config": "--enable-lora --lora-modules {modules_config}",
+    "lora_modules_separator": " ",
+    "supported_auto_scaling_metrics": [
+        "ml_model_concurrent_requests",
+        "num_of_requests_waiting_in_queue"
+    ]
+}

@@ -1,0 +1,18 @@
+# Template for the dev Microsoft Entra OIDC Secret.
+#
+# Copy to litellm-microsoft-sso-dev.yaml (gitignored), fill the values from the
+# Entra app registration, then:
+#
+#   kubectl apply -f litellm-microsoft-sso-dev.yaml
+#
+# Do NOT commit the filled file. It holds a client secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-microsoft-sso-dev
+  namespace: adeo-litellm
+type: Opaque
+stringData:
+  MICROSOFT_CLIENT_ID: "<application (client) id>"
+  MICROSOFT_CLIENT_SECRET: "<client secret VALUE, not the secret id>"
+  MICROSOFT_TENANT: "<directory (tenant) id>"
