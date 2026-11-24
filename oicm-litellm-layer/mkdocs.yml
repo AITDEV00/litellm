@@ -187,6 +187,7 @@ nav:
       - Index: mcp-architecture-qa/00-INDEX.md
       - SSO Application Integration: mcp-architecture-qa/14-sso-application-integration.md
       - OpenCode SSO MCP and Skills Pilot Plan: mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md
+      - OpenCode Pilot Evidence: mcp-architecture-qa/16-opencode-dev-pilot-evidence.md
       - Topology: mcp-architecture-qa/01-topology-diagram.md
       - Production Cluster: mcp-architecture-qa/02-step-1-prod-cluster.md
       - Client Installation: mcp-architecture-qa/03-step-2-client-install.md

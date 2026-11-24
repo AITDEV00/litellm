@@ -2,7 +2,7 @@
 
 This file answers one question: what connects to what, on which port, in which direction, and why. Read the whole file top to bottom the first time. Later, jump to the section for the arrow you are unsure about.
 
-If a detail here disagrees with code or with `../mcp-source-broker/running-system/README.md`, those win and this file is stale.
+If a detail here disagrees with code or with `../mcp-source-broker/running-system/README.md`, those win and this file is stale. The two-replica count is the audited prod shape, not an invariant. Check the live Deployment before using it as temporary evidence
 
 ---
 
@@ -77,8 +77,7 @@ flowchart TB
     gateway -->|"A7 release + artifact read"| rfs
 
     worker -->|"A6 loopback control :9091"| broker
-    worker -->|"A8 sql peer state"| pg
-    broker -->|"A9 sql rows"| pg
+    broker -->|"A9 peer rows and gateway state"| pg
     broker -->|"A10 artifact + release write"| rfs
 
     classDef proxy fill:#1f4e79,color:#fff
@@ -129,9 +128,9 @@ Annotations on the tunnel Ingress and why each exists:
 | `proxy-buffering` | `off` | the tunnel is a live bidirectional stream, buffering would delay or stall it |
 | `proxy-request-buffering` | `off` | same |
 
-The normal gateway Ingress sets `proxy-body-size: "0"` (unlimited). That matters because the reverse tunnel is **one long-lived client-streaming POST** whose body accumulates every pushed RPC for the tunnel's whole lifetime. With nginx's default 1 MiB body cap, that stream used to die roughly every megabyte under load, which surfaced as `RST_STREAM INTERNAL_ERROR` and 502s. The fix is the unlimited body size.
+The normal gateway Ingress sets `proxy-body-size: "0"`, but that annotation does not affect the separate tunnel Ingress. **Open deployment hardening, observed on prod 2026-11-24:** `deploy/prod/mcp-tunnel-ingress.yaml` and the live `litellm-mcp-tunnel` object do not set `proxy-body-size: "0"`. The dev tunnel fixture and `tests/deploy/test_source_link_ingress.py` require it because the reverse tunnel is one long-lived client-streaming POST whose cumulative body can exceed nginx's default 1 MiB cap. Add the annotation to the prod tunnel object and regression test, then rehearse a cumulative large-throughput stream before treating the hardening as closed. Keep automatic source enrollment and ordinary per-request bodies bounded separately
 
-Anything that falls through to `/` and is not a gateway route returns the gateway's own 404 JSON. That is the tell-tale when the tunnel Ingress is missing: a probe of the tunnel path answers `404 application/json` instead of `200 application/grpc`.
+Anything that falls through to `/` and is not a gateway route returns the gateway's own 404 JSON. That is the tell-tale when the tunnel Ingress is missing: a probe of the tunnel path answers `404 application/json` instead of gRPC content.
 
 ---
 
@@ -211,10 +210,9 @@ Anything that falls through to `/` and is not a gateway route returns the gatewa
   - Serving a catalog: an OpenAPI source's `spec_path` points at a gateway URL that resolves to the artifact mirror, which the gateway fetches so it can build tools from the document.
 - **Why**: release artifacts and catalogs must survive gateway restarts and be shared across replicas, so they live in object storage, not on a Pod's disk.
 
-### A8. worker -> postgres :5432, SQL
+### A8. worker -> broker for peer state, not SQL
 
-- **Initiator**: the worker's control client, via the broker? No. Check this carefully:
-- **Actual path**: the worker does **not** talk to Postgres directly. It talks to `broker` on 9091, and `broker` talks to Postgres. Arrow A8 as drawn is a **logical** read of peer state that physically goes worker -> broker -> postgres. Keep this in mind, it is the one place the diagram is a simplification. The Go `internal/control` client only speaks HTTP to the control URL.
+The worker does not talk to Postgres directly. Its Go `internal/control` client only speaks HTTP: worker -> broker on `127.0.0.1:9091` -> Postgres. There is deliberately no separate database arrow in the topology. The diagram's A6 covers this control-plane connection, and A9 is its database counterpart.
 
 ### A9. broker -> postgres :5432, SQL
 

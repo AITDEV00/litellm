@@ -15,6 +15,9 @@ Use this as the index when a later question starts from "where does X live". Gro
 | `oicm-litellm-layer/deploy/base/gateway/config/litellm-config.yaml` | gateway config, includes the MCP SSE and catalog URL allow entries |
 | `oicm-litellm-layer/deploy/base/gateway/secrets/litellm-mcp-source-broker.yaml` | the `pepper` and `service-token` secret |
 | `oicm-litellm-layer/deploy/overlays/prod/gateway/deployment.yaml` | prod-only gateway env and digest pin |
+| `oicm-litellm-layer/deploy/overlays/prod/gateway/config.yaml` | prod gateway config patch, including JWT and SSO settings |
+| `oicm-litellm-layer/deploy/overlays/dev/gateway/deployment.yaml` | dev gateway env, Microsoft OIDC, and local base URL |
+| `oicm-litellm-layer/deploy/overlays/dev/gateway/config.yaml` | dev gateway config patch, independent of prod granting |
 | `oicm-litellm-layer/deploy/overlays/prod/mcp-source-broker/broker.yaml` | the broker Pod: Python container, Go container, health probes, resources |
 | `oicm-litellm-layer/deploy/overlays/prod/mcp-source-broker/source-link-patch.yaml` | patches the Go sidecar and the Service's data/tunnel/control ports |
 | `oicm-litellm-layer/deploy/overlays/prod/mcp-source-broker/network-policy.yaml` | ingress and egress rules for the broker and RustFS |
@@ -104,6 +107,9 @@ Use this as the index when a later question starts from "where does X live". Gro
 | `oicm-litellm-layer/docs/mcp-source-broker/running-system/README.md` | owning implementation record, status register, port map, step evidence |
 | `oicm-litellm-layer/docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md` | concurrency numbers |
 | `oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/*.md` | enrollment, BYOM, multi-replica debates |
-| `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` | operator guide, prod vs dev, failure table |
-| `oicm-litellm-layer/docs/docs-map.md` | one-line purpose per doc, lines around 240 |
+| `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` | source-broker operator guide, prod vs dev, failure table |
+| `oicm-litellm-layer/docs/mcp-architecture-qa/14-sso-application-integration.md` | application SSO/JWT/API-key and resource-provisioning guide |
+| `oicm-litellm-layer/docs/mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md` | gated OpenCode implementation plan, not completed capability claims |
+| `oicm-litellm-layer/docs/mcp-architecture-qa/16-opencode-dev-pilot-evidence.md` | partial OpenCode run evidence; native MCP sign-in works, full execution and private skills remain unfinished |
+| `oicm-litellm-layer/docs/docs-map.md` | one-line purpose per doc |
 | `oicm-litellm-layer/mkdocs.yml` | nav tree for the docs site |

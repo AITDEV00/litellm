@@ -1,8 +1,8 @@
 # MCP guardrailing: parameter input and whole-tool denial
 
-Direct answer to "how is MCP parameter input guardrailed, and can a whole tool be denied based on conversation trust state". All three capabilities exist in this tree today and all three are unused in prod.
+Direct answer to "how is MCP parameter input guardrailed, and can a whole tool be denied based on conversation trust state". All three capabilities exist in this source tree. The 2026-11-23 inventory found no guardrails configured in prod; recheck the live configuration before treating that dated absence as current
 
-Related: [`06-permissions-and-scope.md`](06-permissions-and-scope.md) for the access layers and the live audit.
+Related: [`06-permissions-and-scope.md`](06-permissions-and-scope.md) for the access layers, including its correction that public-address eligibility is separate from authorization
 
 ---
 
@@ -33,7 +33,7 @@ Parameters ['evil'] are not allowed for tool web_search. Allowed parameters: ['q
 | Source in the MCP call | Scanned? |
 |---|---|
 | tool description | yes, as one text |
-| every string leaf of `inputSchema` | yes, deep-walked |
+| every `description` string leaf of `inputSchema` | yes, deep-walked and filtered on the final path key |
 | every string leaf of the arguments | yes, deep-walked |
 | keys and non-string values | no, they are not maskable text |
 
@@ -43,7 +43,7 @@ Parameters ['evil'] are not allowed for tool web_search. Allowed parameters: ['q
 - Safety properties worth citing:
   - A depth limit on the JSON walk, raising rather than scanning shallowly and missing nested strings.
   - Conflicting rewrites of the same leaf path raise `_conflicting_rewrite` instead of silently picking one.
-  - Scanning schema descriptions is deliberate and closes an injection surface many designs miss: tool metadata is model-visible text and can carry a payload.
+  - The filter includes `description` strings only, not arbitrary schema strings such as `title`, `default`, or `enum` values. Tool descriptions are model-visible and can carry payloads; keep this field selection explicit when designing a guardrail
 
 ### 1c. Output and result scanning: `process_output_response`
 

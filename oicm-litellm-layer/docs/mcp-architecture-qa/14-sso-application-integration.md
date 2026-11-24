@@ -1,6 +1,14 @@
 # SSO application integration: user access to models and MCP tools
 
-This is the current guide for the OICM layer above LiteLLM. **Part 1 is for layer developers. Part 2 is for the proxy admin.** It is derived from this checkout on 2026-11-24; older files in this folder can contain earlier deployment findings
+This is the current guide for the OICM layer above LiteLLM. **Part 1 is for application developers. Part 2 is for the proxy admin.** It is derived from this checkout and read-only live checks on 2026-11-24. Older files in this folder preserve dated investigation history
+
+Distinctions to preserve:
+
+- Delegated Entra API tokens authorize selected user/team model/MCP REST calls when gateway audience, issuer, identity, and membership mapping are configured correctly
+- Browser Microsoft SSO creates a UI login and, normally, a dashboard-team virtual key embedded in its session. It is not a direct Entra bearer
+- Gateway native MCP OAuth produces an `llm_session_` token accepted by `/mcp` only. That does not give OpenCode a model or `/v1/skills` credential
+- Team membership alone never unions all teams' resources into a virtual key or one regular REST request
+- Direct delegated-JWT team selection still requires `fallback_to_db_teams: true` rollout and dev proof. This guide does not claim that the flag is already enabled
 
 ## Part 1: guide for layer developers
 
@@ -34,9 +42,11 @@ Check that the gateway access token has the expected `aud`, `iss`, and immutable
 
 ### Shared team and access-group concepts
 
-The proxy admin creates a team, assigns one or more access groups to it, and adds your user to it. A group's `access_model_names` and `access_mcp_server_ids` define the model and MCP resources; optional `mcp_tool_permissions` limits tools per MCP server
+The proxy admin creates a team, assigns unified access groups by `assigned_team_ids`, and adds users to that team. A group's `access_model_names` and `access_mcp_server_ids` define model/MCP resources and optional `mcp_tool_permissions` narrows tools per server. Review direct group assignments to keys separately: unified key groups can be additive grants above team ceilings, unlike legacy tag intersections
 
-One person can belong to multiple teams. That membership does not make every key inherit every team's resources. Choose one team for each request or virtual key so the application has a predictable authorization boundary
+One person can belong to multiple teams. Select one team for each key or delegating request. A virtual key keeps one `team_id`; API-key tests do not prove JWT team switching works, nor does a browser MCP session grant model access
+
+`ADEOGPT-ENDUSERS` currently has an eight-server MCP group. `ADEOGPT-DESKTOP` has a separate model ceiling and no assigned MCP group at the 2026-11-24 read. A user added to both does not automatically receive MCP through Desktop; this is intentional isolation until Desktop gets its own explicit grant
 
 ### Call a model with the user's Microsoft token
 
@@ -131,11 +141,23 @@ Organization: business ownership and organizational limits
 
 Structure teams around how you want to budget, authorize, and revoke one consumer or project. Do not make one team per model or tool, and do not make broad groups to avoid a second team assignment. Delegate team administration to a team member with `role: "admin"` only when needed. Use `org_admin` membership for organizational governance if you delegate that boundary, not `proxy_admin`
 
-### Existing prod example
+### Current prod reference placement
 
-The ADEO organization already exists as `19c3609c-b4ba-447e-8829-0765785038fa`. The `ADEOGPT-ENDUSERS` team already exists as `b19ad7de-997e-45ec-ba34-f7980dccf621`. Reuse existing objects rather than creating another organization or team with the same alias
+The ADEO organization is `19c3609c-b4ba-447e-8829-0765785038fa`. Reuse it; dev uses independently resolved IDs, never copied blindly
 
-The **planning request occurred on 2026-11-24**. On that date, an MCP-only group named `adeogpt-endusers-mcp` was assigned eight provisioned MCP servers to `ADEOGPT-ENDUSERS` through `POST /v1/access_group`, not `/access_group/new`. Include this in repeatable provisioning and periodically verify the resulting assignments
+| Object | ID and relevant policy verified 2026-11-24 |
+|---|---|
+| `ADEOGPT-ENDUSERS` | `b19ad7de-997e-45ec-ba34-f7980dccf621`; `all-proxy-models`, group `adeogpt-endusers-mcp` (`922c1bd2-d479-4134-970e-4daf1bd27ca4`) with all eight provisioned servers |
+| `ADEOGPT-DESKTOP` | `d1406939-aef6-4205-a8b2-7616c5a72663`; selected models, no MCP access group at this read. Do not deliberately reuse ENDUSERS' group until Desktop's consumers should receive those exact servers |
+| `jyao@ecouncil.ae` | Existing canonical user `90714f16-39de-400f-9a79-09edd1c48eed`, ordinary member of both teams, observed as `internal_user_viewer` during prod pilot |
+| `dqvu@ecouncil.ae` | Existing canonical user `bfc998f1-9eac-4264-b389-9adb403c3e37` (`Dang Vu`), `internal_user_viewer`, now verified `role: user` in both teams; no password reset or key issuance during membership operation |
+| `ffkhan@ecouncil.ae` | Ordinary member of ENDUSERS in the live team record; no new role or credential is needed solely because this guide lists membership |
+| `athena-mcp@ecouncil.ae` | Connector user `f7bf9877-8f4f-4683-a43d-e24f5dd5c4ed`, `internal_user`, no team or API key initially. Credentials are stored outside the repo, mode 0600 under `~/.config/adeogpt/`. Reissue/rotate through authorized credential management if misused |
+| `athena-read-only@ecouncil.ae` | A distinct `proxy_admin_viewer` identity from the MCP connector. No consumer-team assignment is assumed |
+
+These are observed reference objects, not mandates for subsequent grant or user counts. Always resolve aliases through `/v2/team/list`, `/team/info`, and `/user/list` before mutations. Do not silently replace requested aliases with similar names. Group membership only assigns the intended team's grants; it does not duplicate keys or modify a user's global LiteLLM role
+
+The unified group endpoint is `POST /v1/access_group`, not `/access_group/new`. Listing and read are `GET /v1/access_group` and `/v1/access_group/{id}`. Do not reuse an older production observation that these newer endpoints are unavailable; current source/prod behavior supersedes it
 
 ### Organization and membership
 
@@ -188,7 +210,11 @@ curl "$GATEWAY/v1/access_group" \
   }"
 ```
 
-Use a name for a capability bundle such as `adeogpt-endusers-knowledge`, not a name tied to one user or temporary session. Reuse capability groups across teams when they have equal resource meaning. Teams reference the group from `assigned_team_ids`, enabling access via membership rather than per-user duplication
+Use a capability name such as `adeogpt-endusers-knowledge`, not a user or temporary session name. Reuse a bundle across teams only when those teams intentionally receive equal resources. Team references live in the group's `assigned_team_ids`; team membership activates them rather than duplicating each user's grants
+
+Creation is not idempotent and duplicate names return 409. Before creating, list existing groups and resolve the ID. To change one, read it and `PUT /v1/access_group/{id}` with a **deliberate complete replacement** of its relevant arrays. New `access_mcp_server_ids` and `assigned_team_ids` can detach what you omit, so merging/reviewing is necessary. Never blindly repost the group or wipe unrelated servers/teams from a shared group. After an update, read the group and both team records and compare intended exact membership/server sets. For a small isolated team group with no shared assignments, omitting optional fields is less error-prone; test the actual deployed handler in dev first
+
+For model assignments, do not infer that `[]` means full model access. Test the model list with the selected team/access-group context. ENDUSERS intentionally uses an `all-proxy-models` team ceiling at the audit date, whereas DESKTOP uses an explicit model set. A narrower model access group cannot silently be treated as an MCP grant or vice versa
 
 For a full-list model ceiling inherited by that team, omit or deliberately set allowed models as the admin API contract permits. Avoid assuming that one empty field expands into universal API access: validate actual model and MCP behavior in dev
 
@@ -274,7 +300,22 @@ The public `litellm.ecouncil.ae` host is prod, not dev. Re-run the port-forward 
 | Key-pinned single-team MCP grant resolution | `litellm/proxy/_experimental/mcp_server/auth/user_api_key_auth_mcp.py` |
 
 The [Admin REST API reference](../admin-api/LITELLM-ADMIN-REST-API.md) has other provisioning fields. Runnable SSO scripts and token inspection examples live at `examples/sso-to-api-token/README.md` outside this MkDocs tree
-Choose this option when an application backend acts for a signed-in user and already participates in Entra authentication. This avoids accumulating disposable virtual keys and does not require ordinary users to administer keys
+
+## Native MCP clients and private skills
+
+For OpenCode, native MCP OAuth is the browser sign-in pattern documented in guides 15 and 16, not a delegated Entra bearer configured as a static header. The successful `/mcp` login/list proof stores `llm_session_` credentials with refresh tokens; `/v1` models reject them. Until a supported proxy-credential exchange is configured in the client, provide OpenCode model access through a separate approved team-bound credential rather than a dashboard/admin key
+
+OpenCode's generic unauthenticated HTTP skill catalog is not LiteLLM `/v1/skills`. Do not enable `public_skills_index` or `enable_mcp_registry` to make private synchronization work. Existing `/v1/skills` owner scopes select `user:<id>` first when user identity exists, even when the request has a team. Current `access_skill_names` does not make ordinary teammate skill rows shareable and has specific skill-plugin visibility semantics elsewhere. Any private sharing requires explicit owner/team-aware design and denial tests, followed by actual OpenCode content-loading proof
+
+See [the OpenCode plan](15-opencode-sso-mcp-skills-pilot.md) for required dev gates and [the measured evidence](16-opencode-dev-pilot-evidence.md) for what is complete. Treat model credentials, actual per-server tool invocation, refresh-after-expiry, agent-only D3 negative proof, and private skill loading as unfinished according to that record. Membership provisioning alone does not change those pilot statuses
+
+## Credential lifecycle and audit secrets
+
+Use an authorized proxy-admin service credential only for provisioning or explicit server-side revocation. Obtain secrets from approved secret references or a mode-0600 local store, never print/export them to project documentation, screenshots, browser/client config, or tracked shell scripts. A local `~/.config/adeogpt/` file with restrictive permissions is working storage, not a managed team secret provider
+
+Do not reset or regenerate an existing user's password when merely adding team membership. Use `POST /user/new` with `auto_create_key: false` only for a genuinely new email-managed account, followed by an explicit password update if required. The provisioning password is duty-sensitive even when temporary; keep it local and non-recycled, require a user change as appropriate, and handle login/API key material separately. `/team/member_add` verifies membership and leaves the global user role unchanged
+
+Enabled direct delegated-JWT team calls require real dev negative tests: wrong audience/issuer, non-member team selection, and revoked resource grants. Never assume a JWT-authenticated key-generation example establishes model/MCP access or that cross-team key permissions are enabled. Ordinary teammates baseline `/key/info` and `/key/health`; do not circumvent missing `/key/generate` permission with a master or dashboard credential.
 
 ### Flow
 

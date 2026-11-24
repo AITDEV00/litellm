@@ -1,8 +1,22 @@
-# Permissions and scope: live prod state plus how the code enforces it
+# Permissions and scope: dated prod evidence and the authorization layers
 
-Checked read-only against `https://litellm.ecouncil.ae` on 2026-11-23 with the prod admin key. Nothing was created or modified. Only GET and one read-only tool call were issued.
+## Dataset status: read this before the historical inventory
 
-## Part 1: what is actually set up in prod right now
+Parts 1 and 2 preserve a **2026-11-23 read-only snapshot**, not live fleet counts. Native Microsoft/JWT SSO and MCP access grants were subsequently changed; do not follow their old zero-grant recommendations
+
+Current read-only state verified 2026-11-24:
+
+| Current object | Verified state |
+|---|---|
+| `ADEOGPT-ENDUSERS` | `b19ad7de-997e-45ec-ba34-f7980dccf621`, ADEO organization, `all-proxy-models`; assigned group `adeogpt-endusers-mcp` (`922c1bd2-d479-4134-970e-4daf1bd27ca4`) granting all eight source-broker MCP servers |
+| `ADEOGPT-DESKTOP` | `d1406939-aef6-4205-a8b2-7616c5a72663`, separate selected model ceiling, no assigned MCP group at this read |
+| `jyao@ecouncil.ae`, `ffkhan@ecouncil.ae`, and `dqvu@ecouncil.ae` | Ordinary members of `ADEOGPT-ENDUSERS`. jyao and dqvu also belong to `ADEOGPT-DESKTOP`. Do not infer Desktop MCP access from ENDUSERS membership |
+| `athena-mcp@ecouncil.ae` | `internal_user` `f7bf9877-8f4f-4683-a43d-e24f5dd5c4ed`, created for connector use, no team at this read and no API key created by its provisioning step |
+| `athena-read-only@ecouncil.ae` | A different `proxy_admin_viewer` principal from the connector user. Administrative safe-method reads do not grant model/MCP inference |
+
+Use Parts 3 onward for authorization concepts and later implementation details. The historical raw inventory below is intentionally retained because it explains why specific grant/cleanup decisions were made. Do not use its key counts, team counts, usernames, or zero-grant conclusion as a current baseline
+
+## Part 1: what was set up in prod on 2026-11-23
 
 ### The eight MCP servers
 
@@ -99,11 +113,11 @@ The two MCP connector accounts are `internal_user` with **no team**, which is ex
 
 ## Part 2: the findings, stated plainly
 
-1. **MCP is live but nobody but the admin can use it.** No team and no key holds an `mcp_access_group`. A normal user key would get zero MCP servers from `get_allowed_mcp_servers`. The admin key sees all eight because admin with no explicit object permission resolves the whole registry. So today the feature is proven, exposed, and un-consumed.
+1. **At this 2026-11-23 observation, MCP was live but not yet team-consumed.** No team/key then held `mcp_access_group`; ordinary scoped keys resolved zero MCP servers. Admin visibility was broader because explicit admin object permissions differed from normal keys. The current prod source-group assignments supersede this finding, not its dated diagnostic evidence
 
-2. **`available_on_public_internet: true` on all eight is a leak vector, not a feature flag.** In this codebase that flag means a key does not need an MCP access group to reach the server over `/mcp-rest` if the key can reach `/mcp-rest` at all. Combined with empty `allowed_routes` on the two leftover bare keys, any holder of those keys may be able to call these 65 tools including `fetch`, `fc_crawl`, `fc_extract`, and `tw_search` with arbitrary URLs and queries. This is the single most important thing to verify and likely fix. It should be `false` and access granted deliberately through a team access group. **Partially resolved:** a real `llm_api_routes`-scoped user key is cleanly denied (see the tested section below), so the exposure is limited to keys that also reach `/mcp-rest`, i.e. the two unlabelled bare keys, not normal users.
+2. **Public-address eligibility is not an authorization grant.** The later code audit corrects an earlier interpretation here: `available_on_public_internet: true` permits a request from a public client IP through the address-eligibility check. It does **not** satisfy required route/server/group authorization. Setting it false would prevent remote public-IP users from reaching these sources even with otherwise valid grants. Keep it aligned with the intended reachable network, and enforce authorization through key routes, assigned groups/servers, and tool permissions. `allow_all_keys` is the distinct convenience switch whose careless use weakens least privilege.
 
-3. **`/v1/mcp/tools?server_id=X` does not filter by server.** I passed the web server id and got all 65 tools from all eight servers back. This is documented in the usage guide as known: "`/v1/mcp/tools?server_id=` returns every source's tools, filter is not scoped (known)". It is a discovery leak, not a call leak, because `tools/call` still checks the server. Still worth knowing.
+3. **Use `GET /mcp-rest/tools/list?server_id=X` for filtered discovery.** The old `/v1/mcp/tools?server_id=X` observation invoked a different endpoint whose handler ignores that argument. In this source version the REST facade explicitly supports and filters by `server_id`; guide 14 shows the supported sequence. Do not pass a list/call field to the wrong route, then generalize the result into an authorization leak.
 
 4. **The audit trail on the eight rows is empty.** `submitted_by`, `reviewed_at`, `review_notes` are null. They skipped the review path. If you want governance to mean anything, those rows should have come through `pending_review` and an admin approval, and the columns prove whether they did.
 
@@ -113,7 +127,7 @@ The two MCP connector accounts are `internal_user` with **no team**, which is ex
 
 ### Tested 2026-11-23: a real end-user key cannot reach MCP
 
-Confirmed empirically with `jyao@ECOUNCIL.AE` (`sk-...I3CA`, team DEVELOPER `05cc86a3`), which is a normal production user key, not an admin key. Its shape:
+Confirmed empirically on 2026-11-23 with `jyao@ECOUNCIL.AE` and a redacted ordinary production user key on team DEVELOPER `05cc86a3`:
 
 | Field | Value |
 |---|---|
@@ -138,7 +152,7 @@ Results:
 
 This is the correct, intended behavior and it closes the open question from Part 2 finding 2: a key with `allowed_routes: ['llm_api_routes']` cannot reach MCP at all, and even if it could, the empty `mcp_access_groups` yields a clean 403 at the server check. The `available_on_public_internet: true` flag does **not** grant a `/llm_api_routes`-scoped key access. The residual concern in finding 2 stays narrower than it first looked: it applies only to a key with empty or MCP-inclusive `allowed_routes`, which today means the two unlabelled bare keys, not normal users.
 
-Also worth noting: `POST /mcp-rest/tools/list` returned `405 Method Not Allowed`. That endpoint is `GET`-shaped (`/v1/mcp/tools`) in this build, so the 405 is a method mismatch in my test, not a permission denial. Correct list test is `GET /v1/mcp/tools`, which returned the empty list above.
+The original test also used a different list route. In the current source `GET /mcp-rest/tools/list` is the compatible discovery surface, optionally with `server_id`. `POST` is not its listing method, and a method error is not an authorization result
 
 ## Part 3: what controls access, in order of application
 
@@ -163,7 +177,12 @@ A key with `allowed_routes: ['llm_api_routes']` reaches none of these. A key wit
 4. Otherwise the union of: key/team explicit `mcp_servers`, key/team `mcp_access_groups`, key/team toolsets, operator `allow_all_keys` servers, and BYOM submitted servers.
 5. Then every later level intersects as a ceiling, never a widening.
 
-The tag-based `mcp_access_groups` is the mechanism this deployment is built around. Each source gets a group named `mcp-source-<source_id>`, and access is granted by attaching that group to a team or key. `get_mcp_access_groups` has one strict rule worth remembering: **if the team has any access groups, the key's groups are intersected with the team's**. A team grant is a hard ceiling on that team's keys.
+There are two distinct grant mechanisms:
+
+- Legacy `object_permission.mcp_access_groups` contains source tags such as `mcp-source-<source_id>`. Databases may store these on key/team object permissions; these are not unified access-group UUIDs.
+- Unified `assigned_team_ids` / `assigned_key_ids` on `LiteLLM_AccessGroupTable` reference reusable `access_mcp_server_ids`, optionally models, agents, skills, and tool permissions. A team's attached group supplies grants at runtime as current membership/team context is resolved.
+
+The legacy tag helper intersects key groups with team tag groups when a team declares them. This is not a blanket rule for unified key-assigned groups: in the current key resolver, explicit unified key groups are additive extras above the key/team ceiling. Use team-assigned groups as the stable boundary, and review a key's own unified group assignment as a possible widening rather than calling all attached groups downward intersections
 
 ### Layer 3: tool-level, which tools on an allowed server
 
@@ -188,7 +207,7 @@ Note the pitfall: `allowed_params` is an allowlist, so if you enable it on a too
 
 `litellm/proxy/_experimental/mcp_server/guardrail_translation/handler.py`, `MCPGuardrailTranslationHandler`, registered for `CallTypes.call_mcp_tool` and `CallTypes.list_mcp_tools`. On an MCP tool call it:
 
-- `process_input_messages`: flattens the tool description, every string leaf of the input JSON schema, and every string leaf of the arguments into one `GenericGuardrailAPIInputs`, calls the guardrail, then writes masked text back into arguments and schema. If the guardrail rejects, it raises and the call never happens. A conflicting rewrite of the same path is blocked rather than silently applied.
+- `process_input_messages`: collects the tool description, every `description` string leaf of the input JSON schema, and every string leaf of the arguments into one `GenericGuardrailAPIInputs`, calls the guardrail, then writes masked text back into arguments and schema descriptions. If the guardrail rejects, it raises and the call never happens. A conflicting rewrite of the same path is blocked rather than silently applied.
 - `process_output_response`: scans `content` text blocks and `structuredContent` and masks or raises. It rewrites in place on purpose so the spend log and span do not keep the unmasked text.
 
 This is the real parameter- and result-guardrail hook, and it works with **any** `CustomGuardrail`, so presidio, a prompt-injection scanner, a language filter, or a bespoke class all plug in here.
@@ -207,9 +226,9 @@ It is configured as a normal `guardrails:` entry with `guardrail: tool_policy`, 
 
 Ranked by how much risk each closes for how little work.
 
-1. **Set `available_on_public_internet: false` on all eight, and grant via a team access group.** Right now the flag and the empty team grants are the only things between "proven" and "openly callable by any key that reaches `/mcp-rest`". Do this first, then grant access deliberately.
+1. **Keep network reachability and authorization as separate controls.** `available_on_public_internet: true` is needed for a remote public-IP caller of these sources. If a source should be private-network only, disable the flag intentionally and prove the expected private client addresses remain reachable. It is not a replacement for grants or URL/content policy
 
-2. **Grant per team, not per key, using `mcp_access_groups`.** Attach `mcp-source-<id>` to the team that should use that data source. Keys inherit, and the team becomes the revocation point. This is the intended design, the code is built around it, and it is currently unused.
+2. **Grant per team through unified assigned access groups.** The actual current example is `adeogpt-endusers-mcp`, listing server IDs and `assigned_team_ids` for ENDUSERS. Desktop has no such grant in the 2026-11-24 read. Use separate bundles when consumers should receive different servers; do not let ADEOGPT-DESKTOP acquire the ENDUSERS grant implicitly just because several users belong to both. Continue key-by-key cleanup for old unscoped or no-expiry tokens; team/group grants do not override their route-level configuration
 
 3. **Use `mcp_tool_permissions` or a toolset to expose only the read tools.** Every source has read and potentially expensive or write-ish tools (`fc_crawl`, `fc_extract`, `tw_search`, `yt_captions`). `mcp_tool_permissions` is exact and per-server. A toolset lets you define "web-read-only" once and reuse it. Because empty `allowed_tools` means all tools, being explicit is the safe default.
 

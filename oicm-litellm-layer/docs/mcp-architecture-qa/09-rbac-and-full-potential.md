@@ -1,8 +1,8 @@
-# RBAC: is admin-created-keys the right model, and what full granularity exists
+# RBAC: role ceilings, resource grants, and the current delegation model
 
-Read against the live prod gateway on 2026-11-23 with the admin key, plus source in `litellm/proxy/management_endpoints/` and `litellm/proxy/management/teams/authz.py`. Nothing was changed.
+Part 0 preserves an inventory from 2026-11-23, read before native Microsoft/JWT SSO and the ENDUSERS access group were provisioned. It is not the current count or a recommendation to retain those conditions. Current supporting evidence is in guides 06, 14, and 16
 
-This is the "am I using it to its full potential" assessment.
+The current model uses OIDC/JWT where appropriate, selected team membership, and assigned unified groups. READ-only administrative identities and ordinary source-connector identities must not be conflated
 
 ---
 
@@ -78,7 +78,8 @@ This is the list I would want if I were you. Every row is a real field or check 
 
 ### MCP
 
-- `mcp_access_groups` on key, team, org: the tag-based grant this deployment is built around.
+- Legacy `object_permission.mcp_access_groups`: source tag grants; separate from unified access groups.
+- Unified `assigned_team_ids` / `assigned_key_ids` on an access group: attached `access_mcp_server_ids`, models, agents, and other grants. Key-assigned unified groups are additive to runtime key/server grants rather than always intersection-capped by the legacy tag ceiling.
 - `mcp_servers`: explicit server list, with the `no_mcp_servers` sentinel to deny absolutely.
 - `mcp_tool_permissions`: `{server: [tool, ...]}`, exact tool allowlist per server.
 - `mcp_toolsets`: named reusable permission bundles, cached in Redis.
@@ -138,27 +139,27 @@ That is the honest boundary: ceilings cascade and cannot be exceeded downward; e
 3. **Add one org_admin per organization.** Right now there are zero. Pick the owner of ADEO, DGE, and so on, and make them org_admin of only their org. They then create teams inside it, bounded by the org ceiling.
 4. **Move budget and rates onto the team.** Token limits per team with `team_member_budget` if you need per-person caps. Then stop setting limits per key by hand.
 5. **Let users mint their own keys** with `key_type` presets. `READ_ONLY` for people who should only look, `LLM_API` for normal consumers. Add `team_member_permissions` so team admins can generate and revoke their own members' keys.
-6. **Grant MCP per team** with `mcp_access_groups`, then narrow with `mcp_tool_permissions` or a toolset.
-7. **Keep a small set of genuinely read-only identities** with `internal_user_viewer` or `READ_ONLY` keys. This is exactly what `athena-read-only` already is; it is the pattern to copy.
-8. **Set `available_on_public_internet: false`** on the eight MCP servers now that access will be granted properly.
+6. **Grant MCP per team** with unified `assigned_team_ids` on an access group listing intended `access_mcp_server_ids`. Use legacy `mcp_access_groups` tags only where deliberately needed, then narrow with `mcp_tool_permissions` or a toolset.
+7. **Keep genuinely read-only identities separate from consumers.** `proxy_admin_viewer` can perform allowed administrative reads but not model/MCP inference. `internal_user_viewer` is inside the product-user role family; it is not equivalent to a proxy-admin read role. Attach the exact routes/resources a person needs, not merely a safer-looking name
+8. **Keep `available_on_public_internet: true` for intentionally remote sources.** It governs source-public-IP eligibility, not resource grants. Removing it would deny approved remote users; authorization comes from membership, unified server group(s), and routes. Use `false` only for an explicitly private-network source.
 
 ## Part 6: promoting users to configure the MCP tunnels
 
-The connector login needs an `internal_user` account and the `source-connector-*` route scope, not an elevated role. So **do not promote anyone to admin to run the agent.** The right shape:
+The connector login rejects `proxy_admin`, `proxy_admin_viewer`, and password-reset-required accounts. Use an ordinary non-admin account with `source-connector-*` route scope. The route restrictions are the important least-privilege boundary; the login does not reject every role other than `internal_user`, including an org-admin membership on an ordinary user row. Do not promote anyone just to run an agent
 
 - The person who will expose a source gets an ordinary `internal_user` account.
 - You mint (or better, they mint) a key for it with `allowed_routes: ['/mcp-sources', '/mcp-source-link-sources/*']`. That is exactly what the six existing `source-connector-*` keys already do, and it is the least privilege available.
 - They run `adma account add` with their own username and password; the agent exchanges the password for that scoped key through `/sso/cli/password` itself, so you do not even have to hand them a key.
 
-So the answer to "should I promote accounts to configure tunnels" is no; give them a normal account and let the agent mint its own scoped key. Promotion to `org_admin` is for team governance, not for connector setup. One caveat from the earlier audit: admin accounts are rejected by the connector login by design, so an org_admin who wants to run an agent needs a separate ordinary account.
+Do not make someone a proxy administrator to configure tunnels. Give an ordinary connector identity the two source-management routes only. Org governance membership is orthogonal: the password-login role check does not create a blanket exception for org admins, although separating such identities is still better operational practice.
 
 ## Part 7: SSO, and the airgap question
 
 **Supported providers**, per `management_endpoints/ui_sso.py`: Microsoft (`MICROSOFT_CLIENT_ID`), Google (`GOOGLE_CLIENT_ID`), any generic OIDC (`GENERIC_CLIENT_ID` plus `GENERIC_AUTHORIZATION_ENDPOINT`, `GENERIC_TOKEN_ENDPOINT`, `GENERIC_USERINFO_ENDPOINT`), and SAML (`/sso/saml/login`). Configured under `general_settings.ui_sso` with role mappings (`user_allowed_roles`, role and team mappings) so a directory group maps to a LiteLLM role or team.
 
-**Not configured in prod today.** The Athena guide says so explicitly, and there is no `ui_sso` in the deployed config.
+**Current deployment uses native Microsoft OIDC and API-JWT validation.** Prod and dev have Microsoft login configuration, and guide 16 records successful OIDC/browser SSO. It requires gateway egress to Microsoft's code-exchange and user-information endpoints. SAML remains an airgap alternative in guide 12, not the current protocol choice. UI-SSO session cookies, delegated Entra JWTs, browser-minted dashboard virtual keys, and MCP session tokens have different authorization branches; use the distinction in guides 10, 14, and 16. Rotate any previously exposed Entra client secret, including dev material, without writing secret values into these documents
 
-**Airgapped deployment: yes, it can work, and it already has the mechanism.** The callback host is not the pod's address; `get_redirect_url_for_sso` calls `get_custom_url`, which prefers `PROXY_BASE_URL` over the request's own base URL (`litellm/proxy/utils.py` `get_custom_url`). So:
+**Historical airgap analysis, not the deployed protocol recommendation:** The callback host is not the pod's address; `get_redirect_url_for_sso` calls `get_custom_url`, which prefers `PROXY_BASE_URL` over the request's own base URL (`litellm/proxy/utils.py` `get_custom_url`). So:
 
 - Set `PROXY_BASE_URL` to the public or edge hostname that the user's browser can reach.
 - The IdP's registered redirect URI is `https://<that host>/sso/callback`. The user's browser does the OIDC dance against Microsoft, gets the code, and posts it back to that same public host.
@@ -172,7 +173,7 @@ So the short version: the browser-side login works from an internet-connected cl
 Yes, materially, and in a specific way. The work moves from per-key bookkeeping to per-membership setup:
 
 - **Per-user model access** becomes "which team is this person in", and the team's `models` is the answer. Add a person to a team; they inherit.
-- **Per-user MCP access** becomes "attach the team to the `mcp-source-*` group", one call per team instead of per key.
+- **Per-user MCP access** becomes "assign a unified access group listing intended server IDs to this team". Group `assigned_team_ids` is the linkage to keep auditable; direct key-group assignment can widen access and is not just a narrowing modifier.
 - **Per-user token limits** become `team_member_tpm_limit` / `team_member_budget` on the team, set once, applying to every member.
 - **Revocation** becomes removing a team member or blocking the team, one action.
 - **New person onboarding** becomes create user, add to team, done. With SCIM or SSO team mappings, it is zero manual steps.

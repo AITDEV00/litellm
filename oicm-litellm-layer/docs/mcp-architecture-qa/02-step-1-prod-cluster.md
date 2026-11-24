@@ -4,7 +4,7 @@ Before any user acts, prod has three things: a gateway that knows a broker exist
 
 ## How prod is assembled
 
-Prod is `deploy/overlays/prod/kustomization.yaml`, which layers four resource groups and one patch:
+Prod is `deploy/overlays/prod/kustomization.yaml`, which layers four resource groups and gateway Deployment/config patches:
 
 ```yaml
 resources:
@@ -13,7 +13,8 @@ resources:
   - ../../base/rustfs      # object store
   - mcp-source-broker      # the feature
 patches:
-  - path: gateway/deployment.yaml   # prod-only gateway env + pinned digest
+  - path: gateway/deployment.yaml   # prod-only gateway env + image digest
+  - path: gateway/config.yaml       # prod copy of gateway configuration
 ```
 
 The ingresses are **not** in this kustomization. `deploy/prod/litellm-ingress.yaml` and `deploy/prod/mcp-tunnel-ingress.yaml` are applied separately. That is why you can render prod cleanly and still be missing the tunnel route.
@@ -33,7 +34,7 @@ The ingresses are **not** in this kustomization. `deploy/prod/litellm-ingress.ya
 | `MCP_SOURCE_BROKER_PEPPER` | secret `litellm-mcp-source-broker` key `pepper` | derives and verifies worker credentials |
 | `MCP_SOURCE_BROKER_SERVICE_TOKEN` | same secret key `service-token` | the bearer the gateway and worker exchange on the data plane |
 
-The image is pinned to a digest `litellm-src:jya0-v1.108.5-prod@sha256:c2beba4b...` because dev rebuilds would otherwise overwrite the mutable tag.
+The image is digest-pinned so dev rebuilds cannot overwrite prod through its mutable tag. Read the full current digest from `deploy/overlays/prod/gateway/deployment.yaml` or the live Deployment, not this dated architectural note. Guide 16 records the prod digest used during the 2026-11-24 pilot.
 
 ## Pod B: the broker (two containers, one Pod)
 
@@ -69,8 +70,8 @@ Service `litellm-mcp-broker` final port set after the kustomize merge:
 
 Not a Pod, but the third pillar. Two Ingresses, one hostname:
 
-- `litellm-proxy`, path `/` to `litellm-proxy:4000`, HTTP, from `deploy/prod/litellm-ingress.yaml`. Also sets `proxy-body-size: "0"`, which is what keeps the long-lived tunnel POST from being cut at 1 MiB.
-- `litellm-mcp-tunnel`, path `/grpctunnel.v1.TunnelService/` to `litellm-mcp-broker:link-tunnel` (8093), `GRPC`, from `deploy/prod/mcp-tunnel-ingress.yaml`.
+- `litellm-proxy`, path `/` to `litellm-proxy:4000`, HTTP, from `deploy/prod/litellm-ingress.yaml`. Its `proxy-body-size: "0"` applies only to gateway requests
+- `litellm-mcp-tunnel`, path `/grpctunnel.v1.TunnelService/` to `litellm-mcp-broker:link-tunnel` (8093), `GRPC`, from `deploy/prod/mcp-tunnel-ingress.yaml`. As of 2026-11-24, this tunnel lacks the unlimited-body annotation that the dev test contract requires. See the open hardening note in guide 01 before relying on long streams.
 
 The tunnel Ingress needs its own object because `backend-protocol: GRPC` is per-Ingress, not per-path.
 
@@ -104,7 +105,8 @@ kubectl -n adeo-litellm get deploy litellm-proxy litellm-mcp-broker -o wide
 kubectl -n adeo-litellm get svc litellm-proxy litellm-mcp-broker
 kubectl -n adeo-litellm get ingress litellm-proxy litellm-mcp-tunnel
 kubectl -n adeo-litellm get networkpolicy litellm-mcp-broker litellm-rustfs-source-broker
-kubectl -n adeo-litellm get secret litellm-mcp-source-broker -o jsonpath='{.data}' | head
+kubectl -n adeo-litellm get secret litellm-mcp-source-broker
+kubectl -n adeo-litellm get ingress litellm-mcp-tunnel -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/proxy-body-size}'
 kubectl kustomize deploy/overlays/prod | grep -A3 'name: litellm-mcp-broker'
 ```
 

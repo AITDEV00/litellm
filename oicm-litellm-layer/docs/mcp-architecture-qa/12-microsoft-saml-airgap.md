@@ -1,6 +1,6 @@
 # Microsoft SSO on an airgapped gateway: what actually happens, verified
 
-Verification of the SAML recommendation in the pasted research, read against the source in this tree on 2026-11-23. Several of the research's statements are correct and a few need correction. No changes were made.
+Verification of an airgap alternative, read against source on 2026-11-23. This is **not the current deployment recommendation**: dev and prod use Microsoft OIDC with browser SSO, and guide 16 records the successful login. OIDC needs pod egress. Preserve SAML under this design only if egress is intentionally unavailable later
 
 ## The short answer
 

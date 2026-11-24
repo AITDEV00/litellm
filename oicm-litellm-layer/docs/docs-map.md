@@ -77,6 +77,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Dated research index. Code and current deployment win over older findings | `docs/mcp-architecture-qa/00-INDEX.md` |
 | Current application guide for delegated SSO calls to models/MCP, plus proxy-admin organization/team/user/access-group setup | `docs/mcp-architecture-qa/14-sso-application-integration.md` |
 | OpenCode Microsoft SSO/native MCP OAuth and private skills pilot plan with dev/prod gates | `docs/mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md` |
+| OpenCode partial dev/prod pilot evidence: native MCP sign-in/discovery proven, model/refresh/per-server execution/private skill gates unfinished | `docs/mcp-architecture-qa/16-opencode-dev-pilot-evidence.md` |
 | Topology, runtime, permissions, key patterns, SSO research, and deployment history | `docs/mcp-architecture-qa/01-*.md` through `13-*.md` |
 
 ## Rate limiting / priority

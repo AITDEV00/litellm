@@ -1,8 +1,8 @@
 # Pattern: app uses SSO, each user mints a temporary key, that key calls the gateway
 
-Short answer: **this is a first-class supported pattern, not a hack, and the code has explicit machinery for it.** It is a good design for interactive apps that act per-user. It is the wrong design for unattended server-to-server traffic, and there are three things you must get right or the security property collapses.
+Short answer: **LiteLLM supports delegated personal keys and verifies caller ceilings, but a team key is not an unrestricted self-service entitlement.** A team member defaults to `/key/info` and `/key/health`; generating for that team needs explicit `team_member_permissions`, a permitted team-admin operation, or proxy-admin provisioning. Team and user membership checks also apply
 
-Verified against the source in this tree, not the docs.
+This is one option for interactive apps, not the preferred answer when the app already has a correctly validated delegated Entra token. For unattended workloads, use a separately team-owned and managed service-account key. Never make a shared backend's ability to mint users' keys its authorization bypass
 
 ---
 
@@ -22,7 +22,9 @@ Evidence:
 
 - `user_api_key_auth.py`: a non-`sk-` token is decrypted with `ExperimentalUIJWTToken.get_key_object_from_ui_hash_key`, and marked `is_session_token`.
 - `key_management_endpoints.py`, `generate_key_fn`: `is_ui_session_token = user_api_key_dict.team_id == UI_SESSION_TOKEN_TEAM_ID`, and a whole branch keys off it.
-- `route_checks.py`: `internal_user_routes` includes `key_management_routes`, which includes `KEY_GENERATE`, `KEY_UPDATE`, `KEY_DELETE`, `KEY_REGENERATE`. So an `internal_user` can mint, rotate, and delete its own keys. It cannot mint keys for another user: on generation, non-admins get `user_id` auto-assigned to themselves.
+- `route_checks.py`: authorization includes personal management routes, but the generate handler performs user/team checks before persisting a key.
+- Deleted key cleanup requires server-side `/key/delete` through an authorized credential and audit identity. A protected local file is client storage, not a revocation boundary
+- Ordinary members default to `/key/info` and `/key/health`; exact `/key/generate` permission may be added per team operation, not implicitly by role name. Non-admin callers still get identity-binding constraints, with carefully scoped permitted team-admin exceptions not an arbitrary `user_id` rewrite
 
 ## 2. The delegation ceiling: the part that makes it safe
 
@@ -77,9 +79,9 @@ A `sk-` key with no `duration` is permanent. If the app mints a key per session 
 
 ### 4c. MCP access is not inherited by default
 
-A key minted by a user in a team inherits the team's `mcp_access_groups` at call time, but only because the team has them. Today no team has any MCP grants, so a minted key would resolve zero MCP servers exactly like the audit showed for your personal key. Minting keys does not solve MCP access; granting the team does.
+A team key resolves its selected team's attached unified groups at call time. As of 2026-11-24, ENDUSERS has an eight-server group; DESKTOP has none. Adding a user to another team does not inject that other team's groups into their current key
 
-Also watch the key-level intersection rule from `user_api_key_auth_mcp.py`: if both the key and the team declare access groups, the effective set is their intersection. If the key declares none and the team declares some, the key inherits the team's. So the clean setup is to grant on the team and leave the key's MCP fields empty unless you want to narrow further.
+Do not mix unified group UUIDs with legacy `object_permission.mcp_access_groups` source tags. The latter has documented team-level intersections for key tags, but explicit unified access groups assigned to a key are additive extras to key/team grant resolution. Prefer team assignment, inspect resulting effective access, and treat additional direct key assignment as a delegation decision rather than a narrowing trick. In guide 14's examples, leave extra groups off the temporary key unless explicitly required
 
 ## 5. Which token should the app use, precisely
 

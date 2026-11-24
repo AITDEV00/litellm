@@ -1,6 +1,8 @@
 # Can an existing API key be reassigned to another user account?
 
-Short answer: **yes, but only a proxy admin can do it.** A non-admin is explicitly blocked by a guard added for exactly that reason.
+Short answer: **yes for a proxy administrator within request validation.** Team/organization administrators may reach scoped key updates, but they are still subject to the ownership-rebind guard and route checks. Do not infer transfer permission from membership alone, and do not use retyping a key as a normal offboarding operation. Deleting and reissuing a scoped key with an explicit destination owner/team is clearer
+
+The source guard shown below means changing `user_id` between different users requires `proxy_admin`. It is not correct to generalize "non-admin" into every organization or team administrator without considering that exact guard. Conversely, passing this guard alone does not authorize arbitrary key changes.
 
 ## The mechanism
 

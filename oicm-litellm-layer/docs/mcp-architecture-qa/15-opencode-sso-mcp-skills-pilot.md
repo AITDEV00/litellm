@@ -2,7 +2,9 @@
 
 This is the implementation plan for a separate worker. It covers an actual local OpenCode installation that signs a person in through the deployment's Microsoft SSO and then consumes the gateway's MCP servers and private skills with that person's team permissions
 
-**Dev is mandatory before prod. Stop after a failed gate; do not work around it with an admin key, wider MCP grants, `allow_all_keys`, or anonymous skill publication.** The plan is based on source and live read-only probes from 2026-11-24. It is not an authorization to change Entra or prod before presenting the dev evidence
+**Read [guide 16](16-opencode-dev-pilot-evidence.md) before executing anything. This is a plan, not a capability claim. On 2026-11-24 native MCP sign-in/list was proven on dev and prod. Model credential integration, refresh-after-expiry, D3 through-client execution, and private OpenCode skills remain incomplete. The user separately authorized prod P0/P1; that authorization does not waive gates for remaining phases**
+
+**Dev remains mandatory before additional prod changes. Stop after a failed gate; do not work around it with an admin key, wider MCP grants, `allow_all_keys`, or anonymous skill publication.** The plan is based on source and read-only probes from 2026-11-24. It is not an authorization to change Entra or apply more prod writes without their specific approval
 
 ## 1. Dev pilot
 
@@ -65,7 +67,7 @@ Before making mutations:
 1. Record the current source branch, working-tree status, current image digests/rollouts, dev/prod SSO configuration, and any unrelated failed liveness checks. Do not conflate unrelated failures with this feature's regression
 2. Use only the ADEO org already present: `19c3609c-b4ba-447e-8829-0765785038fa`
 3. Check the live pilot-user identity and its real team/membership records. Do not select user rows solely by email text assumptions after switching identity mappings
-4. Reuse or deliberately create `ADEOGPT-ENDUSERS` on dev as the pilot team; the known prod ID is `b19ad7de-997e-45ec-ba34-f7980dccf621`, not an automatic guarantee for dev
+4. Reuse or deliberately create `ADEOGPT-ENDUSERS` on dev as the pilot team; the known prod ID is `b19ad7de-997e-45ec-ba34-f7980dccf621`, not an automatic guarantee for dev. Also confirm jyao/ffkhan/dqvu team memberships and role states before any test cleanup. Guide 14 records current prod reference IDs; `ADEOGPT-DESKTOP` lacks the MCP group and should not inherit it silently
 5. Read `GET /v1/mcp/server` as a proxy admin outside OpenCode and count the desired grants. The current prod state expected at planning time is eight servers, granted through `adeogpt-endusers-mcp`; assert that the consumer gets those intended server IDs, not a hard-coded future count
 6. Keep a temporary second user or separately scoped test identity for negative permissions. It must not inherit the pilot team or private skill
 7. Use one short-lived admin-side schema/key-lookup credential for setup, read its Secret/reference securely without printing it, and never place it in OpenCode, code, repos, screenshots, or terminal histories to be committed
@@ -170,7 +172,7 @@ Record:
 - How selected team/membership is resolved during session mint, refresh, and request admission. Evidence must show timestamps and intended effective user/team IDs
 - Access to all intended grants; user/team mismatch, missing membership, negative identity rejection
 - How refresh works after expiration and whether `opencode mcp logout adeogpt-dev` destroys its locally stored session
-- Multi-pod DCR/session behavior, ensuring a second pod can recognize what the first minted through shared storage/cache. Curl against localhost without port-forward never qualifies as a prod test; dev uses the local forward only
+- Multi-pod DCR/session behavior, including shared replay state and expiry-triggered refresh. Two requests through a load-balanced public host do not identify which pod answered, so use response/log/cookie/correlation evidence before making a cross-replica claim. Curl against localhost without port-forward never qualifies as a prod test; dev uses the local forward only
 
 Configure model access for OpenCode according to its official `<version>` provider contract. This may use a supported provider base URL and a short-lived proxy API credential sourced from a local non-repository secret, but **it must not share or substitute a gateway master key**. If adding model access requires custom bearer handling, capture rather than normalize the failure. Distinguish successful MCP OAuth from an unsolved provider-auth setup; a failure in one is not evidence that the other worked
 
@@ -347,7 +349,7 @@ opencode mcp list
 
 Complete the Microsoft login using `jyao@ecouncil.ae` in the browser, deliberately not a proxy-admin account. If a previous dev UI SSO session exists, use a separate browser profile or explicitly inspect effective identity. Evidence must show actual user/team attribution on prod, not just that the OAuth redirect completed
 
-Check at least two pod redirections or repeated requests after session mint/refresh so shared cache/session state is demonstrated. If the proxy is restarted during the pilot, redo the connection/refresh rather than assuming a cookie still works
+Repeated requests are useful **coverage**, not proof that traffic crossed two pods unless response or gateway log correlation identifies each one. Exercise expiry-triggered refresh and single-use/code replay protection, not merely multiple `tools/list` requests. If the proxy is restarted during the pilot, redo the connection/refresh rather than assuming a cookie still works. A two-replica availability check cannot substitute for artifact/replica-affinity evidence
 
 Show that, separately, the dev local endpoint no longer receives prod evidence. Stop or isolate the dev port-forward before prod checks where hostname ambiguity could create a false-positive result
 

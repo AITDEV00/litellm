@@ -6,7 +6,7 @@ The user runs `curl -fsSL https://litellm.ecouncil.ae/install/source-agent | sh`
 
 - Route: `GET /install/source-agent` and `GET /install/source-agent/{version}/{asset}`, in `litellm/proxy/client_distribution/source_agent_distribution.py`.
 - Template: `oicm-litellm-layer/templates/source-agent-install.sh.tmpl`.
-- The gateway reads the active release manifest from RustFS, verifies the release bytes, and substitutes four placeholders:
+- The gateway reads the active release manifest from RustFS, validates its `release.json` metadata and recorded digest, and substitutes four placeholders. The gateway does not download and hash the installer binary while rendering this script; the installer checks the binary's SHA-256 locally after download:
 
 | Placeholder | Filled with |
 |---|---|
@@ -36,8 +36,9 @@ The script contains **no configuration logic**. Every prompt, auth exchange, and
 - Why not the dashboard login: the dashboard session is a short-lived browser JWT cookie; a daemon needs a durable credential.
 - What is stored: the key only, at mode 0600, in `internal/state/state.go`'s account store. The password is never persisted.
 - Error handling: on 401/403/429 it surfaces the status only, never the body, so a mistyped password cannot be echoed back through the terminal.
-- A proxy admin cannot do this: `password_reset_required` and admin-role checks reject admin accounts for connectors, because a connector must be an ordinary `internal_user`.
-
+- `password_reset_required`, `proxy_admin`, and `proxy_admin_viewer` are rejected by this password-login path. It does not enforce `user_role == internal_user`, so an org-admin membership on an ordinary `internal_user` row is not itself blocked.
+- Scope the connector key to `/mcp-sources` and `/mcp-source-link-sources/*` and keep its owner separate from unrelated provider credentials. Role alone is not the connector's effective least privilege.
+- Treat this as a network-delivered installer: use only the reviewed gateway release URL and verify the release's checked-in signed provenance/checksum separately before installation changes. New security automation must not download and run a remote script in one step
 ## 2d. `adma source add --target <host:port> [--kind mcp --path /mcp | --kind openapi --spec file]`
 
 - Code: `internal/setup/spec.go` (catalog fetch), `internal/bootstrap/client.go` (registration), `internal/state/state.go` (persistence).

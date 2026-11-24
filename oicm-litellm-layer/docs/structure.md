@@ -109,9 +109,10 @@ oicm-litellm-layer/
 │   │   ├── custom-routes.md
 │   │   └── patches.md
 │   ├── admin-api/          ← LiteLLM admin REST API guides
-│   ├── mcp-architecture-qa/ ← MCP/SSO research archive; 14 is the current developer/admin guide
+│   ├── mcp-architecture-qa/ ← current MCP/SSO integration guide plus dated architecture/evidence research
 │   │   ├── 14-sso-application-integration.md ← delegated user JWT/model/MCP calls and org/team/group setup
-│   │   └── 15-opencode-sso-mcp-skills-pilot.md ← native OpenCode OAuth and private skills dev/prod plan or later evidence
+│   │   ├── 15-opencode-sso-mcp-skills-pilot.md ← gated native OpenCode/private skills plan, not completed support
+│   │   └── 16-opencode-dev-pilot-evidence.md ← partial dev/prod native MCP OAuth run evidence, unfinished gates
 │   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
 │   ├── custom-routes-plans/ ← custom-route logic map + VSA implementation plan
 │   ├── dashboard-plan/     ← dashboard/frontend analysis

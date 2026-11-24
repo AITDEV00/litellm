@@ -1,8 +1,8 @@
 # SSO with Microsoft: does it help an application calling LiteLLM?
 
-Short answer: **SSO solves human login to the Admin UI. It does not by itself give your application a credential to call the models or MCP servers.** For a machine caller you want a virtual key, or JWT auth if you want to federate the app's own identity. This file explains why, and the three real options.
+Short answer: browser SSO provides an interactive gateway login, not one universal bearer token for every model and MCP client. It creates a user row, a browser UI session, and normally a dashboard virtual key. Applications can instead forward a delegated Entra access token for the configured gateway API audience, use an appropriately team-scoped virtual key, or use browser-driven MCP OAuth for an MCP-only session
 
-Verified against prod 2026-11-23: `general_settings` in the deployed config has no `ui_sso` and no `enable_jwt_auth`. So neither is on today.
+The 2026-11-23 claim that prod had no SSO/JWT configuration was true at that time and is now superseded. Prod/dev now have Microsoft OIDC configuration, and guide 16 proves browser SSO on both. `JWT_AUDIENCE` and exact `JWT_ISSUER` must be pinned and tested with real delegated tokens. Suggested database-backed team selection is not enabled until `fallback_to_db_teams: true` is genuinely rolled out and verified
 
 ---
 
@@ -15,17 +15,16 @@ Walk the code in `litellm/proxy/management_endpoints/ui_sso.py`:
 3. The gateway upserts a user row and then **encodes a UI session JWT**: `encode_ui_session_jwt(returned_ui_token_object, master_key)`.
 4. That JWT is set as a cookie (`set_session_token_cookie`) and returned.
 
-So SSO produces:
+Unless the experimental UI-login mode is deliberately enabled, SSO calls key generation for a virtual key on the `litellm-dashboard` team and embeds that `sk-...` credential in the returned UI token object. `encode_ui_session_jwt` then protects the browser session cookie. The cookie JWT and its embedded virtual key are not the same credential
 
-| Artifact | What it is | Where it works |
+| Credential | Issuance/meaning | Correct scope |
 |---|---|---|
-| UI session JWT | a signed session token tied to the user, with an expiry | the Admin UI, and API routes **only if** `enable_jwt_auth` is on |
-| a user row | `LiteLLM_UserTable` entry with the email as identity, plus the role from your SSO mapping | the DB, for governance |
-| a CLI JWT | the same session token surfaced to `lite login` / CLI polling | the CLI |
+| Browser UI session JWT/cookie | Encrypted login session containing UI details, usually including a generated dashboard key | Browser dashboard management session, not an Entra access token for generic `/v1` calls |
+| Dashboard virtual key | Usually `sk-...`, generated on SSO callback for the dashboard team, with UI-session expiry | A virtual-key API credential within its configured routes/models; not automatically a selected ENDUSERS team key |
+| Delegated Entra access token | A Microsoft token for the configured gateway audience, representing the signed-in user | API JWT authentication, distinct from UI session validation, with scope/membership/team constraints |
+| Gateway `llm_session_` MCP session | Created after native MCP/DCR OAuth via browser SSO, with paired refresh token | `/mcp` admission only, not model calls or `/v1/skills` |
 
-It does **not** mint a virtual key (`sk-...`). That is a deliberate design choice: a browser session cookie is short-lived and not something a daemon or a server application should hold.
-
-So the direct answer: **if your application is a machine calling `/chat/completions` or `/mcp-rest/tools/call`, Microsoft SSO alone gives it nothing.** The app cannot do an interactive Microsoft login, and even if it got the JWT, without `enable_jwt_auth` the gateway rejects it on API routes as a non-matching bearer.
+So SSO can indirectly lead to model-capable credentials, but a browser cookie alone is not one. Programs should not extract dashboard credentials as a substitute for a documented delegated-user integration. Likewise, an ordinary `sk-` dashboard key is not an admin key, and the gateway MCP session is not an Entra token.
 
 ## 2. What SSO *does* buy you, and it is not nothing
 
@@ -38,7 +37,9 @@ Even if your app uses keys, SSO still improves the system, for four reasons:
 
 So SSO is worth doing. It just sits one layer above the application-to-gateway credential question, not in place of it.
 
-## 3. The three ways your application authenticates, and which to choose
+## 3. Application authentication options and boundaries
+
+For application REST calls to LiteLLM, there are two normal choices below. Local MCP clients can additionally use gateway MCP OAuth, covered afterward.
 
 ### Option A: virtual key per application (the normal shape)
 
@@ -66,7 +67,7 @@ This is the closest thing to "Microsoft SSO helps my application": if your app c
 
 ### Option C: OAuth2 / MCP auth passthrough (for MCP specifically)
 
-For MCP, there is a separate family of options: `oauth2_flow` on the MCP server, `oauth_passthrough`, `dcr_bridge`, `token_exchange`, `delegate_auth_to_upstream`, per-server OAuth discovery. These matter when the **origin** needs the user's identity, not when your app needs to reach the gateway. For your case (app calls the gateway's MCP tools), Option A or B applies, across the gateway hop; C is about what happens after the tunnel reaches the origin.
+Per-server `oauth2_flow`, `oauth_passthrough`, `dcr_bridge`, `token_exchange`, and `delegate_auth_to_upstream` still apply when the **upstream origin** needs identity; those are separate from the gateway caller. For a local MCP client such as OpenCode, the gateway's dynamic-client-registration and browser-sign-in flow issues its own `llm_session_` token. It carries limited user/team/resource-session context, not the delegated Entra bearer. Guides 15 and 16 describe that supported MCP partial pilot and its missing model-credential path.
 
 ## 4. Which to pick for your situation
 
@@ -84,13 +85,14 @@ The combination that gets you the most, given what is already set up:
 
 ## 5. Concretely, what changes today
 
-Nothing, until you enable it. Currently:
+Browser login is already deployed; do not reimplement it as part of ordinary application onboarding. For a delegated application:
 
-- `general_settings` in the deployed config has no `ui_sso`, so the Admin UI uses username/password only.
-- No `enable_jwt_auth`, so a JWT presented as a bearer is rejected on API routes.
-- The application should therefore use a virtual key today.
+1. Inspect a real gateway-audience access token. Set `JWT_PUBLIC_KEY_URL` to its tenant JWKS, `JWT_AUDIENCE` to the exact API resource, and `JWT_ISSUER` to its literal issuer
+2. Map the immutable user identity (`oid`) and verified email (`upn`), reconciled with the canonical DB row before self-managed identity duplicates appear
+3. Configure either mapped team claims or `fallback_to_db_teams: true`. The latter is still a rollout item, not a claim of working arbitrary team selection in the current config
+4. Validate model and actual MCP calls on dev via port-forward before prod use, including membership-denied cases and both real team IDs
 
-To make SSO real, the config additions are `general_settings.ui_sso` with `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT`, `PROXY_BASE_URL` set to the browser-reachable edge host, and role/team mappings. To additionally federate the app, add `enable_jwt_auth: true`, `JWT_PUBLIC_KEY_URL` pointed at the Entra JWKS, `JWT_AUDIENCE`, and a mapping claim.
+Use guide 14 for the normalized procedure. Temporary dashboard key outputs or a successful UI login do not establish that a direct Entra token has the right gateway audience and team identity
 
 ## 6. One thing to be careful about
 
@@ -102,5 +104,5 @@ The CLI login (`/sso/cli/poll`) and the MCP connector both rely on SSO or passwo
 - `litellm/proxy/auth/user_api_key_auth.py` `is_jwt`, JWT key mapping lookup, auto-register
 - `litellm/proxy/management_endpoints/jwt_key_mapping_endpoints.py` mapping CRUD
 - `litellm/proxy/utils.py` `get_custom_url` / `PROXY_BASE_URL`
-- `oicm-litellm-layer/deploy/base/gateway/config/litellm-config.yaml` `general_settings` (no sso, no jwt today)
+- `oicm-litellm-layer/deploy/overlays/prod/gateway/config.yaml` and dev counterpart: current JWT settings; this appendix title originated before OIDC/JWT deployment
 - `oicm-litellm-layer/docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` the SSO note

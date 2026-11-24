@@ -1,6 +1,8 @@
 # Dev Microsoft SSO: what was deployed and what is still blocked
 
-Applied on dev 2026-11-23 using native Microsoft OIDC, not SAML. Reason: both dev and prod pods can reach `login.microsoftonline.com`, `graph.microsoft.com`, and the tenant JWKS over HTTPS, verified from inside the pods. With egress open, OIDC is far less machinery than SAML inline metadata.
+Deployment snapshot from 2026-11-23 using native Microsoft OIDC, not SAML. Gateway pods have Microsoft egress, so OIDC avoids the separate SAML metadata lifecycle. This deployment is now proven to work at the localhost dev callback; [guide 16](16-opencode-dev-pilot-evidence.md) records the human complete Microsoft login with MFA, and its browser-to-localhost-for-dev path supersedes the suspected localhost blocker below
+
+Keep this note for its original env/discovery evidence only. Do not repeat its recommendation to move dev testing to prod. Dev gateway evidence must use `http://localhost:14001` after a new `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`. Actual dev SSO takeover by a different active browser session is an identity-attribution hazard to avoid with clean profiles
 
 ## What is deployed
 
@@ -56,7 +58,9 @@ http://localhost:14001/sso/callback
 
 ## What is still blocked, and why
 
-**The Entra app must have that exact redirect URI registered, and `http://localhost` is a problem for this app.** The app `a85030da-...` has a client secret, and LiteLLM sends it with `httpx.BasicAuth` (`litellm_http_client_sso.py:146`), which makes it a confidential client. Microsoft only permits `http://localhost` redirect URIs for **public** clients (no secret, PKCE). So even after your ticket adds the callback, Microsoft may reject the login at the authorize step with `AADSTS50011` or refuse to save a localhost URI on a web platform registration.
+**Historical hypothesis, now closed. The dev Entra application accepted `http://localhost:14001/sso/callback` and the prod-correct redirect completed a real browser login in guide 16.** The analysis below is not deployment status or a requirement to expose dev
+
+Small independently proven client-security concern: prior dev client-secret material was shown during the work. Rotation is still an open cleanup item. Rotate it in Entra and the dev Kubernetes secret, keep it out of docs/history going forward, and persist the secret reference where local authorized operations can use it. No secret value belongs in this note. The app `a85030da-...` has a client secret, and LiteLLM sends it with `httpx.BasicAuth` (`litellm_http_client_sso.py:146`), which makes it a confidential client. Microsoft only permits `http://localhost` redirect URIs for **public** clients (no secret, PKCE). So even after your ticket adds the callback, Microsoft may reject the login at the authorize step with `AADSTS50011` or refuse to save a localhost URI on a web platform registration.
 
 Three ways out, in order of least work:
 
