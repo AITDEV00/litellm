@@ -181,8 +181,23 @@ nav:
       - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
   - Admin API:
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
-      - Application SSO Authorization Best Practices: admin-api/APPLICATION-AUTHORIZATION-BEST-PRACTICES.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
+  - MCP Architecture Research:
+      - Index: mcp-architecture-qa/00-INDEX.md
+      - SSO Application Integration: mcp-architecture-qa/14-sso-application-integration.md
+      - Topology: mcp-architecture-qa/01-topology-diagram.md
+      - Production Cluster: mcp-architecture-qa/02-step-1-prod-cluster.md
+      - Client Installation: mcp-architecture-qa/03-step-2-client-install.md
+      - Runtime Flow: mcp-architecture-qa/04-runtime-flow.md
+      - File Map: mcp-architecture-qa/05-file-map.md
+      - Permissions and Scope: mcp-architecture-qa/06-permissions-and-scope.md
+      - MCP Guardrailing: mcp-architecture-qa/07-mcp-guardrailing.md
+      - Key Reassignment: mcp-architecture-qa/08-key-reassignment.md
+      - RBAC and Full Potential: mcp-architecture-qa/09-rbac-and-full-potential.md
+      - SSO vs Application Auth: mcp-architecture-qa/10-sso-vs-app-auth.md
+      - Temporary Key Pattern: mcp-architecture-qa/11-sso-temporary-key-pattern.md
+      - Microsoft SAML Airgap: mcp-architecture-qa/12-microsoft-saml-airgap.md
+      - Dev Microsoft SSO Deployment: mcp-architecture-qa/13-dev-microsoft-sso-deployed.md
   - Custom Providers:
       - HAMSA Research: custom-providers/HAMSA_RESEARCH.md
       - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md

@@ -108,8 +108,9 @@ oicm-litellm-layer/
 │   │   ├── hooks.md
 │   │   ├── custom-routes.md
 │   │   └── patches.md
-│   ├── admin-api/          ← LiteLLM admin REST API and SSO/team authorization guides
-│   │   └── APPLICATION-AUTHORIZATION-BEST-PRACTICES.md ← delegated user JWT vs virtual-key best practices
+│   ├── admin-api/          ← LiteLLM admin REST API guides
+│   ├── mcp-architecture-qa/ ← MCP/SSO research archive; 14 is the current developer/admin guide
+│   │   └── 14-sso-application-integration.md ← delegated user JWT/model/MCP calls and org/team/group setup
 │   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
 │   ├── custom-routes-plans/ ← custom-route logic map + VSA implementation plan
 │   ├── dashboard-plan/     ← dashboard/frontend analysis

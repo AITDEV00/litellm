@@ -67,8 +67,15 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Full admin REST API guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` |
-| Application authorization: delegated Microsoft JWT vs virtual keys, with team and access-group selection | `docs/admin-api/APPLICATION-AUTHORIZATION-BEST-PRACTICES.md` |
 | Athena read-only key guide | `docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` |
+
+## MCP architecture research
+
+| Doc | Location |
+|-----|----------|
+| Dated research index. Code and current deployment win over older findings | `docs/mcp-architecture-qa/00-INDEX.md` |
+| Current application guide for delegated SSO calls to models/MCP, plus proxy-admin organization/team/user/access-group setup | `docs/mcp-architecture-qa/14-sso-application-integration.md` |
+| Topology, runtime, permissions, key patterns, SSO research, and deployment history | `docs/mcp-architecture-qa/01-*.md` through `13-*.md` |
 
 ## Rate limiting / priority
 
