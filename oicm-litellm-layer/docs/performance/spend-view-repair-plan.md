@@ -237,6 +237,35 @@ For code read regression, roll back to previously-running image with same DB-com
 
 Any unresolved migration permissions failure stays an opaque startup error rather than choosing a fallback owner. Operations handles it with the pre-authorised legacy repair runbook.
 
+## Dev execution record, 2026-11-24
+
+Branch `jya0-v1.108.5`, plan executed per the worker prompt. All evidence below was gathered on dev or on a disposable local fixture; no prod connection, write, or key was used.
+
+### What shipped
+
+- `litellm/proxy/db/spend_view_definitions.py`: single authoritative DDL for the seven views. `create_views.py` bootstrap and `db_scripts/create_views.py` render from it, and `scripts/render_spend_view_migration.py` generates the migration from the same module with a `--check` drift gate, so migration, bootstrap, and script cannot diverge
+- `litellm-proxy-extras/litellm_proxy_extras/migrations/20261124120000_spend_view_definitions_and_ownership/migration.sql`: guarded migration. Per view, a DO block resolves the catalog owner and relkind; a foreign owner raises with a pointer to the operator runbook, a non-view relkind raises, and only then CREATE OR REPLACE runs. `DailyTagSpend` is drop/recreated because CREATE OR REPLACE cannot add the `spend_date`/`log_count` columns
+- `scripts/repair_legacy_spend_views.py`: operator-only repair for postgres-owned legacy views. Superuser precheck, local JSON snapshot of pre-repair state (no credentials), bounded lock/idle/statement timeouts, drop/recreate each view, ALTER VIEW OWNER TO the app role, then re-runs the shipped guarded migration under SET ROLE and SELECTs all seven views as the app role
+- `litellm/proxy/spend_tracking/spend_management_endpoints.py`: `/global/spend/tags` and `/global/spend/all_tag_names` now read `LiteLLM_DailyTagSpend` with `date::date` bounds. Response JSON contracts unchanged. `/spend/tags` (the read-scope `get_spend_by_tags` path) is a different endpoint and was deliberately not changed
+- `oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md` plus nav/docs-map entries; `make docs` builds
+- Tests: `tests/unit/proxy/db/test_view_definitions.py` (10, includes migration-matches-renderer drift gate and no-row-rewrite scan), `tests/unit/proxy/db/test_spend_view_ownership_repair.py` (9, real Postgres 16 fixture, skips without `SPEND_VIEW_TEST_PG_URL`/`SPEND_VIEW_TEST_PG_SUPERUSER_URL`), 3 additive endpoint SQL-shape tests in the mapped spend suite. Mapped suites: 283 passed across the four touched files
+
+### Fixture proof (real Postgres, disposable container)
+
+Five migration behaviors proven against a postgres:16 container with a non-superuser app role: fresh-schema create of all seven with app-role ownership and NULL ACL; idempotent re-run; foreign-owner refusal leaving catalog state untouched; superuser-with-SET-ROLE refusal (the guard checks `current_user`, not `session_user`); same-named-table refusal (relkind check). The operator repair script was then run end to end from a legacy state (postgres-owned views, 3-column tag view): exit 0, snapshot records the foreign owner, all seven views end app-role owned with relkind v, the empty-ACL trap (`relacl = '{}'`) is covered by a test proving owner SELECT fails there. The six pre-existing dev views carry `{litellm=r/litellm}` from the bootstrap GRANT; `DailyTagSpend` shows the migration's own NULL-ACL outcome. Both are owner-app-role and readable, which is what the guard enforces.
+
+### Live dev proof (port-forward 14001, image `jya0-v1.108.5`)
+
+`make litellm-src-release-dev` built, pushed, pinned, and rolled out dev. Boot logs show `Applying migration 20261124120000_spend_view_definitions_and_ownership ... All migrations have been successfully applied`. Catalog state after boot: all seven views owner `litellm`, relkind `v`. `DailyTagSpend` columns are `(individual_request_tag text, spend_date date, log_count bigint, total_spend double precision)`.
+
+With the dev master key: `/global/spend/models?limit=5` 200 in 0.17s (372 bytes), `/global/spend/keys?limit=5` 200 in 0.16s (680 bytes), `/global/spend/tags?start_date=2026-11-01&end_date=2026-11-24` 200 in 0.17s (9720 bytes, top tag `User-Agent: opencode` spend 96.1 over 818 requests), `/global/spend/all_tag_names` 200 in 0.09s (23104 bytes, 370 names). A first viewer key attempt 401'd with `role=unknown` because the role lives on the user record, not key metadata; after creating a dev user with `user_role=proxy_admin_viewer` and issuing a key for it, all four routes returned 200 as that read-only identity. Both proof keys and the proof user were deleted afterwards and the deleted key re-checked as 401.
+
+EXPLAIN ANALYZE, dev DB: the new tag queries Seq Scan `LiteLLM_DailyTagSpend` only (30ms, 3353 buffers, 2010 rows, no `LiteLLM_SpendLogs` access). `Last30dModelsBySpend` and `Last30dKeysBySpend` each scan 38 of 577 daily partitions, range `20261025 -> 20261201`, matching the 30-day predicate, in 20ms/15ms. Rollup-vs-raw spend totals agree exactly on the shared window; raw-log row counts differ only where the writer deliberately excludes internal calls and billed retry attempts, and the rollup extends further back (2026-06-25 vs 2026-09-22) because the dev janitor drops old raw partitions, which is why the rollup is the correct source.
+
+### Test and lint state
+
+`make check` runs end to end after fixing a local DNS sinkhole (`codeload.github.com` resolves to `6.6.6.6` here; `uv sync` needed the documented `20.233.83.150` pin, fetched via a temporary local CONNECT proxy with the tarball SHA-256 matching the lockfile pin). Its failures are all pre-existing branch-wide deltas against `origin/main` (Go toolchain at `/tmp/sa-build/bin/go` missing, 112 unformatted files in audio/openrouter_compat modules, TQ/OA/pyright rule ceilings from the 1272-commit branch history) and none name the files this change touches: my files pass ruff check, ruff format, basedpyright 0 errors on non-test files (the 261 pre-existing errors in `spend_management_endpoints.py` are identical before and after), and check-test-quality clean. The full log is `.git/pre_commit_lint.log`.
+
 ## Explicit ownership of remaining work
 
 - Dev worker: implement/test guarded migration, explicit repair workflow, query source de-dup, bounded tag reads, local/live dev proof, docs, and commit/push. Do not touch prod.

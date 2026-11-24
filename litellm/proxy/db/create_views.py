@@ -3,6 +3,7 @@ from typing import Final, Protocol
 
 from litellm import verbose_logger
 from litellm.proxy.db.db_span import db_span
+from litellm.proxy.db.spend_view_definitions import spend_view_ddl
 
 
 class SupportsExecuteRaw(Protocol):
@@ -98,19 +99,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-        CREATE OR REPLACE VIEW "MonthlyGlobalSpend" AS 
-        SELECT
-        DATE("startTime") AS date, 
-        SUM("spend") AS spend 
-        FROM 
-        "LiteLLM_SpendLogs" 
-        WHERE 
-        "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        GROUP BY 
-        DATE("startTime");
-        """
-        await create_view_tolerating_race(db, "MonthlyGlobalSpend", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "MonthlyGlobalSpend",
+            spend_view_ddl("MonthlyGlobalSpend"),
+        )
 
     try:
         await db.query_raw("""SELECT 1 FROM "Last30dKeysBySpend" LIMIT 1""")
@@ -119,27 +112,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-        CREATE OR REPLACE VIEW "Last30dKeysBySpend" AS
-        SELECT 
-        L."api_key", 
-        V."key_alias",
-        V."key_name",
-        SUM(L."spend") AS total_spend
-        FROM
-        "LiteLLM_SpendLogs" L
-        LEFT JOIN 
-        "LiteLLM_VerificationToken" V
-        ON
-        L."api_key" = V."token"
-        WHERE
-        L."startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        GROUP BY
-        L."api_key", V."key_alias", V."key_name"
-        ORDER BY
-        total_spend DESC;
-        """
-        await create_view_tolerating_race(db, "Last30dKeysBySpend", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "Last30dKeysBySpend",
+            spend_view_ddl("Last30dKeysBySpend"),
+        )
 
     try:
         await db.query_raw("""SELECT 1 FROM "Last30dModelsBySpend" LIMIT 1""")
@@ -148,22 +125,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-        CREATE OR REPLACE VIEW "Last30dModelsBySpend" AS
-        SELECT
-        "model",
-        SUM("spend") AS total_spend
-        FROM
-        "LiteLLM_SpendLogs"
-        WHERE
-        "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        AND "model" != ''
-        GROUP BY
-        "model"
-        ORDER BY
-        total_spend DESC;
-        """
-        await create_view_tolerating_race(db, "Last30dModelsBySpend", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "Last30dModelsBySpend",
+            spend_view_ddl("Last30dModelsBySpend"),
+        )
     try:
         await db.query_raw("""SELECT 1 FROM "MonthlyGlobalSpendPerKey" LIMIT 1""")
         verbose_logger.debug("MonthlyGlobalSpendPerKey Exists!")
@@ -171,21 +137,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-            CREATE OR REPLACE VIEW "MonthlyGlobalSpendPerKey" AS 
-            SELECT
-            DATE("startTime") AS date, 
-            SUM("spend") AS spend,
-            api_key as api_key
-            FROM 
-            "LiteLLM_SpendLogs" 
-            WHERE 
-            "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-            GROUP BY 
-            DATE("startTime"),
-            api_key;
-        """
-        await create_view_tolerating_race(db, "MonthlyGlobalSpendPerKey", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "MonthlyGlobalSpendPerKey",
+            spend_view_ddl("MonthlyGlobalSpendPerKey"),
+        )
     try:
         await db.query_raw("""SELECT 1 FROM "MonthlyGlobalSpendPerUserPerKey" LIMIT 1""")
         verbose_logger.debug("MonthlyGlobalSpendPerUserPerKey Exists!")
@@ -193,23 +149,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-            CREATE OR REPLACE VIEW "MonthlyGlobalSpendPerUserPerKey" AS 
-            SELECT
-            DATE("startTime") AS date, 
-            SUM("spend") AS spend,
-            api_key as api_key,
-            "user" as "user"
-            FROM 
-            "LiteLLM_SpendLogs" 
-            WHERE 
-            "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-            GROUP BY 
-            DATE("startTime"),
-            "user",
-            api_key;
-        """
-        await create_view_tolerating_race(db, "MonthlyGlobalSpendPerUserPerKey", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "MonthlyGlobalSpendPerUserPerKey",
+            spend_view_ddl("MonthlyGlobalSpendPerUserPerKey"),
+        )
 
     try:
         await db.query_raw("""SELECT 1 FROM "DailyTagSpend" LIMIT 1""")
@@ -218,17 +162,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-        CREATE OR REPLACE VIEW "DailyTagSpend" AS
-        SELECT
-            jsonb_array_elements_text(request_tags) AS individual_request_tag,
-            DATE(s."startTime") AS spend_date,
-            COUNT(*) AS log_count,
-            SUM(spend) AS total_spend
-        FROM "LiteLLM_SpendLogs" s
-        GROUP BY individual_request_tag, DATE(s."startTime");
-        """
-        await create_view_tolerating_race(db, "DailyTagSpend", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "DailyTagSpend",
+            spend_view_ddl("DailyTagSpend"),
+        )
 
     try:
         await db.query_raw("""SELECT 1 FROM "Last30dTopEndUsersSpend" LIMIT 1""")
@@ -237,17 +175,11 @@ async def create_missing_views(db: SupportsRawQueries) -> None:
         error_msg = str(e).lower()
         if not any(marker in error_msg for marker in _VIEW_NOT_FOUND_MARKERS):
             raise
-        sql_query = """
-        CREATE VIEW "Last30dTopEndUsersSpend" AS
-        SELECT end_user, COUNT(*) AS total_events, SUM(spend) AS total_spend
-        FROM "LiteLLM_SpendLogs"
-        WHERE end_user <> '' AND end_user <> user
-        AND "startTime" >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY end_user
-        ORDER BY total_spend DESC
-        LIMIT 100;
-        """
-        await create_view_tolerating_race(db, "Last30dTopEndUsersSpend", sql_query)
+        await create_view_tolerating_race(
+            db,
+            "Last30dTopEndUsersSpend",
+            spend_view_ddl("Last30dTopEndUsersSpend"),
+        )
 
 
 async def should_create_missing_views(db: SupportsRawQueries) -> bool:

@@ -127,6 +127,7 @@ nav:
   - Runbooks:
       - MkDocs Setup: runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
+      - Spend View Legacy Repair: runbooks/spend-view-legacy-repair.md
       - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
   - TLS / Certificates:
       - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md

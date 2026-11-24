@@ -1,12 +1,24 @@
 """
 python script to pre-create all views required by LiteLLM Proxy Server
+
+The seven spend aggregation views render from
+litellm.proxy.db.spend_view_definitions (the same source as the boot bootstrap
+and the guarded Prisma migration), so the three surfaces cannot drift. Only
+LiteLLM_VerificationTokenView keeps a local definition: it belongs to the
+authentication bootstrap, not the spend set.
 """
 
 import asyncio
-
-# Enter your DATABASE_URL here
+import sys
+from pathlib import Path
 
 from prisma import Prisma
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from litellm.proxy.db.spend_view_definitions import spend_view_ddl  # noqa: E402
+
+# Enter your DATABASE_URL here
 
 db = Prisma(
     http={
@@ -31,7 +43,7 @@ async def check_view_exists():
     try:
         # Try to select one row from the view
         await db.query_raw("""SELECT 1 FROM "LiteLLM_VerificationTokenView" LIMIT 1""")
-        print("LiteLLM_VerificationTokenView Exists!")  # noqa
+        print("LiteLLM_VerificationTokenView Exists!")  # noqa: T201
     except Exception:
         # If an error occurs, the view does not exist, so create it
         await db.execute_raw("""
@@ -46,162 +58,23 @@ async def check_view_exists():
                 LEFT JOIN "LiteLLM_TeamTable" t ON v.team_id = t.team_id;
             """)
 
-        print("LiteLLM_VerificationTokenView Created!")  # noqa
+        print("LiteLLM_VerificationTokenView Created!")  # noqa: T201
 
-    try:
-        await db.query_raw("""SELECT 1 FROM "MonthlyGlobalSpend" LIMIT 1""")
-        print("MonthlyGlobalSpend Exists!")  # noqa
-    except Exception:
-        sql_query = """
-        CREATE OR REPLACE VIEW "MonthlyGlobalSpend" AS 
-        SELECT
-        DATE("startTime") AS date, 
-        SUM("spend") AS spend 
-        FROM 
-        "LiteLLM_SpendLogs" 
-        WHERE 
-        "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        GROUP BY 
-        DATE("startTime");
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("MonthlyGlobalSpend Created!")  # noqa
-
-    try:
-        await db.query_raw("""SELECT 1 FROM "Last30dKeysBySpend" LIMIT 1""")
-        print("Last30dKeysBySpend Exists!")  # noqa
-    except Exception:
-        sql_query = """
-        CREATE OR REPLACE VIEW "Last30dKeysBySpend" AS
-        SELECT 
-        L."api_key", 
-        V."key_alias",
-        V."key_name",
-        SUM(L."spend") AS total_spend
-        FROM
-        "LiteLLM_SpendLogs" L
-        LEFT JOIN 
-        "LiteLLM_VerificationToken" V
-        ON
-        L."api_key" = V."token"
-        WHERE
-        L."startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        GROUP BY
-        L."api_key", V."key_alias", V."key_name"
-        ORDER BY
-        total_spend DESC;
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("Last30dKeysBySpend Created!")  # noqa
-
-    try:
-        await db.query_raw("""SELECT 1 FROM "Last30dModelsBySpend" LIMIT 1""")
-        print("Last30dModelsBySpend Exists!")  # noqa
-    except Exception:
-        sql_query = """
-        CREATE OR REPLACE VIEW "Last30dModelsBySpend" AS
-        SELECT
-        "model",
-        SUM("spend") AS total_spend
-        FROM
-        "LiteLLM_SpendLogs"
-        WHERE
-        "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-        AND "model" != ''
-        GROUP BY
-        "model"
-        ORDER BY
-        total_spend DESC;
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("Last30dModelsBySpend Created!")  # noqa
-    try:
-        await db.query_raw("""SELECT 1 FROM "MonthlyGlobalSpendPerKey" LIMIT 1""")
-        print("MonthlyGlobalSpendPerKey Exists!")  # noqa
-    except Exception:
-        sql_query = """
-            CREATE OR REPLACE VIEW "MonthlyGlobalSpendPerKey" AS 
-            SELECT
-            DATE("startTime") AS date, 
-            SUM("spend") AS spend,
-            api_key as api_key
-            FROM 
-            "LiteLLM_SpendLogs" 
-            WHERE 
-            "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-            GROUP BY 
-            DATE("startTime"),
-            api_key;
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("MonthlyGlobalSpendPerKey Created!")  # noqa
-    try:
-        await db.query_raw(
-            """SELECT 1 FROM "MonthlyGlobalSpendPerUserPerKey" LIMIT 1"""
-        )
-        print("MonthlyGlobalSpendPerUserPerKey Exists!")  # noqa
-    except Exception:
-        sql_query = """
-            CREATE OR REPLACE VIEW "MonthlyGlobalSpendPerUserPerKey" AS 
-            SELECT
-            DATE("startTime") AS date, 
-            SUM("spend") AS spend,
-            api_key as api_key,
-            "user" as "user"
-            FROM 
-            "LiteLLM_SpendLogs" 
-            WHERE 
-            "startTime" >= (CURRENT_DATE - INTERVAL '30 days')
-            GROUP BY 
-            DATE("startTime"),
-            "user",
-            api_key;
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("MonthlyGlobalSpendPerUserPerKey Created!")  # noqa
-
-    try:
-        await db.query_raw("""SELECT 1 FROM "DailyTagSpend" LIMIT 1""")
-        print("DailyTagSpend Exists!")  # noqa
-    except Exception:
-        sql_query = """
-        CREATE OR REPLACE VIEW "DailyTagSpend" AS
-        SELECT
-            jsonb_array_elements_text(request_tags) AS individual_request_tag,
-            DATE(s."startTime") AS spend_date,
-            COUNT(*) AS log_count,
-            SUM(spend) AS total_spend
-        FROM "LiteLLM_SpendLogs" s
-        GROUP BY individual_request_tag, DATE(s."startTime");
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("DailyTagSpend Created!")  # noqa
-
-    try:
-        await db.query_raw("""SELECT 1 FROM "Last30dTopEndUsersSpend" LIMIT 1""")
-        print("Last30dTopEndUsersSpend Exists!")  # noqa
-    except Exception:
-        sql_query = """
-        CREATE VIEW "Last30dTopEndUsersSpend" AS
-        SELECT end_user, COUNT(*) AS total_events, SUM(spend) AS total_spend
-        FROM "LiteLLM_SpendLogs"
-        WHERE end_user <> '' AND end_user <> user
-        AND "startTime" >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY end_user
-        ORDER BY total_spend DESC
-        LIMIT 100;
-        """
-        await db.execute_raw(query=sql_query)
-
-        print("Last30dTopEndUsersSpend Created!")  # noqa
-
-    return
+    for view_name in (
+        "MonthlyGlobalSpend",
+        "Last30dKeysBySpend",
+        "Last30dModelsBySpend",
+        "MonthlyGlobalSpendPerKey",
+        "MonthlyGlobalSpendPerUserPerKey",
+        "DailyTagSpend",
+        "Last30dTopEndUsersSpend",
+    ):
+        try:
+            await db.query_raw(f"""SELECT 1 FROM "{view_name}" LIMIT 1""")
+            print(f"{view_name} Exists!")  # noqa: T201
+        except Exception:
+            await db.execute_raw(spend_view_ddl(view_name))
+            print(f"{view_name} Created!")  # noqa: T201
 
 
 asyncio.run(check_view_exists())

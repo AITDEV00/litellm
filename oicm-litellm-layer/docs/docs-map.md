@@ -20,6 +20,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | `docs/deployment.md` | Apply / rollout / cluster access |
 | `docs/Makefile-reference.md` | Makefile variables, primitives, and compositions |
 | `docs/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
+| `docs/runbooks/spend-view-legacy-repair.md` | One-shot operator repair for foreign-owned spend views (2026-11-24 dashboard 500s) |
 | `docs/components/*.md` | Per-component navigation |
 
 ## Discovery Controller

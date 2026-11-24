@@ -321,6 +321,7 @@ async def test_can_team_member_view_log_none_team_id():
     # team_id=None should immediately return False
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -343,6 +344,7 @@ async def test_can_team_member_view_log_team_not_found(monkeypatch):
     # Non-existent team should return False
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -383,6 +385,7 @@ async def test_can_team_member_view_log_not_admin(monkeypatch):
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -422,6 +425,7 @@ async def test_can_team_member_view_log_admin(monkeypatch):
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -488,6 +492,7 @@ def _make_owner_lookup_prisma(rows):
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -994,6 +999,7 @@ async def test_ui_view_spend_logs_sort_by_and_sort_order(
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -1056,6 +1062,7 @@ async def test_ui_view_spend_logs_sort_validation_errors(client, monkeypatch, so
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -1133,6 +1140,7 @@ async def test_ui_view_spend_logs_sort_by_request_duration_ms(client, monkeypatc
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -1230,6 +1238,7 @@ async def test_ui_view_spend_logs_sort_by_model(client, monkeypatch, sort_order,
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -1343,6 +1352,7 @@ async def test_ui_view_spend_logs_sort_by_ttft_ms(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -2064,6 +2074,7 @@ async def test_ui_view_session_spend_logs_pagination(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
             self.db.litellm_spendlogs = self.db
@@ -2117,6 +2128,7 @@ async def test_ui_view_session_spend_logs_rehydrates_metadata_jsonb_text(client,
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
             self.db.litellm_spendlogs = self.db
@@ -2166,6 +2178,7 @@ async def test_ui_view_session_spend_logs_includes_permitted_team_logs(client, m
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
             self.db.litellm_spendlogs = self.db
@@ -2644,6 +2657,7 @@ async def test_ui_view_request_response_rejects_foreign_row_inserted_after_owner
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -2676,6 +2690,7 @@ async def test_ui_view_request_response_custom_logger_denies_foreign_payload_own
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -3979,6 +3994,7 @@ async def test_view_spend_logs_summarize_parameter(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4075,6 +4091,7 @@ async def test_view_spend_logs_bounds_row_count(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4199,6 +4216,7 @@ def _tag_query_prisma_client(assert_query_raw):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4419,6 +4437,7 @@ async def test_view_spend_logs_with_date_range_summarized(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4482,6 +4501,7 @@ async def test_view_spend_logs_summarize_groups_by_day_in_sql(client, monkeypatc
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4548,6 +4568,7 @@ async def test_view_spend_logs_summarize_empty_rows(client, monkeypatch):
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -4588,6 +4609,7 @@ async def test_view_spend_logs_summarize_unhashed_api_key_without_padding(client
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MockDB()
 
@@ -5443,6 +5465,7 @@ async def test_can_team_member_view_log_with_spend_logs_permission(monkeypatch):
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -5480,6 +5503,7 @@ async def test_can_team_member_view_log_without_spend_logs_permission(monkeypatc
 
     class MockPrisma:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         class DB:
             class TeamTable:
                 async def find_unique(self, where: dict):
@@ -6170,6 +6194,7 @@ async def test_ui_view_spend_logs_rehydrates_metadata_jsonb_text(client, monkeyp
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -6255,6 +6280,7 @@ async def test_ui_view_spend_logs_metadata_invalid_json_falls_back_to_empty_dict
 
     class MockPrismaClient:
         read_db = property(lambda self: ReadTargetOf(self.db))
+
         def __init__(self):
             self.db = MagicMock()
             self.db.litellm_spendlogs = MagicMock()
@@ -8244,3 +8270,111 @@ async def test_global_spend_refresh_runs_the_refresh_on_the_writer_when_a_reader
     assert [statement for statement in journal.statements if statement[1].startswith("REFRESH")] == [
         ("writer", 'REFRESH MATERIALIZED VIEW "MonthlyGlobalSpend";')
     ]
+
+
+class _TagRollupDB:
+    """Records the SQL and params the tag endpoints issue, answering from canned rows."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.queries: Final[list[tuple[str, tuple[object, ...]]]] = []
+
+    async def query_raw(self, sql_query, *params):
+        self.queries.append((sql_query, params))
+        return self.rows
+
+
+@pytest.mark.asyncio
+async def test_global_spend_tags_reads_the_daily_rollup_not_raw_logs(client, monkeypatch):
+    """The UI tags endpoint must aggregate LiteLLM_DailyTagSpend within the caller's
+    inclusive window. Regression: an earlier revision expanded request_tags across
+    the whole raw spend-log history, the unbounded read that fed the OOM class."""
+    db: Final = _TagRollupDB(
+        [
+            {"individual_request_tag": "tag-a", "log_count": 5, "total_spend": 0.42},
+            {"individual_request_tag": "tag-b", "log_count": 2, "total_spend": 0.10},
+        ]
+    )
+    monkeypatch.setattr(ps, "prisma_client", _tag_prisma_client(db))
+    app.dependency_overrides[ps.user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin_user"
+    )
+    try:
+        response: Final = client.get(
+            "/global/spend/tags",
+            params={"start_date": "2026-11-01", "end_date": "2026-11-24"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "spend_per_tag": [
+                {"name": "tag-a", "spend": 0.42, "log_count": 5},
+                {"name": "tag-b", "spend": 0.1, "log_count": 2},
+            ]
+        }
+        sql, params = db.queries[0]
+        assert 'FROM "LiteLLM_DailyTagSpend"' in sql
+        assert '"LiteLLM_SpendLogs"' not in sql
+        assert "jsonb_array_elements_text" not in sql
+        assert "date::date >= $1::date AND date::date <= $2::date" in sql
+        assert "SUM(api_requests) AS log_count" in sql
+        assert "SUM(spend) AS total_spend" in sql
+        assert params == ("2026-11-01", "2026-11-24")
+    finally:
+        app.dependency_overrides.pop(ps.user_api_key_auth, None)
+
+
+@pytest.mark.asyncio
+async def test_global_spend_tags_filters_explicit_csv_tags_on_the_rollup(client, monkeypatch):
+    db: Final = _TagRollupDB([{"individual_request_tag": "tag-a", "log_count": 5, "total_spend": 0.42}])
+    monkeypatch.setattr(ps, "prisma_client", _tag_prisma_client(db))
+    app.dependency_overrides[ps.user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin_user"
+    )
+    try:
+        response: Final = client.get(
+            "/global/spend/tags",
+            params={"start_date": "2026-11-01", "end_date": "2026-11-24", "tags": "tag-a,tag-b"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+        assert response.status_code == 200
+        assert response.json()["spend_per_tag"] == [{"name": "tag-a", "spend": 0.42, "log_count": 5}]
+        sql, params = db.queries[0]
+        assert "tag = ANY($3::text[])" in sql
+        assert params == ("2026-11-01", "2026-11-24", ["tag-a", "tag-b"])
+    finally:
+        app.dependency_overrides.pop(ps.user_api_key_auth, None)
+
+
+@pytest.mark.asyncio
+async def test_all_tag_names_reads_the_rollup_not_raw_logs(client, monkeypatch):
+    """all_tag_names must deduplicate from the small daily rollup. Regression: the
+    old endpoint expanded request_tags over every retained raw spend-log row."""
+    db: Final = _TagRollupDB([{"individual_request_tag": "tag-a"}, {"individual_request_tag": "tag-b"}])
+    monkeypatch.setattr(ps, "prisma_client", _tag_prisma_client(db))
+    app.dependency_overrides[ps.user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin_user"
+    )
+    try:
+        response: Final = client.get(
+            "/global/spend/all_tag_names",
+            headers={"Authorization": "Bearer sk-test"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"tag_names": ["tag-a", "tag-b"]}
+        sql, _ = db.queries[0]
+        assert 'FROM "LiteLLM_DailyTagSpend"' in sql
+        assert '"LiteLLM_SpendLogs"' not in sql
+        assert "jsonb_array_elements_text" not in sql
+    finally:
+        app.dependency_overrides.pop(ps.user_api_key_auth, None)
+
+
+def _tag_prisma_client(db):
+    class MockPrismaClient:
+        read_db = property(lambda self: ReadTargetOf(self.db))
+
+        def __init__(self):
+            self.db = db
+
+    return MockPrismaClient()

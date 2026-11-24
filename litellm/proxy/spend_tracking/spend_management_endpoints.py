@@ -2142,8 +2142,9 @@ async def global_get_all_tag_names():
 
         sql_query: Final = """
         SELECT DISTINCT
-            jsonb_array_elements_text(request_tags) AS individual_request_tag
-        FROM "LiteLLM_SpendLogs";
+            tag AS individual_request_tag
+        FROM "LiteLLM_DailyTagSpend"
+        WHERE tag IS NOT NULL;
         """
 
         db_response: Final[Sequence[_TagNameRow] | None] = await _query_raw_or_none(prisma_client, sql_query)
@@ -4476,6 +4477,17 @@ async def ui_get_spend_by_tags(
     Should cover 2 cases:
     1. When user is getting spend for all_tags. "all_tags" in tags_list
     2. When user is getting spend for specific tags.
+
+    Reads the pre-aggregated ``LiteLLM_DailyTagSpend`` rollup rather than
+    expanding ``request_tags`` across the raw spend-log history: the rollup's
+    ``tag`` rows come from the same per-request ``request_tags`` domain (see
+    ``add_spend_log_transaction_to_daily_tag_transaction``), so grouping the
+    small table by tag within the caller's date window answers the same
+    question without a full-history raw-log scan. ``date`` is the rollup's
+    day string, written by the spend writer as the ``YYYY-MM-DD`` prefix of
+    the request's start time; the inclusive window compares it as a date
+    (``date::date``), never lexicographically, so the query stays correct if
+    the representation ever carries more than a bare day.
     """
 
     # tags_str is a list of strings csv of tags
@@ -4493,12 +4505,13 @@ async def ui_get_spend_by_tags(
         # Get spend for all tags
         sql_query = """
         SELECT
-            individual_request_tag,
-            spend_date,
-            log_count,
-            total_spend
-        FROM "DailyTagSpend"
-        WHERE spend_date >= $1::date AND spend_date <= $2::date
+            tag AS individual_request_tag,
+            SUM(api_requests) AS log_count,
+            SUM(spend) AS total_spend
+        FROM "LiteLLM_DailyTagSpend"
+        WHERE tag IS NOT NULL
+          AND date::date >= $1::date AND date::date <= $2::date
+        GROUP BY tag
         ORDER BY total_spend DESC;
         """
         response = await _query_raw(
@@ -4511,13 +4524,14 @@ async def ui_get_spend_by_tags(
         # filter by tags list
         sql_query = """
         SELECT
-            individual_request_tag,
-            SUM(log_count) AS log_count,
-            SUM(total_spend) AS total_spend
-        FROM "DailyTagSpend"
-        WHERE spend_date >= $1::date AND spend_date <= $2::date
-          AND individual_request_tag = ANY($3::text[])
-        GROUP BY individual_request_tag
+            tag AS individual_request_tag,
+            SUM(api_requests) AS log_count,
+            SUM(spend) AS total_spend
+        FROM "LiteLLM_DailyTagSpend"
+        WHERE tag IS NOT NULL
+          AND date::date >= $1::date AND date::date <= $2::date
+          AND tag = ANY($3::text[])
+        GROUP BY tag
         ORDER BY total_spend DESC;
         """
         response = await _query_raw(
