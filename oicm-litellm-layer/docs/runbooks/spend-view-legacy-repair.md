@@ -306,3 +306,119 @@ for it, not automatic unrelated table/view admin access.
 Keep the accepted tag metrics and raw-log scope restriction (`/spend/tags` remains
 unmodified) outside this follow-up. It is not permission to start another raw-log
 workload or proxy app release.
+
+## Follow-up execution record, 2026-11-24 (dev complete; prod pending explicit approval)
+
+### Implemented operator command
+
+`scripts/cleanup_spend_view_default_grants.py` (repo root), dry-run by default:
+
+- connects with an operator-supplied superuser URL and verifies the session is
+  superuser, both named roles exist and are not superusers themselves, the grantee
+  is a member of the application role, the schema exists, and every same-named
+  object is a view owned by the application role;
+- refuses anything unexpected: a creator default ACL narrower than the broad
+  signature (a deliberate narrow grant is left for manual review), a view whose
+  grantee entries do not exactly match the default-ACL signature, entries granted
+  by a third party, a non-view collision, a foreign-owned view, or missing
+  membership;
+- prints the exact planned statements in dry-run; `--apply` executes the default
+  ACL removal plus the materialized view revokes in ONE transaction with
+  `lock_timeout = 10s`, `statement_timeout = 60s`,
+  `idle_in_transaction_session_timeout = 30s`;
+- after commit verifies on a separate connection: the default ACL entry for the
+  grantee is gone, no spend view carries a grantee entry, the application role
+  still has SELECT on every view, and grantee membership survived. No `CASCADE`,
+  no `GRANT ALL`, no blanket owner `REVOKE`, no row writes, no view recreate.
+
+Targeted exactly: the `litellm`-creator `oicm`-grantee relations default ACL entry
+and the matching materialized entries on the seven spend views. The separate
+`postgres`-creator `litellm`-grantee row (partition conversion coverage) is out of
+scope and untouched.
+
+### Fixture regressions (disposable Postgres 16, three roles: postgres, litellm, oicm MEMBER OF litellm)
+
+`tests/unit/proxy/db/test_cleanup_spend_view_default_grants.py`, 14 tests, all
+passing:
+
+- reproduction first: with the fork's broad default ACL installed, a view the
+  application role creates materializes `oicm ALL` (the reported defect), and a
+  tag-view drop/recreate re-materializes it (the default ACL row is the source);
+- dry-run leaves the default ACL and the view entries untouched;
+- `--apply` removes both, keeps `oicm MEMBER OF litellm` and the archive-ledger
+  grant, and is idempotent (a second run prints nothing-to-do);
+- after cleanup, recreating `DailyTagSpend` does NOT resurrect the grant;
+- an explicit `dashboard_reader` SELECT on a spend view survives;
+- the janitor's real workflow survives: reading the spend-logs table and writing
+  the archive ledger still work through membership and the explicit ledger grant;
+- refusals: narrow default grant (must not silently revoke a deliberate grant),
+  foreign-owned view, table-where-view collision, missing membership, and a
+  non-superuser session.
+
+### Manifest source fix
+
+Both janitor bootstraps lost their broad default-grant lines
+(`deploy/prod/spend-logs-janitor/sql/bootstrap.sql`:
+`ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO oicm`;
+`deploy/dev/spend-logs-janitor/sql/bootstrap.sql`: the analogous self-grant to
+`litellm`). The `postgres`-creator `litellm`-grantee partition-coverage line stays
+in both. Removing the manifest line does not remove the existing database
+default ACL; the operator command does that.
+
+### Dev proof (2026-11-24)
+
+Dev has nothing to clean from this defect: its cluster has no `oicm` role at all
+(verified: `to_regrole('oicm')` is NULL), no `litellm`-creator default ACL row
+(only the `postgres`-creator row, which is out of scope), and its janitor connects
+as `litellm` directly. Its six views carry benign materialized `litellm=r/litellm`
+self-entries from the old dev bootstrap line, harmless and intentionally left
+alone (owner rights are implicit; the entries document nothing extra). The dev
+bootstrap line is removed going forward so re-running the bootstrap cannot
+re-materialize them.
+
+Dev workflow proofs under the corrected configuration:
+
+- dev janitor: job `spend-logs-janitor-29925379` completed
+  (`SuccessCriteriaMet Complete`), log `no work; exiting`, the same healthy
+  no-op cycle as before; the ledger shows historical full cycles
+  (detach, dump, verify, drop) from 2026-09-23 with `litellm`-owned
+  partitions throughout;
+- partition ownership: zero non-`litellm`-owned partitions on dev;
+- rollup writer pipeline: `LiteLLM_DailyTagSpend` has 82 rows for today
+  (2026-11-24), so the writer pipeline is alive;
+- dev gateway endpoints as admin: `/global/spend/models?limit=5` 200,
+  `/global/spend/keys?limit=5` 200, `/global/spend/all_tag_names` 200,
+  `/global/spend/tags?start_date=2026-11-17&end_date=2026-11-24` 200;
+- a temporary `proxy_admin_viewer` user with a test key read all four spend
+  endpoints 200 and had `/key/generate` denied 403; both the key and the user
+  were deleted afterward (verified zero rows remain).
+
+No proxy application code, view definition, migration, or gateway deployment
+changed in this work. The changes are the operator script, its fixture tests,
+the two janitor bootstrap manifests, and this runbook.
+
+### Prod state awaiting the explicit execution decision
+
+The prod preflight (2026-11-24, saved under the operator evidence directory
+`~/adeo-prod-ops/grant-cleanup-2026-11-24/`) found exactly the expected state:
+
+- `pg_default_acl`: one `litellm`-creator row granting `{oicm=arwdDxtm/litellm,
+  litellm=arwdDxtm/litellm}` on future relations (objtype `r`), plus the
+  out-of-scope `postgres`-creator row;
+- `DailyTagSpend` carries the materialized `oicm=arwdDxtm/litellm` and a
+  `litellm` self-entry; `Last30dTopEndUsersSpend` carries a `litellm` self-entry
+  (from the repair's superuser-issued OWNER TO); the other five views are
+  NULL-ACL;
+- `oicm MEMBER OF litellm` (no admin option), `litellm` non-superuser CREATEDB,
+  archive ledger/meta owned by `oicm` with self-ACLs, all 552 partitions
+  `litellm`-owned, zero unfinished migrations.
+
+The prod plan, on explicit approval only: dry-run the command against prod
+(port-forward `adeo-litellm-postgres-rw`, superuser secret, in-memory password),
+compare to the preflight, then run with `--apply`. The self-entry on
+`Last30dTopEndUsersSpend` is NOT wrong and is NOT touched by the command: it is
+the documented materialization of the owner's own rights after a superuser
+ownership change, and the command only targets the `oicm` grantee entries. Then
+verify janitor lifecycle health from the next scheduled run's logs, the four
+public-ingress checks for admin and the existing Athena viewer, and no new
+timeouts or permission errors in the proxy logs.

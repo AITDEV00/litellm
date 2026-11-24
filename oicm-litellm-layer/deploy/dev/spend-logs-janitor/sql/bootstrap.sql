@@ -128,9 +128,12 @@ GRANT CREATE ON DATABASE litellm TO litellm;
 -- Default privileges for future partitions
 -- ===========================================================================
 
--- The proxy creates partitions as litellm, so those are litellm-owned already.
+-- The dev janitor connects as litellm itself, the partition owner, so it needs
+-- no default grants at all. The previous self-grant line was removed
+-- 2026-11-24: a creator-granting-itself default ACL materializes an explicit
+-- owner-ALL entry on every future view, which is harmless but obscures the
+-- view permission contract (relacl IS NULL is the intended end state).
+--
 -- The postgres line covers partitions created by the conversion runbook or any
--- other role, which is how prod ended up with 64 postgres-owned partitions
--- that the janitor could not read.
-ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO litellm;
+-- other role.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO litellm;

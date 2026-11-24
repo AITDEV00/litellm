@@ -138,9 +138,16 @@ GRANT litellm TO oicm;
 -- Default privileges for future partitions
 -- ===========================================================================
 
--- The proxy creates partitions as litellm, so those are litellm-owned already.
+-- The proxy creates partitions as litellm, so those are litellm-owned already;
+-- the janitor reaches them through GRANT litellm TO oicm membership (owner
+-- checks and NULL-relacl inheritance), not through default privileges. Broad
+-- default grants were removed 2026-11-24: they handed oicm full admin rights
+-- on every future view as well, which is how the repaired DailyTagSpend came
+-- back carrying oicm=arwdDxtm. Views the proxy creates need no oicm grant at
+-- all. Run scripts/cleanup_spend_view_default_grants.py to remove the default
+-- ACL entry and any materialized view entries left by the old line.
+--
 -- The postgres line covers partitions created by the conversion runbook or any
 -- other role, which is how prod ended up with 64 postgres-owned partitions
 -- that the janitor could not read.
-ALTER DEFAULT PRIVILEGES FOR ROLE litellm GRANT ALL ON TABLES TO oicm;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO litellm;
