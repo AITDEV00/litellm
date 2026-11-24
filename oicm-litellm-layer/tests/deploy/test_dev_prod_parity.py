@@ -62,6 +62,13 @@ _EXPECTED_ENV_DIFFS: Final = frozenset(
         "MCP_SOURCE_BROKER_DATA_PLANE_URL",  # dev: litellm-mcp-broker-dev
         "MCP_SOURCE_BROKER_PEPPER",  # dev: litellm-mcp-source-broker-dev Secret
         "MCP_SOURCE_BROKER_SERVICE_TOKEN",  # dev: litellm-mcp-source-broker-dev Secret
+        # Microsoft Entra OIDC for Admin UI SSO. Same keys in both overlays, but
+        # each environment points at its own Entra app and Secret, and the
+        # redirect origin differs because only prod has an ingress host.
+        "PROXY_BASE_URL",  # dev: localhost:14001, prod: litellm.ecouncil.ae
+        "MICROSOFT_CLIENT_ID",  # dev and prod are separate Entra app registrations
+        "MICROSOFT_CLIENT_SECRET",  # dev: litellm-microsoft-sso-dev Secret
+        "MICROSOFT_TENANT",  # dev: litellm-microsoft-sso-dev Secret
     }
 )
 
@@ -80,13 +87,6 @@ _DEV_ONLY_ENV_VARS: Final = frozenset(
         "DATABASE_PASSWORD",
         "DATABASE_NAME",
         "HAMSA_API_KEY",
-        # Microsoft Entra OIDC for Admin UI SSO, enabled on dev first. Prod is
-        # not wired to SSO yet; when it is, these move to the base and this
-        # entry goes away.
-        "PROXY_BASE_URL",
-        "MICROSOFT_CLIENT_ID",
-        "MICROSOFT_CLIENT_SECRET",
-        "MICROSOFT_TENANT",
     }
 )
 

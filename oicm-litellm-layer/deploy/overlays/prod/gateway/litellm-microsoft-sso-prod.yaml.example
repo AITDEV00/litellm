@@ -1,0 +1,22 @@
+# Template for the prod Microsoft Entra OIDC Secret.
+#
+# Copy to litellm-microsoft-sso-prod.yaml (gitignored), fill the values from the
+# prod Entra app registration, then:
+#
+#   kubectl apply -f litellm-microsoft-sso-prod.yaml
+#
+# Do NOT commit the filled file. It holds a client secret.
+#
+# The prod app registration must carry https://litellm.ecouncil.ae/sso/callback
+# on its Web platform, because the redirect origin is PROXY_BASE_URL in the prod
+# overlay and the client is confidential (it sends a secret).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-microsoft-sso-prod
+  namespace: adeo-litellm
+type: Opaque
+stringData:
+  MICROSOFT_CLIENT_ID: "<application (client) id>"
+  MICROSOFT_CLIENT_SECRET: "<client secret VALUE, not the secret id>"
+  MICROSOFT_TENANT: "<directory (tenant) id>"

@@ -19,6 +19,39 @@ spec:
           env:
             - name: LITELLM_PUBLIC_BASE_URL
               value: "https://litellm.ecouncil.ae"
+            # Microsoft Entra OIDC for Admin UI SSO.
+            #
+            # PROXY_BASE_URL is what LiteLLM uses to build the OAuth redirect
+            # URI: it appends /sso/callback to this value (get_custom_url in
+            # litellm/proxy/utils.py). It must match the redirect URI registered
+            # on the Entra app EXACTLY. Prod is reached through its ingress, so
+            # this is the https edge host and the callback is
+            # https://litellm.ecouncil.ae/sso/callback.
+            #
+            # SSO users resolve to internal_user_viewer unless the Entra app
+            # carries an app role matching a LiteLLM role name; no role mapping
+            # is configured here on purpose. Username/password login stays
+            # enabled, so a viewer-role SSO mistake can never lock out the UI.
+            - name: PROXY_BASE_URL
+              value: "https://litellm.ecouncil.ae"
+            - name: MICROSOFT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-prod
+                  key: MICROSOFT_CLIENT_ID
+                  optional: true
+            - name: MICROSOFT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-prod
+                  key: MICROSOFT_CLIENT_SECRET
+                  optional: true
+            - name: MICROSOFT_TENANT
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-microsoft-sso-prod
+                  key: MICROSOFT_TENANT
+                  optional: true
             - name: MCP_SOURCE_BROKER_ENABLED
               value: "true"
             # Standard data-plane Service port for the MCP source broker.
