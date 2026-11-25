@@ -219,14 +219,26 @@ grep -r "$(cat /tmp/accept-prod1.pw)" ~/.config/source-agent && echo LEAK || ech
   Clear that flag server-side:
 
   ```bash
-  PW="$(kubectl -n adeo-litellm get secret litellm-db-credentials -o jsonpath='{.data.DATABASE_URL}' | base64 -d | sed -E 's#.*://litellm:([^@]+)@.*#\1#')"
+  DB_URL="$(kubectl -n adeo-litellm get secret litellm-db-credentials -o jsonpath='{.data.DATABASE_URL}' | base64 -d)"
+  PW="$(python3 -c 'import os, urllib.parse; print(urllib.parse.urlparse(os.environ["DB_URL"]).password or "")')"
   kubectl -n adeo-litellm exec -i adeo-litellm-postgres-1 -c postgres -- \
     env PGPASSWORD="$PW" psql -h 127.0.0.1 -U litellm -d litellm -tAc \
-    "UPDATE \"LiteLLM_UserTable\" SET password_reset_required=false, last_breach_check_at=NULL WHERE user_id='<user_id>'"
+    "SELECT user_id, user_role, password_reset_required, last_breach_check_at FROM \"LiteLLM_UserTable\" WHERE user_email='<connector_email>'"
+  kubectl -n adeo-litellm exec -i adeo-litellm-postgres-1 -c postgres -- \
+    env PGPASSWORD="$PW" psql -h 127.0.0.1 -U litellm -d litellm -v ON_ERROR_STOP=1 \
+    -c "UPDATE \"LiteLLM_UserTable\" SET password_reset_required=false, last_breach_check_at=NULL WHERE user_id='<user_id>' AND user_email='<connector_email>' AND user_role='internal_user'"
+  kubectl -n adeo-litellm exec -i adeo-litellm-postgres-1 -c postgres -- \
+    env PGPASSWORD="$PW" psql -h 127.0.0.1 -U litellm -d litellm -tAc \
+    "SELECT user_id, user_role, password_reset_required, last_breach_check_at FROM \"LiteLLM_UserTable\" WHERE user_email='<connector_email>'"
   ```
 
-  Do not instead retry the login: each failed attempt re-runs the breach screen
-  and re-stamps the flag, so retrying never converges.
+  This changes only the two screening fields; the existing password remains valid. Verify `internal_user` before updating and require `UPDATE 1`. Stop if the role or user ID differs
+
+  Do not retry a failing connector login blindly. A `NULL` or more-than-24-hour-old breach-check timestamp causes the password screen to run again. If the password is detected as breached, the gateway intentionally re-stamps the flag. A successful stamp from the recent accepted check prevents hourly-on-login rescreening and true-flag recurrence during that interval; this is a one-time repair for the accepted initial password, not a bypass to persist indefinitely. Prefer a user-driven safe password replacement accepted by `/user/password/change` instead of repeatedly clearing the flag. Self-service change also revokes other UI session keys while preserving the caller's session
+
+  **Verified on prod `athena-mcp@ecouncil.ae`, 2026-11-25:** before the repair the flag was true; the exact two-column update returned `UPDATE 1`. `POST /sso/cli/password` then returned HTTP 200. The successful login stamped only `last_breach_check_at` and left `password_reset_required=false`. Its returned virtual key permits only `/mcp-sources` and `/mcp-source-link-sources/*`. Requests to `/key/info` return 403 because that is not a connector-enrollment route; this is correct least privilege, not a failure
+
+  The current `/user/password/change` path may reject a raw UI session JWT via the direct Entra-JWT audience validator when JWT auth is enabled. Do not treat its 401 `No matching public key found ... kid=None` as a bad account password or revert the connector repair. File a separate bug for that UI-session/JWT-family route selection if self-service password change is required. Do not work around it by giving the connector a proxy-admin key
 - An **admin** account cannot be used here. The gateway refuses to mint a
   connector key for a `proxy_admin`, by design, so the account must be an
   ordinary `internal_user`.
