@@ -22,7 +22,17 @@ from rollout_accounts import (
 
 BASELINE = WORK / "key-transfer-baseline.json"
 ORIGINAL_SNAPSHOT = WORK / "initial-key-snapshot.json"
+COMMITTED_OWNERS = WORK / "key-transfer-journal.jsonl"
 RAW_OWNER_EVIDENCE = WORK / "key-transfer-raw-owner-evidence.json"
+
+
+def committed_targets():
+    records = {}
+    if COMMITTED_OWNERS.exists():
+        for row in (json.loads(line) for line in COMMITTED_OWNERS.read_text().splitlines() if line.strip()):
+            if row.get("owner_verified") is True:
+                records[row["email"]] = row["new_owner"]
+    return records
 
 
 def preflight():
@@ -30,8 +40,10 @@ def preflight():
     baseline = json.loads(BASELINE.read_text())
     candidates = key_candidates(token)
     users = all_users(token)
+    assert stat_mode(ORIGINAL_SNAPSHOT) == 0o600, "The pre-transfer snapshot must be protected"
     assert set(candidates) == set(baseline), "Key inventory differs from original baseline"
     assert len({key["token"] for key in candidates.values()}) == len(candidates)
+    committed = committed_targets()
     rows = []
     for email in sorted(baseline):
         before = baseline[email]
@@ -47,9 +59,11 @@ def preflight():
         unexpected = [key for key in owned if key["token"] != before["token"]]
         assert not unexpected, f"Unexpected existing target key at {email}"
         original = dict(before["original_key"])
-        original["user_id"] = before["original_user_id"]
+        expected_owner = target_id if email in committed else before["original_user_id"]
+        original["user_id"] = expected_owner
         current = candidates[email]
-        assert key_fingerprint(original) == key_fingerprint(current), f"Owner or key config drift: {email}"
+        assert key_fingerprint(original) == key_fingerprint(current), f"Key config drift: {email}"
+        assert committed.get(email, target_id) == target_id, f"Journal target mismatch: {email}"
         assert current["team_id"] == DEVELOPER
         rows.append(
             {
@@ -66,8 +80,13 @@ def preflight():
             {
                 "mode": "read-only preflight; no ownership mutations",
                 "targets": len(rows),
-                "original_proxy_admin": sum(row["original_user_id"] == "default_user_id" for row in rows),
-                "original_null": sum(row["original_user_id"] is None for row in rows),
+                "confirmed_personal_owners": len(committed),
+                "remaining_original_proxy_admin": sum(
+                    row["original_user_id"] == "default_user_id" and row["email"] not in committed for row in rows
+                ),
+                "remaining_original_null": sum(
+                    row["original_user_id"] is None and row["email"] not in committed for row in rows
+                ),
                 "target_accounts": len({row["planned_update"]["user_id"] for row in rows}),
                 "shared_service_key_excluded": True,
             },
@@ -76,20 +95,22 @@ def preflight():
     )
 
 
-def verify():
+def verify(pilot_only=False):
     token = admin_key()
     baseline = json.loads(BASELINE.read_text())
     candidates = key_candidates(token)
     users = all_users(token)
     assert set(candidates) == set(baseline)
+    selected = baseline.items() if not pilot_only else [("vietth@ecouncil.ae", baseline["vietth@ecouncil.ae"])]
     flags = []
-    for email, before in baseline.items():
+    for email, before in selected:
         key = candidates[email]
         account = matching_user(users, email)
         assert account and key["user_id"] == account["user_id"], f"Owner mismatch: {email}"
         assert key["token"] == before["token"] and key["key_alias"] == before["alias"]
         updated = dict(before["original_key"])
         updated["user_id"] = account["user_id"]
+        updated["settings_updated_at"] = key["settings_updated_at"]
         assert key_fingerprint(key) == key_fingerprint(updated), f"Config drift: {email}"
         assert key["team_id"] == DEVELOPER
         assert_complete(token, account, False)
@@ -103,20 +124,22 @@ def verify():
     service = [key for key in all_team_keys if key.get("key_alias") == "V2V-DEV-SHARED"]
     assert len(service) == 1, "Shared service key missing"
     assert service[0]["user_id"] not in {row["user_id"] for row in flags}
-    report = WORK / "key-transfer-audit.json"
+    filename = "pilot-key-transfer-audit.json" if pilot_only else "key-transfer-audit.json"
+    report = WORK / filename
     summary = {
         "verified_personal_owners": len(flags),
-        "original_proxy_admin_owners_remaining": 0,
         "distinct_personal_users": len({row["user_id"] for row in flags}),
+        "remaining_original_owners": len(baseline) - len(flags) if pilot_only else 0,
+        "complete_transfer": len(flags) == len(baseline),
         "key_team": DEVELOPER,
         "key_configuration_preserved": True,
-        "shared_service_key_unassigned": service[0]["user_id"] is None,
+        "shared_service_key_not_assigned_to_migrated_person": True,
     }
     assert RAW_OWNER_EVIDENCE.exists(), "Run the documented raw Prisma owner audit first"
     assert stat_mode(RAW_OWNER_EVIDENCE) == 0o600, "Raw evidence must remain protected"
     raw_records = json.loads(RAW_OWNER_EVIDENCE.read_text())
-    assert len(raw_records) == len(flags), "Raw owner evidence must cover all 53"
-    for email, before in baseline.items():
+    assert len(raw_records) == len(flags), "Raw owner evidence must cover selected candidates"
+    for email, before in selected:
         account = matching_user(users, email)
         assert raw_records[email] == account["user_id"], f"Raw owner mismatch: {email}"
     summary["raw_prisma_owner_matches"] = len(flags)
@@ -138,8 +161,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Read-only final audit after an authorized transfer",
     )
+    parser.add_argument("--pilot", action="store_true", help="Read-only single-pilot acceptance")
     arguments = parser.parse_args()
-    if arguments.verify:
+    if arguments.pilot:
+        verify(pilot_only=True)
+    elif arguments.verify:
         verify()
     else:
         preflight()

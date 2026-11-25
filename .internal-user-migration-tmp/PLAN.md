@@ -29,7 +29,19 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 
 ## Key ownership transfer plan; planning only as of 2026-11-25
 
-**Status: no `/key/update` ownership mutation has run.** This phase requires explicit pilot approval and a second explicit remaining-batch approval before production writes. Do not treat a planned test as authorization to execute it.
+**Status: the user independently approved one pilot transfer only. That call completed. No other key has been transferred, and the remaining batch is paused pending explicit permission.** The operator must not treat any plan or this report as permission to continue alone.
+
+## Pilot transfer accepted at storage/configuration level (2026-11-25)
+
+- The user authorized just `vietth@ecouncil.ae`. One HTTP 200 `POST /key/update` was made with its original token hash and target `d6b12306-48e3-4532-8312-4efcb6782502`. No other ownership-update mutation happened.
+- Raw Prisma read inside both `litellm-proxy-8bd44bf4-dj6jr` and `litellm-proxy-8bd44bf4-m6fc8` matched the original hash, intended new user, global `internal_user` role and unchanged team membership. `updated_by=default_user_id`, `updated_at=2026-11-25T11:01:36.567000Z` and `settings_updated_at=2026-11-25T11:01:36.560000Z` are the expected gateway-side audit writes, not owner/config regressions.
+- `/user/info` now lists exactly one target key with its original alias `vietth@ECOUNCIL.AE  ` (trailing whitespace retained), original `DEVELOPER` team ID, model grants, permissions, priority metadata, budget/object-permission ID, route list and organization ID. The user's password, teams, other roles and reset-required behavior were untouched.
+- Full non-mutating preflight went from 49 admin/4 null owners to **one personal owner**, **48 remaining `default_user_id`**, **four raw null owners**. All other 52 key configurations and owners matched the original baseline, and all 54 DEVELOPER keys remain present. `V2V-DEV-SHARED` is not personally owned.
+- `python3 .internal-user-migration-tmp/key_transfer.py --pilot` now validates exactly this key and reports `verified_personal_owners: 1`, `remaining_original_owners: 52`, `complete_transfer: false`, `key_configuration_preserved: true`, `raw_prisma_owner_matches: 1`.
+- The protected original `vietth` bearer could not be matched in local OpenCode credentials, config JSON, open-code logs, temporary pilot probes, or the prior transcript. **No real model call has been made with its bearer after reassignment.** A raw token hash identifies but cannot derive its plaintext. Do not pretend master-key calls, account-password calls, new-team calls or static/DB assertions substitute for this still-pending bearer live-auth proof.
+- To finish pilot user-level acceptance, obtain an authorized protected copy of the exact candidate bearer from its existing client/user/secret manager; do not reveal it in this conversation or rotate it just to make the proof. Its SHA-256 hash must match the baseline `token` already recorded. Then run original bearer `/v1/models` and a small chat completion for an allowed model, an unauthorized model denial, and a management-denial case to prove normal personal identity replaced admin fallback. Capture new spend attribution owner. The mandatory pause before batch remains until the user explicitly approves continuation.
+- The user-facing original-account verifier `rollout_accounts.py --verify` intentionally asserts the pre-transfer owner baseline and must not be used after any ownership transfer. Use only transfer-aware `key_transfer.py` verification modes after a key moves; they do not conflate two separately authorized phases
+
 
 ### Exact scope and retained state
 
@@ -65,8 +77,9 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 ### Read-only driver and verification commands
 
 - `python3 .internal-user-migration-tmp/key_transfer.py`: read-only full account/key/owner preflight and static-config equality check, requiring the existing mode-0600 original baseline. It never sends a mutation.
-- `python3 .internal-user-migration-tmp/key_transfer.py --verify`: post-transfer strict 53-person owner/static-key invariant check and attached-key set check. It additionally requires a fresh `key-transfer-raw-owner-evidence.json` protected Prisma checkpoint; do not reuse the pre-transfer `raw-owner-readback.jsonl` as proof that a later transfer worked.
-- The eventual transfer driver remains separate and gated on `--pilot` versus `--all-after-approved-pilot` with a lock/journal. Not generated or enabled before your approval. Importing or running the account/preflight components cannot update key ownership.
+- `python3 .internal-user-migration-tmp/key_transfer.py --pilot`: read-only scoped acceptance for vietth, plus its original alias/team/static config and one fresh raw Prisma owner mapping. It explicitly reports incomplete batch scope.
+- `python3 .internal-user-migration-tmp/key_transfer.py --verify`: full post-transfer strict 53-person owner/static-key check. It additionally requires a fresh `key-transfer-raw-owner-evidence.json` protected Prisma checkpoint; do not reuse the pre-transfer `raw-owner-readback.jsonl` as proof that the transfer worked.
+- The eventual transfer driver remains separate, gated on `--pilot` versus `--all-after-approved-pilot`, with a lock/journal. Importing or running read-only components cannot update key ownership.
 
 ### Batch transfer and acceptance
 
@@ -75,8 +88,8 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
    - 53/53 exact stored hashes have exactly their intended user UUID, remaining under same `DEVELOPER` team and exact alias/casing/whitespace;
    - zero email-shaped target keys belonging to `default_user_id` or raw null; `V2V-DEV-SHARED` still not personally assigned;
    - no extra personal keys, no raw-key regeneration, no user passwords/roles/default teams altered, no spend deleted or manufactured;
-   - exact all 53 unchanged static key fingerprints (including permissions, policies/object permissions, budget IDs, resource scopes, models, route controls), ignoring only runtime `spend`, `total_spend`, `last_active`, `updated_at`, `updated_by` documented separately;
-   - `V2V-DEV-SHARED` stays in 54-key team inventory alongside the 53 moved ones, new overrides only `user_id`/standard `settings_updated_at`/`updated_by`;
+   - exact all 53 unchanged static key fingerprints (including permissions, policies/object permissions, budget IDs, resource scopes, models, route controls), ignoring pointer audit timestamps `updated_at`, `settings_updated_at`, actor `updated_by`, and runtime `spend`, `total_spend`, `last_active`, `created_at` documented separately;
+   - `V2V-DEV-SHARED` stays in 54-key team inventory alongside the 53 moved ones; changed ownership-write fields are `user_id` and standard `settings_updated_at`/`updated_at`/`updated_by` audit fields;
    - raw owner reconciliation via Prisma matches expected mappings for all 53; public reads and same-bearer authentication on both workers converge after built-in cross-worker invalidation/TTL. Do not mutate raw db for propagation or use an assumed unsupported audit REST.
 
 ### Rollback and overall safety

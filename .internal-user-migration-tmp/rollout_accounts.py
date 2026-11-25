@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Idempotent DEVELOPER account creation and verification, with no API-key ownership transfer."""
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,12 @@ def admin_key():
 
 
 def api(token, method, route, data=None):
-    request = urllib.request.Request(GATEWAY + route, data=json.dumps(data).encode() if data is not None else None,
-                                     method=method, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    request = urllib.request.Request(
+        GATEWAY + route,
+        data=json.dumps(data).encode() if data is not None else None,
+        method=method,
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+    )
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
             return response.status, json.load(response)
@@ -112,10 +117,15 @@ def missing_teams(token, user_id, required):
 
 
 def ensure_membership(token, user_id, email, team_id):
-    response = api(token, "POST", "/team/member_add", {
-        "team_id": team_id,
-        "member": {"user_id": user_id, "user_email": email, "role": "user"},
-    })
+    response = api(
+        token,
+        "POST",
+        "/team/member_add",
+        {
+            "team_id": team_id,
+            "member": {"user_id": user_id, "user_email": email, "role": "user"},
+        },
+    )
     if response[0] != 200:
         # Add is a create operation. Simultaneous mutation is a hard stop, not swallowed error.
         raise RuntimeError(f"team attachment {team_id}: {response}")
@@ -142,7 +152,11 @@ def journal_write(row):
 
 
 def assert_complete(token, row, created):
-    if not row["user_email"] or row["user_email"].strip().casefold() != row["user_email"].casefold() or row["user_role"] != "internal_user":
+    if (
+        not row["user_email"]
+        or row["user_email"].strip().casefold() != row["user_email"].casefold()
+        or row["user_role"] != "internal_user"
+    ):
         raise RuntimeError(f"Incorrect account identity/default: {row}")
     required = [DEVELOPER, "b19ad7de-997e-45ec-ba34-f7980dccf621", "d1406939-aef6-4205-a8b2-7616c5a72663"]
     missing = missing_teams(token, row["user_id"], [{"team_id": team_id} for team_id in required])
@@ -151,7 +165,10 @@ def assert_complete(token, row, created):
         info(token, row["user_id"])
         teams = [require(api(token, "GET", f"/team/info?team_id={team_id}")) for team_id in required]
         complete = all(
-            any(member["user_id"] == row["user_id"] and member["role"] == "user" for member in team["team_info"]["members_with_roles"])
+            any(
+                member["user_id"] == row["user_id"] and member["role"] == "user"
+                for member in team["team_info"]["members_with_roles"]
+            )
             and any(member["user_id"] == row["user_id"] for member in team["team_memberships"])
             for team in teams
         )
@@ -179,7 +196,15 @@ def claim_password():
 
 
 def key_fingerprint(key):
-    runtime_counters = {"last_active", "spend", "total_spend", "created_at", "updated_at", "updated_by"}
+    runtime_counters = {
+        "last_active",
+        "settings_updated_at",
+        "spend",
+        "total_spend",
+        "created_at",
+        "updated_at",
+        "updated_by",
+    }
     return {name: value for name, value in key.items() if name not in runtime_counters} | {
         "user_id": key.get("user_id") or "default_user_id"
     }
@@ -214,9 +239,15 @@ def verify_pilot_flow(token, user_id, email, password):
         assert profile == {"user_id": user_id, "user_role": "internal_user", "user_email": email}, profile
         status, _ = api(session, "GET", "/key/info")
         assert status == 403, f"password reset key unexpectedly has key-info: {status}"
-        status, _ = api(session, "POST", "/user/password/change", {
-            "current_password": "intentionally-wrong-current-password", "new_password": "A7OnlyProbe8@",
-        })
+        status, _ = api(
+            session,
+            "POST",
+            "/user/password/change",
+            {
+                "current_password": "intentionally-wrong-current-password",
+                "new_password": "A7OnlyProbe8@",
+            },
+        )
         assert status == 400, f"wrong current password unexpectedly accepted: {status}"
     finally:
         require(api(session, "POST", "/session/logout"))
@@ -230,13 +261,30 @@ def rollout(dry_run):
         users = all_users(token)
         candidates = key_candidates(token)
         defaults = settings(token)
-        initial_state = {email: {"alias": key["key_alias"], "token": key["token"], "user_id": key["user_id"],
-                                 "non_owner_state": key_fingerprint(key)} for email, key in candidates.items()}
+        initial_state = {
+            email: {
+                "alias": key["key_alias"],
+                "token": key["token"],
+                "user_id": key["user_id"],
+                "non_owner_state": key_fingerprint(key),
+            }
+            for email, key in candidates.items()
+        }
         preexisting = {email for email in candidates if matching_user(users, email)}
         complete = journal_read()
-        print(json.dumps({"dry_run": dry_run, "selected": len(candidates), "preexisting": len(preexisting),
-                          "new": len(candidates) - len(preexisting), "completed": len(complete),
-                          "password_changes_existing_users": 0, "key_transfers": 0}))
+        print(
+            json.dumps(
+                {
+                    "dry_run": dry_run,
+                    "selected": len(candidates),
+                    "preexisting": len(preexisting),
+                    "new": len(candidates) - len(preexisting),
+                    "completed": len(complete),
+                    "password_changes_existing_users": 0,
+                    "key_transfers": 0,
+                }
+            )
+        )
         if dry_run:
             return initial_state
         for email, original_key in candidates.items():
@@ -246,16 +294,27 @@ def rollout(dry_run):
                 assert current["user_role"] == "internal_user"
                 user_id = current["user_id"]
             else:
-                created = require(api(token, "POST", "/user/new", {
-                    "user_email": email, "user_role": "internal_user", "auto_create_key": False,
-                    "teams": defaults + [{"team_id": DEVELOPER, "user_role": "user", "max_budget_in_team": None}],
-                }))
+                created = require(
+                    api(
+                        token,
+                        "POST",
+                        "/user/new",
+                        {
+                            "user_email": email,
+                            "user_role": "internal_user",
+                            "auto_create_key": False,
+                            "teams": defaults
+                            + [{"team_id": DEVELOPER, "user_role": "user", "max_budget_in_team": None}],
+                        },
+                    )
+                )
                 assert created.get("key") is None
                 user_id = created["user_id"]
                 current = user_by_id(token, user_id)
                 users.append(current)
-                journal_write({"email": email, "user_id": user_id, "new_password_required": True,
-                               "password_completed": False})
+                journal_write(
+                    {"email": email, "user_id": user_id, "new_password_required": True, "password_completed": False}
+                )
                 journal = journal_read()[email]
             known_new_account = journal and journal["new_password_required"]
             first_shared_pilot = email == PILOT and not journal
@@ -274,32 +333,50 @@ def rollout(dry_run):
             reset_flag = info(token, user_id)["user_info"]["password_reset_required"]
             if reset_flag is False:
                 assert_complete(token, current, False)
-                journal_write({"email": email, "user_id": user_id, "new_password_required": False,
-                               "password_completed": False, "three_teams_verified": True,
-                               "password_state": "already_reset_by_user_no_overwrite"})
+                journal_write(
+                    {
+                        "email": email,
+                        "user_id": user_id,
+                        "new_password_required": False,
+                        "password_completed": False,
+                        "three_teams_verified": True,
+                        "password_state": "already_reset_by_user_no_overwrite",
+                    }
+                )
                 continue
             if managed_credential:
                 endpoint_result = api(token, "POST", "/user/update", {"user_id": user_id, "password": claim_password()})
                 require(endpoint_result)
             assert_complete(token, current, managed_credential)
-            journal_write({"email": email, "user_id": user_id, "new_password_required": managed_credential,
-                           "password_completed": managed_credential,
-                           "three_teams_verified": True, "original_key_token": original_key["token"],
-                           "initial_key_owner": original_key.get("user_id"),
-                           "password_state": "forced_reset" if managed_credential else "unchanged_existing"})
+            journal_write(
+                {
+                    "email": email,
+                    "user_id": user_id,
+                    "new_password_required": managed_credential,
+                    "password_completed": managed_credential,
+                    "three_teams_verified": True,
+                    "original_key_token": original_key["token"],
+                    "initial_key_owner": original_key.get("user_id"),
+                    "password_state": "forced_reset" if managed_credential else "unchanged_existing",
+                }
+            )
 
 
 def verify():
+    if (WORK / "key-transfer-journal.jsonl").exists():
+        raise RuntimeError("Ownership has changed: use key_transfer.py --pilot or --verify")
     token = admin_key()
     records = journal_read()
     candidates = key_candidates(token)
     complete = {
-        email: record for email, record in records.items()
-        if record.get("three_teams_verified") and (
-            not record.get("new_password_required") or record.get("password_completed")
-        )
+        email: record
+        for email, record in records.items()
+        if record.get("three_teams_verified")
+        and (not record.get("new_password_required") or record.get("password_completed"))
     }
-    assert set(complete) == set(candidates), f"incomplete account rollout: missing={sorted(set(candidates) - set(complete))}"
+    assert set(complete) == set(candidates), (
+        f"incomplete account rollout: missing={sorted(set(candidates) - set(complete))}"
+    )
     snapshot = json.loads((WORK / "initial-key-snapshot.json").read_text())
     assert set(snapshot) == set(candidates), "candidate key inventory changed"
     users = all_users(token)
@@ -315,13 +392,27 @@ def verify():
         assert len(pages(token, f"/key/list?key_hash={after['token']}&return_full_object=true", "keys")) == 1
         assert after["token"] == before["token"]
         assert after["key_alias"] == before["alias"]
-        flags.append({"email": email, "user_id": user["user_id"], "reset": record["new_password_required"],
-                      "teams": 3, "ownership_unchanged": True})
+        flags.append(
+            {
+                "email": email,
+                "user_id": user["user_id"],
+                "reset": record["new_password_required"],
+                "teams": 3,
+                "ownership_unchanged": True,
+            }
+        )
     counts = {state: sum(row["reset"] is state for row in flags) for state in (True, False)}
-    print(json.dumps({"verified_accounts": len(flags), **counts,
-                      "all_key_owners_aliases_entitlements_unchanged": len(flags),
-                      "first_browser_route": "inner session sent by frontend to self-service password path"},
-                     indent=2))
+    print(
+        json.dumps(
+            {
+                "verified_accounts": len(flags),
+                **counts,
+                "all_key_owners_aliases_entitlements_unchanged": len(flags),
+                "first_browser_route": "inner session sent by frontend to self-service password path",
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
