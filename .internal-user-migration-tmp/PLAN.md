@@ -29,7 +29,7 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 
 ## Key ownership transfer plan; planning only as of 2026-11-25
 
-**Status: the user independently approved one pilot transfer only. That call completed. No other key has been transferred, and the remaining batch is paused pending explicit permission.** The operator must not treat any plan or this report as permission to continue alone.
+**Status: the user independently authorized `vietth@ecouncil.ae`, then separately authorized `jyao@ecouncil.ae`. Those two transfers succeeded. The remaining 51 keys have not been transferred, and batch work remains paused pending explicit permission.** The operator must not treat either approval as permission to continue alone.
 
 ## Pilot transfer accepted at storage/configuration level (2026-11-25)
 
@@ -42,6 +42,15 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 - To finish pilot user-level acceptance, obtain an authorized protected copy of the exact candidate bearer from its existing client/user/secret manager; do not reveal it in this conversation or rotate it just to make the proof. Its SHA-256 hash must match the baseline `token` already recorded. Then run original bearer `/v1/models` and a small chat completion for an allowed model, an unauthorized model denial, and a management-denial case to prove normal personal identity replaced admin fallback. Capture new spend attribution owner. The mandatory pause before batch remains until the user explicitly approves continuation.
 - The user-facing original-account verifier `rollout_accounts.py --verify` intentionally asserts the pre-transfer owner baseline and must not be used after any ownership transfer. Use only transfer-aware `key_transfer.py` verification modes after a key moves; they do not conflate two separately authorized phases
 
+
+## Second authorized transfer accepted with live bearer proof (2026-11-25)
+
+- The user explicitly authorized only `jyao@ecouncil.ae` and supplied its original bearer. SHA-256 matched the original token hash saved in the migration baseline, so no replacement key or different secret was tested. The bearer was neither printed by migration code nor written into committed documents or local evidence.
+- One HTTP 200 `POST /key/update` changed only `user_id` from the original persisted raw null owner to the already-existing `jyao` user `90714f16-39de-400f-9a79-09edd1c48eed`. The account role, three team memberships, password and pre-existing account settings were not modified.
+- Both production proxy pods, excluding the separate dev gateway, independently read this exact original token hash and its preserved original uppercase-email alias through Prisma, with the expected personal UUID. Raw `key-transfer-raw-owner-evidence.json` now covers the two moved owners. The original null is kept as its possible explicit-null rollback reference.
+- Before transfer, that exact original bearer returned the 11 saved model grants. After transfer it returned the same 11 grants and real `/v1/chat/completions` requests through `zai-org/GLM-5.3-Flash`, including HTTP 200 with answer `OK` and normal `finish_reason: stop`. Recent original-key spend log rows attribute requests to this user's personal UUID, not an admin fallback.
+- Requests to `/key/info` and `/management/v1/users/me` using the bearer get HTTP 403 because its key remains restricted to `llm_api_routes`. This is retained access control, not an ownership regression. A request for ungranted `gpt-5.4` returned HTTP 403 `key_model_access_denied`.
+- The final read-only preflight reports exactly two committed personal owners, **48 remaining real proxy-admin owners**, and **three raw-null owners**. All remaining 51 target keys still have original owners and static configuration. `V2V-DEV-SHARED` remains excluded and personally unowned.
 
 ### Exact scope and retained state
 
@@ -78,6 +87,7 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 
 - `python3 .internal-user-migration-tmp/key_transfer.py`: read-only full account/key/owner preflight and static-config equality check, requiring the existing mode-0600 original baseline. It never sends a mutation.
 - `python3 .internal-user-migration-tmp/key_transfer.py --pilot`: read-only scoped acceptance for vietth, plus its original alias/team/static config and one fresh raw Prisma owner mapping. It explicitly reports incomplete batch scope.
+- `python3 .internal-user-migration-tmp/key_transfer.py --selected`: read-only acceptance for every completed target in the protected transfer journal, including raw-owner evidence and attaching exactly the expected original key. It currently covers only vietth and jyao.
 - `python3 .internal-user-migration-tmp/key_transfer.py --verify`: full post-transfer strict 53-person owner/static-key check. It additionally requires a fresh `key-transfer-raw-owner-evidence.json` protected Prisma checkpoint; do not reuse the pre-transfer `raw-owner-readback.jsonl` as proof that the transfer worked.
 - The eventual transfer driver remains separate, gated on `--pilot` versus `--all-after-approved-pilot`, with a lock/journal. Importing or running read-only components cannot update key ownership.
 

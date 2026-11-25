@@ -364,7 +364,7 @@ def rollout(dry_run):
 
 def verify():
     if (WORK / "key-transfer-journal.jsonl").exists():
-        raise RuntimeError("Ownership has changed: use key_transfer.py --pilot or --verify")
+        raise RuntimeError("Ownership has changed: use key_transfer.py --pilot, --selected, or --verify")
     token = admin_key()
     records = journal_read()
     candidates = key_candidates(token)

@@ -95,13 +95,16 @@ def preflight():
     )
 
 
-def verify(pilot_only=False):
+def verify(selected_emails=None):
     token = admin_key()
     baseline = json.loads(BASELINE.read_text())
     candidates = key_candidates(token)
     users = all_users(token)
     assert set(candidates) == set(baseline)
-    selected = baseline.items() if not pilot_only else [("vietth@ecouncil.ae", baseline["vietth@ecouncil.ae"])]
+    selected_emails = sorted(baseline) if selected_emails is None else sorted(selected_emails)
+    assert set(selected_emails) <= set(baseline), "Selected key is outside the original migration scope"
+    selected = [(email, baseline[email]) for email in selected_emails]
+    assert len(selected) == len(selected_emails)
     flags = []
     for email, before in selected:
         key = candidates[email]
@@ -124,13 +127,14 @@ def verify(pilot_only=False):
     service = [key for key in all_team_keys if key.get("key_alias") == "V2V-DEV-SHARED"]
     assert len(service) == 1, "Shared service key missing"
     assert service[0]["user_id"] not in {row["user_id"] for row in flags}
-    filename = "pilot-key-transfer-audit.json" if pilot_only else "key-transfer-audit.json"
+    filename = "key-transfer-audit.json" if selected_emails == sorted(baseline) else "selected-key-transfer-audit.json"
     report = WORK / filename
     summary = {
         "verified_personal_owners": len(flags),
         "distinct_personal_users": len({row["user_id"] for row in flags}),
-        "remaining_original_owners": len(baseline) - len(flags) if pilot_only else 0,
+        "remaining_original_owners": len(baseline) - len(flags),
         "complete_transfer": len(flags) == len(baseline),
+        "selected_emails": selected_emails,
         "key_team": DEVELOPER,
         "key_configuration_preserved": True,
         "shared_service_key_not_assigned_to_migrated_person": True,
@@ -138,7 +142,6 @@ def verify(pilot_only=False):
     assert RAW_OWNER_EVIDENCE.exists(), "Run the documented raw Prisma owner audit first"
     assert stat_mode(RAW_OWNER_EVIDENCE) == 0o600, "Raw evidence must remain protected"
     raw_records = json.loads(RAW_OWNER_EVIDENCE.read_text())
-    assert len(raw_records) == len(flags), "Raw owner evidence must cover selected candidates"
     for email, before in selected:
         account = matching_user(users, email)
         assert raw_records[email] == account["user_id"], f"Raw owner mismatch: {email}"
@@ -162,9 +165,12 @@ if __name__ == "__main__":
         help="Read-only final audit after an authorized transfer",
     )
     parser.add_argument("--pilot", action="store_true", help="Read-only single-pilot acceptance")
+    parser.add_argument("--selected", action="store_true", help="Read-only acceptance for committed transfer targets")
     arguments = parser.parse_args()
     if arguments.pilot:
-        verify(pilot_only=True)
+        verify({"vietth@ecouncil.ae"})
+    elif arguments.selected:
+        verify(set(committed_targets()))
     elif arguments.verify:
         verify()
     else:
