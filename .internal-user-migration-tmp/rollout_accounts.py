@@ -205,9 +205,7 @@ def key_fingerprint(key):
         "updated_at",
         "updated_by",
     }
-    return {name: value for name, value in key.items() if name not in runtime_counters} | {
-        "user_id": key.get("user_id") or "default_user_id"
-    }
+    return {name: value for name, value in key.items() if name not in runtime_counters}
 
 
 def user_by_id(token, user_id):

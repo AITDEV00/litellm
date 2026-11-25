@@ -35,12 +35,13 @@ def committed_targets():
     return records
 
 
-def preflight():
-    token = admin_key()
+def preflight(admin_token=None, raw_owners=None, pending_requests=None):
+    token = admin_token or admin_key()
     baseline = json.loads(BASELINE.read_text())
     candidates = key_candidates(token)
     users = all_users(token)
     assert stat_mode(ORIGINAL_SNAPSHOT) == 0o600, "The pre-transfer snapshot must be protected"
+    assert stat_mode(BASELINE) == 0o600, "Transfer baseline must be mode 0600"
     assert set(candidates) == set(baseline), "Key inventory differs from original baseline"
     assert len({key["token"] for key in candidates.values()}) == len(candidates)
     committed = committed_targets()
@@ -59,16 +60,26 @@ def preflight():
         unexpected = [key for key in owned if key["token"] != before["token"]]
         assert not unexpected, f"Unexpected existing target key at {email}"
         original = dict(before["original_key"])
-        expected_owner = target_id if email in committed else before["original_user_id"]
-        original["user_id"] = expected_owner
         current = candidates[email]
+        if email in committed:
+            assert current.get("user_id") == target_id, f"Committed-owner mismatch: {email}"
+        original["user_id"] = current.get("user_id")
         assert key_fingerprint(original) == key_fingerprint(current), f"Key config drift: {email}"
         assert committed.get(email, target_id) == target_id, f"Journal target mismatch: {email}"
         assert current["team_id"] == DEVELOPER
+        if raw_owners is not None:
+            for worker, records in raw_owners.items():
+                actual = records.get(before["token"])
+                assert actual is not None, f"Missing {email} on {worker}"
+                expected_owner = (
+                    target_id if email in committed or email in (pending_requests or {}) else before["original_user_id"]
+                )
+                assert actual["user_id"] == expected_owner, f"Raw owner mismatch for {email} on {worker}"
+                assert actual["key_alias"] == before["alias"], f"Raw alias mismatch for {email} on {worker}"
         rows.append(
             {
                 "email": email,
-                "original_user_id": original["user_id"],
+                "original_user_id": current.get("user_id"),
                 "planned_update": {"key": before["token"], "user_id": target_id},
                 "key_config_unchanged": True,
             }
@@ -93,6 +104,7 @@ def preflight():
             indent=2,
         )
     )
+    return baseline, candidates, users, committed
 
 
 def verify(selected_emails=None):
@@ -146,6 +158,9 @@ def verify(selected_emails=None):
         account = matching_user(users, email)
         assert raw_records[email] == account["user_id"], f"Raw owner mismatch: {email}"
     summary["raw_prisma_owner_matches"] = len(flags)
+    if selected_emails == sorted(baseline):
+        assert set(raw_records) == set(candidates), "Full acceptance requires raw evidence for every original target"
+        assert set(committed_targets()) == set(baseline), "Full acceptance requires all targets committed"
     supported_modes = (None, 0o600)
     assert stat_mode(report) in supported_modes, "Audit file must remain protected"
     report.write_text(json.dumps(summary, indent=2) + "\n")

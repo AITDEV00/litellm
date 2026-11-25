@@ -4,3 +4,5 @@
 !rollout_accounts.py
 !key_transfer.py
 !migrate_users.py
+!execute_key_transfer.py
+!test_key_transfer_runner.py
