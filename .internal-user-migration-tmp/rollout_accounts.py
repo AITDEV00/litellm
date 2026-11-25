@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Idempotent DEVELOPER-account rollout: defaults, teams, forced-reset password; never key reassignment."""
+"""Idempotent DEVELOPER account creation and verification, with no API-key ownership transfer."""
 from __future__ import annotations
 
 import argparse

@@ -2,4 +2,5 @@
 !.gitignore
 !PLAN.md
 !rollout_accounts.py
+!key_transfer.py
 !migrate_users.py
