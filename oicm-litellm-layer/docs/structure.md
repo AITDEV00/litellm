@@ -108,7 +108,8 @@ oicm-litellm-layer/
 │   │   ├── hooks.md
 │   │   ├── custom-routes.md
 │   │   └── patches.md
-│   ├── admin-api/          ← LiteLLM admin REST API guides
+│   ├── admin-api/          ← administration capability map, admin REST endpoints, read-only guide
+│   │   └── ADMIN-CAPABILITY-MAP.md ← UI/OpenAPI capability/source/permission map; default user settings
 │   ├── mcp-architecture-qa/ ← current MCP/SSO integration guide plus dated architecture/evidence research
 │   │   ├── 14-sso-application-integration.md ← delegated user JWT/model/MCP calls and org/team/group setup
 │   │   ├── 15-opencode-sso-mcp-skills-pilot.md ← gated native OpenCode/private skills plan, not completed support

@@ -75,7 +75,7 @@ On success the proxy issues a short-lived JWT (session duration from `LITELLM_UI
 
 ### Option C: SSO
 
-If `general_settings.ui_sso` is configured on the proxy, the athena user can also be mapped from an SSO identity via `user_allowed_roles` / role mappings in `ui_sso`. This is not set up by default on ADEO; contact the proxy admin if SSO is required.
+If `general_settings.ui_sso` is configured on the proxy, the athena user can be mapped from an SSO identity via `user_allowed_roles` / role mappings in `ui_sso`. Current deployment supports Microsoft OIDC, but it does not imply Entra app-role mappings are configured or that SSO must assign this service account global administration. Ordinary new-user defaults are configured through **Internal Users -> Default User Settings** (`/get/internal_user_settings` and `/update/internal_user_settings`). The gateway can also store SSO settings through `/get/sso_settings` and `/update/sso_settings`; see the [administration capability map](ADMIN-CAPABILITY-MAP.md). Admin Viewer is never a valid `adma` connector account regardless of login success.
 
 ## What the key can access
 

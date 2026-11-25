@@ -31,7 +31,7 @@ So SSO can indirectly lead to model-capable credentials, but a browser cookie al
 Even if your app uses keys, SSO still improves the system, for four reasons:
 
 1. **Identity provisioning.** Each person gets a real user row with their email, created on first login. That is the foundation for per-user budgets, per-user spend attribution, and per-user roles. Without SSO you either create users by hand or use keys that carry no identity.
-2. **Role mapping from the directory.** `ui_sso` accepts `user_allowed_roles` and role/team mappings, so a Microsoft Entra group can map to `proxy_admin`, `org_admin`, or a team membership. That is how you get RBAC without an admin hand-picking each person's role.
+2. **Role mapping from the directory, or gateway-managed defaults.** `ui_sso` accepts `user_allowed_roles` and role/team mappings, so an Entra group can intentionally supply a global role/team mapping. That is one option, not a prerequisite for ordinary roles: Admin UI **Internal Users -> Default User Settings** (`/get/internal_user_settings`, `/update/internal_user_settings`) controls the default internal-user role/budget/models/team memberships. Valid SSO role mappings supplied explicitly take precedence; changing an existing account's global user role uses `/user/update`; organization/team admin delegation remains its own membership role.
 3. **De-provisioning.** Remove a person from the Entra group and their access to the UI and role goes away on next login. With hand-minted keys you have to remember to revoke.
 4. **Audit identity.** `created_by`, spend logs, and the audit trail can name the human, not "the admin made a key for someone".
 

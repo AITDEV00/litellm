@@ -1,7 +1,8 @@
 # LiteLLM Proxy Admin REST API Guide
 
-Comprehensive reference for every HTTP admin REST endpoint in the LiteLLM proxy for managing API keys, teams, organizations, models, fallbacks, router settings, users, budgets, and spend.
+Comprehensive reference for admin REST endpoints in this checkout. Re-verified against the prod `openapi.json` for version `1.108.5` (761 paths) on 2026-11-25.
 
+Use the [administration capability map](ADMIN-CAPABILITY-MAP.md) first for UI-to-API affordances and caveats not obvious from individual endpoints, including Default User Settings, SSO management, invitation/password flows, team-admin delegated fields, unified resource groups, and configuration persistence. Endpoints below are management reference, not an authorization recipe: inspect the corresponding handler, role/member scope, and optional integration config before treating a route as usable.
 All endpoints are served by the proxy's FastAPI app (default port `4000`). Unless noted otherwise, every endpoint requires the `Authorization: Bearer <key>` header and uses the `user_api_key_auth` dependency for authentication.
 
 ## Connecting to the ADEO LiteLLM Proxy

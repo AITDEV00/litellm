@@ -222,6 +222,10 @@ If team members need to create their own keys, allow `/key/generate` (and only t
 
 ### User provisioning and identity
 
+Set ordinary new-user defaults in **Admin UI -> Internal Users -> Default User Settings**, or `PATCH /update/internal_user_settings` backed by `litellm_settings.default_internal_user_params`. This can set user role, model/budget ceilings, existing teams and per-team defaults without requiring Entra app-role edits. The gateway reads these for UI SSO and `/user/new`; preserve valid explicitly mapped SSO roles, which take precedence. These defaults do not revise existing accounts or independently guarantee direct-JWT creation uses the same provisioning function. Use the [administration capability map](../admin-api/ADMIN-CAPABILITY-MAP.md) to separate default creation from existing-user and membership edits.
+
+Current prod defaults on 2026-11-25 are `internal_user`, no set max-budget/budget-period/default models, and ordinary membership of ENDUSERS plus DESKTOP, as verified from `GET /get/internal_user_settings`. Role and group mappings must therefore be evaluated alongside that baseline, not solely or automatically in Entra. Do not confuse these settings with the separate `password_reset_required` bearer connector requirement.
+
 Prefer Entra `oid` as the gateway `user_id`; use `upn` as an identity email attribute. For human users:
 
 - Option A, UI SSO-driven provisioning: sign into the Admin UI, or use an explicitly provisioned SCIM/directory membership if implemented. The SSO callback upserts a user into `LiteLLM_UserTable`

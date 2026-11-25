@@ -181,6 +181,7 @@ nav:
       - Open Questions: client-distribution/open-questions.md
       - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
   - Admin API:
+      - Gateway Administration Capability Map: admin-api/ADMIN-CAPABILITY-MAP.md
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
   - MCP Architecture Research:

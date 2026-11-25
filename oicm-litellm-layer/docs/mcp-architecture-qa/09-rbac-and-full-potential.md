@@ -136,7 +136,7 @@ That is the honest boundary: ceilings cascade and cannot be exceeded downward; e
 
 1. **Make admins, not keys, per consumer.** One human account per person, role `internal_user`, member of exactly the teams they need.
 2. **Put every team under an organization.** All 25 already have an `organization_id`, which is good. Set each org's `models` to the ceiling that org may use, so the org becomes the guarantee.
-3. **Add one org_admin per organization.** Right now there are zero. Pick the owner of ADEO, DGE, and so on, and make them org_admin of only their org. They then create teams inside it, bounded by the org ceiling.
+1. **Assign organization governance through the actual organization membership UI or `/organization/member_add`.** Do not imply ordinary people can be delegated only through Entra app roles. The earlier historical organization-admin count is not current. See the administration capability map for the membership-backed org/team governance contract.
 4. **Move budget and rates onto the team.** Token limits per team with `team_member_budget` if you need per-person caps. Then stop setting limits per key by hand.
 5. **Let users mint their own keys** with `key_type` presets. `READ_ONLY` for people who should only look, `LLM_API` for normal consumers. Add `team_member_permissions` so team admins can generate and revoke their own members' keys.
 6. **Grant MCP per team** with unified `assigned_team_ids` on an access group listing intended `access_mcp_server_ids`. Use legacy `mcp_access_groups` tags only where deliberately needed, then narrow with `mcp_tool_permissions` or a toolset.
@@ -176,7 +176,7 @@ Yes, materially, and in a specific way. The work moves from per-key bookkeeping 
 - **Per-user MCP access** becomes "assign a unified access group listing intended server IDs to this team". Group `assigned_team_ids` is the linkage to keep auditable; direct key-group assignment can widen access and is not just a narrowing modifier.
 - **Per-user token limits** become `team_member_tpm_limit` / `team_member_budget` on the team, set once, applying to every member.
 - **Revocation** becomes removing a team member or blocking the team, one action.
-- **New person onboarding** becomes create user, add to team, done. With SCIM or SSO team mappings, it is zero manual steps.
+- **New-person onboarding** can use **Internal Users -> Default User Settings** or `PATCH /update/internal_user_settings` for default role/budget/models/teams, even without directory roles. Explicit valid SSO roles take precedence. Existing users need their user edit/team membership updated separately. Default users resulting on prod currently also get both chosen team memberships; this does not union access into one key.
 
 The cost up front is real: you must populate org ceilings, team budgets, and team grants once. After that, adding a user is one membership row rather than a bespoke key with hand-picked limits.
 
@@ -184,7 +184,8 @@ The cost up front is real: you must populate org ceilings, team budgets, and tea
 
 1. Decide the org ceiling for each of the 5 orgs (ADEO already says `all-proxy-models`; consider whether that is intended).
 2. Make one org_admin per org.
-3. Pick the 2 or 3 teams that should actually get MCP, attach `mcp-source-*` groups to those teams, and flip the servers off public.
+3. Keep intentionally remote servers public-address eligible, grant only through assigned unified MCP groups, and narrow tool permissions/argument policy. `available_on_public_internet` is not an identity bypass; disabling it would break approved public-IP callers rather than solve access control.
+   Default users can be provisioned through the gateway's default-user settings without requiring an added Entra app-role; use directory mapping only for intentional role precedence. The proxy-wide set of team-admin editable fields lives in UI Settings `team_admin_editable_team_fields`, independently of explicitly permitted per-team member operations.
 4. Move existing per-key limits up to their team, then simplify the keys.
 5. Replace ad-hoc keys with `key_type` presets, and keep `internal_user_viewer` for read-only people.
 6. Only then consider SSO, which is the biggest setup and the least urgent if the team/org model is sound.
