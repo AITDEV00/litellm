@@ -77,19 +77,27 @@ Option 3 means normalize account emails with strip and lowercase. The existing k
 4. **Live auth proof:** jyao's original key has a successful HTTP 200 permitted-model completion and expected HTTP 403 management/model denial, with request rows attributed to the personal UUID. For every other owner, leave same-bearer live tests explicitly pending until that exact original plaintext is obtained from the client or an authorized secret store. `/key/info` can legitimately be denied by preserved `llm_api_routes`; do not change route grants to force acceptance. Static state checks do not prove external client authentication or model compatibility.
 5. **One continuous batch, sequential and fail-fast:** each request finishes public-configuration and both-worker raw-owner checks before the next starts. No intermediate batch approval is proposed. A failure still stops the remaining sequence and must be reconciled through its matching protected pending record before resuming.
 
-## Remaining 51-key single-batch plan, unexecuted
+## Completed 51-key single batch (2026-11-25)
 
-The accepted jyao live-model transfer demonstrates the owner-only mutation path for a previously raw-null key. The proposed batch does not merge the completed two transfers into the new scope. It includes exactly the other 51 original keys: 48 remaining explicit-admin owners then three raw-null originals: `dqvu@ecouncil.ae`, `mhserry@ecouncil.ae`, and `naalkhazraji@ecouncil.ae`.
-
-Preparation requires `python3 .internal-user-migration-tmp/execute_key_transfer.py --plan` followed by `--preflight-raw` on a working documented cluster tunnel. After your explicit approval for the whole batch, the single operator command is:
+The user explicitly approved the whole remaining batch. The command was run once with the protected lock and exact two-field updates:
 
 ```bash
 python3 .internal-user-migration-tmp/execute_key_transfer.py --apply-remaining --confirm TRANSFER_REMAINING_51 --max-transfers 51
 ```
 
-Keep the invocation under a durable terminal or job supervisor. Track per-key commitment records and retain the protected immutable rollback data. On successful completion run `--acceptance-full-raw`, which requires all 53 committed owners, complete fresh Prisma checks in both workers, exact original hashes/casing/aliases/permissions/configuration, exactly one attached original key per target, and exclusion of `V2V-DEV-SHARED`. Treat any partial error as a stop with a committed-status report, not as permission to repeat the entire batch.
+Result: **51/51 transfers verified** in the single invocation, with the three raw-null originals handled last. No key was skipped, no request was retried blindly, and the browser-visible alias, token hash, model grants, permissions, budgets, route restrictions, and `DEVELOPER` team were preserved.
 
-Same-client acceptance remains separate: for every user for whom an authorized plaintext bearer can be obtained, hash-verify it against the original stored token, test retained-model success and ungranted-model denial, preserve route restrictions, and inspect new personal-owner spend attribution. Do not generate replacement keys or substitute the master credential to manufacture those proofs. Missing plaintext is explicitly pending live-client verification, not an automatic failure of the ownership-only migration.
+- `--acceptance-full-raw` reports **53 verified personal owners**, **53 distinct personal users**, **zero remaining original owners**, **complete_transfer: true**, **raw_prisma_owner_matches: 53**, and shared service key not personally assigned.
+- An independent post-batch inventory confirms 54 `DEVELOPER` keys remain: 53 personally owned email-alias originals and the untouched `V2V-DEV-SHARED` service key. Both `litellm-proxy-8bd44bf4-dj6jr` and `litellm-proxy-8bd44bf4-m6fc8` independently returned the matching persisted owner for all 53 original hashes.
+- `key_transfer.py --verify` independently reports `verified_personal_owners: 53`, `complete_transfer: true`, `key_configuration_preserved: true`, and `remaining_original_owners: 0`.
+
+### Remaining live-client acceptance
+
+The exact original plaintext bearer for `jyao@ecouncil.ae` was provided and successfully tested before and after its transfer, including a real model request, denied ungranted model, preserved management-route denial, and personal spend attribution. **The other 52 original plaintext bearers are not available locally.** Their persisted ownership, preserved configuration, exact attached key, and two-worker consensus are proven, but external client authentication, capability-specific model behavior, and owner attribution for real requests should be checked with each owner's existing key when it is available. Never generate a replacement key or use the admin credential to fabricate that evidence.
+
+### Rollback snapshot
+
+Do not delete protected mode-0600 `key-transfer-baseline.json`, `initial-key-snapshot.json`, `key-transfer-journal.jsonl`, `key-transfer-state.jsonl`, or `key-transfer-raw-owner-evidence.json` until secure password handoff and client-key verification are complete. The completed journal retains each original persisted owner so a specific failure can be rolled back with one exact two-field request; text labels from `/key/list` are not sufficient for the three original raw-null keys.
 ### Raw-null ownership recovery gate
 
 - Four references in the immutable baseline have original raw owner `null`: `dqvu@ecouncil.ae`, `jyao@ecouncil.ae`, `mhserry@ecouncil.ae`, `naalkhazraji@ecouncil.ae`. Proxy-admin `/key/update` **can** explicitly restore exact raw null with `{"key":<hash>,"user_id":null}`. Source `_validate_caller_can_change_key_ownership` permits proxy admins, while ordinary non-admin callers cannot clear ownership. Preparation `model_dump(exclude_unset=True)` retains supplied null. Do not use DELETE, regeneration, raw SQL, or a full key object for this recovery.
