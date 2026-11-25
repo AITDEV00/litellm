@@ -1,15 +1,15 @@
 # Internal user identity and key ownership migration
 
-Temporary workspace implementation. Only this plan and `migrate_users.py` are committed because commit-all was already requested, while the folder is temporary and must be removed later. Local evidence, handoff password files, generated keys, and snapshots are excluded through this folder's `.gitignore`. Remove the whole folder after the full migration and secure password handoff. Do not commit pilot plaintext password, UI session key, or full user-key snapshots.
+Temporary workspace implementation includes `migrate_users.py`, the account-only `rollout_accounts.py`, and this handoff record. Local evidence, journal, handoff password files, generated keys, and snapshots are excluded through this folder's `.gitignore`. Remove the whole folder after the full migration and secure password handoff. Do not commit plaintext passwords, UI session keys, or full user-key snapshots.
 
 ## Pilot acceptance evidence (2026-11-25)
 
 - Created exactly one new user, `vietth@ecouncil.ae`, ID `d6b12306-48e3-4532-8312-4efcb6782502`, global role `internal_user`, lowercase email, `auto_create_key:false`.
 - Persisted `password_reset_required=true` independently verified with a read-only SELECT using the proxy's existing Prisma client. The chosen 13-character temporary password is in mode-0600 untracked `pilot-initial-password.txt`.
 - Verified all three required team memberships and DEVELOPER member role `user`, and no initial generated keys. Original hashed-key identity, alias with trailing space, models and other key non-owner fields are identical to the precreation snapshot. Original key owner `default_user_id` is retained.
-- Underlying database-backed password session correctly denies general `/v2/user/info` (HTTP 403), rejects wrong current password at `/user/password/change` (HTTP 400), and logs out via `/session/logout` (200 Session revoked). The reset flag remains true.
-- **Browser acceptance blocker:** raw `/v2/login` returns a locally signed HS256 wrapper JWT with reset-required true; using that wrapper at standard Bearer authentication routes routes to Entra JWKS and fails HTTP 401 (`No matching public key found`, kid None) before route auth. Using the underlying generated password-session key directly works and is reset-limited. This existing auth-family bug prevents a standard dashboard user from completing the required reset. Do not elevate to proxy_admin, move the key, or clear reset-required as a workaround. Fix UI wrapper validation separately before full rollout.
-- `--pilot` does not transfer keys; it verifies existing pilot state idempotently or creates the only new account, if new. `--migrate-pilot-key` is available but was not run. `--migrate-all-keys` is refused until explicit post-remediation approval.
+- Underlying database-backed password session correctly denies general `/key/info` (HTTP 403), rejects wrong current password at `/user/password/change` (HTTP 400), identifies its intended owner via `/management/v1/users/me`, and logs out via `/session/logout` (200 Session revoked). The reset flag remains true.
+- The raw `/v2/login` HS256 wrapper JWT is **not** the Bearer credential for ordinary gateway management calls; sending it directly to Entra-backed authentication fails with 401 (`No matching public key found`) as expected. The browser unwraps its `key` claim in `AuthContext.tsx` and sends that inner password session to self-service password-change routes. The initial browser-blocker conclusion was wrong; the observed token family difference does not block the dashboard's intended reset flow. Password changing was intentionally not completed during this reset-required handoff phase.
+- The pilot did not and must not transfer key ownership. `--pilot` only checks the pre-existing account/state and related defaults; remaining rollout uses the account-only `rollout_accounts.py`, which has no key-reassignment option.
 
 ## Migration state 2026-11-25
 
@@ -17,9 +17,19 @@ Production team `DEVELOPER` has 54 keys: 53 email aliases (49 new identities and
 
 Option 3 means normalize account emails with strip and lowercase. The existing key alias, including aliased case and whitespace, is not changed by this migration.
 
+## Completed production account rollout (2026-11-25)
+
+- All **53** normalized email identities have a unique matching production account with global role `internal_user`. All three required teams (`ADEOGPT-ENDUSERS`, `ADEOGPT-DESKTOP`, and `DEVELOPER`) contain the account with member role `user` and matching team-membership rows.
+- **49** accounts are newly created, including the pilot. Each has the same shared initial password stored only in the protected local `shared-initial-password.txt`; each still has `password_reset_required=true`. No extra automatic keys were created.
+- Exactly the four originally matching accounts `mohamed.hamouda@ecouncil.ae`, `jyao@ecouncil.ae`, `dqvu@ecouncil.ae`, and `ffkhan@ecouncil.ae` were reused. No password was set or reset for them by this migration. `ffkhan` retains its pre-existing forced-reset flag.
+- A complete read-only `rollout_accounts.py --verify` passed for all 53 accounts, actual team roles and rows, key owner, original alias/casing/whitespace, hashed token identity, models, permissions, policies, budgets, team, and other non-runtime key configuration.
+- Independent raw Prisma owner comparison of the original hashes matched all 53 original owners: 49 `default_user_id` and 4 `null`. `/key/list` may represent a null owner as `default_user_id`; raw persisted values are authoritative and were unchanged. Normal `last_active`, `spend`, and `total_spend` counters can advance with real concurrent traffic and are not static identity/configuration.
+- **No key transfer or API-key rotation took place. Key ownership reassignment remains a separately authorized later phase.** `V2V-DEV-SHARED` remains untouched.
+- The temporary shared password file is deliberately retained until human handoff. Hand it off through the approved out-of-band channel: each of the 49 new users uses the same initial password and must replace it at first login. Do not print it into chat, commits, tickets, or shared logs. Delete local credential files and this temporary directory only after all recipients have changed passwords and the later authorized key-transfer phase is complete.
+
 ## Phases
 
-1. Review the completed flight using `python3 .internal-user-migration-tmp/migrate_users.py --pilot`. This validates exactly one pilot user, zero unexpected extra keys, three teams, and password flag. It never moves existing pilot key ownership.
+1. Review the completed pilot account using `python3 .internal-user-migration-tmp/migrate_users.py --pilot`; the approved full account state and audit use `python3 .internal-user-migration-tmp/rollout_accounts.py --verify`. Reruns never assign password to originally pre-existing accounts.
 2. `/user/new` created exactly one pilot account (vietth), explicit three-team memberships, `auto_create_key:false`.
 3. Use a protected local admin-generated temporary password input. `/user/update` stores the hash and automatically sets reset-required true. No raw password appears in the HTTP log, manifest, command line, or script.
 4. Verify identity with `/user/info`, team with paginated `/key/list`, memberships via `/team/info`, pre-change reset-required via read-only database SQL, password session via `/v2/login`, and that the password-change session read correctly identifies reset-required. No actual change is performed; cleanup temporary UI sessions.

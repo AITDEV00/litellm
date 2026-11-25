@@ -210,7 +210,7 @@ grep -r "$(cat /tmp/accept-prod1.pw)" ~/.config/source-agent && echo LEAK || ech
 - `MCP_SOURCE_LINK_INSECURE=1` disables certificate verification. It exists for
   dev gateways fronted by a self-signed certificate and must never be set against
   production, because it accepts any certificate.
-**Required OICM handoff contract:** whenever an account is created using the proxy-admin key, the provisioning administrator **must make and verify `password_reset_required=false` before handing it off**. An account still forced into password replacement is incomplete, not usable by the connector. This rule applies to all admin-created account flows described here and in the Admin REST API
+**Required OICM connector handoff contract:** for an account intended for persistent connector password login, the provisioning administrator **must make and verify `password_reset_required=false` before handing it off**. An account still forced into password replacement is incomplete for this use because `/sso/cli/password` deliberately rejects it. This is narrowed to the connector path, not a blanket API-user password policy: interactive Admin UI accounts should preserve admin-set forced reset and complete `/user/password/change` first
 
 - **Getting an account on prod** is an administrator step, and neither obvious
   route works on its own. `POST /user/new` rejects a `password` field outright

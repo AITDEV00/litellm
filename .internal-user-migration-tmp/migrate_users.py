@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guarded internal-user migration. Secret files stay local; remove directory after handoff."""
+"""Local account-only migration: reset flows verified; no legacy API-key ownership actions."""
 from __future__ import annotations
 
 import argparse
@@ -68,7 +68,7 @@ def candidate_keys(token):
 
 def find_user(token, email):
     users = listing(token, "/user/list?user_email=" + urllib.parse.quote(email), "users")
-    matches = [row for row in users if row.get("user_email", "").casefold() == email]
+    matches = [row for row in users if (row.get("user_email") or "").strip().casefold() == email]
     assert len(matches) <= 1, f"multiple identity matches for {email}"
     return matches[0] if matches else None
 
@@ -184,7 +184,7 @@ def parse_error(message):
         raise ValueError(message)
     return int(message.split(marker, 1)[1].split(":", 1)[0])
 
-# Migration CLI superset: --pilot is only allowed accounting/verification action.
+# Pilot is read-only verification of the account already provisioned.
 
 
 def verify_password_session(email, user_id, password):
@@ -194,7 +194,9 @@ def verify_password_session(email, user_id, password):
     assert claims["password_reset_required"] is True and claims["user_id"] == user_id
     assert claims["login_method"] == "username_password"
     session = claims["key"]
-    info_endpoint = f"/v2/user/info?user_id={user_id}"
+    profile = endpoint(session, "GET", "/management/v1/users/me")
+    assert profile == {"user_id": user_id, "user_role": "internal_user", "user_email": email}
+    info_endpoint = "/v2/user/info"
     restricted = {}
     try:
         try:
@@ -223,13 +225,15 @@ def verify_password_session(email, user_id, password):
 
 
 def preserve_key(row, before):
-    excluded = {"created_at", "updated_at", "updated_by"}
     assert project_key(row) == project_key(before), {"key_mutation": row}
     return True
 
 
 def project_key(row):
-    return {key: value for key, value in row.items() if key not in {"user_id", "created_at", "updated_at", "updated_by"}}
+    excluded = {"last_active", "spend", "total_spend", "created_at", "updated_at", "updated_by"}
+    static = {key: value for key, value in row.items() if key not in excluded}
+    static["user_id"] = row.get("user_id") or "default_user_id"
+    return static
 
 
 def provision(args):
@@ -246,10 +250,12 @@ def provision(args):
             password = (WORK / "pilot-initial-password.txt").read_text().strip()
             forced_reset = verify_reset(email, user["user_id"])
             session_result = verify_password_session(email, user["user_id"], password)
-            key = json.loads((WORK / "pilot-before-key.json").read_text())
+            baseline = json.loads((WORK / "initial-key-snapshot.json").read_text())[email]
             current_key = candidate_keys(token)[email]
-            assert current_key["user_id"] == key["former_user_id"]
-            assert project_key(current_key) == key["key_state"]
+            assert (current_key["user_id"] or "default_user_id") == (baseline["user_id"] or "default_user_id")
+            assert current_key["token"] == baseline["token"]
+            assert current_key["key_alias"] == baseline["alias"]
+            assert project_key(current_key) == project_key(baseline["non_owner_state"])
             display = {"email": email, "user_id": user["user_id"], "forced_reset": forced_reset,
                        "all_three_teams": "verified", "existing_key_preserved": True,
                        "password_handoff": "pilot-initial-password.txt (mode 0600)",
@@ -305,7 +311,7 @@ try:
     elif args.migrate_all_keys:
         raise RuntimeError("All-key transfer requires separately requested approval, after model interoperability testing")
     elif args.rollout:
-        raise RuntimeError("Rollout is paused until users can complete browser self-service password reset; pilot blocker in PLAN.md")
+        raise RuntimeError("Use rollout_accounts.py for the completed account-only phase; key ownership changes remain separate")
     else:
         provision(args)
 except (AssertionError, RuntimeError, KeyError, ValueError) as e:

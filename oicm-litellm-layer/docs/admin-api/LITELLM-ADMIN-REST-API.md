@@ -1985,8 +1985,8 @@ curl -sk -X POST "$PROXY_BASE_URL/user/new" \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_email": "adeogpt@ecouncil.ae",
-    "user_alias": "ADEOGPT",
+    "user_email": "new-developer@example.com",
+    "user_alias": "Example Developer",
     "user_role": "internal_user",
     "auto_create_key": true
   }'
@@ -2004,23 +2004,22 @@ curl -sk -X POST "$PROXY_BASE_URL/user/update" \
   }'
 ```
 
-The `/user/new` response returns `user_id`, `user_role`, `user_alias`,
-`user_email`, and an auto-created `key`. Save the `user_id`; it is the handle
-for `/user/update` and `/user/info`. The account can log in only after the
-`/user/update` password step above succeeds.
+The `/user/new` response always supplies a `user_id`. When `auto_create_key` is false, its `key` is empty and no LLM/API token is returned. Otherwise the response includes an auto-created key. Save the immutable `user_id` for later password, membership, and ownership updates, not the display email or key alias.
 
-**Required OICM handoff policy: `password_reset_required=false`.** Every account created using the proxy-admin key or another administrator credential must have `password_reset_required` set to `false` before handoff to a user, service developer, or connector. This applies to accounts created with `/user/new`, with or without `auto_create_key`, after the password-setting step. It is not optional for MCP source connectors: connector login deliberately refuses the forced-reset state
+`/user/new` rejects a client-supplied `password` with 422. Set it afterward through `POST /user/update` with only the selected `user_id` and the protected password value. `_hash_password_in_dict` validates policy and breached-password screening before hashing, and handoff through an administrator sets `password_reset_required=true`, `last_breach_check_at=NULL` automatically. `GET /user/info?user_id=<id>` in this verified version includes the filtered `user_info.password_reset_required` flag and team memberships while removing password and returned UI-session keys. In contrast `/v2/user/info` uses a whitelist excluding both password hash and reset flag. Do not trust `/v2/login`'s wrapper alone as the direct public management Bearer credential; validate the password-session inner key route
 
-The default admin-password implementation `_hash_password_in_dict` sets `password_reset_required=true` deliberately. Verify that it is `false` with `GET /user/info?user_id=<id>` or the read-only SQL check documented in the [source-agent guide](../usage-guides/MCP_SOURCE_AGENT_GUIDE.md#step-2-log-in). If `true`, the administrator must complete the bounded reset (exact user ID, expected role, only `password_reset_required=false` and `last_breach_check_at=NULL`) and verify `UPDATE 1`. Do not send `password_reset_required: false` as an undocumented `/user/update` field; the current API does not expose that field. The guide's guarded remediation is the OICM procedure in this version
+**Choose forced-reset semantics for the intended human or connector path, not one global flag rule:**
 
-The timestamp nulling schedules a fresh breach screen on first successful password validation. An ordinary first accepted login stamps `last_breach_check_at` and should leave the flag false; if a later genuine breach screen raises it, stop and handle password quality/rotation with the actual account owner. Do not automate flag-clearing as an ongoing bypass of the password-protection screen. Keep credentials in protected local storage or a secret manager, never in these examples, issues, chat, or terminal logs intended to share
+- **Interactive user provisioned by an administrator:** leave `password_reset_required=true` at handoff. Browser dashboard login issues a wrapper HS256 session JWT. The frontend decodes its inner `key`, a DB-backed `sk-` password-session credential, for API calls. This restricted session permits `/management/v1/users/me`, `/user/password/change`, and `/session/logout`, but denies other ordinary routes until the password changes. Do not send the wrapper itself as generic Entra/Bearer authentication; doing so is an auth-family mismatch, not evidence the browser cannot reset the password. In deployed frontend `AuthContext`, claim `key` becomes its `accessToken`
+- **Persistent MCP source connector password:** connector login at `/sso/cli/password` deliberately refuses the same forced-reset state. Use the narrowly targeted source-agent handoff procedure to set `password_reset_required=false`, `last_breach_check_at=NULL` only after proving the intended connector identity. This is the bounded connector exception, not something to blanket clear on new interactive users
 
-**Verify after creation** with `GET /user/info?user_id=<id>` (shows the user's
-keys and memberships). Confirm both `password_reset_required=false` and successful password login via
-`POST /v2/login`. For a source connector, test `POST /sso/cli/password` too:
-it issues only source-enrollment/worker routes. `/key/info` refusal from that
-special key is expected least privilege, not another account failure. Rotate the auto-created key
-with `/key/regenerate` or `/key/update` if it was exposed.
+The timestamp nulling schedules a fresh breach screen on next credential use if the connector exception runs; it does not improve a person's password or turn a shared temporary password into a private initial credential. For ordinary interactive users, do not proactively clear the reset-required flag: their `POST /user/password/change` flow successfully clears it only when current and valid replacement passwords are supplied. They must log in again afterward with that new password. Choosing a private per-user invitation link avoids shared administrator-known passwords altogether
+
+Secure local temporary password input and handoff belong outside documentation, command lines, issues, chat, or terminal logs for sharing. Strong password class, minimum length, and breach-service requirements continue at every self-service change. Any admin password update revokes a user's previous UI sessions, so a bulk repeated script must detect and resume existing accounts without resetting them
+
+**Interactive-user validation:** with the inner password-session credential, establish a valid `/v2/login`, verify the wrapper's reset flag, accept restricted `/management/v1/users/me`, reject non-permitted key information, and verify wrong current passwords cannot complete `/user/password/change`. Revoke the test session. Completing a password change or setting reset false is not necessary to prove initial forced-reset provisioning
+
+**Connector validation:** confirm the intended connector-specific reset-state exception and successful `POST /sso/cli/password`. Its returned virtual key permits only `/mcp-sources` and `/mcp-source-link-sources/*`; `/key/info` refusal is expected least privilege, not another account failure. Replace or revoke generated API keys only as authorized, never accidentally expose them through `/user/new` account registration, key regeneration, or transfer
 
 ### POST `/user/update` ; Update a User
 
