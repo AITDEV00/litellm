@@ -2008,9 +2008,17 @@ The `/user/new` response returns `user_id`, `user_role`, `user_alias`,
 for `/user/update` and `/user/info`. The account can log in only after the
 `/user/update` password step above succeeds.
 
+**Required OICM handoff policy: `password_reset_required=false`.** Every account created using the proxy-admin key or another administrator credential must have `password_reset_required` set to `false` before handoff to a user, service developer, or connector. This applies to accounts created with `/user/new`, with or without `auto_create_key`, after the password-setting step. It is not optional for MCP source connectors: connector login deliberately refuses the forced-reset state
+
+The default admin-password implementation `_hash_password_in_dict` sets `password_reset_required=true` deliberately. Verify that it is `false` with `GET /user/info?user_id=<id>` or the read-only SQL check documented in the [source-agent guide](../usage-guides/MCP_SOURCE_AGENT_GUIDE.md#step-2-log-in). If `true`, the administrator must complete the bounded reset (exact user ID, expected role, only `password_reset_required=false` and `last_breach_check_at=NULL`) and verify `UPDATE 1`. Do not send `password_reset_required: false` as an undocumented `/user/update` field; the current API does not expose that field. The guide's guarded remediation is the OICM procedure in this version
+
+The timestamp nulling schedules a fresh breach screen on first successful password validation. An ordinary first accepted login stamps `last_breach_check_at` and should leave the flag false; if a later genuine breach screen raises it, stop and handle password quality/rotation with the actual account owner. Do not automate flag-clearing as an ongoing bypass of the password-protection screen. Keep credentials in protected local storage or a secret manager, never in these examples, issues, chat, or terminal logs intended to share
+
 **Verify after creation** with `GET /user/info?user_id=<id>` (shows the user's
-keys and memberships). Confirm the password took effect by logging in via
-`POST /v2/login` with the username and password. Rotate the auto-created key
+keys and memberships). Confirm both `password_reset_required=false` and successful password login via
+`POST /v2/login`. For a source connector, test `POST /sso/cli/password` too:
+it issues only source-enrollment/worker routes. `/key/info` refusal from that
+special key is expected least privilege, not another account failure. Rotate the auto-created key
 with `/key/regenerate` or `/key/update` if it was exposed.
 
 ### POST `/user/update` ; Update a User
