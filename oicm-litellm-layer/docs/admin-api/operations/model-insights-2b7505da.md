@@ -1,0 +1,8 @@
+# model_insights: OpenAPI method register
+
+Each row is one advertised HTTP method and path from the live OpenAPI snapshot. See [operation-register overview](../OPERATION-REGISTER.md) for evidence and auth limitations before using these as permissions.
+
+| Method and path | Operation and documented input | Documented responses | OpenAPI security declaration | Runtime source mapping | Tracing status |
+|---|---|---|---|---|---|
+| `GET /model-insights` | **`get_model_insights_model_insights_get`**<br>`Get Model Insights`<br>`start_date query: string or null`<br>`end_date query: string or null`<br>`metric query: string` | `200: Successful Response; application/json: ModelInsightsResponse (object)`<br>`422: Validation Error; application/json: HTTPValidationError (object)` | `APIKeyHeader: (global). Local declaration; runtime Depends(user_api_key_auth) can still require gateway API-key auth.` | `litellm/proxy/management_endpoints/model_insights_endpoints.py#L189 - get_model_insights()` | `Operation ID and function AST mapped. ` |
+| `GET /model-insights/tasks` | **`get_model_insight_tasks_model_insights_tasks_get`**<br>`Get Model Insight Tasks`<br>`start_date query: string or null`<br>`end_date query: string or null`<br>`metric query: string` | `200: Successful Response; application/json: ModelInsightTasksResponse (object)`<br>`422: Validation Error; application/json: HTTPValidationError (object)` | `APIKeyHeader: (global). Local declaration; runtime Depends(user_api_key_auth) can still require gateway API-key auth.` | `litellm/proxy/management_endpoints/model_insights_endpoints.py#L239 - get_model_insight_tasks()` | `Operation ID and function AST mapped. ` |

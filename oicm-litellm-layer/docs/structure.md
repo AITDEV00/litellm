@@ -108,8 +108,10 @@ oicm-litellm-layer/
 │   │   ├── hooks.md
 │   │   ├── custom-routes.md
 │   │   └── patches.md
-│   ├── admin-api/          ← administration capability map, admin REST endpoints, read-only guide
-│   │   └── ADMIN-CAPABILITY-MAP.md ← UI/OpenAPI capability/source/permission map; default user settings
+│   ├── admin-api/          ← administration capability map, admin REST endpoints, complete operation register
+│   │   ├── ADMIN-CAPABILITY-MAP.md ← UI/OpenAPI capability/source/permission map; default user settings
+│   │   ├── OPERATION-REGISTER.md ← all 761 OpenAPI paths / 1021 methods: source mappings + schema contracts
+│   │   └── operations/ ← primary-tag family method slices (executable operation source & handlers)
 │   ├── mcp-architecture-qa/ ← current MCP/SSO integration guide plus dated architecture/evidence research
 │   │   ├── 14-sso-application-integration.md ← delegated user JWT/model/MCP calls and org/team/group setup
 │   │   ├── 15-opencode-sso-mcp-skills-pilot.md ← gated native OpenCode/private skills plan, not completed support

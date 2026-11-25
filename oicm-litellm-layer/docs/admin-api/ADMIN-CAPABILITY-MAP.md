@@ -104,7 +104,7 @@ Already present in live OpenAPI, with actual owning source paths enabled for sco
 
 ## 5. Full live route-family inventory
 
-This is the complete tag census counted from the downloaded `761` OpenAPI paths. Several tags are applied to one endpoint; there is no reason to print 761 bullets. Trace only the selected management family to its source for field/permission contracts:
+This is the complete tag census counted from the downloaded `761` OpenAPI paths. **Every method on every path is listed in the separate [complete operation register](OPERATION-REGISTER.md)** (1,021 method entries, 99 primary family slices, including all management, inference, public, MCP, install, and generic passthrough routes). Several tags are applied to one endpoint. The conceptual map here does not duplicate 761 sublists:
 
 ```text
 llm_passthrough 118; mcp 71; untagged 47; model management 36; audio 36; team management 35;

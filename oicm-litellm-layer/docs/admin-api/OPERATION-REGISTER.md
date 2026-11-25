@@ -1,0 +1,27 @@
+# Complete OpenAPI operation register
+
+Snapshot: authenticated prod OpenAPI for LiteLLM `1.108.5`, downloaded 2026-11-25 from `https://litellm.ecouncil.ae/openapi.json`. **All 1,021 HTTP methods on all 761 OpenAPI path entries are enumerated**, not estimated from tags. Generated from the machine contract, with function-level source mapping using operation IDs and AST registration; the evidence-reproduction command shown at the bottom lets a reviewer compare coverage.
+
+Read this file alongside [Administration capability map](ADMIN-CAPABILITY-MAP.md). This is a complete **advertised-route data catalog**. It is not a statement of what this specific deployment has configured, a command to execute all operations, or evidence that permission types exist solely from tags. Code wins over schema on deployment changes.
+
+## Evidence and limitations
+
+- Every row is unique `(HTTP method, literal OpenAPI path)`; no method is dropped even if another alias has an identical operation ID or behavior.
+- **1,012/1,021 ordinary operations** resolve to their Python execution function by FastAPI `operationId` naming (including aliases and factory-mounted registered proxies), shown with direct `source/path.py#Lline` references on secondary pages. The **9 WebSocket upgrades** use intentionally different OpenAPI generator IDs and are mapped directly to server handlers below. Source references point to implementation files in the repository, not static-site exported pages.
+- Documented **inputs**, path/query/header constraints, bodies, response content types, operation descriptions, status codes, and OpenAPI-declared security lists come from live schema. Responses are not separately reprojected here; a body ref points to the actual named contract in the API schema.
+- Presence of a user-api-key header entry does not alone establish detailed role scope. `Depends(user_api_key_auth)` authenticates the gateway credential already, then separate `route_checks.py` gates, `jwt_mappings`, team/org checks, role virtual-member permissions, permit admin read parity, and resource checks act afterward. Source-map each important management operation before granting it. A route with no explicit `Depends()` in its local decorator can have parent-router or gateway route-policy auth: absence of dependency is not anonymous publish.
+- Runtime auth extraction is scoped only to a mapped source function's decorator, is intentionally conservative, and does not guess where dynamic auth composition exists. **A method being listed here is not its human authorization audit**. Deep human hand-traced SSO/user/access-group/default setting behavior belongs in the capability map and API reference. All details above them here are literal swagger, not hallucinated semantic functions on upstream data.
+- `200` bodies, streams/WebSockets, and error payload schema are declared as disclosed. For WebSocket route family, read file `WebSocket` where the section links to line-tagged actual side effects. GET advertised for a socket is not JSON status. WebSocket paths: `litellm/proxy/response_api_endpoints/endpoints.py` (`responses_websocket_endpoint()` at line 2036), `litellm/proxy/proxy_server.py` (`realtime_websocket_endpoint()` at line 13434 and `live_sessions_websocket_endpoint()` at line 13649), and `litellm/proxy/pass_through_endpoints/llm_passthrough_endpoints.py` (`create_vertex_ai_live_websocket_endpoint()` at line 3948).
+- Optional upstream provider/vendor support is not proof "enabled in prod". MCP global ops, OAuth/DCR calls, health and services, web/static public pages, UI admin route display, SCIM, install artifacts, passthrough API endpoints are separate sides of one app; family tagging is not function in itself. Never store ER tokens, passwords or other secrets from live experiments in this registry of entry schemas.
+
+## Why this register exists
+
+The earlier management guide intentionally described only selected topics and the tag census; user wanted **every method on every path**. That full method enumeration is here: **761 paths, 1,021 methods**, every one in a tag page. Link is in docs navigation as separate reference rather than conflated with a current-policy hand-edit. Direct regular functions (`1012`) and WebSockets (`9`) sum exactly; all direct source matches tracked mechanically. If an endpoint is deprecated/disabled/config/Enterprise-gated, interpret advertised operation only as this deployment's supported route, not mutual automatically authorized secrets data.
+
+## Review and regeneration
+
+The downloaded schema is a point-in-time snapshot outside the docs repo; no credentials or bodies were included. For a later release, download `GET /openapi.json` with approved admin auth, count `len(paths)` and qualifying verbs, and regenerate after re-running a source contract audit. No script generated at checkout time is needed to read or use this data snapshot, but path lists/fields/source lines may drift with LiteLLM versions.
+
+The evidence header of this file plus all tag pages should be used for traceability. Repository source paths point to real execution modules such as `litellm/proxy/proxy_server.py`. Follow the paths in an IDE for actual argument-level implementation details, including generic upstream pass-through name substitutions and role factors.
+
+**Find all 99 families under `Every Primary Tag Family` in the Admin API navigation. Do not grant all listed mounts to callers: manual scoped task intent comes first, not the whole OpenAPI full schema.**

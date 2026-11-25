@@ -1,0 +1,8 @@
+# policy_resolve: OpenAPI method register
+
+Each row is one advertised HTTP method and path from the live OpenAPI snapshot. See [operation-register overview](../OPERATION-REGISTER.md) for evidence and auth limitations before using these as permissions.
+
+| Method and path | Operation and documented input | Documented responses | OpenAPI security declaration | Runtime source mapping | Tracing status |
+|---|---|---|---|---|---|
+| `POST /policies/attachments/estimate-impact` | **`estimate_attachment_impact_policies_attachments_estimate_impact_post_2`**<br>`Estimate Attachment Impact`<br>`body application/json: PolicyAttachmentCreateRequest (object)` | `200: Successful Response; application/json: AttachmentImpactResponse (object)`<br>`422: Validation Error; application/json: HTTPValidationError (object)` | `APIKeyHeader: (global). Local declaration; runtime Depends(user_api_key_auth) can still require gateway API-key auth.` | `litellm/proxy/policy_engine/policy_resolve_endpoints.py#L329 - estimate_attachment_impact()` | `Operation ID and function AST mapped. ` |
+| `POST /policies/resolve` | **`resolve_policies_for_context_policies_resolve_post_2`**<br>`Resolve Policies For Context`<br>`force_sync query: boolean`<br>`body application/json: PolicyResolveRequest (object)` | `200: Successful Response; application/json: PolicyResolveResponse (object)`<br>`422: Validation Error; application/json: HTTPValidationError (object)` | `APIKeyHeader: (global). Local declaration; runtime Depends(user_api_key_auth) can still require gateway API-key auth.` | `litellm/proxy/policy_engine/policy_resolve_endpoints.py#L221 - resolve_policies_for_context()` | `Operation ID and function AST mapped. ` |

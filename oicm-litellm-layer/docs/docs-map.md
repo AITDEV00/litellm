@@ -68,6 +68,7 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | OpenAPI/source-backed gateway administration capability map: UI defaults, SSO persistence, delegated governance, unified resource groups | `docs/admin-api/ADMIN-CAPABILITY-MAP.md` |
+| Complete live OpenAPI methodology register with all operations, contracts, security declarations and source mapping (disclaimer: not all handler authorizations individually annotated yet) | `docs/admin-api/OPERATION-REGISTER.md` and `docs/admin-api/operations/` |
 | Full admin REST API guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` |
 | Athena read-only key guide | `docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` |
 
