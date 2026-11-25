@@ -53,6 +53,36 @@ Rebinding does **not** automatically copy the new owner's object permissions ont
 - **It does not move spend history.** `spend` on the token row is a running total; rebinding does not split it across owners in past logs.
 - **It does not re-validate team membership.** Messages and other team scoped features will follow the new `team_id`, but that the new user is actually a member of that team is your responsibility to keep consistent.
 
+## Can historical usage be reattributed deliberately?
+
+**Yes, but only as a separately authorized, audited accounting correction.** Spend rows retain the `user_api_key_user_id` snapshot from request time. Reassigning ownership changes identity for new traffic but does not modify those existing rows. For keys whose earlier shared-admin ownership was an unintentional arrangement, each historical row's `api_key` hash can be joined to a verified original-key-to-personal-UUID mapping.
+
+The default remains to preserve historical attribution. Changing earlier accounting is a decision the operator must make deliberately, with a documented reason, evidence that the affected key belonged to the intended person throughout the selected period, and preserved recovery data. It must not be inferred merely because a key was recently transferred.
+
+A complete correction must handle more than `"LiteLLM_SpendLogs"."user"`:
+
+| Area | Required treatment |
+| --- | --- |
+| Selected request rows | Reassign only rows belonging to an approved original token hash and time range. Preserve the original user snapshot, corrected owner, correction identifier, and rollback snapshot as auditable provenance; do not convert these into new requests |
+| User counters | Apply an attributable delta to the destination user. Do not overwrite genuine use on their other keys. Reconcile any decrement to the former counter, budget-duration resets, and manual adjustments before making it |
+| Team-membership usage | Move matching member deltas to the correct `(user_id, team_id)` row, with the same reset and other-key caveats |
+| Organization-member usage | Reconcile the matching `(user_id, organization_id)` delta only where an organization attribute existed; do not change the organization itself |
+| Daily per-user aggregates | Move spend, token counts, API/success/failure counts, response times, and other user-attributed dimensions into the recipient's correct date/key/model/provider/endpoint bucket. Respect the existing unique key and merge already-present buckets |
+| Other dimensions | Preserve `team_id`, `organization_id`, end-user, tag, agent, token, model, timestamp, response, and immutable total provider spend. A key ownership correction does not justify changing these unrelated dimensions |
+| Runtime caches | Refresh or invalidate cached user and budget-window spend after the correction, since reports and enforcement otherwise see stale balances |
+
+A Prisma schema migration is not the place for a spend-log bulk rewrite. Migrations run synchronously at proxy boot, and only schema changes belong there. Use a separately operated, transactional job using the gateway's established database connection pattern. It should be idempotent and understand that admin fallback and previously personal rows can coexist on one migrated key.
+
+The rollout sequence is:
+
+1. Freeze an exact key-hash-to-owner manifest and cutoff. Restrict scope to those original hashes; never reassign a shared service key or all `default_user_id` rows globally.
+2. Produce a read-only impact report of affected rows, spend, tokens, request counts, already-personal records, existing destination counters, and budget resets. A large-range or ORM client aggregate can exceed the Prisma HTTP engine timeout. Use direct PostgreSQL execution with bounded timeouts and key-indexed batches, rather than treating an HTTP timeout as absence of data.
+3. Create protected snapshots sufficient to restore user attribution and affected counters/rollups exactly. Do not log plaintext bearer tokens or dump sensitive request bodies into the manifest.
+4. Test the dry-run and recovery on a staging copy, then execute the approved batches in one explicit maintenance operation. Do not blindly retry unknown transaction outcomes.
+5. Reconcile log users, user/member counters, daily buckets, caches, budget windows, and new request attribution. Keep the correction audit trail even if the old request-time identity is replaced in normal reports.
+
+For a report-only correction, an alternative is an audited attribution map in the reporting layer, leaving accounting history and budget counters intact. This is preferable when historical assignment should not affect current enforcement. It must not be confused with rebuilding the stored attribution itself.
+
 ## Practical guidance for this deployment
 
 For reassigning one of the loose keys found in the audit, the safe order is:
