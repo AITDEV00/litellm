@@ -12,6 +12,12 @@
 > worked examples reference v1.97.0 hashes and files. The sequence itself is
 > version-independent: substitute the tag you are merging. Per-merge lessons
 > live in their own sections at the bottom (v1.99.1 → v1.102.0 is there too).
+>
+> **Read the v1.108.5 case study before your next merge.** That merge resolved
+> conflicts by bulk side-taking instead of line-level merging and reverted 18
+> non-conflicted files to upstream content, silently dropping every OOM-bounding
+> fix the branch carried. The `merge_content_audit.py` gate now exists to make
+> that loss class fail loudly; it must run before any merge is pushed.
 
 > **Problem**: The OICM fork carries custom work on a long-lived branch
 > (`jya0-v<X>.0`). The custom work is deliberately **refactored into co-located
@@ -120,6 +126,7 @@ from the custom branch before resolving anything.
 | **A documented behavior changed but the suite still asserts the old contract** | Upstream renames a response field, changes an error status, or moves a route; the tree imports fine and every unit test passes | Step 7: update `tests/smoke/` alongside the merge, then run it against dev |
 | **The merge compiles but the container is broken** | `uv.lock` reverted, a dependency dropped, a startup import missing; `import litellm` passes but the gateway will not boot | Step 7: deploy to dev and `make smoke` |
 | **A merge regression that no unit test covers** | Dropped mount, lost re-export, changed route path; only visible over HTTP against a real gateway | Step 7: `make smoke-fast` |
+| **Wholesale side-taking during conflict resolution** | The v1.108.5 merge took the upstream blob wholesale for 302 conflicted files and explicitly checked out 18 more that never conflicted, dropping behavioral fixes (scan caps, client disconnects, `dispose()`-style guards) that lived in upstream-owned files — and their per-file regression tests died in the same resolution, so every gate stayed green | Step 4.5: `scripts/merge_content_audit.py`; Step 3 ban on bulk side-taking |
 | Hosting environment lacks native artifacts | A virtualenv with a stale `_native` extension can fail on imports or tests absent from the Python merge. Full `uv sync --frozen` and the source image's Rust toolchain are the relevant checks, not a system `python` import | Run the complete image build before deploy and do not patch source to accommodate an incomplete host venv |
 | Lint budget left stale after merge | Merge adds errors but budgets weren't ratcheted; no automation ratchets this branch | Step 6: `make lint-budget-update` |
 | **`uv.lock` reverted as a "local artifact"** | `uv.lock` carries **OICM-only deps** (`openrouter`, and its transitive `jsonpath-python`); reverting it silently drops them → Docker `uv sync --frozen` can't install → `ModuleNotFoundError: openrouter` at runtime | Step 4 / deploy smoke test |
@@ -260,6 +267,17 @@ git diff --check                 # catch stray whitespace / conflict markers
 
 Classify each conflict:
 
+> **Ban on bulk side-taking (v1.108.5 lesson).** Resolving a directory's
+> conflicts with `git checkout MERGE_HEAD -- litellm/proxy/` (or `--ours`
+> en masse) is forbidden. Whole-file side-taking is a reconstruction that
+> drops every custom line in the taken files, and in the v1.108.5 merge it
+> also swept in 18 files that had no conflict at all (see the case study).
+> The only sanctioned wholesale resolutions are the generated-`out/` class
+> below and a *named supersede*, where the upstream change genuinely
+> replaces our custom behavior and the merge record names the superseding
+> symbol. Everything else is resolved per-file with the custom lines
+> visibly carried.
+
 - **Generated `out/` artifacts (modify/delete)** — our side deleted them, so
   there is no "ours" content and `git checkout --ours -- <path>` **errors**
   with `path ... does not have our version`. Resolve for deletion instead:
@@ -367,6 +385,47 @@ cd ui/litellm-dashboard && npm run test:drop-detection
 > `prometheus_api.py`, `handle_jwt.py` x2, `user_api_key_cache.py` x2,
 > `proxy.py`, `router.py`). **Always run `py_compile` on every touched file.**
 
+### Step 4.5 — Content-reversion audit (mandatory; the gate that fails loudly)
+
+Step 5 below catches files the merge *deleted*. It is structurally blind to a
+file the merge *kept* while reverting its content to upstream's version — a
+loss class that prints nothing in any `git diff --name-status`, raises no
+conflict, and in the v1.108.5 merge silently dropped every OOM-bounding fix
+the branch carried. This step mechanizes the blob comparison the tooling
+survey recommended in 2026-10 and that was never built until that failure:
+
+```bash
+python3 scripts/merge_content_audit.py \
+  --base   $UPSTREAM_BASE \
+  --ours   $OLD_CUSTOM_HEAD \
+  --theirs $NEW_TAG \
+  --result HEAD
+```
+
+It reports two classes:
+
+- **Class A** — files upstream never touched since the base whose result
+  content is exactly upstream's/base's. Git's auto-merge provably keeps our
+  side for these (verify with a scratch-worktree rehearsal if in doubt), so a
+  hit means an explicit upstream checkout reverted a custom edit. **The gate
+  exits non-zero while any Class A file is unhandled.** There is no legitimate
+  Class A hit: restoring our content, or reverting it in a visible commit,
+  are the only resolutions.
+- **Class B** — both sides edited, the result content is exactly upstream's
+  blob, and our lines were lost. Whole-side resolution of a genuinely
+  conflicted file can be correct (a supersede), so this is the mandatory
+  classification list, not an automatic failure: every entry is resolved as
+  *restored*, *superseded* (name the superseding symbol), or *moved by an
+  upstream rename*, and the classification lands in the merge record.
+
+Run it after resolving conflicts (against the staged index) and again after
+committing (against `HEAD`); re-run it in the days after the merge, because
+late "commit remaining validated source" catch-alls have the same blind spot.
+If upstream restructured paths between the tags (the v1.106
+`tests/test_litellm/` -> `tests/unit/` move), a rename hides takeovers from a
+path-keyed audit: re-run from the old path spelling, or `--follow` the moved
+files manually.
+
 ### Step 5 — Drop audit: files the merge deleted (mandatory post-merge)
 
 Conflict resolution cannot catch whole files the merge removed without
@@ -402,6 +461,13 @@ upstream-deleted, and byte-identical on our side. If you only run 2 and 3 you
 will conclude "nothing was lost" exactly when everything was. Every file from
 check 1 that you do not deliberately accept needs a classification before you
 act:
+
+> **This audit's blind spot is Step 4.5's reason to exist.** A deleted file is
+> at least *visible* here. A file kept in the tree with its content reverted
+> to upstream prints nothing at all in check 1/2/3 — that is exactly how the
+> v1.108.5 merge dropped the OOM caps, their tests, and the ENFORCE guard
+> with a green `git status` and a green CI. Deletion audit and content audit
+> are complements; running one does not discharge the other.
 
 - **Subject still exists** (the feature, pricing entry, or helper the test
   imports survived) → restore from `$OLD_CUSTOM_HEAD`
@@ -596,9 +662,16 @@ documents it, not to loosen the assertion.
 # Re-apply a stashed debug-manifest image-tag bump if any
 git stash pop            # e.g. 'bump debug manifest to jya0-v1.102.0'
 
-# Commit the merge (reuses the auto-generated message)
+# Commit the merge. Do NOT accept the bare auto-generated message: the
+# commit body is the merge record. It must carry:
+#   - the resolution strategy actually used (line-level merges; any
+#     wholesale side-takings and why; any explicit upstream checkouts)
+#   - every Class A/Class B line from Step 4.5 with its resolution:
+#     restored / superseded (name the superseding symbol) / moved
+#   - files left for follow-up restores, with the ticket or commit that
+#     will carry them
 git add -A
-git commit --no-edit     # parents: <ours> <upstream-tag>
+git commit               # parents: <ours> <upstream-tag>
 
 git push origin $CUSTOM_BRANCH
 ```
@@ -812,6 +885,107 @@ distinct loss classes that need different fixes:
   `make lint-budget-update` on a merge branch; skip straight from Step 5 to
   Step 7 when following the numbered sequence.
 
+## How the v1.108.5 merge went wrong (case study, forensically verified 2026-11-26)
+
+The v1.108.5 merge (`b46288fadaa`, parents `57602594f13` ours + `2a61f2114d4`
+tag, 2026-11-11) passed every step of the sequence as written at the time and
+still dropped working production fixes. This is the failure that motivated the
+content audit gate; the mechanism matters more than the specific files.
+
+**What happened.** A blob-level three-way audit of every `litellm/` and
+`tests/` file the branch had edited since the merge base found:
+
+- **18 files reverted to upstream content that git's auto-merge would have
+  kept ours for** (Class A). For these, upstream's blob equals the merge base,
+  so they did not conflict and cannot lose our side without an explicit
+  `git checkout MERGE_HEAD -- <path>`-style action over them.
+- **302 both-sides-edited files resolved wholesale to upstream's exact blob**
+  (Class B), 191 of them losing real custom lines (~8,700 lines), against only
+  26 resolved as genuine line-level merges.
+- The resolution also took the upstream blob for each fix's **test file in the
+  same action** that took the source, so the regression tests were deleted
+  together with the code they pinned. A green CI run after this merge proved
+  nothing: the only tests that could have failed were themselves casualties.
+
+A rehearsal of the identical merge pair in a scratch worktree, left on
+auto-merge, keeps the caps and the tests: `customer_endpoints.py` does not even
+conflict. The drops were therefore not a git failure but a resolution strategy —
+resolve by bulk side-taking, then re-apply the custom slices the resolver
+remembers — and the fixes that died were precisely the ones nobody remembered.
+
+**What it dropped.** All the prisma-engine OOM bounding work: the September
+fix `229a288d39d` (bounded `SELECT DISTINCT end_user`, and the GROUPING-SETS
+per-level cap re-port in `daily_activity_sql.py`, leaving
+`MAX_ROWS_PER_GROUPING_LEVEL` in `constants.py` as an unreferenced tombstone)
+and the October fix `6de7d2c9ec1` (`_END_USER_ALIAS_SCAN_CAP`, the
+`/global/spend/refresh` client disconnect). It also reverted large parts of
+the 2026-09-30 task-leak fix in `base_routing_strategy.py` (the
+`dispose()` method, the in-memory key cap, the get-and-reset sync loop) while
+`router.py` kept its `getattr`-guarded `dispose()` call sites, which then
+silently no-op. Production OOMKilled on both replicas two weeks later; the
+recurrence investigation is
+`operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md`
+section 7.
+
+**Why no gate fired.** Step 5 lists deletions (`git diff --name-status | grep
+'^D'`); a file reverted in content while surviving in the tree is invisible to
+it. Drop-detection asserts slice *wiring* (mounts, re-exports, callbacks); a
+`take=` cap, a SQL `LIMIT`, a `disconnect()` are behavior inside upstream-owned
+files with no mount to assert on. What got restored same-day (Model Performance
+UI mounts, prometheus gauges, FIPS wiring) was exactly what those guards cover;
+the memory caps had no guard, so nobody noticed. The tooling survey's item #1,
+the `fork_guard.py audit` hash comparison "that would have caught the prisma
+regression on merge day", had been recommended on 2026-10-21 and was never
+built.
+
+**Classification discipline.** Two apparent losses were legitimate
+supersedes, and the audit's raw list does not distinguish them: upstream's
+`prisma_migration.py` made always-exit the only behavior (the flag is now an
+ignored compatibility shim, so our `ENFORCE_PRISMA_MIGRATION_CHECK` opt-out
+env var, first lost in the v1.106.0 merge and re-added since, is dead code
+against upstream's version), and upstream's `retire()` supersedes our
+`dispose()` for the selector task (the task-leak fix's regression tests pass
+against upstream's mechanism). A Class A/B hit is a flag, not a verdict:
+every entry must be resolved as *restore*, *superseded
+(with the superseding symbol named)*, or *moved by an upstream rename* — in
+the merge record, with evidence.
+
+**One more trap this merge exposed.** The task-leak regression test file
+survived the merge untouched at its `tests/test_litellm/` path, but upstream's
+test restructure had moved the collected suite to `tests/unit/`, and no Make
+target or CI workflow collects the old tree. A test can be green and mute at
+the same time. When a restructure lands, re-home the surviving custom test
+files into the collected tree or they protect nothing.
+
+## Lessons Learned (v1.106.6 → v1.108.5)
+
+- **Never bulk-checkout a directory's conflicts to one side.** Every conflict
+  on an upstream-owned file is resolved per-file, with the custom lines
+  visibly carried and any supersede named in the merge record. `git checkout
+  MERGE_HEAD -- litellm/proxy/` is a reconstruction, not a resolution.
+- **Run `scripts/merge_content_audit.py` as a merge gate (Step 4.5), not as
+  an archaeology tool afterwards.** It exits non-zero while any Class A hit
+  is unhandled; run it again against `HEAD` days later to catch late
+  reverts, and when a restructure renamed paths, run it from both path
+  spellings.
+- **A fix in an upstream-owned file is not protected until a test outside
+  that file's blast radius pins its symbol.** The per-feature test file dies
+  with the source in a wholesale takeover. Pin behavioral fixes in
+  `test_oicm_drop_detection.py`-style symbol checks (the cap constant exists,
+  the `LIMIT` appears in the SQL the endpoint builds) so at least one
+  surviving test screams.
+- **The merge commit message must record the resolution strategy.** The
+  v1.108.5 merge commit says only `chore: merge upstream v1.108.5`; with 320
+  files resolved by side-taking and no per-file record, the loss was
+  unauditable after the fact. List every file resolved wholesale, and every
+  Class B file's restore/supersede/moved classification.
+- **Supersedes must be adopted forward, not assumed.** Upstream genuinely
+  superseded two of our fixes in this merge (prisma always-exit, `retire()`),
+  and wholesale side-taking happened to be right for those files. That is
+  luck, not method: the correct resolution reads the upstream change, names
+  the supersede, and deletes the superseded custom test deliberately, with
+  the superseding symbol recorded.
+
 ## Tooling survey: what can be automated, and what cannot (2026-10-21)
 
 This section records what was researched while looking for a less brute-force
@@ -923,9 +1097,19 @@ signals when one is silently reverted.
 
 ### Recommended additions, in order of value
 
-1. **`fork_guard.py audit --base <pre-merge-ref>`**: the hash comparison from
-   Step 5, mechanised into a failing gate. This is the check that would have
-   caught the prisma regression on merge day. No new dependencies.
+> **Status update (2026-11-26):** item 1 shipped as
+> `scripts/merge_content_audit.py` and is a mandatory merge gate (Step 4.5),
+> after the v1.108.5 merge proved the loss class it covers is real: it was
+> recommended on 2026-10-21, left unbuilt, and the OOM fixes were silently
+> reverted six weeks later. When this list claims a check "would have caught"
+> something, building the check is the follow-through; a recommended gate
+> that is not wired into the sequence is a postmortem waiting for its
+> incident.
+
+1. **~~`fork_guard.py audit --base <pre-merge-ref>`~~ — SHIPPED as
+   `scripts/merge_content_audit.py`** (Step 4.5): the blob comparison,
+   mechanised into a failing gate with Class A (hard fail) and Class B
+   (mandatory classification). No new dependencies.
 2. **`fork_guard.py inventory`**: classify every changed file as fork-only
    (safe) or upstream-owned (risk), and print the ranked table above. Makes the
    risk surface visible before a merge starts.
@@ -936,5 +1120,4 @@ signals when one is silently reverted.
 5. **Mergiraf as a merge driver**: the largest win on false conflicts, but the
    GPLv3 question should be settled first.
 
-Items 1 and 2 need no new dependencies and no licensing decision, which is why
-they come first.
+Items 2-5 need no new dependencies and no licensing decision beyond Mergiraf.
