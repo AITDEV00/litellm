@@ -84,6 +84,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Documentation Trust & Ownership: document-status.md
+  - Plans, Research & Evidence: research-index.md
+  - Complete Documentation Catalog: COMPLETE-DOC-CATALOG.md
   - Structure: structure.md
   - Credentials & Secrets: credentials.md
   - Incidents:
@@ -181,10 +184,113 @@ nav:
       - Open Questions: client-distribution/open-questions.md
       - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
   - Admin API:
+      - Read First: admin-api/README.md
       - LiteLLM Admin REST API: admin-api/LITELLM-ADMIN-REST-API.md
       - Teams and Access Group Playbook: admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md
+      - Administration Capability Map: admin-api/ADMIN-CAPABILITY-MAP.md
+      - Complete OpenAPI Operation Register: admin-api/OPERATION-REGISTER.md
+      - Every Primary Tag Family (generated snapshot):
+        - A2A: admin-api/operations/a2a-01eb00f5.md
+        - A2A Registration: admin-api/operations/a2a-registration-3441066f.md
+        - Access Groups: admin-api/operations/access-groups-251f0572.md
+        - Adaptive Router: admin-api/operations/adaptive-router-31a3064f.md
+        - Agent Management: admin-api/operations/agent-management-312d060d.md
+        - Agent Tracing: admin-api/operations/agent-tracing-234c0518.md
+        - Agents: admin-api/operations/agents-07c80263.md
+        - Anthropic Passthrough: admin-api/operations/anthropic-passthrough-613d08e0.md
+        - Anthropic Skills: admin-api/operations/anthropic-skills-390d06ba.md
+        - Assistants: admin-api/operations/assistants-1775044e.md
+        - Audio: admin-api/operations/audio-062b0213.md
+        - Audit Logging: admin-api/operations/audit-logging-211b04df.md
+        - Auto Router: admin-api/operations/auto-router-1a77047b.md
+        - Batch: admin-api/operations/batch-05fd0203.md
+        - Beta A2A Agents: admin-api/operations/beta-a2a-agents-321e05ab.md
+        - Beta Agents: admin-api/operations/beta-agents-211604d7.md
+        - Beta Mcp: admin-api/operations/beta-mcp-13b20355.md
+        - Budget Management: admin-api/operations/budget-management-3baa06b9.md
+        - Budget Spend Tracking: admin-api/operations/budget-spend-tracking-5d2f080f.md
+        - Cache Settings: admin-api/operations/cache-settings-25590546.md
+        - Caching: admin-api/operations/caching-0b0f02ce.md
+        - Chat Completions: admin-api/operations/chat-completions-3580067d.md
+        - Claude Code Marketplace: admin-api/operations/claude-code-marketplace-62090873.md
+        - Cloudzero: admin-api/operations/cloudzero-130903d8.md
+        - Completions: admin-api/operations/completions-1bcd04ae.md
+        - Compliance: admin-api/operations/compliance-16d5041c.md
+        - Config Overrides: admin-api/operations/config-overrides-384f06a9.md
+        - Containers: admin-api/operations/containers-16fc0437.md
+        - Coordination Redis Settings: admin-api/operations/coordination-redis-settings-91a60a72.md
+        - Cost Optimization: admin-api/operations/cost-optimization-3a4506c1.md
+        - Cost Tracking: admin-api/operations/cost-tracking-215e04ed.md
+        - Credential Management: admin-api/operations/credential-management-5b770859.md
+        - Customer Management: admin-api/operations/customer-management-49910770.md
+        - Decisions: admin-api/operations/decisions-125f03c2.md
+        - Email Management: admin-api/operations/email-management-342e0646.md
+        - Embeddings: admin-api/operations/embeddings-161f0413.md
+        - Evals: admin-api/operations/evals-0644021c.md
+        - Experimental: admin-api/operations/experimental-2115050f.md
+        - Fallback Management: admin-api/operations/fallback-management-4592072e.md
+        - Files: admin-api/operations/files-06280214.md
+        - Fine Tuning: admin-api/operations/fine-tuning-19ff0465.md
+        - Gemini Agents: admin-api/operations/gemini-agents-250e055b.md
+        - Google Genai Endpoints: admin-api/operations/google-genai-endpoints-60ea0896.md
+        - Guardrails: admin-api/operations/guardrails-16ef042f.md
+        - Health: admin-api/operations/health-08870277.md
+        - Images: admin-api/operations/images-08930277.md
+        - Install: admin-api/operations/install-0bf002f8.md
+        - Internal User Management: admin-api/operations/internal-user-management-7199093a.md
+        - Jwt Mappings: admin-api/operations/jwt-mappings-210e0514.md
+        - Key Management: admin-api/operations/key-management-286d0587.md
+        - Langfuse Passthrough: admin-api/operations/langfuse-passthrough-57c8086d.md
+        - Lens: admin-api/operations/lens-03b20193.md
+        - Llm Passthrough: admin-api/operations/llm-passthrough-32ac065d.md
+        - Llm Utils: admin-api/operations/llm-utils-118f0397.md
+        - Logging Callbacks: admin-api/operations/logging-callbacks-38a10668.md
+        - Mcp: admin-api/operations/mcp-02800141.md
+        - Memory Management: admin-api/operations/memory-management-3d4106d7.md
+        - Model Insights: admin-api/operations/model-insights-2b7505da.md
+        - Model Management: admin-api/operations/model-management-34c2064f.md
+        - Moderations: admin-api/operations/moderations-1ba404a6.md
+        - Moyai: admin-api/operations/moyai-06780220.md
+        - Ocr: admin-api/operations/ocr-02880145.md
+        - Oicm: admin-api/operations/oicm-042e01a9.md
+        - Openai Pass Through: admin-api/operations/openai-pass-through-42d50702.md
+        - Openrouter Compatible: admin-api/operations/openrouter-compatible-601608a1.md
+        - Organization Management: admin-api/operations/organization-management-70a60953.md
+        - Plugins: admin-api/operations/plugins-0c0e0303.md
+        - Policies: admin-api/operations/policies-0e2a0339.md
+        - Policy Resolve: admin-api/operations/policy-resolve-2c8705f0.md
+        - Project Management: admin-api/operations/project-management-445f0735.md
+        - Prompts: admin-api/operations/prompts-0c4d0316.md
+        - Public: admin-api/operations/public-08f00280.md
+        - Rag: admin-api/operations/rag-0282013b.md
+        - Realtime: admin-api/operations/realtime-0f070354.md
+        - Rerank: admin-api/operations/rerank-08dd0284.md
+        - Responses: admin-api/operations/responses-137103e3.md
+        - Router Settings: admin-api/operations/router-settings-2ec105f3.md
+        - Rust Control Plane: admin-api/operations/rust-control-plane-44860720.md
+        - Scim: admin-api/operations/scim-043801ad.md
+        - Search: admin-api/operations/search-08b90277.md
+        - Search Tools: admin-api/operations/search-tools-20550507.md
+        - Settings: admin-api/operations/settings-0e8e0352.md
+        - Sso Settings: admin-api/operations/sso-settings-1a3d0467.md
+        - Tag Management: admin-api/operations/tag-management-27df057a.md
+        - Team Management: admin-api/operations/team-management-2e2205e5.md
+        - Telemetry: admin-api/operations/telemetry-11e503bc.md
+        - Tools: admin-api/operations/tools-069d0232.md
+        - Ui Session: admin-api/operations/ui-session-122203a3.md
+        - Ui Settings: admin-api/operations/ui-settings-16320410.md
+        - Ui Theme Settings: admin-api/operations/ui-theme-settings-33090623.md
+        - Untagged: admin-api/operations/untagged-0f4e0350.md
+        - Usage Ai: admin-api/operations/usage-ai-0efa033f.md
+        - Vantage: admin-api/operations/vantage-0bd302e7.md
+        - Vector Store Management: admin-api/operations/vector-store-management-741f099c.md
+        - Vector Stores: admin-api/operations/vector-stores-26e50593.md
+        - Videos: admin-api/operations/videos-08e7028b.md
+        - Websocket: admin-api/operations/websocket-11160388.md
+        - Workflow Management: admin-api/operations/workflow-management-4dc907b9.md
       - Athena Read-Only Key Guide: admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md
   - Identity and Access Control:
+      - Read First: access-control/README.md
       - Teams and Access Group Playbook: admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md
       - Permissions and Scope: access-control/permissions-and-scope.md
       - RBAC and Full Potential: access-control/rbac-and-full-potential.md

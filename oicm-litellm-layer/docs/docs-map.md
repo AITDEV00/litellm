@@ -10,11 +10,20 @@
 
 Where every documentation file lives, so you can find an existing doc quickly.
 
+Start at [index.md](index.md) for task-oriented routing. Read [document-status.md](document-status.md) before acting on older design files or deployment measurements, and use [research-index.md](research-index.md) to locate plans, implementation logic maps, audits, and live evidence by concern. [AGENTS.md](AGENTS.md) defines the ownership and update contract for agents editing this documentation tree
+
+The [complete documentation catalog](COMPLETE-DOC-CATALOG.md) lists every page in this tree, including generated pages. This curated map covers each topic directory and its important files
+
+Use the trust labels in the owning indexes. "Current reference" means the behavior is checked against the owning code or schema and still depends on current configuration. "Dated deployment observation" and "point-in-time evidence" do not claim current live-state facts. "Plan" is not a completed implementation
+
 ## This site (mkdocs)
 
 | Page | Purpose |
 |------|---------|
-| `docs/index.md` | Entry point / quick navigator |
+| `docs/index.md` | Task and symptom entry point |
+| `docs/AGENTS.md` | Agent-read discovery and documentation maintenance contract |
+| `docs/document-status.md` | Trust levels, ownership layout, and published-doc update requirements |
+| `docs/research-index.md` | Plans, dated investigations, API mapping, audits and measurement index |
 | `docs/structure.md` | Full directory map |
 | `docs/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
 | `docs/deployment.md` | Apply / rollout / cluster access |

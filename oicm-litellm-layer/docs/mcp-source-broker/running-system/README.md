@@ -96,7 +96,7 @@ terminal-revoke decision are both intact. Connector side, `setup.Initialize` res
 about the claim. In current code 401/429 produce `ErrNotYetAvailable` but `Initialize` does not
 wait/retry: it returns directly out of `runInit` before the installer enables the service. The
 actual worker response remains a one-attempt code path even though documentation states retries.
-See [the independent review](../../mcp-source-link/REVIEW-2026-11-19.md) for this and approval/
+See [the independent review](../../../mcp-source-link/REVIEW-2026-11-19.md) for this and approval/
 credential drift traps rather than just checking pending-review ownership
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
@@ -263,7 +263,7 @@ The connector transport is the grpctunnel stream in `mcp-source-link/`: the conn
 Connector installation no longer has a per-source token installer; the Chisel relay text below
 is retained only as the 2026-11-13 historical record. Also **not current**: the following prose
 describes an obsolete generated installer/env-continuation workflow; new `init` work exists but
-[is independently refused](../../mcp-source-link/REVIEW-2026-11-19.md). What partly exists
+[is independently refused](../../../mcp-source-link/REVIEW-2026-11-19.md). What partly exists
 today is `PUT /install/admin/v1/source-agent/release` receiving base64 binary + JSON + optional
 installer. It **does** gateway-publish to RustFS without a gateway image deploy, but its actual
 current publisher never replaces `__BASE__`, `__VERSION__`, `__SHA__`, `__STATE__`, hence cannot
@@ -273,7 +273,7 @@ The already-supported source-of-truth design for the general cc-switch path is r
 PUT via the gateway, RustFS-resident templates and active release metadata, validated gateway-
 rendered install script and authenticated-only writes. That pattern is what source-agent must
 use, with its devoted version/hand-off validation and unattended service/lifecycle fixes;
-[source-agent-releases](../client-distribution/source-agent-releases.md) defines the concrete
+[source-agent-releases](../../client-distribution/source-agent-releases.md) defines the concrete
 contract. There is no reason for a separate direct-S3 route for admin machines, gateway builds
 for each new binary/installer, or any unauthenticated RustFS write endpoint. This design is
 not yet accepted merely because the storage objects can move. There is no release signature

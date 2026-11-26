@@ -24,4 +24,4 @@ The downloaded schema is a point-in-time snapshot outside the docs repo; no cred
 
 The evidence header of this file plus all tag pages should be used for traceability. Repository source paths point to real execution modules such as `litellm/proxy/proxy_server.py`. Follow the paths in an IDE for actual argument-level implementation details, including generic upstream pass-through name substitutions and role factors.
 
-**Find all 99 families under `Every Primary Tag Family` in the Admin API navigation. Do not grant all listed mounts to callers: manual scoped task intent comes first, not the whole OpenAPI full schema.**
+**Find all 98 generated family pages under `Every Primary Tag Family (generated snapshot)` in Admin API navigation. Do not grant all listed mounts to callers: manual scoped task intent comes first, not the whole OpenAPI full schema.**
