@@ -20,7 +20,7 @@ cluster. The one remaining acceptance step is an approved real read, which runs 
 gateway port-forward; see "Running the last acceptance step over a forward" at the end. Nothing
 here is marked SHIPPED until it runs
 
-> **Open work required before SHIPPED:** [BOOTSTRAP-GAPS.md](../../../../mcp-source-link/BOOTSTRAP-GAPS.md)
+> **Open work required before SHIPPED:** [BOOTSTRAP-GAPS.md](../../../../../mcp-source-link/BOOTSTRAP-GAPS.md)
 > records recovery, revocation and dev-routing defects. Its B2 supersedes the exclusion of login
 > below: the shipped binary must provide interactive `source-link init`, invoked by the supplied
 > shell installer, with ordinary username/password creating a restricted user credential. The
@@ -28,7 +28,7 @@ here is marked SHIPPED until it runs
 > B6 separates RustFS artifacts from gateway code: binaries and manifests already fetch from
 > RustFS, while the installer script must also become an upload-managed artifact. Each update
 > uses a new immutable version and moves the active manifest after validating its artifacts>
-> The newer [multi-account work order](../../../../mcp-source-link/MULTI-ACCOUNT-SOURCE-GAPS.md)
+> The newer [multi-account work order](../../../../../mcp-source-link/MULTI-ACCOUNT-SOURCE-GAPS.md)
 > supersedes the subsequent six-field, one-source-per-state-directory contract. It requires
 > reusable local account aliases, concurrent multi-source operation, derived collision-safe source
 > names, no opaque proof/dataset prompt, and K8s-aware origin targets. Preserve the gateway auth,
@@ -453,7 +453,7 @@ asserts that.
 
 ### Independent implementation review, 2026-11-19
 
-[REVIEW-2026-11-19.md](../../../../mcp-source-link/REVIEW-2026-11-19.md) supersedes claims
+[REVIEW-2026-11-19.md](../../../../../mcp-source-link/REVIEW-2026-11-19.md) supersedes claims
 that this work was completed merely because `init` and resume tests pass. All four installer
 placeholders are published unreplaced, the service still needs a gateway env value which the
 new startup never writes, and a fresh username/password call is blocked by normal API-key

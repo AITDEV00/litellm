@@ -214,6 +214,20 @@ plugins:
         incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md: operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
         incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md: operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
         incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md: operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
+        mcp-source-broker/README.md: mcp/source-broker/README.md
+        mcp-source-broker/decisions/README.md: mcp/source-broker/decisions/README.md
+        mcp-source-broker/decisions/approaches/byom-self-service.md: mcp/source-broker/decisions/approaches/byom-self-service.md
+        mcp-source-broker/decisions/approaches/connector-owned-enrollment.md: mcp/source-broker/decisions/approaches/connector-owned-enrollment.md
+        mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md: mcp/source-broker/decisions/approaches/lifecycle-and-pooling-questions.md
+        mcp-source-broker/decisions/approaches/multi-replica-scaling.md: mcp/source-broker/decisions/approaches/multi-replica-scaling.md
+        mcp-source-broker/history/README.md: mcp/source-broker/history/README.md
+        mcp-source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md: mcp/source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md
+        mcp-source-broker/history/superseded-design-proposal.md: mcp/source-broker/history/superseded-design-proposal.md
+        mcp-source-broker/measurements/README.md: mcp/source-broker/measurements/README.md
+        mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md: mcp/source-broker/measurements/go-driver-concurrency-2026-11-18.md
+        mcp-source-broker/running-system/README.md: mcp/source-broker/running-system/README.md
+        mcp-source-broker/transport/README.md: mcp/source-broker/transport/README.md
+        mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md: mcp/source-broker/transport/pilot/nginx-reverse-tunnel.md
         model-pricing/PRICING-LOGIC-MAP.md: platform/model-pricing/PRICING-LOGIC-MAP.md
         model-pricing/PRICING-MATCHING-PLAN.md: platform/model-pricing/PRICING-MATCHING-PLAN.md
         oicm-status/CHANGE-REPORT-2026-10-06-health-table.md: platform/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
@@ -321,18 +335,18 @@ nav:
       - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
       - Agent Platform Fit Assessment: architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md
       - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
-      - MCP Source Broker (index): mcp-source-broker/README.md
-      - "MCP Source Broker - Running System": mcp-source-broker/running-system/README.md
-      - "MCP Source Broker - Measurements": mcp-source-broker/measurements/README.md
-      - "MCP Source Broker - Decisions": mcp-source-broker/decisions/README.md
-      - "MCP Source Broker - Transport": mcp-source-broker/transport/README.md
-      - "MCP Source Broker - History": mcp-source-broker/history/README.md
-      - MCP Source Lifecycle Research Questions: mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md
-      - BYOM Self-Service Registration with Admin Governance: mcp-source-broker/decisions/approaches/byom-self-service.md
-      - Connector-Owned Enrollment Requirement: mcp-source-broker/decisions/approaches/connector-owned-enrollment.md
-      - Multi-Replica Broker Scaling Debate: mcp-source-broker/decisions/approaches/multi-replica-scaling.md
-      - Nginx Reverse-Tunnel Pilot: mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md
-      - Unified MCP Implementation Guide: mcp-source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md
+      - MCP Source Broker (index): mcp/source-broker/README.md
+      - "MCP Source Broker - Running System": mcp/source-broker/running-system/README.md
+      - "MCP Source Broker - Measurements": mcp/source-broker/measurements/README.md
+      - "MCP Source Broker - Decisions": mcp/source-broker/decisions/README.md
+      - "MCP Source Broker - Transport": mcp/source-broker/transport/README.md
+      - "MCP Source Broker - History": mcp/source-broker/history/README.md
+      - MCP Source Lifecycle Research Questions: mcp/source-broker/decisions/approaches/lifecycle-and-pooling-questions.md
+      - BYOM Self-Service Registration with Admin Governance: mcp/source-broker/decisions/approaches/byom-self-service.md
+      - Connector-Owned Enrollment Requirement: mcp/source-broker/decisions/approaches/connector-owned-enrollment.md
+      - Multi-Replica Broker Scaling Debate: mcp/source-broker/decisions/approaches/multi-replica-scaling.md
+      - Nginx Reverse-Tunnel Pilot: mcp/source-broker/transport/pilot/nginx-reverse-tunnel.md
+      - Unified MCP Implementation Guide: mcp/source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md
   - Runbooks:
       - MkDocs Setup: operations/runbooks/MKDOCS-SETUP.md
       - Postgres Backup & Recovery: operations/runbooks/postgres-backup-and-recovery.md
@@ -507,7 +521,7 @@ nav:
       - Microsoft SAML Airgap: administration/access-control/microsoft-saml-airgap.md
       - Dev Microsoft SSO Deployment: administration/access-control/dev-microsoft-sso-deployed.md
   - MCP and Source Broker:
-      - Source Broker System: mcp-source-broker/running-system/README.md
+      - Source Broker System: mcp/source-broker/running-system/README.md
       - Topology: mcp/source-broker-topology.md
       - Production Cluster: mcp/prod-cluster.md
       - Client Installation: mcp/client-install.md

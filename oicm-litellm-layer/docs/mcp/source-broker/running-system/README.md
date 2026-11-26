@@ -1,6 +1,6 @@
 # Source broker: implementation and deployment record
 
-Scope note updated 2026-11-26: this document carries largely dev verification from 2026-11-17 and 2026-11-18, followed by later design work. Production assembly, which is present in current overlays, is documented separately in [Prod cluster assembly](../../mcp/prod-cluster.md). The 2026-11-24 production OpenCode evidence is in [OpenCode pilot evidence](../../mcp/opencode-pilot-evidence.md)
+Scope note updated 2026-11-26: this document carries largely dev verification from 2026-11-17 and 2026-11-18, followed by later design work. Production assembly, which is present in current overlays, is documented separately in [Prod cluster assembly](../../prod-cluster.md). The 2026-11-24 production OpenCode evidence is in [OpenCode pilot evidence](../../opencode-pilot-evidence.md)
 
 The [Status register](#status-register) below distinguishes completed development work from things still not proven or absent. The [Step evidence trail](#step-evidence-trail) keeps historical evidence in original form and may describe superseded dev-only behavior. Do not treat its parked production-proposal entries as the present deployment status; read the two current-assembly documents above, as well as the current manifests and deployed configuration
 
@@ -43,7 +43,7 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 5. Multi-replica broker ownership | PARKED BY DESIGN | `../decisions/approaches/multi-replica-scaling.md` |
 | 6. Post-revoke recovery tooling | DECIDED (manual revoke) | step 6, this doc |
 | 7. WSS/remotedialer removal | DONE | step 7, this doc |
-| 8. Production overlay assembles the ancillary broker | **PARKED in proposal below, later assembled in prod** | [Current assembly and topology](../../mcp/prod-cluster.md); original Step 8 below is historical |
+| 8. Production overlay assembles the ancillary broker | **PARKED in proposal below, later assembled in prod** | [Current assembly and topology](../../prod-cluster.md); original Step 8 below is historical |
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
@@ -100,7 +100,7 @@ terminal-revoke decision are both intact. Connector side, `setup.Initialize` res
 about the claim. In current code 401/429 produce `ErrNotYetAvailable` but `Initialize` does not
 wait/retry: it returns directly out of `runInit` before the installer enables the service. The
 actual worker response remains a one-attempt code path even though documentation states retries.
-See [the independent review](../../../mcp-source-link/REVIEW-2026-11-19.md) for this and approval/
+See [the independent review](../../../../mcp-source-link/REVIEW-2026-11-19.md) for this and approval/
 credential drift traps rather than just checking pending-review ownership
 
 **Admitted-capability visibility.** Done. `internal/tunnel` `Runtime.onOpen` logs worker id, generation, and the sorted admitted capability set on every tunnel open, e.g. `tunnel admitted worker=... source=... generation=1 capabilities=[execute probe]`
@@ -109,7 +109,7 @@ credential drift traps rather than just checking pending-review ownership
 
 One Go binary, two modes. As `worker` it runs as a sidecar beside the Python broker and owns two listeners. As `connector` it runs on a source host and dials out. All three files below are the same binary at `mcp-source-link/`
 
-The following dev transport section uses dev overlay ports and dev tunnel reachability. It is not a statement that prod has no source broker or public tunnel. Current prod ingress routing is owned by [Prod cluster assembly](../../mcp/prod-cluster.md)
+The following dev transport section uses dev overlay ports and dev tunnel reachability. It is not a statement that prod has no source broker or public tunnel. Current prod ingress routing is owned by [Prod cluster assembly](../../prod-cluster.md)
 
 One transport: `tunnel`, one long-lived `TunnelService/OpenReverseTunnel` gRPC stream over the 8093 listener, with typed `DispatchService/{Admit,Probe,Execute}` RPCs multiplexed inside it by `github.com/jhump/grpctunnel`. The reverse-h2 data plane was deleted along with `internal/reverseh2/`, its long-poll routes, and the wire limits only it used. `MCP_SOURCE_LINK_TRANSPORT` is connector-only and vestigial: the worker has one plane and ignores it, and an empty value means tunnel
 
@@ -269,7 +269,7 @@ The connector transport is the grpctunnel stream in `mcp-source-link/`: the conn
 Connector installation no longer has a per-source token installer; the Chisel relay text below
 is retained only as the 2026-11-13 historical record. Also **not current**: the following prose
 describes an obsolete generated installer/env-continuation workflow; new `init` work exists but
-[is independently refused](../../../mcp-source-link/REVIEW-2026-11-19.md). What partly exists
+[is independently refused](../../../../mcp-source-link/REVIEW-2026-11-19.md). What partly exists
 today is `PUT /install/admin/v1/source-agent/release` receiving base64 binary + JSON + optional
 installer. It **does** gateway-publish to RustFS without a gateway image deploy, but its actual
 current publisher never replaces `__BASE__`, `__VERSION__`, `__SHA__`, `__STATE__`, hence cannot
@@ -279,7 +279,7 @@ The already-supported source-of-truth design for the general cc-switch path is r
 PUT via the gateway, RustFS-resident templates and active release metadata, validated gateway-
 rendered install script and authenticated-only writes. That pattern is what source-agent must
 use, with its devoted version/hand-off validation and unattended service/lifecycle fixes;
-[source-agent-releases](../../client-distribution/source-agent-releases.md) defines the concrete
+[source-agent-releases](../../../client-distribution/source-agent-releases.md) defines the concrete
 contract. There is no reason for a separate direct-S3 route for admin machines, gateway builds
 for each new binary/installer, or any unauthenticated RustFS write endpoint. This design is
 not yet accepted merely because the storage objects can move. There is no release signature

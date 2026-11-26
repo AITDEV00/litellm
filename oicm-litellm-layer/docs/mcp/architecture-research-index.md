@@ -6,7 +6,7 @@ Reviewed on 2026-11-24. This folder holds MCP runtime, source-broker architectur
 
 | Read | Use it for | Status |
 |---|---|---|
-| [Running source broker](../mcp-source-broker/running-system/README.md) | Owning record for the deployed source-broker system | Current reference unless deployed state differs |
+| [Running source broker](source-broker/running-system/README.md) | Owning record for the deployed source-broker system | Current reference unless deployed state differs |
 | [Topology](source-broker-topology.md) | Components, ports, connections, and enrollment | Implementation notes; manifests and deployed state win where snapshots differ |
 | [Runtime flow](source-broker-runtime-flow.md) | Dial home, admission, probing, dispatch, reconciliation, and revocation | Implementation notes |
 | [Client install](client-install.md) | Installing the source connector and what it writes | Implementation notes |

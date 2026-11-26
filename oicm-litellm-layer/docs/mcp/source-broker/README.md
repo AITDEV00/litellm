@@ -23,7 +23,7 @@ This folder is organized as vertical slices: one folder per behavior. Read the f
 | Why was Chisel abandoned? | `history/` |
 | How many concurrent requests were proven? | `measurements/` |
 | Should we add a shared store for replicas? | `decisions/` |
-| Why does the folder look like this? | [`../techniques/vertical_slice_technique.md`](../techniques/vertical_slice_technique.md) |
+| Why does the folder look like this? | [`../techniques/vertical_slice_technique.md`](../../techniques/vertical_slice_technique.md) |
 
 ## Authority order
 
@@ -31,5 +31,5 @@ Code wins over every document here. Among the documents, `running-system/` is th
 
 ## Related
 
-- [`../techniques/vertical_slice_technique.md`](../techniques/vertical_slice_technique.md) — the layout rule this folder follows
-- [`../additional-features-origin.md`](../platform/additional-features-origin.md) — where this feature sits among the fork's other slices
+- [`../techniques/vertical_slice_technique.md`](../../techniques/vertical_slice_technique.md) — the layout rule this folder follows
+- [`../additional-features-origin.md`](../../platform/additional-features-origin.md) — where this feature sits among the fork's other slices
