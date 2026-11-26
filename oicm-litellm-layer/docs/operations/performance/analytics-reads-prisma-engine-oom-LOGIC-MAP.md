@@ -1,8 +1,9 @@
-# Dashboard Analytics Reads -> Prisma Engine Bloat -> 12Gi OOMKills — Logic Map
+# Dashboard Analytics Reads -> Prisma Engine Bloat -> OOMKills — Logic Map
 
 > **Technique**: [Logic Mapping](../../engineering/techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. Phase 1 (Trace) + Phase 2 (Test) complete;
-> live-verified against prod (`adeo-litellm`, 2026-09-15). Evidence files in
+> live-verified against prod (`adeo-litellm`, 2026-09-15; recurrence
+> re-verified 2026-11-26, see section 7). Evidence files in
 > [`live-data/README.md`](live-data/README.md).
 >
 > Companion docs: `retention-flags-and-oom-LOGIC-MAP-v2.md` (09-08 DB-incident
@@ -162,3 +163,70 @@ restart resets to ~6GiB baseline  -->  cycle repeats (~1 day period)
   profiling; upstream Prisma tracing per the Prisma memory-leak discussions).
 - Whether the entity-rollup companion query (:1324 gather) doubles peak or
   pipelines — timing-dependent.
+
+---
+
+## 7. Recurrence on jya0-v1.108.5 (2026-11-26 investigation, live-verified)
+
+The OOM mechanism returned after the v1.108.5 upstream merge. Both prod
+replicas OOMKilled on 2026-11-25 (`litellm-proxy-8bd44bf4-dj6jr` 3 restarts,
+one container surviving only 49 minutes; `m6fc8` 1 restart), 16Gi limit,
+same shape as every prior episode.
+
+### What the live evidence shows
+
+- `m6fc8` sat at 14.4Gi/16Gi with **two extra engines at 4.5GB each**
+  (pids 1177, 18638), each the per-worker `_get_heavy_query_prisma_client()`
+  engine, each with `prisma_client_queries_total = 1` — **one single query**
+  set a ~4.5GB high-water mark. 48 glibc arenas of 64/128MiB, fully
+  resident. The steady engines held 111-256MB after 145k-290k queries.
+- Prometheus 48h: `m6fc8` climbed 3.4->5.2Gi over 13h, then jumped
+  **5.2 -> 14.2Gi in one hour step** (2026-11-25 ~08:20Z) and was killed
+  soon after; its replacement jumped to 8.5Gi in the first hour and
+  plateaued at 13.8-14.9Gi. `dj6jr` stepped 5.1 -> 8.4Gi the same day.
+- Workers themselves were lean (1.0-1.6GB RSS, HWM 1.5-1.8GB): the 09-30
+  task-leak fix holds. This recurrence is **pure engine ratchet**.
+
+### Why the 2026-10-29 fix did not prevent it
+
+Commit `6de7d2c9ec1` (2026-10-29) bounded three paths. The upstream v1.108.5
+merge (`b46288fadaa`, 2026-11-11) silently dropped two of them in merge
+resolution — parent 1 had the fixes, the merged result did not:
+
+1. **EndUserTable full-table read is back**: `resolve_customer_daily_activity_scope`
+   (`customer_endpoints.py:525`) again runs `find_many(where={})` with no
+   `take`. pg_stat_statements (reset 2026-10-08): 653 calls, **51.5M rows**
+   (79k/call, the whole table), 5.6GB scanned. The table has grown to 82,787
+   rows (70,653 on 10-29). The dropped constant was
+   `_END_USER_ALIAS_SCAN_CAP = 10000`.
+2. **`/global/spend/refresh` client leak is back**:
+   `spend_management_endpoints.py:3812-3820` again creates a
+   `PrismaClient(timeout=6000)` per call with no `disconnect()` (the
+   try/finally from the fix is gone).
+3. The `LIMIT 50000` row caps on both model-performance heavy paths DID
+   survive — and are **insufficient anyway**: the full-range rollup query
+   returns only 506 rows (max 656KB/row, ~62MB total `json_agg` payload;
+   30d ~16MB). The cap never bites. The payload is amplified ~70x inside
+   the engine (serde_json::Value tree, one heap allocation per number
+   node; 29.7M histogram bins total in the table), then retained by glibc
+   arena high-water-mark. **Bounding rows does not bound bytes.**
+
+### What still needs to change (root fix, ranked)
+
+1. Restore the two dropped caps (re-apply what `6de7d2c9ec1` did — it is a
+   merge-resolution regression, not a design gap).
+2. Bound the rollup read by **bytes, not rows**: aggregate
+   `ttft_histogram_counts` per bucket with `_rollup_array_add_bigint`
+   (already in the schema, used by the write path) instead of shipping one
+   histogram array per minute via `json_agg`. Each row then carries one
+   fixed-size array; payload drops from tens of MB to KB and the engine
+   HWM cannot ratchet.
+3. Stop the extra-engine pattern entirely: per-call connect/disconnect for
+   the heavy client, or route >=14d reads to a dedicated reader
+   (`DATABASE_URL_READ_REPLICA`), which isolates the ratchet from the
+   request path.
+4. Defense-in-depth never shipped despite two prior recommendations:
+   `MALLOC_ARENA_MAX=2` + `MALLOC_TRIM_THRESHOLD_`/`MALLOC_MMAP_THRESHOLD_`
+   on the proxy container env (engines inherit env; shrinks arena sprawl),
+   and a granian `workers_lifetime` recycle since engine HWM only ratchets.
+
