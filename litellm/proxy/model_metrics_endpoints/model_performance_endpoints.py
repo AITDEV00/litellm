@@ -6,9 +6,10 @@ selectable time windows. DB-backed for 1h/24h/7d with sub-daily time
 bucketing; Prometheus-backed for 5m/15m (real-time concurrent requests).
 """
 
-import asyncio
 import math
 import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Optional, cast
@@ -32,48 +33,50 @@ _VALID_WINDOWS = ("1m", "5m", "15m", "30m", "1h", "24h", "7d")
 
 # Prisma's default HTTP engine timeout is 30s (prisma/http_abstract.py). A
 # large custom time range (e.g. 30 days over millions of spend-log rows) can
-# exceed that and time out server-side, surfacing as a 500. This module-level
-# lazy client is created with a raised timeout and is used for DB queries whose
-# window suggests they may be heavy. It is connected on first use and reused.
-_heavy_query_prisma_client: Optional[Any] = None
-_heavy_query_prisma_client_lock: asyncio.Lock = asyncio.Lock()
+# exceed that and time out server-side, surfacing as a 500. Heavy-range reads
+# therefore run through a short-lived PrismaClient with a raised timeout.
+#
+# The client is connected per call and disconnected in a finally, NEVER cached
+# at module scope: each PrismaClient owns a query-engine subprocess whose
+# resident memory is a high-water mark set by the largest statement it ever
+# buffered and never returned to the OS, so a cached heavy client strands a
+# multi-GB engine per worker for its lifetime (two such engines at 4.5GB each
+# OOMKilled prod pods in 2026-11).
+_HEAVY_QUERY_HTTP_TIMEOUT_SECONDS: Final = 600
 
 
-async def _get_heavy_query_prisma_client() -> Any:
-    """Return a PrismaClient with a raised HTTP timeout, connected lazily.
+@asynccontextmanager
+async def _heavy_query_prisma_client() -> AsyncGenerator[Any, None]:
+    """Yield a PrismaClient with a raised HTTP timeout, connected per call.
 
     Mirrors the dedicated long-timeout client used to refresh the
     ``MonthlyGlobalSpend`` materialized view (spend_management_endpoints.py)
-    so the 30s default engine timeout does not kill large-range queries.
+    so the 30s default engine timeout does not kill large-range queries. The
+    engine is disconnected on exit so no engine subprocess outlives the call.
     """
-    global _heavy_query_prisma_client
-    if _heavy_query_prisma_client is not None:
-        return _heavy_query_prisma_client
+    from litellm.proxy.proxy_server import proxy_logging_obj
+    from litellm.proxy.utils import PrismaClient
 
-    async with _heavy_query_prisma_client_lock:
-        if _heavy_query_prisma_client is not None:
-            return _heavy_query_prisma_client
-        from litellm.proxy.proxy_server import proxy_logging_obj
-        from litellm.proxy.utils import PrismaClient
-
-        db_url = os.getenv("DATABASE_URL")
-        if db_url is None:
-            raise ProxyException(
-                message=CommonProxyErrors.db_not_connected_error.value,
-                type="internal_error",
-                param="None",
-                code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        client = PrismaClient(
-            database_url=db_url,
-            proxy_logging_obj=proxy_logging_obj,
-            http_client={
-                "timeout": 600,
-            },
+    db_url = os.getenv("DATABASE_URL")
+    if db_url is None:
+        raise ProxyException(
+            message=CommonProxyErrors.db_not_connected_error.value,
+            type="internal_error",
+            param="None",
+            code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+    client: Final = PrismaClient(
+        database_url=db_url,
+        proxy_logging_obj=proxy_logging_obj,
+        http_client={
+            "timeout": _HEAVY_QUERY_HTTP_TIMEOUT_SECONDS,
+        },
+    )
+    try:
         await client.connect()
-        _heavy_query_prisma_client = client
-        return client
+        yield client
+    finally:
+        await client.db.disconnect()
 
 
 _DB_CACHE: InMemoryCache = InMemoryCache(max_size_in_memory=64, default_ttl=300)
@@ -692,19 +695,28 @@ async def _fetch_db_performance(
     # Ranges spanning at least ~2 weeks can exceed Prisma's 30s default HTTP
     # timeout over millions of rows, so route them through the dedicated
     # long-timeout client. The default 24h/7d presets are well under the 30s
-    # limit and keep using the shared proxy client.
+    # limit and keep using the shared proxy client. The heavy client is
+    # connected and disconnected per call so its engine cannot strand.
     range_duration = (end_time - start_time).total_seconds()
-    query_client = (
-        await _get_heavy_query_prisma_client() if range_duration >= _HEAVY_RANGE_THRESHOLD_SECONDS else prisma_client
-    )
-    rows = await query_client.db.query_raw(
-        sql_query,
-        start_time,
-        end_time,
-        effective_bucket,
-        model_group,
-        *scope_params,
-    )
+    if range_duration >= _HEAVY_RANGE_THRESHOLD_SECONDS:
+        async with _heavy_query_prisma_client() as query_client:
+            rows = await query_client.db.query_raw(
+                sql_query,
+                start_time,
+                end_time,
+                effective_bucket,
+                model_group,
+                *scope_params,
+            )
+    else:
+        rows = await prisma_client.db.query_raw(
+            sql_query,
+            start_time,
+            end_time,
+            effective_bucket,
+            model_group,
+            *scope_params,
+        )
 
     models: dict[str, dict[str, Any]] = {}
 
@@ -806,9 +818,14 @@ async def _fetch_db_performance_from_rollup(
     # window like 30d/YTD would otherwise return tens of thousands of rows for
     # Prisma to serialize over its Rust-engine HTTP transport (measured ~16s
     # for 96k rows). Collapsing to coarse buckets first cuts that to a few
-    # hundred rows and makes the endpoint fast. The histogram is collected with
-    # json_agg (a JSON array of arrays) because Prisma's raw query cannot
-    # deserialize a native 2D Postgres array.
+    # hundred rows and makes the endpoint fast. The per-bucket histogram is
+    # SUM-med element-wise with _rollup_array_add_bigint (the same SQL function
+    # the write path uses) into ONE fixed-size count array per row: a json_agg
+    # of every per-minute array made each row grow with the bucket's minute
+    # count, and a full-range request shipped a ~62MB JSON payload whose
+    # serde deserialization ballooned a fresh engine to 4.5GB (the engine's
+    # resident memory is a high-water mark), so the row cap could not save it.
+    # Summing in SQL bounds the payload to (rows x edges) integers instead.
     #
     # Concurrent requests is the PEAK concurrency observed within each bucket.
     # Each 1-minute rollup row records ``starts`` (requests that began in that
@@ -828,7 +845,7 @@ async def _fetch_db_performance_from_rollup(
                 SUM(throughput_tokens_sum) AS throughput_tokens,
                 SUM(ttft_seconds_sum) AS ttft_seconds_sum,
                 MAX(ttft_histogram_edges) AS ttft_histogram_edges,
-                json_agg(ttft_histogram_counts) AS ttft_histogram_counts
+                _rollup_array_sum(ttft_histogram_counts) AS ttft_histogram_counts
             FROM "LiteLLM_ModelPerformanceRollup"
             WHERE
                 bucket_start >= $2::timestamptz
@@ -880,16 +897,23 @@ async def _fetch_db_performance_from_rollup(
     """
 
     range_duration = (end_time - start_time).total_seconds()
-    query_client = (
-        await _get_heavy_query_prisma_client() if range_duration >= _HEAVY_RANGE_THRESHOLD_SECONDS else prisma_client
-    )
-    rows = await query_client.db.query_raw(
-        sql_query,
-        effective_bucket,
-        start_time,
-        end_time,
-        model_group,
-    )
+    if range_duration >= _HEAVY_RANGE_THRESHOLD_SECONDS:
+        async with _heavy_query_prisma_client() as query_client:
+            rows = await query_client.db.query_raw(
+                sql_query,
+                effective_bucket,
+                start_time,
+                end_time,
+                model_group,
+            )
+    else:
+        rows = await prisma_client.db.query_raw(
+            sql_query,
+            effective_bucket,
+            start_time,
+            end_time,
+            model_group,
+        )
 
     models: dict[str, dict[str, Any]] = {}
     # Each row is one coarse bucket for its model_group. Group them so the
@@ -930,8 +954,9 @@ def _rollup_coarse_buckets_to_model(
     (coarser) buckets and computed each bucket's peak concurrency via a
     whole-window running sum of (starts - ends). Each ``coarse_rows`` entry is
     therefore one bucket: the summed counts/tokens/throughput/TTFT, the
-    ``json_agg``'d histogram (a JSON array of per-1-minute count arrays), the
-    shared edges, and the peak concurrency.
+    element-wise-summed histogram (one fixed-size count array per row, summed
+    in SQL with ``_rollup_array_sum``), the shared edges, and the peak
+    concurrency.
 
     This builder only renders the time series and folds every bucket's
     histogram into a single whole-window histogram for the summary percentiles,
@@ -949,17 +974,8 @@ def _rollup_coarse_buckets_to_model(
         if count == 0:
             continue
 
-        # The histogram is json_agg'd as a list of per-1-minute count arrays;
-        # fold them element-wise into this bucket's counts.
-        bucket_counts: Optional[list[int]] = None
-        hist_json = row.get("ttft_histogram_counts")
-        if hist_json:
-            for inner in hist_json:
-                inner_counts = [int(c) for c in inner]
-                if bucket_counts is None:
-                    bucket_counts = inner_counts
-                else:
-                    bucket_counts = add_histogram_counts(bucket_counts, inner_counts)
+        hist_counts = row.get("ttft_histogram_counts")
+        bucket_counts: Optional[list[int]] = [int(c) for c in hist_counts] if hist_counts else None
 
         edges = row.get("ttft_histogram_edges") or []
         # The final histogram edge is stored as ``infinity`` in Postgres, which

@@ -164,6 +164,20 @@ spec:
                   key: secret-key
             - name: RUSTFS_BUCKET
               value: "litellm-client-mirror"
+            # glibc allocator caps for every process in the container, including
+            # the prisma query-engine subprocesses (they inherit the env).
+            # Default glibc spawns up to 8x(ncores) arenas of 64MB and never
+            # returns freed arena pages to the OS, so one large DB result
+            # ratchets resident memory permanently; MALLOC_ARENA_MAX=2 caps the
+            # sprawl and the thresholds push big blocks onto mmap, which IS
+            # returned on free. Defense-in-depth behind the bounded reads in
+            # the gateway code (see analytics-reads-prisma-engine-oom-LOGIC-MAP).
+            - name: MALLOC_ARENA_MAX
+              value: "2"
+            - name: MALLOC_TRIM_THRESHOLD_
+              value: "65536"
+            - name: MALLOC_MMAP_THRESHOLD_
+              value: "65536"
           command:
             - "litellm"
             - "--config"
@@ -173,6 +187,12 @@ spec:
             - "--run_granian"
             - "--num_workers"
             - "4"
+            # Recycle each granian worker after 12h. Anything that only
+            # ratchets per process (prisma engine high-water marks, arena
+            # fragmentation) is reclaimed on recycle instead of accumulating
+            # for the pod's lifetime.
+            - "--granian_workers_lifetime"
+            - "43200"
             - "--use_v2_migration_resolver"
           volumeMounts:
             - name: config

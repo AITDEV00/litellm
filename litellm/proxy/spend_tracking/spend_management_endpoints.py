@@ -126,6 +126,11 @@ _INTERNAL_HEALTH_CHECK_API_KEYS: Final = (
     hash_token(token=LITTELM_INTERNAL_HEALTH_SERVICE_ACCOUNT_NAME),
 )
 
+# The query engine's resident memory is a high-water mark set by the largest
+# statement it executes, so the scan must be bounded before the set is
+# deduplicated. Matches SPEND_LOGS_FACET_SCAN_CAP in management_v1/spend_logs.
+END_USER_FACET_SCAN_CAP: Final = 10000
+
 _RowT = TypeVar("_RowT")
 
 
@@ -3816,8 +3821,15 @@ async def global_spend_refresh():
                     "timeout": 6000,
                 },
             )
-            await new_client.db.connect()
-            await new_client.db.execute_raw(sql_query)
+            try:
+                await new_client.db.connect()
+                await new_client.db.execute_raw(sql_query)
+            finally:
+                # Each PrismaClient owns a query-engine subprocess whose resident
+                # memory is a high-water mark. Dropping the only reference lets the
+                # OS reclaim it; keeping it alive strands a full engine per refresh
+                # call for the worker's lifetime.
+                await new_client.db.disconnect()
             verbose_proxy_logger.info("MonthlyGlobalSpend view refreshed")
             return {
                 "message": "MonthlyGlobalSpend view refreshed",
@@ -4205,11 +4217,22 @@ async def global_view_all_end_users():
     if prisma_client is None:
         raise HTTPException(status_code=500, detail={"error": "No db connected"})
 
+    # DISTINCT over the full spend-logs table is an engine-OOM hazard: the
+    # prisma engine buffers the whole deduplicated set and never returns that
+    # memory. Bound the scan to the most recent rows feeding the dropdown.
     sql_query: Final = """
-    SELECT DISTINCT end_user FROM "LiteLLM_SpendLogs"
+    SELECT DISTINCT end_user FROM (
+        SELECT end_user
+        FROM "LiteLLM_SpendLogs"
+        WHERE end_user IS NOT NULL
+        ORDER BY "startTime" DESC
+        LIMIT $1
+    ) recent
     """
 
-    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(prisma_client, sql_query)
+    db_response: Final[Sequence[_EndUserRow] | None] = await _query_raw_or_none(
+        prisma_client, sql_query, END_USER_FACET_SCAN_CAP
+    )
     if db_response is None:
         return []
 

@@ -158,61 +158,109 @@ def build_aggregated_sql(scope: DailyActivityScope, *, api_key_limit: int) -> Sq
         pg_table, where_clause, sentinel_param=sentinel_param, limit_param=top_keys_limit_param
     )
     metric_select: Final = _rollup_metric_select(scope.table)
+    # The prisma query engine's resident memory is a high-water mark set by the
+    # largest result it ever buffers, so the rowset shipped per GROUPING SETS
+    # level must be bounded before it reaches the engine. Rank within each
+    # group_level by traffic and keep at most MAX_ROWS_PER_GROUPING_LEVEL rows
+    # per level, so the grand-total and per-date levels can never be crowded
+    # out by a high-cardinality model/tool level.
     sql: Final = f"""
-        (SELECT
-            date,
-            NULL::text AS api_key,
-            model,
-            {_MODEL_GROUP_EXPR} AS model_group,
-            custom_llm_provider,
-            mcp_namespaced_tool_name,
-            endpoint,
-            (GROUPING(date) << 6) | {_API_KEY_ROLLED_UP_BIT}
-                | GROUPING(model, {_MODEL_GROUP_EXPR},
-                           custom_llm_provider, mcp_namespaced_tool_name,
-                           endpoint) AS group_level,
-            NULL::bigint AS distinct_api_keys,{metric_select}
-        FROM "{pg_table}"
-        WHERE {where_clause}
-        GROUP BY GROUPING SETS (
-            (date),
-            (date, model),
-            (date, {_MODEL_GROUP_EXPR}),
-            (date, custom_llm_provider),
-            (date, mcp_namespaced_tool_name),
-            (date, endpoint),
-            ()
-        ))
-        UNION ALL
-        (WITH top_api_keys AS (
-            {top_api_keys}
-        )
         SELECT
             date,
             api_key,
             model,
-            {_MODEL_GROUP_EXPR} AS model_group,
+            model_group,
             custom_llm_provider,
             mcp_namespaced_tool_name,
             endpoint,
-            GROUPING(date, api_key, model, {_MODEL_GROUP_EXPR},
-                     custom_llm_provider, mcp_namespaced_tool_name,
-                     endpoint) AS group_level,
-            MAX(top_api_keys.distinct_api_keys) AS distinct_api_keys,{metric_select}
-        FROM "{pg_table}" JOIN top_api_keys USING (api_key)
-        WHERE {where_clause}
-        GROUP BY GROUPING SETS (
-            (date, api_key),
-            (date, model, api_key),
-            (date, {_MODEL_GROUP_EXPR}, api_key),
-            (date, custom_llm_provider, api_key),
-            (date, mcp_namespaced_tool_name, api_key),
-            (date, endpoint, api_key)
-        ))
+            group_level,
+            distinct_api_keys,
+            spend,
+            ptu_flat_cost,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+            compression_saved_tokens,
+            compression_savings_spend,
+            prompt_caching_savings_spend,
+            gateway_injected_caching_savings_spend,
+            autorouter_savings_spend,
+            api_requests,
+            successful_requests,
+            failed_requests,
+            total_response_time_ms,
+            timed_requests
+        FROM (
+            SELECT
+                rollups.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY group_level
+                    ORDER BY api_requests DESC NULLS LAST, spend DESC NULLS LAST
+                ) AS level_rank
+            FROM (
+                (SELECT
+                    date,
+                    NULL::text AS api_key,
+                    model,
+                    {_MODEL_GROUP_EXPR} AS model_group,
+                    custom_llm_provider,
+                    mcp_namespaced_tool_name,
+                    endpoint,
+                    (GROUPING(date) << 6) | {_API_KEY_ROLLED_UP_BIT}
+                        | GROUPING(model, {_MODEL_GROUP_EXPR},
+                                   custom_llm_provider, mcp_namespaced_tool_name,
+                                   endpoint) AS group_level,
+                    NULL::bigint AS distinct_api_keys,{metric_select}
+                FROM "{pg_table}"
+                WHERE {where_clause}
+                GROUP BY GROUPING SETS (
+                    (date),
+                    (date, model),
+                    (date, {_MODEL_GROUP_EXPR}),
+                    (date, custom_llm_provider),
+                    (date, mcp_namespaced_tool_name),
+                    (date, endpoint),
+                    ()
+                ))
+                UNION ALL
+                (WITH top_api_keys AS (
+                    {top_api_keys}
+                )
+                SELECT
+                    date,
+                    api_key,
+                    model,
+                    {_MODEL_GROUP_EXPR} AS model_group,
+                    custom_llm_provider,
+                    mcp_namespaced_tool_name,
+                    endpoint,
+                    GROUPING(date, api_key, model, {_MODEL_GROUP_EXPR},
+                             custom_llm_provider, mcp_namespaced_tool_name,
+                             endpoint) AS group_level,
+                    MAX(top_api_keys.distinct_api_keys) AS distinct_api_keys,{metric_select}
+                FROM "{pg_table}" JOIN top_api_keys USING (api_key)
+                WHERE {where_clause}
+                GROUP BY GROUPING SETS (
+                    (date, api_key),
+                    (date, model, api_key),
+                    (date, {_MODEL_GROUP_EXPR}, api_key),
+                    (date, custom_llm_provider, api_key),
+                    (date, mcp_namespaced_tool_name, api_key),
+                    (date, endpoint, api_key)
+                ))
+            ) AS rollups
+        ) AS ranked
+        WHERE level_rank <= ${len(where_params) + 3}
     """
     return SqlQuery(
         sql=sql,
-        params=(*where_params, PTU_SENTINEL_API_KEY, api_key_limit),
+        params=(
+            *where_params,
+            PTU_SENTINEL_API_KEY,
+            api_key_limit,
+            constants.MAX_ROWS_PER_GROUPING_LEVEL,
+        ),
     )
 
 

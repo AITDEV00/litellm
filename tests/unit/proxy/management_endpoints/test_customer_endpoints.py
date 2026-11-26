@@ -639,6 +639,49 @@ async def test_get_customer_daily_activity_admin_param_passing(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_customer_daily_activity_alias_scan_is_capped(monkeypatch):
+    """
+    Memory regression: when no end_user_ids are supplied, the alias pre-fetch
+    must scan LiteLLM_EndUserTable with a take cap. Without the cap it runs
+    find_many(where={}), shipping the whole table (80k+ rows in production)
+    through the prisma engine, whose RSS high-water mark never returns to the
+    OS. Dropped once by the v1.108.5 merge; pinned here and in
+    test_oicm_drop_detection.py so a wholesale takeover cannot lose both.
+    """
+    from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+    from litellm.proxy.management_endpoints import customer_endpoints
+    from litellm.proxy.management_endpoints.customer_endpoints import (
+        _END_USER_ALIAS_SCAN_CAP,
+        get_customer_daily_activity,
+    )
+
+    mock_prisma_client = AsyncMock()
+    mock_prisma_client.db.litellm_endusertable.find_many = AsyncMock(return_value=[])
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", mock_prisma_client)
+
+    mocked_response = MagicMock(name="SpendAnalyticsPaginatedResponse")
+    get_daily_activity_mock = AsyncMock(return_value=mocked_response)
+    monkeypatch.setattr(customer_endpoints, "get_daily_activity", get_daily_activity_mock)
+
+    auth = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin1")
+    await get_customer_daily_activity(
+        end_user_ids=None,
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+        model=None,
+        api_key=None,
+        page=1,
+        page_size=10,
+        exclude_end_user_ids=None,
+        user_api_key_dict=auth,
+    )
+
+    find_many_mock = mock_prisma_client.db.litellm_endusertable.find_many
+    find_many_mock.assert_awaited_once()
+    assert find_many_mock.call_args.kwargs["take"] == _END_USER_ALIAS_SCAN_CAP
+
+
+@pytest.mark.asyncio
 async def test_get_customer_daily_activity_with_end_user_aliases(monkeypatch):
     from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
     from litellm.proxy.management_endpoints import customer_endpoints
@@ -916,9 +959,7 @@ def test_customer_new_forwards_models_to_db(mock_prisma_client, mock_user_api_ke
 
 
 @pytest.mark.parametrize("bad_duration", ["0s", "-5m"])
-def test_customer_new_rejects_a_duration_that_never_advances(
-    mock_prisma_client, mock_user_api_key_auth, bad_duration
-):
+def test_customer_new_rejects_a_duration_that_never_advances(mock_prisma_client, mock_user_api_key_auth, bad_duration):
     """A zero-length window resets to "now", leaving the customer's budget row
     permanently due for the reset job to re-read every tick."""
     mock_prisma_client.db.litellm_endusertable.create = AsyncMock(return_value=_row(_FULL_DB_ROW))

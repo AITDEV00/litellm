@@ -4,7 +4,7 @@ from typing import Final
 import pytest
 
 from litellm import constants
-from litellm.constants import PTU_SENTINEL_API_KEY
+from litellm.constants import MAX_ROWS_PER_GROUPING_LEVEL, PTU_SENTINEL_API_KEY
 from litellm.repositories.daily_activity_sql import (
     ExportCursor,
     adjust_dates_for_timezone,
@@ -301,12 +301,15 @@ def test_aggregated_query_binds_sentinel_and_api_key_limit_after_scope_values() 
     assert "api_key <> $4" in query.sql
     assert "LIMIT $5" in query.sql
     assert 'FROM "LiteLLM_DailyUserSpend"' in query.sql
+    # The per-grouping-level row cap binds last, after the top-keys limit.
+    assert "level_rank <= $6" in query.sql
     assert query.params == (
         "2026-01-01",
         "2026-01-31",
         ["key-1"],
         PTU_SENTINEL_API_KEY,
         3,
+        MAX_ROWS_PER_GROUPING_LEVEL,
     )
 
 

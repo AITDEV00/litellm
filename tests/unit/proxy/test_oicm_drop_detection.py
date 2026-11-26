@@ -14,6 +14,7 @@ wired into the runtime.
 """
 
 import importlib
+import inspect
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -117,7 +118,10 @@ def test_drama3_speech_dispatch_tail_wired() -> None:
     main_py = Path(litellm.__file__).parent / "main.py"
     source = main_py.read_text()
     assert '"drama3"' in source, "drama3 was dropped from the speech() dispatch tail"
-    assert '"omnivoice",\n        "drama3",' in source or '"hamsa",\n        "inception",\n        "omnivoice",\n        "drama3",' in source
+    assert (
+        '"omnivoice",\n        "drama3",' in source
+        or '"hamsa",\n        "inception",\n        "omnivoice",\n        "drama3",' in source
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +200,7 @@ def test_client_distribution_router_mounted_on_app() -> None:
     """The /install router must be included on the FastAPI app after a merge."""
     from litellm.proxy.proxy_server import app
 
-    mounted_paths = {
-        route.path
-        for route in app.routes
-        if getattr(route, "path", None) and "/install" in route.path
-    }
+    mounted_paths = {route.path for route in app.routes if getattr(route, "path", None) and "/install" in route.path}
     assert mounted_paths, "no /install route mounted; client_distribution slice was dropped"
 
 
@@ -219,11 +219,7 @@ def test_diarization_routes_router_is_mounted_on_app() -> None:
     """The /v1/diarize router must be included on the FastAPI app after a merge."""
     from litellm.proxy.proxy_server import app
 
-    mounted_paths = {
-        route.path
-        for route in app.routes
-        if getattr(route, "path", None) and "/diarize" in route.path
-    }
+    mounted_paths = {route.path for route in app.routes if getattr(route, "path", None) and "/diarize" in route.path}
     assert mounted_paths, "no /diarize route mounted; diarization_routes slice was dropped"
 
 
@@ -443,9 +439,7 @@ def test_audio_translation_provider_registry_dispatch_wired() -> None:
     from litellm.utils import ProviderConfigManager
 
     for provider in (LlmProviders.NVIDIA_NIM, LlmProviders.HOSTED_VLLM):
-        cfg = ProviderConfigManager.get_provider_audio_translation_config(
-            model="probe", provider=provider
-        )
+        cfg = ProviderConfigManager.get_provider_audio_translation_config(model="probe", provider=provider)
         assert cfg is not None, f"{provider.value} audio translation dispatch was dropped"
 
 
@@ -487,6 +481,115 @@ def test_model_performance_routes_are_mounted_on_app(path: str) -> None:
     assert any(route.path == path for route in app.routes)
 
 
+# ---------------------------------------------------------------------------
+# Slice: prisma-engine memory guards (upstream-owned files carrying OICM edits)
+# ---------------------------------------------------------------------------
+# These pin behavioral bounds that live INSIDE upstream-owned files, not wiring
+# between slices, so the mount/re-export checks above cannot see them. The
+# v1.108.5 merge took the upstream blob wholesale for these files and dropped
+# every one of these bounds together with their per-feature tests. A symbol
+# pin here survives that class of resolution because this file is OICM-owned:
+# a wholesale takeover of an upstream file cannot delete this test, only fail
+# it. The behavioral contracts stay in each feature's own test module.
+
+
+def test_end_user_alias_scan_cap_present() -> None:
+    """The unfiltered customer daily-activity alias pre-fetch must stay capped.
+
+    Without the cap it reads the whole LiteLLM_EndUserTable per call and the
+    engine's high-water mark ratchets (the 2026-11 prod OOM driver)."""
+    from litellm.proxy.management_endpoints.customer_endpoints import (
+        _END_USER_ALIAS_SCAN_CAP,
+        resolve_customer_daily_activity_scope,
+    )
+
+    assert _END_USER_ALIAS_SCAN_CAP > 0
+    src: Final = inspect.getsource(resolve_customer_daily_activity_scope)
+    assert "take=_END_USER_ALIAS_SCAN_CAP" in src, "alias pre-fetch lost its take cap"
+
+
+def test_all_end_users_facet_scan_is_bounded() -> None:
+    """The /global/all_end_users DISTINCT must scan a bounded recent subquery.
+
+    An unbounded SELECT DISTINCT over the spend log ships the whole deduplicated
+    set through the engine in one statement."""
+    from litellm.proxy.spend_tracking import spend_management_endpoints as sme
+
+    assert sme.END_USER_FACET_SCAN_CAP > 0
+    src: Final = inspect.getsource(sme.global_view_all_end_users)
+    assert "LIMIT $1" in src, "all_end_users facet lost its bounded subquery"
+
+
+def test_global_spend_refresh_disconnects_client() -> None:
+    """The /global/spend/refresh dedicated client must disconnect in a finally.
+
+    Each PrismaClient owns a query-engine subprocess; a never-disconnected one
+    strands a full engine per call for the worker's lifetime."""
+    from litellm.proxy.spend_tracking import spend_management_endpoints as sme
+
+    src: Final = inspect.getsource(sme.global_spend_refresh)
+    assert "finally:" in src and "disconnect()" in src, "refresh client lost its disconnect"
+
+
+def test_model_performance_rollup_read_sums_histograms_in_sql() -> None:
+    """The rollup read must fold per-minute histograms in SQL, not json_agg.
+
+    json_agg made each result row carry one histogram array per minute in its
+    bucket; a full-range payload hit ~62MB and deserialized to a 4.5GB engine
+    high-water mark. The element-wise SUM keeps one fixed-size array per row."""
+    from litellm.proxy.model_metrics_endpoints import model_performance_endpoints as mpe
+
+    src: Final = inspect.getsource(mpe._fetch_db_performance_from_rollup)
+    sql: Final = src.split('sql_query = f"""', 1)[1]
+    assert "_rollup_array_sum(ttft_histogram_counts)" in sql, "rollup read lost its in-SQL histogram sum"
+    assert "json_agg(ttft_histogram_counts)" not in sql, "rollup read reverted to json_agg histogram collection"
+
+
+def test_daily_activity_grouping_caps_rows_per_level() -> None:
+    """The GROUPING SETS rollup must rank and cap rows per group level.
+
+    Without the cap the multi-level GROUPING SETS query ships every rollup
+    level's full rowset in one statement."""
+    from litellm.constants import MAX_ROWS_PER_GROUPING_LEVEL
+    from litellm.repositories import daily_activity_sql
+    from litellm.types.repositories.daily_activity import DailyActivityScope, DailyActivityTable
+
+    assert MAX_ROWS_PER_GROUPING_LEVEL > 0
+    src: Final = inspect.getsource(daily_activity_sql.build_aggregated_sql)
+    assert "ROW_NUMBER()" in src and "level_rank <=" in src, "grouping-sets read lost its per-level cap"
+    scope: Final = DailyActivityScope(
+        table=DailyActivityTable.CUSTOMER,
+        entity_id_field="end_user_id",
+        entity_ids=None,
+        exclude_entity_ids=(),
+        api_keys=None,
+        start_date="2026-01-01",
+        end_date="2026-01-02",
+        model=None,
+        timezone_offset_minutes=None,
+    )
+    params: Final = daily_activity_sql.build_aggregated_sql(scope, api_key_limit=5).params
+    assert MAX_ROWS_PER_GROUPING_LEVEL in params, "per-level cap param missing from the statement"
+
+
+def test_heavy_query_client_is_per_call_not_cached() -> None:
+    """The >=14d model-performance client must connect/disconnect per call.
+
+    A cached heavy client strands its engine (multi-GB high-water mark) per
+    worker for the worker's lifetime; two such engines OOMKilled prod pods. The
+    client must be an async context manager entered with ``async with`` at both
+    heavy call sites, never awaited as a bare singleton getter."""
+    from litellm.proxy.model_metrics_endpoints import model_performance_endpoints as mpe
+
+    src: Final = inspect.getsource(mpe._heavy_query_prisma_client)
+    assert "finally:" in src and "disconnect()" in src, "heavy client lost its disconnect"
+    for fn in (mpe._fetch_db_performance, mpe._fetch_db_performance_from_rollup):
+        call_src: Final = inspect.getsource(fn)
+        assert "async with _heavy_query_prisma_client()" in call_src, (
+            f"{fn.__name__} no longer uses the per-call heavy client context"
+        )
+
+
 def test_stream_tracer_records_chunk_and_terminal_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     from litellm.litellm_core_utils import stream_tracer
 
@@ -507,4 +610,3 @@ def test_stream_tracer_records_chunk_and_terminal_outcome(monkeypatch: pytest.Mo
     )
     assert records[1]["chunk_chars"] == 4
     assert records[1]["finish_reason"] == "stop"
-

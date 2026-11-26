@@ -10,6 +10,7 @@ Pins:
 from __future__ import annotations
 
 import datetime
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -68,8 +69,8 @@ def test_model_performance_happy_with_rows(client, auth_as, monkeypatch):
                 "throughput_tokens": 1000.0,
                 "ttft_seconds_sum": 5.0,
                 "ttft_histogram_edges": [0.1, 1.0, 10.0, 100.0, float("inf")],
-                # json_agg of the 1-minute count arrays
-                "ttft_histogram_counts": [[0, 10, 0, 0, 0]],
+                # element-wise _rollup_array_sum of the 1-minute count arrays
+                "ttft_histogram_counts": [0, 10, 0, 0, 0],
                 "concurrent_requests": 10.0,
             }
         ]
@@ -115,8 +116,8 @@ def _coarse_row(mg, ts, req_count, concurrent=0.0, throughput=0.0, ttft_sum=0.0,
         "throughput_tokens": throughput,
         "ttft_seconds_sum": ttft_sum,
         "ttft_histogram_edges": edges,
-        # json_agg yields a list of per-1-minute count arrays
-        "ttft_histogram_counts": hist if hist is not None else [[0, 0, 0, 0]],
+        # _rollup_array_sum yields one flat count array per bucket
+        "ttft_histogram_counts": hist if hist is not None else [0, 0, 0, 0],
         "concurrent_requests": concurrent,
     }
 
@@ -143,7 +144,7 @@ def test_rollup_coarse_buckets_to_model_renders_series_and_folds_histogram():
             req_count=1,
             concurrent=3.0,
             ttft_sum=0.5,
-            hist=[[0, 1, 0, 0]],
+            hist=[0, 1, 0, 0],
         ),
         _coarse_row(
             "gpt-4",
@@ -151,7 +152,7 @@ def test_rollup_coarse_buckets_to_model_renders_series_and_folds_histogram():
             req_count=1,
             concurrent=0.0,
             ttft_sum=5.0,
-            hist=[[0, 0, 1, 0]],
+            hist=[0, 0, 1, 0],
         ),
     ]
     model = _rollup_coarse_buckets_to_model("gpt-4", rows)
@@ -178,8 +179,8 @@ def test_rollup_coarse_buckets_skip_empty_and_allow_naive_bucket_timestamp():
     )
 
     rows = [
-        _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=0, hist=[[0, 0, 0, 0]]),
-        _coarse_row("gpt-4", datetime.datetime(2025, 1, 1), req_count=5, hist=[[0, 5, 0, 0]]),
+        _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=0, hist=[0, 0, 0, 0]),
+        _coarse_row("gpt-4", datetime.datetime(2025, 1, 1), req_count=5, hist=[0, 5, 0, 0]),
     ]
     model = _rollup_coarse_buckets_to_model("gpt-4", rows)
     assert model["summary"]["total_requests"] == 5
@@ -199,7 +200,7 @@ def test_rollup_coarse_buckets_restore_null_infinity_edge():
         _rollup_coarse_buckets_to_model,
     )
 
-    row = _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=5, ttft_sum=5.0, hist=[[0, 5, 0, 0]])
+    row = _coarse_row("gpt-4", "2025-01-01T00:00:00+00:00", req_count=5, ttft_sum=5.0, hist=[0, 5, 0, 0])
     # Simulate the real DB: the open upper edge arrives as NULL.
     row["ttft_histogram_edges"] = [0.1, 1.0, 10.0, None]
     model = _rollup_coarse_buckets_to_model("gpt-4", [row])
@@ -209,23 +210,23 @@ def test_rollup_coarse_buckets_restore_null_infinity_edge():
     assert model["summary"]["p99_ttft"] is not None
 
 
-def test_rollup_coarse_buckets_folds_2d_json_histogram():
-    """The SQL ``json_agg`` yields a list of per-1-minute count arrays; the
-    builder must fold them element-wise into a single bucket histogram."""
+def test_rollup_coarse_buckets_folds_flat_summed_histogram():
+    """The SQL ``_rollup_array_sum`` yields one flat element-wise-summed count
+    array per bucket; the builder must read it verbatim."""
     from litellm.proxy.model_metrics_endpoints.model_performance_endpoints import (
         _rollup_coarse_buckets_to_model,
     )
 
-    # Two 1-minute arrays within one coarse bucket.
+    # One bucket whose per-minute arrays were summed element-wise in SQL.
     row = _coarse_row(
         "gpt-4",
         "2025-01-01T00:00:00+00:00",
         req_count=2,
         ttft_sum=1.0,
-        hist=[[0, 1, 0, 0], [0, 0, 1, 0]],
+        hist=[0, 1, 1, 0],
     )
     model = _rollup_coarse_buckets_to_model("gpt-4", [row])
-    # Both folded counts are in the merged histogram -> p50 between bins 1 and 2.
+    # Both summed counts are in the merged histogram -> p50 between bins 1 and 2.
     assert model["summary"]["total_requests"] == 2
     assert model["summary"]["p50_ttft"] is not None
     assert model["summary"]["p95_ttft"] is not None
@@ -276,13 +277,17 @@ async def test_heavy_model_performance_queries_bound_row_transport(monkeypatch, 
     import litellm.proxy.model_metrics_endpoints.model_performance_endpoints as metrics
     import datetime as dates
 
-    monkeypatch.setattr(metrics, "_heavy_query_prisma_client", None)
     monkeypatch.setattr(metrics, "_DB_CACHE", metrics.InMemoryCache(max_size_in_memory=64, default_ttl=300))
     query = AsyncMock(return_value=[])
     client = MagicMock()
     client.db.query_raw = query
     monkeypatch.setattr(proxy_server, "prisma_client", client)
-    monkeypatch.setattr(metrics, "_get_heavy_query_prisma_client", AsyncMock(return_value=client))
+
+    @metrics.asynccontextmanager
+    async def fake_heavy_client():
+        yield client
+
+    monkeypatch.setattr(metrics, "_heavy_query_prisma_client", fake_heavy_client)
     end = dates.datetime.now(dates.timezone.utc)
     start = end - dates.timedelta(days=15)
     common = {"window": "24h", "model_group": None, "start_time": start, "end_time": end}
@@ -295,35 +300,52 @@ async def test_heavy_model_performance_queries_bound_row_transport(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_concurrent_heavy_queries_reuse_a_single_inflight_client(monkeypatch):
-    import asyncio
+async def test_heavy_client_connects_and_disconnects_per_call(monkeypatch):
+    """Each heavy-range read owns its engine for the call only.
+
+    A cached PrismaClient strands its query-engine subprocess for the worker's
+    lifetime, and the engine's resident memory is a high-water mark: two such
+    cached engines at 4.5GB each OOMKilled prod pods. The client must connect
+    on entry and disconnect on exit, even when the query raises.
+    """
     import litellm.proxy.model_metrics_endpoints.model_performance_endpoints as metrics
     import litellm.proxy.utils as utils
 
-    monkeypatch.setattr(metrics, "_heavy_query_prisma_client", None)
-    gates = asyncio.Event()
-    constructions = 0
+    events: list[str] = []
 
     class Client:
         def __init__(self, **kwargs):
-            nonlocal constructions
-            constructions += 1
-            assert kwargs["http_client"]["timeout"] > 0
+            assert kwargs["http_client"]["timeout"] == metrics._HEAVY_QUERY_HTTP_TIMEOUT_SECONDS
 
         async def connect(self):
-            await gates.wait()
+            events.append("connect")
+
+        class _Db:
+            async def disconnect(self):
+                events.append("disconnect")
+
+        db = _Db()
 
     monkeypatch.setattr(utils, "PrismaClient", Client)
     monkeypatch.setenv("DATABASE_URL", "postgresql://audit.invalid/unit-test")
-    calls = [asyncio.create_task(metrics._get_heavy_query_prisma_client()) for _ in range(5)]
-    await asyncio.sleep(0)
-    assert constructions == 1
-    assert all(not task.done() for task in calls)
-    clients = [metrics._heavy_query_prisma_client]
-    gates.set()
-    results = await asyncio.gather(*calls)
-    assert len({id(client) for client in results}) == 1
-    assert constructions == 1
+    async with metrics._heavy_query_prisma_client():
+        assert events == ["connect"]
+    assert events == ["connect", "disconnect"]
+
+    class RaisingClient(Client):
+        async def connect(self):
+            events.append("connect")
+
+    monkeypatch.setattr(utils, "PrismaClient", RaisingClient)
+    raised = False
+    try:
+        async with metrics._heavy_query_prisma_client() as c:
+            c.db.query_raw = AsyncMock(side_effect=RuntimeError("boom"))
+            await c.db.query_raw("SELECT 1")
+    except RuntimeError:
+        raised = True
+    assert raised
+    assert events == ["connect", "disconnect", "connect", "disconnect"]
 
 
 # ---------------------------------------------------------------------------
@@ -709,9 +731,14 @@ def test_model_performance_large_range_uses_long_timeout_client(client, auth_as,
         return []
 
     heavy_client.db.query_raw = heavy_query_raw
+
+    @asynccontextmanager
+    async def fake_heavy_client():
+        yield heavy_client
+
     monkeypatch.setattr(
-        "litellm.proxy.model_metrics_endpoints.model_performance_endpoints._get_heavy_query_prisma_client",
-        AsyncMock(return_value=heavy_client),
+        "litellm.proxy.model_metrics_endpoints.model_performance_endpoints._heavy_query_prisma_client",
+        fake_heavy_client,
     )
     start = "2025-01-01T00:00:00Z"
     end = "2025-02-01T00:00:00Z"  # 31 days

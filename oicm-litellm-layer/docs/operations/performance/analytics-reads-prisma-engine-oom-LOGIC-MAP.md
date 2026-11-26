@@ -211,22 +211,40 @@ resolution — parent 1 had the fixes, the merged result did not:
    node; 29.7M histogram bins total in the table), then retained by glibc
    arena high-water-mark. **Bounding rows does not bound bytes.**
 
-### What still needs to change (root fix, ranked)
+Everything below in this section was true at investigation time
+(2026-11-26) and is kept as the evidence record; the fixes it asks for
+are implemented as of 2026-11-27, listed in the "Fix status" subsection.
 
-1. Restore the two dropped caps (re-apply what `6de7d2c9ec1` did — it is a
-   merge-resolution regression, not a design gap).
-2. Bound the rollup read by **bytes, not rows**: aggregate
-   `ttft_histogram_counts` per bucket with `_rollup_array_add_bigint`
-   (already in the schema, used by the write path) instead of shipping one
-   histogram array per minute via `json_agg`. Each row then carries one
-   fixed-size array; payload drops from tens of MB to KB and the engine
-   HWM cannot ratchet.
-3. Stop the extra-engine pattern entirely: per-call connect/disconnect for
-   the heavy client, or route >=14d reads to a dedicated reader
-   (`DATABASE_URL_READ_REPLICA`), which isolates the ratchet from the
-   request path.
-4. Defense-in-depth never shipped despite two prior recommendations:
-   `MALLOC_ARENA_MAX=2` + `MALLOC_TRIM_THRESHOLD_`/`MALLOC_MMAP_THRESHOLD_`
-   on the proxy container env (engines inherit env; shrinks arena sprawl),
-   and a granian `workers_lifetime` recycle since engine HWM only ratchets.
+### Fix status (implemented 2026-11-27, jya0-v1.108.5 branch)
+
+All four ranked fixes shipped. The drop-detection test module
+(`tests/unit/proxy/test_oicm_drop_detection.py`) now pins each one so a
+future upstream merge that reverts any of them fails CI instead of
+silently OOMing prod again.
+
+1. **Caps restored.** `_END_USER_ALIAS_SCAN_CAP` (10k) on the end-user
+   alias scan, `END_USER_FACET_SCAN_CAP` (10k) bound on the
+   `global_view_all_end_users` facet query, the `ROW_NUMBER() ...
+   level_rank <= 5000` wrapper in `daily_activity_sql.build_aggregated_sql`
+   (constants.MAX_ROWS_PER_GROUPING_LEVEL), and
+   `global_spend_refresh` once again disconnects its dedicated client in a
+   `finally`.
+2. **Rollup read bounded by bytes.** `json_agg(ttft_histogram_counts)`
+   replaced by `_rollup_array_sum(ttft_histogram_counts)`, a new SQL
+   aggregate (migration `20261126120000_add_rollup_array_sum_aggregate`,
+   SFUNC = `_rollup_array_add_bigint`) so each row carries one fixed-size
+   summed array. Measured on the live prod DB: full-range payload 61.7MB
+   -> 142KB (435x smaller). The aggregate was applied to the prod DB
+   during verification, so the read path is protected even before the
+   next image roll.
+3. **Extra-engine pattern stopped.** The module-cached heavy PrismaClient
+   singleton is gone; `_heavy_query_prisma_client()` is now a per-call
+   `@asynccontextmanager` that connects on entry and disconnects in a
+   `finally`, so no query-engine subprocess outlives the request.
+4. **Defense-in-depth shipped.** `MALLOC_ARENA_MAX=2`,
+   `MALLOC_TRIM_THRESHOLD_=65536`, `MALLOC_MMAP_THRESHOLD_=65536` on the
+   gateway container env (engines inherit it; shrinks arena sprawl), plus
+   `--granian_workers_lifetime 43200` (12h recycle) in the prod
+   deployment command and the matching `--granian_workers_lifetime` CLI
+   option. Dev intentionally omits the recycle: debug wants stable PIDs.
 

@@ -517,6 +517,7 @@ class ProxyInitializationHelpers:
         max_requests_before_restart: int | None,
         ciphers: str | None,
         granian_runtime_threads: int | None = None,
+        granian_workers_lifetime: int | None = None,
     ) -> None:
         """
         Run the proxy with Granian (Rust-backed ASGI server, HTTP/1 + HTTP/2).
@@ -546,6 +547,8 @@ class ProxyInitializationHelpers:
         }
         if granian_runtime_threads is not None:
             kwargs["runtime_threads"] = granian_runtime_threads
+        if granian_workers_lifetime is not None:
+            kwargs["workers_lifetime"] = granian_workers_lifetime
         if ssl_certfile_path is not None and ssl_keyfile_path is not None:
             print(
                 f"\033[1;32mLiteLLM Proxy: Using SSL with certfile: {ssl_certfile_path} and keyfile: {ssl_keyfile_path}\033[0m\n"
@@ -789,6 +792,18 @@ class ProxyInitializationHelpers:
         "(Granian --runtime-threads / GRANIAN_RUNTIME_THREADS). Omit to use Granian's default (1)."
     ),
     envvar="GRANIAN_RUNTIME_THREADS",
+)
+@click.option(
+    "--granian_workers_lifetime",
+    default=None,
+    type=click.IntRange(min=60),
+    help=(
+        "Only with --run_granian: recycle each worker process after this many "
+        "seconds (Granian --workers-lifetime / GRANIAN_WORKERS_LIFETIME). Bounds "
+        "memory that only ratchets per process, e.g. the prisma query engine's "
+        "resident high-water mark. Omit for no recycle."
+    ),
+    envvar="GRANIAN_WORKERS_LIFETIME",
 )
 @click.option("--api_base", default=None, help="API base URL.")
 @click.option(
@@ -1107,6 +1122,7 @@ def run_server(
     local,
     num_workers: int,
     granian_threads,
+    granian_workers_lifetime: int | None,
     test_async,
     iam_token_db_auth,
     azure_postgresql_auth: bool,
@@ -1673,6 +1689,7 @@ def run_server(
                 max_requests_before_restart=max_requests_before_restart,
                 ciphers=ciphers,
                 granian_runtime_threads=granian_threads,
+                granian_workers_lifetime=granian_workers_lifetime,
             )
 
 
