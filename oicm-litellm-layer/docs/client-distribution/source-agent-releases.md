@@ -1,8 +1,10 @@
 # Source-agent artifacts: adapt the `/install` distribution pattern
 
-Status: REQUIRED DESIGN/FIX, not implemented or accepted. This is the owning distribution
-instruction for `source-link`. It follows the existing cc-switch `/install` host model and what
-it actually does, instead of proposing another client-release transport.
+Status reviewed 2026-11-26: partially implemented review, not a wholesale unimplemented design. The generic `/install` channel, immutable source-agent release paths and conditional active-pointer compare-and-set have since landed. Immutable-version checks, valid release pair activation and concurrent pointer protection are current source contracts. A source-agent installer is documented and live on prod; use the current implementation as the behavioral reference, not every claim below as an unsatisfied blocker
+
+Still unproven or required: live RustFS publication through the operator target; full publication to real install validation; clean-HOME digest and lifecycle proof; explicit convention for generated install-template versus artifact bytes; revision fences during different-byte racing uploads; and the separately stated connector-init/runtime gaps. This documentation stays as a requirements/history review of remaining safeguards. For the installer implementation, see [Client installation](../mcp/client-install.md); for current publisher status, see [running broker status](../mcp-source-broker/running-system/README.md#status-register)
+
+This page follows the existing cc-switch `/install` host model and proposes safeguards for source-link. It must not discard that transport by proposing a new client-release architecture, and should not be interpreted as a claim that all of these requirements remain unimplemented
 
 Read first: [architecture](architecture.md), [admin-sync](admin-sync.md), [rustfs](rustfs.md),
 [security](security.md), and the detailed independent review at
@@ -143,10 +145,13 @@ verify the installer and new binary hashes from a clean HOME. The outside source
 HTTPS requirement is an independent topology item (R9), not permission to pretend plain HTTP
 port-forward input works transparently as HTTPS in the CLI.
 
-## Discrepancies between the older design docs and current generic routes
+## Previously reviewed discrepancies, now superseded in implementation
 
-Reusing the established mechanism must not import claims that the current Python API no longer
-implements. Verified in `litellm/proxy/client_distribution/routes.py`, `generator.py`:
+The older text below described generic upsert, no pointer CAS, and a base64 publisher. Current implementation resolves those exact issues. `routes.py` rejects differing bytes at immutable source-agent release paths. `source_agent_distribution.py` performs separate activation with a valid version pair, `expected_current`, `IfMatch` / `IfNoneMatch`, and reads the RustFS installer template at request time
+
+The source-agent generic mirror manifest schema is distinct from the cc-switch schema-5 manifest, and release uploads use the shared raw artifact endpoint and their own source-agent activation endpoint. No live end-to-end operator publication is claimed by this correction. The notes below stay for design provenance, not as a current API source map
+
+## Historical discrepancies between the older design docs and current generic routes (2026-11-18 snapshot)
 
 - `PUT /install/admin/v1/artifact/{path}` computes sha256 from the request, returns an
   `unchanged` flag for exact repeated bytes, but otherwise permits a write for the same key.

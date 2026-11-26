@@ -1,14 +1,12 @@
 # Spend Dashboard View Repair: Dev and Prod
 
-Status: planned, dev-first implementation
-
-Date: 2026-11-24
+Status reviewed 2026-11-26: completed diagnostic plan and repair; not a future end-user symptom or a standing operator repair procedure. The one-time 2026-11-24 production repair and guarded migration were verified against the same commit documented in [Spend view legacy repair runbook](../runbooks/spend-view-legacy-repair.md). Do not repeat that repair to prove it works\n\nDate of original plan: 2026-11-24. The following current/expected phrasing describes pre-repair state. Refer to the runbook for actual completion, latency and ownership outcomes. The tag-aggregation table from the migration (rather than an raw-history view) is part of the shipped code path; subsequent cleanup or view-deletion suggestions below are not a release checklist
 
 ## Objective
 
 Restore the LiteLLM Admin UI and Athena read-only spend analytics on both gateways without weakening authorization, duplicating spend data, changing spend rows, or introducing the large raw-log reads that previously contributed to Prisma-engine OOMs.
 
-The production gateway currently returns HTTP 500 for:
+At the original observation, the production gateway returned HTTP 500 for:
 
 ```text
 GET /global/spend/models
@@ -16,7 +14,7 @@ GET /global/spend/keys
 GET /global/spend/tags?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 ```
 
-The first two fail because the application DB role cannot read the `postgres`-owned views. The tag endpoint fails because the legacy `DailyTagSpend` view has three columns while the current code expects four current request-tag columns.
+The first two fail because the application DB role then could not read the `postgres`-owned views. The tag endpoint failed because the legacy `DailyTagSpend` view had three columns while the code expected four current request-tag columns.
 
 Both prod and dev run `jya0-v1.108.5` code for these queries. The defect is external database state left unrepaired by LiteLLM's existence-only view bootstrap, not an RBAC configuration change and not a fork lookup implementation deleted by the recent merge.
 
