@@ -67,9 +67,8 @@ Where every documentation file lives, so you can find an existing doc quickly.
 
 | Doc | Location |
 |-----|----------|
-| OpenAPI/source-backed gateway administration capability map: UI defaults, SSO persistence, delegated governance, unified resource groups | `docs/admin-api/ADMIN-CAPABILITY-MAP.md` |
-| Complete live OpenAPI methodology register with all operations, contracts, security declarations and source mapping (disclaimer: not all handler authorizations individually annotated yet) | `docs/admin-api/OPERATION-REGISTER.md` and `docs/admin-api/operations/` |
 | Full admin REST API guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` |
+| Teams, access groups, MCP and semantic tool grants playbook | `docs/admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md` |
 | Athena read-only key guide | `docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` |
 
 ## MCP architecture research
@@ -79,7 +78,6 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Dated research index. Code and current deployment win over older findings | `docs/mcp-architecture-qa/00-INDEX.md` |
 | Current application guide for delegated SSO calls to models/MCP, plus proxy-admin organization/team/user/access-group setup | `docs/mcp-architecture-qa/14-sso-application-integration.md` |
 | OpenCode Microsoft SSO/native MCP OAuth and private skills pilot plan with dev/prod gates | `docs/mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md` |
-| OpenCode partial dev/prod pilot evidence: native MCP sign-in/discovery proven, model/refresh/per-server execution/private skill gates unfinished | `docs/mcp-architecture-qa/16-opencode-dev-pilot-evidence.md` |
 | Topology, runtime, permissions, key patterns, SSO research, and deployment history | `docs/mcp-architecture-qa/01-*.md` through `13-*.md` |
 
 ## Rate limiting / priority
