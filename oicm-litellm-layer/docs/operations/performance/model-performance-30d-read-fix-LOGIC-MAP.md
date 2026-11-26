@@ -1,6 +1,6 @@
 # Model Performance Tab — 30d/YTD Read Slowdown Fix — Logic Map
 
-> **Technique**: [Logic Mapping](../../techniques/logic_mapping_technique.md) —
+> **Technique**: [Logic Mapping](../../engineering/techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. This document maps the specific fix that made
 > the **large-window (30d / MTD / YTD) Model Performance tab** load fast again,
 > from the slow SQL to the final optimized query, with exact file:line

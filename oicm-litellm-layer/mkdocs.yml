@@ -166,6 +166,9 @@ plugins:
         admin-api/operations/videos-08e7028b.md: administration/admin-api/operations/videos-08e7028b.md
         admin-api/operations/websocket-11160388.md: administration/admin-api/operations/websocket-11160388.md
         admin-api/operations/workflow-management-4dc907b9.md: administration/admin-api/operations/workflow-management-4dc907b9.md
+        architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md: engineering/architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md
+        architecture/EDGE-MIRROR-DESIGN.md: engineering/architecture/EDGE-MIRROR-DESIGN.md
+        architecture/IMPLEMENTATION_PLAN.md: engineering/architecture/IMPLEMENTATION_PLAN.md
         cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md: administration/cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
         client-distribution/PLAN.md: distribution/client-distribution/PLAN.md
         client-distribution/admin-sync.md: distribution/client-distribution/admin-sync.md
@@ -209,6 +212,12 @@ plugins:
         custom-providers/inception-hamsa-audit.md: providers/custom-providers/inception-hamsa-audit.md
         custom-routes-plans/CLONE-LOGIC-MAP.md: providers/custom-routes-plans/CLONE-LOGIC-MAP.md
         custom-routes-plans/VSA-PLAN.md: providers/custom-routes-plans/VSA-PLAN.md
+        dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md: engineering/dashboard/FRONTEND-ANALYSIS-PROCESS.md
+        dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md: engineering/dashboard/FRONTEND-UNDERSTANDING-TECHNIQUE.md
+        dashboard-plan/LOGIC-MAPPING-TECHNIQUE.md: engineering/dashboard/LOGIC-MAPPING-TECHNIQUE.md
+        dashboard-plan/MODEL-PERFORMANCE-DISCOVERY.md: engineering/dashboard/MODEL-PERFORMANCE-DISCOVERY.md
+        dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md: engineering/dashboard/OBSERVABILITY-IMPLEMENTATION-PLAN.md
+        dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md: engineering/dashboard/UI-LINT-AND-CHANGE-PROCESS.md
         deployment.md: operations/deployment.md
         discovery-controller/README.md: platform/discovery-controller/README.md
         discovery-controller/logic-map-and-code-smell-audit.md: platform/discovery-controller/logic-map-and-code-smell-audit.md
@@ -275,12 +284,20 @@ plugins:
         performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md: operations/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md
         performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md: operations/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md
         performance/spend-view-repair-plan.md: operations/performance/spend-view-repair-plan.md
+        persona-drift/SPIKE.md: engineering/persona-drift/SPIKE.md
         reports/ADEOGPT-MODEL-PERFORMANCE.md: operations/reports/ADEOGPT-MODEL-PERFORMANCE.md
         runbooks/DATASOURCE-LOCAL-VALIDATION.md: operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md
         runbooks/MKDOCS-SETUP.md: operations/runbooks/MKDOCS-SETUP.md
         runbooks/postgres-backup-and-recovery.md: operations/runbooks/postgres-backup-and-recovery.md
         runbooks/rollback.md: operations/runbooks/rollback.md
         runbooks/spend-view-legacy-repair.md: operations/runbooks/spend-view-legacy-repair.md
+        session-identity/IMPLEMENTATION-PLAN.md: engineering/session-identity/IMPLEMENTATION-PLAN.md
+        techniques/code_smell_detection_technique.md: engineering/techniques/code_smell_detection_technique.md
+        techniques/debug_pod_technique.md: engineering/techniques/debug_pod_technique.md
+        techniques/logic_mapping_technique.md: engineering/techniques/logic_mapping_technique.md
+        techniques/smell-audit-mcp-source-link.md: engineering/techniques/smell-audit-mcp-source-link.md
+        techniques/upstream_merge_technique.md: engineering/techniques/upstream_merge_technique.md
+        techniques/vertical_slice_technique.md: engineering/techniques/vertical_slice_technique.md
         usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE.md: guides/models-and-voice/CLEF_FLASH_SYSTEMONE_GUIDE.md
         usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md: guides/models-and-voice/FISHAUDIO_DRAMA3_TTS_GUIDE.md
         usage-guides/GATEWAY_GUIDE.md: guides/models-and-voice/GATEWAY_GUIDE.md
@@ -359,10 +376,10 @@ nav:
       - Deployment & Cluster: operations/deployment.md
       - Production Configuration Rollback: operations/runbooks/rollback.md
       - Makefile Reference: operations/Makefile-reference.md
-      - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
-      - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
-      - Agent Platform Fit Assessment: architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md
-      - Session Identity Resolver — Implementation Plan: session-identity/IMPLEMENTATION-PLAN.md
+      - Implementation Plan: engineering/architecture/IMPLEMENTATION_PLAN.md
+      - Secondary Gateway (Edge Mirror) Design: engineering/architecture/EDGE-MIRROR-DESIGN.md
+      - Agent Platform Fit Assessment: engineering/architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md
+      - Session Identity Resolver — Implementation Plan: engineering/session-identity/IMPLEMENTATION-PLAN.md
       - MCP Source Broker (index): mcp/source-broker/README.md
       - "MCP Source Broker - Running System": mcp/source-broker/running-system/README.md
       - "MCP Source Broker - Measurements": mcp/source-broker/measurements/README.md
@@ -384,11 +401,11 @@ nav:
       - Apply Wildcard Cert Guideline: operations/ssl/CERT-GUIDELINE.md
       - Serve litellm.ecouncil.ae Runbook: operations/ssl/LITELLM-ECOUNCIL-RUNBOOK.md
   - Techniques:
-      - Vertical Slices (code layout): techniques/vertical_slice_technique.md
-      - Logic Mapping: techniques/logic_mapping_technique.md
-      - Code Smell Detection: techniques/code_smell_detection_technique.md
-      - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
-      - Debug Pod: techniques/debug_pod_technique.md
+      - Vertical Slices (code layout): engineering/techniques/vertical_slice_technique.md
+      - Logic Mapping: engineering/techniques/logic_mapping_technique.md
+      - Code Smell Detection: engineering/techniques/code_smell_detection_technique.md
+      - Upstream Pull & Branch Merge: engineering/techniques/upstream_merge_technique.md
+      - Debug Pod: engineering/techniques/debug_pod_technique.md
   - HTB Rate Limiting:
       - Executive Summary: operations/rate-limiting/HTB-EXECUTIVE-SUMMARY.md
       - README: operations/rate-limiting/HTB-README.md
@@ -416,7 +433,7 @@ nav:
   - Reports:
       - ADEOGPT Model Performance (7d): operations/reports/ADEOGPT-MODEL-PERFORMANCE.md
   - Persona Drift:
-      - Spike Note: persona-drift/SPIKE.md
+      - Spike Note: engineering/persona-drift/SPIKE.md
   - Client Distribution:
       - Design Plan: distribution/client-distribution/PLAN.md
       - Implementation Plan: distribution/client-distribution/implementation.md
@@ -596,12 +613,12 @@ nav:
       - Cloudflare clef-flash (SystemOne) Guide: guides/models-and-voice/CLEF_FLASH_SYSTEMONE_GUIDE.md
       - MCP Source Agent Guide: guides/mcp/MCP_SOURCE_AGENT_GUIDE.md
   - Dashboard & Planning:
-      - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
-      - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md
-      - Logic Mapping Technique: dashboard-plan/LOGIC-MAPPING-TECHNIQUE.md
-      - Model Performance Discovery: dashboard-plan/MODEL-PERFORMANCE-DISCOVERY.md
-      - Observability Implementation Plan: dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md
-      - UI Lint & Change Process: dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md
+      - Frontend Analysis Process: engineering/dashboard/FRONTEND-ANALYSIS-PROCESS.md
+      - Frontend Understanding Technique: engineering/dashboard/FRONTEND-UNDERSTANDING-TECHNIQUE.md
+      - Logic Mapping Technique: engineering/dashboard/LOGIC-MAPPING-TECHNIQUE.md
+      - Model Performance Discovery: engineering/dashboard/MODEL-PERFORMANCE-DISCOVERY.md
+      - Observability Implementation Plan: engineering/dashboard/OBSERVABILITY-IMPLEMENTATION-PLAN.md
+      - UI Lint & Change Process: engineering/dashboard/UI-LINT-AND-CHANGE-PROCESS.md
   - Discovery Controller:
       - README: platform/discovery-controller/README.md
       - Logic Map & Code Smell Audit: platform/discovery-controller/logic-map-and-code-smell-audit.md
@@ -644,10 +661,10 @@ nav:
       - OICM API Catalog: platform/oicm-status/OICM-API-CATALOG.md
       - OICM Write Access Blocked (historical finding): platform/oicm-status/oicm-write-access-blocked.md
   - Analysis Techniques:
-      - Logic Mapping: techniques/logic_mapping_technique.md
-      - Code Smell Detection: techniques/code_smell_detection_technique.md
-      - Debug Pod Technique: techniques/debug_pod_technique.md
-      - Upstream Merge: techniques/upstream_merge_technique.md
-      - Vertical Slice Design: techniques/vertical_slice_technique.md
-      - MCP Source-Link Audit (2026-11-18): techniques/smell-audit-mcp-source-link.md
+      - Logic Mapping: engineering/techniques/logic_mapping_technique.md
+      - Code Smell Detection: engineering/techniques/code_smell_detection_technique.md
+      - Debug Pod Technique: engineering/techniques/debug_pod_technique.md
+      - Upstream Merge: engineering/techniques/upstream_merge_technique.md
+      - Vertical Slice Design: engineering/techniques/vertical_slice_technique.md
+      - MCP Source-Link Audit (2026-11-18): engineering/techniques/smell-audit-mcp-source-link.md
   - Docs Map: docs-map.md

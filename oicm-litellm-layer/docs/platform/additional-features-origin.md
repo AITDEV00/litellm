@@ -225,7 +225,7 @@ cd ui/litellm-dashboard && npm run test:drop-detection
 > gateway is broken at runtime (a bad dependency, a startup import). The
 > behavior gate is the live smoke suite in `tests/smoke/`, run against the dev
 > deployment with `make smoke` after the merge. See
-> [Upstream Merge Technique](../techniques/upstream_merge_technique.md) Step 7.
+> [Upstream Merge Technique](../engineering/techniques/upstream_merge_technique.md) Step 7.
 
 ---
 

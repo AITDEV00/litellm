@@ -10,7 +10,7 @@
 > below are the pre-extraction locations; read them as "the route handler" and
 > look in `voice_routes.py` for the current code.
 >
-> **Methodology**: [logic_mapping_technique.md](../../techniques/logic_mapping_technique.md) Phase 1 (Trace)
+> **Methodology**: [logic_mapping_technique.md](../../engineering/techniques/logic_mapping_technique.md) Phase 1 (Trace)
 
 ## 7-Layer Architecture Overview
 

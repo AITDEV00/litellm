@@ -61,7 +61,7 @@ The OICM status folder mixes a documented implementation path with a live compon
 
 ## Architecture and session identity
 
-[Integration-layer implementation plan](architecture/IMPLEMENTATION_PLAN.md), [edge-mirror design exploration](architecture/EDGE-MIRROR-DESIGN.md), [agent-platform fit assessment](architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md), and [session identity plan](session-identity/IMPLEMENTATION-PLAN.md) are early or subject-specific plans. Their headings and status at the document location govern; do not assume an implementation plan has been completed because it has a detailed checklist
+[Integration-layer implementation plan](engineering/architecture/IMPLEMENTATION_PLAN.md), [edge-mirror design exploration](engineering/architecture/EDGE-MIRROR-DESIGN.md), [agent-platform fit assessment](engineering/architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md), and [session identity plan](engineering/session-identity/IMPLEMENTATION-PLAN.md) are early or subject-specific plans. Their headings and status at the document location govern; do not assume an implementation plan has been completed because it has a detailed checklist
 
 ## Providers and routes
 
@@ -99,4 +99,4 @@ Incidents remain separate from component plans. Each contains the original findi
 
 ## Reusable methods
 
-[Techniques](docs-map.md#techniques) lists procedure-level logic mapping, code-smell detection, debug-pod isolation, and upstream merges. These describe workflow, not component state. [MCP source-link audit](techniques/smell-audit-mcp-source-link.md) is the dated result of one such audit, so treat it separately from the reusable audit process
+[Techniques](docs-map.md#techniques) lists procedure-level logic mapping, code-smell detection, debug-pod isolation, and upstream merges. These describe workflow, not component state. [MCP source-link audit](engineering/techniques/smell-audit-mcp-source-link.md) is the dated result of one such audit, so treat it separately from the reusable audit process

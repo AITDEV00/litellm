@@ -1,6 +1,6 @@
 # Routing-Strategy Sync-Task Leak -> 12Gi OOMKills — Logic Map
 
-> **Technique**: [Logic Mapping](../../techniques/logic_mapping_technique.md) —
+> **Technique**: [Logic Mapping](../../engineering/techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. Phase 1 (Trace) + Phase 2 (Test) complete;
 > live-verified against prod AND dev (`adeo-litellm`, 2026-09-30). Fix deployed
 > to dev and verified; prod rollout pending.

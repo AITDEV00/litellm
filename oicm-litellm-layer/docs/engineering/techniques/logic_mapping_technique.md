@@ -148,7 +148,7 @@ once, and test offline repeatedly without re-scraping.
 Goal: Implement the feature step-by-step, each step independently testable,
 borrowing existing functions from the current codebase.
 
-> **Authority for slice placement in this repository:** [`additional-features-origin.md`](../platform/additional-features-origin.md)
+> **Authority for slice placement in this repository:** [`additional-features-origin.md`](../../platform/additional-features-origin.md)
 > maps every existing slice. If the generic template below conflicts with it, **that map wins**. The
 > template is a starting shape, not the rule.
 

@@ -1,6 +1,6 @@
 # Dashboard Analytics Reads -> Prisma Engine Bloat -> 12Gi OOMKills — Logic Map
 
-> **Technique**: [Logic Mapping](../../techniques/logic_mapping_technique.md) —
+> **Technique**: [Logic Mapping](../../engineering/techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. Phase 1 (Trace) + Phase 2 (Test) complete;
 > live-verified against prod (`adeo-litellm`, 2026-09-15). Evidence files in
 > [`live-data/README.md`](live-data/README.md).
