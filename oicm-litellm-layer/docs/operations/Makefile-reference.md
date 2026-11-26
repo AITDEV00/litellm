@@ -129,21 +129,26 @@ image under the moving `$(LITELLM_LEGACY_TAG)` (`latest`).
 ### LiteLLM source image (from repo root Dockerfile)
 
 ```bash
-make litellm-src-build        # build litellm-src:<branch>
-make litellm-src-push         # push to Harbor (needs `make login` first)
-make litellm-src-build-push   # build then push
-make litellm-src-pin          # repoint deploy/base/gateway/proxy/deployment.yaml
-make litellm-src-deploy-dev   # pin + apply dev overlay + restart dev gateway
-make litellm-src-release-dev  # build-push + deploy-dev
-make litellm-src-deploy       # pin + apply prod + restart prod gateway
-make litellm-src-release      # build-push + deploy
+make litellm-src-build            # build litellm-src:<branch> (local only)
+make litellm-src-channel-tags     # list the tags a push would move
+make litellm-src-push-dev         # tag + push <branch>-dev (needs `make login`)
+make litellm-src-push-prod        # tag + push <branch>-prod
+make litellm-src-build-push-dev   # build then push the dev channel
+make litellm-src-build-push-prod  # build then push the prod channel
+make litellm-src-pin-dev          # repoint deploy/base/gateway/proxy/deployment.yaml at <branch>-dev
+make litellm-src-pin-prod         # pin the prod overlay at <branch>-prod@sha256:<digest>
+make litellm-src-deploy-dev       # pin-dev + apply dev overlay + restart dev gateway
+make litellm-src-release-dev      # build-push-dev + deploy-dev
+make litellm-src-deploy-prod      # apply prod overlay + ServiceMonitor + restart prod gateway
+make litellm-src-release-prod     # build-push-prod + pin-prod + deploy-prod
+make litellm-src-release-prod-image  build, tag -prod, push, pin prod overlay
 ```
 
-CAVEAT: dev and prod reference the SAME tag, so a build overwrites the bytes
-behind it for both. `litellm-src-deploy-dev` only restarts the dev Deployment,
-so prod keeps serving its already-running container until someone deliberately
-runs the prod target. Treat the tag as a dev channel until prod is moved to its
-own tag.
+Dev and prod publish to and run from separate channel tags: dev floats on the
+mutable `<branch>-dev` tag, prod is pinned to `<branch>-prod@sha256:<manifest
+digest>`. The bare branch tag names the local build and is never pushed, so a
+dev rebuild cannot overwrite bytes prod names. (`litellm-src-deploy-prod` does
+not re-pin; run the pin first, or use the release composite that chains them.)
 
 Current state (2026-11-03): both gateways run
 `litellm-src:jya0-v1.106.6` at digest `sha256:c12a86ab…`, which predates the

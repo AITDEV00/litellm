@@ -341,9 +341,11 @@ def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict
         assert prod_container.get(field) == dev_container.get(field), (
             f"container field {field!r} differs between prod and dev"
         )
-    # Image: same repository. Prod must be digest-pinned so a rebuild of its tag
-    # can never silently change what production runs. Dev may float on a
-    # rebuildable tag, which is how the dev channel picks up a new build.
+    # Image: same repository, separate channel tags. Prod must be digest-pinned
+    # so a rebuild of its tag can never silently change what production runs.
+    # Dev floats on the rebuildable -dev channel tag, which is how the dev
+    # channel picks up a new build, and the tag suffix must stay explicit so
+    # no manifest ever names the bare branch tag again.
     prod_image = prod_container.get("image", "")
     dev_image = dev_container.get("image", "")
     prod_repo, _, prod_ref = prod_image.partition("@")
@@ -352,6 +354,16 @@ def test_deployment_image_and_probe_shape_match(prod: dict[str, dict], dev: dict
         f"prod and dev must run the same image repository, got {prod_repo!r} and {dev_repo!r}"
     )
     assert prod_ref.startswith("sha256:"), f"prod image must be digest-pinned, got {prod_image!r}"
+    prod_tag = prod_repo.rsplit(":", 1)[-1]
+    dev_tag = dev_repo.rsplit(":", 1)[-1]
+    assert prod_tag.endswith("-prod"), (
+        f"prod image must run the -prod channel tag, got {prod_tag!r}. "
+        "A bare branch tag follows a dev rebuild and is never reproducible."
+    )
+    assert dev_tag.endswith("-dev"), (
+        f"dev image must run the -dev channel tag, got {dev_tag!r}. "
+        "The bare branch tag is not a channel; publishing it must stay impossible."
+    )
     assert prod_container.get("volumeMounts") == dev_container.get("volumeMounts"), (
         "the two Deployments must mount the same volumes at the same paths"
     )

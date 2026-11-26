@@ -47,8 +47,9 @@ from the base manifests. In particular, do not inadvertently revert Secret value
 roll back out-of-band Postgres changes or retain an older static configuration
 when this folder was intended to be refreshed. If the correct target is the
 current Git release instead of the running state captured on 2026-11-12, use
-`make litellm-src-deploy` and `make controller-deploy-prod BUILD=0
-TAG=0.1.0-20261111-969bdaf` rather than this directory.
+`make litellm-src-deploy-prod` after `make litellm-src-release-prod-image`, and
+`make controller-deploy-prod BUILD=0 TAG=0.1.0-20261111-969bdaf` rather than
+this directory.
 
 Restore it with:
 

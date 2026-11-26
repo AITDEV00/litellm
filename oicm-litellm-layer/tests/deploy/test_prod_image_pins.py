@@ -75,6 +75,30 @@ def test_prod_pin_targets_use_the_digest_macro() -> None:
         assert "pin_image," not in block, f"{target} uses the bare pin_image macro, which strips the digest"
 
 
+def test_no_target_publishes_the_bare_branch_tag() -> None:
+    """Every gateway push target must name a channel tag, never the bare branch tag.
+
+    The bare branch tag (e.g. `jya0-v1.108.5`) is the local build name. It
+    names the source, not an environment. Publishing it used to be the dev
+    channel by accident: dev and prod then referenced the same tag, and a dev
+    push silently overwrote the bytes prod might still name. Publishing now
+    goes through the explicit `-dev` / `-prod` channel tags only.
+    """
+    makefile = _MAKEFILE.read_text()
+    for push_target in ("litellm-src-push-dev", "litellm-src-push-prod"):
+        block = _recipe_for(makefile, push_target)
+        pushed = [ln for ln in block.splitlines() if "podman push" in ln]
+        assert pushed, f"{push_target} has no podman push command"
+        for line in pushed:
+            assert "$(LITELLM_SRC_DEV_CHANNEL_TAG)" in line or "$(LITELLM_SRC_PROD_CHANNEL_TAG)" in line, (
+                f"{push_target} pushes something other than a channel tag: {line.strip()}"
+            )
+    for gone in ("litellm-src-push:", "litellm-src-build-push:", "litellm-src-pin:", "litellm-src-deploy:", "litellm-src-release:"):
+        assert f"\n{gone}" not in makefile and not makefile.startswith(gone), (
+            f"target {gone.rstrip(':')} still exists; it publishes or pins the bare branch tag"
+        )
+
+
 def _recipe_for(makefile_text: str, target: str) -> str:
     """Return the recipe lines belonging to `target`."""
     lines = makefile_text.splitlines()

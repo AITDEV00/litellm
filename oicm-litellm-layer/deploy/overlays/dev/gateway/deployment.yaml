@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: litellm
-          # Same image tag as prod (the Makefile pins both), but dev pulls it
+          # Same image repository as prod, on the dev channel tag. Dev pulls it
           # single-worker so a debugger has one stable PID to attach to.
           command:
             - "litellm"

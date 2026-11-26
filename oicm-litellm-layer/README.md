@@ -67,13 +67,18 @@ make controller-release
 make deploy
 
 # 3. Or roll the gateway image and restart it in one step
-make litellm-src-release
+make litellm-src-release-prod
 
 ```
 
 There is no Helm chart: everything is applied with `kubectl apply` / kustomize
 from `deploy/` (see `docs/operations/deployment.md`). For a dev iteration use
 `make litellm-src-release-dev` and `make controller-deploy-dev`.
+
+Gateway image channels: dev publishes and runs `litellm-src:<branch>-dev`,
+prod publishes `litellm-src:<branch>-prod` and runs it digest-pinned. The bare
+branch tag is only the local build name and is never pushed, so a dev push
+cannot touch the bytes prod names.
 
 Note: the old embedding `extra_body` patch is no longer needed. Upstream
 litellm now passes vLLM embedding `extra_body` params (e.g.

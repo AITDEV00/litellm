@@ -87,14 +87,14 @@ takes the usual variables (`TAG`, `BUILD`, `NAMESPACE`, `ROLLOUT_TIMEOUT`), see
 
 ```bash
 make controller-deploy-prod     # build, push, pin, apply, roll out the controller
-make litellm-src-release        # build, push, pin, and roll out the gateway
+make litellm-src-release-prod   # build, push, pin, and roll out the gateway
 ```
 
 `make deploy` and `make deploy-dev` still work as the convenience compositions
 (`prod-controller prod-gateway` and `dev-controller dev-gateway` respectively).
 Note that `prod-gateway` and `dev-gateway` only apply the overlay, which does not
 restart the gateway, so an unchanged image keeps its running container. Use
-`litellm-src-release` when the image should move too.
+`litellm-src-release-prod` when the image should move too.
 To apply an already-validated controller tag without rebuilding, pass `BUILD=0`
 and the tag:
 

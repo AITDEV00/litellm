@@ -74,11 +74,12 @@ spec:
               app: litellm-proxy
       containers:
         - name: litellm
-          # Do not apply this base on its own. It names a mutable tag, which a
-          # dev rebuild overwrites, so a direct apply would run whatever that tag
-          # points at today. The prod overlay pins an immutable digest in
-          # overlays/prod/gateway/deployment.yaml; dev tracks the tag on purpose.
-          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.108.5
+          # Do not apply this base on its own. It names the mutable DEV channel
+          # tag, which every dev rebuild overwrites, so a direct apply would run
+          # whatever that tag points at today. The prod overlay pins the
+          # immutable -prod tag plus digest in overlays/prod/gateway/
+          # deployment.yaml; dev tracks the -dev tag on purpose.
+          image: registry.adeoaiengine.ecouncil.ae/openinnovationai/platform/mlops/mlops-serving/litellm-src:jya0-v1.108.5-dev
           # Non-latest tag defaults to IfNotPresent; force Always so a rollout
           # restart pulls the freshly built image instead of a stale cache.
           imagePullPolicy: Always

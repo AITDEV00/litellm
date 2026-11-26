@@ -21,13 +21,19 @@ TAG                := $(CONTROLLER_VERSION)-$(BUILD_DATE)-$(GIT_SHA)
 LITELLM_LEGACY_TAG := latest
 
 # LiteLLM source image (built from the upstream Dockerfile at the repo root).
-# The tag is derived from the current git branch of the litellm repo, with
-# slashes replaced by underscores so it stays a valid Docker tag. On branch
-# jya0-v1.89.3 this yields: .../litellm:jya0-v1.89.3
+# The build tag is the sanitized git branch, with slashes replaced by
+# underscores. It names the SOURCE, not an environment, and is never pushed:
+# publishing goes through the per-environment channel tags below, so a dev
+# push can never overwrite bytes prod names. On branch jya0-v1.89.3 this
+# yields .../litellm-src:jya0-v1.89.3 for the build, then
+# .../litellm-src:jya0-v1.89.3-dev / .../litellm-src:jya0-v1.89.3-prod for
+# the channels. Run `make litellm-src-channel-tags` to list them.
 LITELLM_SRC_DIR    := ..
 LITELLM_DOCKERFILE := $(LITELLM_SRC_DIR)/Dockerfile
 LITELLM_SRC_TAG    ?= $(shell git -C $(LITELLM_SRC_DIR) rev-parse --abbrev-ref HEAD | tr '/' '_')
 LITELLM_SRC_HARBOR_IMG := $(REGISTRY)/$(REPO_PATH)/litellm-src
+LITELLM_SRC_DEV_CHANNEL_TAG  ?= $(LITELLM_SRC_TAG)-dev
+LITELLM_SRC_PROD_CHANNEL_TAG ?= $(LITELLM_SRC_TAG)-prod
 
 # Extra `podman build` flags, e.g. to route around a DNS sinkhole on this box.
 # The admin-mcp dependency group pulls a tarball from codeload.github.com, which
@@ -201,9 +207,10 @@ endef
 	controller-deploy-dev controller-deploy-prod controller-build-dev controller-push-dev \
 	prod-config prod-controller prod-gateway prod-extras deploy \
 	dev-config dev-controller dev-gateway deploy-dev \
-	litellm-src-build litellm-src-push litellm-src-build-push litellm-src-pin \
-	litellm-src-pin-prod litellm-src-release-prod-image \
-	litellm-src-deploy litellm-src-release litellm-src-deploy-dev litellm-src-release-dev \
+	litellm-src-build litellm-src-channel-tags \
+	litellm-src-push-dev litellm-src-push-prod litellm-src-build-push-dev litellm-src-build-push-prod \
+	litellm-src-pin-dev litellm-src-pin-prod litellm-src-release-prod-image \
+	litellm-src-deploy-prod litellm-src-release-prod litellm-src-deploy-dev litellm-src-release-dev \
 	litellm-local-run litellm-local-datasource litellm-local-docker litellm-ui-dev litellm-local-stop \
 	smoke smoke-fast smoke-models smoke-leaks smoke-leaks-mutate \
 	help clean clean-artifacts \
@@ -216,8 +223,7 @@ endef
 # failed build must stop the rollout and the pin must land before the apply. A
 # parallel `make -j` would otherwise interleave them.
 .NOTPARALLEL: controller-deploy-dev controller-deploy-prod \
-	litellm-src-deploy litellm-src-deploy-dev
-
+        litellm-src-deploy-prod litellm-src-deploy-dev
 all: pull build push
 
 ## List the targets this Makefile offers, with their one-line descriptions.
@@ -246,10 +252,10 @@ help:
 	@echo "  dev-gateway / prod-gateway         gateway overlay (+ ServiceMonitor)"
 	@echo "  deploy-dev / deploy               both groups, one environment"
 	@echo ""
-	@echo "Gateway image."
-	@echo "  litellm-src-build-push        build + push litellm-src:\$$(LITELLM_SRC_TAG)"
-	@echo "  litellm-src-release-dev       build, push, pin, roll out DEV only"
-	@echo "  litellm-src-release           same for prod"
+	@echo "Gateway image. Dev and prod run separate channel tags:"
+	@echo "  litellm-src-channel-tags       list the tags a push would move"
+	@echo "  litellm-src-release-dev       build, push -dev, pin, roll out DEV"
+	@echo "  litellm-src-release-prod      same for prod (-prod channel)"
 	@echo "  litellm-src-release-prod-image  build, tag -prod, push, pin prod overlay"
 	@echo "         ^ use this for prod. It pins <tag>-prod@sha256:<manifest digest>."
 	@echo "         A tag with no digest, or a digest from 'podman image inspect'"
@@ -596,62 +602,87 @@ litellm-src-build:
 		$(LITELLM_SRC_DIR)
 	@echo "Built $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
 
-## Push the LiteLLM source image to Harbor (requires `make login` first)
-litellm-src-push:
-	@echo "Pushing $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to Harbor"
-	podman push --tls-verify=false $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)
-	@echo "Pushed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
+## List the channel tags the push targets use for the current branch. Run this
+## to see exactly which tags a push will move before pushing.
+litellm-src-channel-tags:
+	@echo "build:   $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)   (local only, never pushed)"
+	@echo "dev:     $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG)   (mutable)"
+	@echo "prod:    $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG)   (pinned + digest)"
 
-## Build then push the LiteLLM source image in one step
-litellm-src-build-push: litellm-src-build litellm-src-push
+## Push the freshly built image to the DEV channel tag. The bare branch tag is
+## never published: pushing it would move bytes that prod might still name, so
+## every push target names its channel explicitly.
+litellm-src-push-dev:
+	@echo "Publishing $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG) (dev channel)"
+	podman tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG)
+	podman push --tls-verify=false $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG)
+	@echo "Pushed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG)"
 
-## Point the gateway deployment at $(LITELLM_SRC_TAG), no cluster access.
-## The image lives in deploy/base/gateway/proxy/deployment.yaml, which BOTH
-## overlays build on, so this repins dev and prod together.
-litellm-src-pin:
-	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) in $(GATEWAY_MANIFEST)"
-	$(call pin_image,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_TAG),$(GATEWAY_MANIFEST))
+## Push the freshly built image to the PROD channel tag. The digest pin in the
+## prod overlay is resolved AFTER this push; run litellm-src-pin-prod next.
+litellm-src-push-prod:
+	@echo "Publishing $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG) (prod channel)"
+	podman tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG)
+	podman push --tls-verify=false $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG)
+	@echo "Pushed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG)"
 
-## Build, push, and pin the PROD gateway overlay at the -prod tag plus its
-## registry manifest digest. No cluster access; roll out with prod-gateway.
+## Build, then publish to the DEV channel. What `litellm-src-build-push` used
+## to do, minus the bare branch tag.
+litellm-src-build-push-dev: litellm-src-build litellm-src-push-dev
+
+## Build, then publish to the PROD channel. Pin and roll out separately.
+litellm-src-build-push-prod: litellm-src-build litellm-src-push-prod
+
+## Point the base gateway manifest, which the dev overlay builds on, at the dev
+## channel tag. No cluster access. This is the only pin target for dev because
+## the dev overlay inherits the base image and the parity test requires the
+## same repository on both.
+litellm-src-pin-dev:
+	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG) in $(GATEWAY_MANIFEST)"
+	$(call pin_image,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_DEV_CHANNEL_TAG),$(GATEWAY_MANIFEST))
+
+## Pin the prod overlay at the prod channel tag plus its registry manifest
+## digest. No cluster access; roll out with litellm-src-deploy-prod or
+## prod-gateway plus a restart.
 ##
-## Prod does NOT use the base tag: the base names only the mutable branch tag,
-## which every dev rebuild overwrites. This writes
-## `litellm-src:$(LITELLM_SRC_TAG)-prod@sha256:<manifest digest>` into
-## overlays/prod/gateway/deployment.yaml. The digest is the registry's
-## Docker-Content-Digest, which is what a runtime resolves. A tag without the
-## digest, or a digest taken from `podman image inspect` (the config blob), is
-## what produced ImagePullBackOff on prod.
+## Prod does NOT use the base tag: the base names the mutable dev channel tag.
+## This writes `litellm-src:$(LITELLM_SRC_PROD_CHANNEL_TAG)@sha256:<manifest
+## digest>` into overlays/prod/gateway/deployment.yaml. The digest is the
+## registry's Docker-Content-Digest, which is what a runtime resolves. A tag
+## without the digest, or a digest taken from `podman image inspect` (the
+## config blob), is what produced ImagePullBackOff on prod.
 litellm-src-pin-prod:
-	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod + manifest digest in $(GATEWAY_PROD_MANIFEST)"
-	$(call pin_prod_image_with_digest,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_TAG)-prod,$(GATEWAY_PROD_MANIFEST))
+	@echo "Pinning $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG) + manifest digest in $(GATEWAY_PROD_MANIFEST)"
+	$(call pin_prod_image_with_digest,$(LITELLM_SRC_HARBOR_IMG),$(LITELLM_SRC_PROD_CHANNEL_TAG),$(GATEWAY_PROD_MANIFEST))
 
-## Push the gateway image with its -prod tag, then pin the prod overlay.
-## Run after litellm-src-build. Does not touch the cluster.
-litellm-src-release-prod-image: litellm-src-build
-	podman tag $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod
-	podman push --tls-verify=false $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)-prod
-	$(MAKE) litellm-src-pin-prod
-	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG)"
+## Publish to the prod channel, then pin the prod overlay at it. Run after
+## litellm-src-build. Does not touch the cluster.
+litellm-src-release-prod-image: litellm-src-build-push-prod litellm-src-pin-prod
+	@echo "Prod overlay pinned at $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG). Roll out with make litellm-src-deploy-prod."
 
-## Build, pin, and roll the prod gateway out.
-## e.g. make litellm-src-release  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0)
-litellm-src-release: litellm-src-build-push litellm-src-deploy
+## Apply the prod gateway overlay plus ServiceMonitor, then restart the prod
+## Deployment so it pulls the pinned image.
+litellm-src-deploy-prod: prod-gateway
+	@echo "Restarting $(GATEWAY_DEPLOYMENT_PROD) to pull the pinned image"
+	$(call rollout,$(GATEWAY_DEPLOYMENT_PROD))
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_PROD_CHANNEL_TAG) to prod."
+
+## Build, publish, pin, and roll the prod gateway out.
+## e.g. make litellm-src-release-prod  (on branch jya0-v1.95.0 -> tag jya0-v1.95.0-prod)
+litellm-src-release-prod: litellm-src-build-push-prod litellm-src-pin-prod litellm-src-deploy-prod
 
 ## Apply the dev gateway overlay, then move it to the pinned image.
-litellm-src-deploy-dev: litellm-src-pin dev-gateway
+litellm-src-deploy-dev: litellm-src-pin-dev dev-gateway
 	@echo "Restarting $(GATEWAY_DEPLOYMENT_DEV) to pull the freshly tagged image"
 	$(call rollout,$(GATEWAY_DEPLOYMENT_DEV))
-	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_TAG) to dev. Prod overlay untouched."
+	@echo "Deployed $(LITELLM_SRC_HARBOR_IMG):$(LITELLM_SRC_DEV_CHANNEL_TAG) to dev. Prod overlay untouched."
 
-## Build, push, then roll the DEV gateway out. The dev counterpart of
-## `litellm-src-release`, and the ONLY safe way to ship the gateway to dev.
+## Build, push, then roll the DEV gateway out.
 ##
-## CAVEAT: dev and prod reference the SAME tag, so a build overwrites the bytes
-## behind it for both. This target only restarts the dev Deployment, so prod
-## keeps serving its already-running container until prod is deliberately
-## restarted. Treat the tag as a dev channel until prod is moved to its own tag.
-litellm-src-release-dev: litellm-src-build-push litellm-src-deploy-dev
+## Dev and prod publish to and run from separate channel tags, so a dev
+## rebuild cannot touch the bytes prod names; prod only moves when its own
+## -prod targets are run.
+litellm-src-release-dev: litellm-src-build-push-dev litellm-src-deploy-dev
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
 ## requirements-docs.txt). Used by the rotation runbook in docs/operations/credentials.md
