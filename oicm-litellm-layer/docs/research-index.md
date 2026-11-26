@@ -65,16 +65,16 @@ The OICM status folder mixes a documented implementation path with a live compon
 
 ## Providers and routes
 
-Provider behavior is current-user-facing reference in [Custom-provider reference](custom-providers/README.md) and the [usage guides](docs-map.md#usage-guides) in the docs map. Treat detailed logic maps, audits, and capability plans as research evidence; link them with their owning guide rather than treating them as endpoint contracts
+Provider behavior is current-user-facing reference in [Custom-provider reference](providers/custom-providers/README.md) and the [usage guides](docs-map.md#usage-guides) in the docs map. Treat detailed logic maps, audits, and capability plans as research evidence; link them with their owning guide rather than treating them as endpoint contracts
 
 | Concern | Research record | Notes |
 |---|---|---|
-| OmniVoice routes | [Custom-route clone logic map](custom-routes-plans/CLONE-LOGIC-MAP.md), [Missing-routes VSA plan](custom-routes-plans/VSA-PLAN.md) | Custom-route implementation analysis and plan |
-| Nemotron native audio | [Provider plan](custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md) | Long design plan; actual provider behavior comes later from implementations |
-| OmniVoice | [Logic mapping](custom-providers/OMNIVOICE_LOGIC_MAPPING.md), [Map v2](custom-providers/OMNIVOICE_LOGIC_MAP_v2.md), [Post-build logic map](custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md) | Version-specific design reviews; do not automatically apply to a later image |
-| Provider extensibility and probes | [OmniVoice audit](custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md), [Capability probe](custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md) and [Review 2](custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md) | The document itself says review 2 demoted the probe-only approach to last-resort |
-| HAMSA and inception evaluation | [HAMSA research](custom-providers/HAMSA_RESEARCH.md), [Behavior](custom-providers/HAMSA_TTS_BEHAVIOR.md), [Inception audit](custom-providers/inception-hamsa-audit.md), [Pod parity](custom-providers/inception-gateway-pod-parity.md) | Dated implementation and behavior evidence |
-| Fish Audio registration | [Registration diagnosis](custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md), [Gateway gaps](custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md), [Robust fix design](custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md) | Diagnosis and proposed fix; use the usage guide for supported invocation |
+| OmniVoice routes | [Custom-route clone logic map](providers/custom-routes-plans/CLONE-LOGIC-MAP.md), [Missing-routes VSA plan](providers/custom-routes-plans/VSA-PLAN.md) | Custom-route implementation analysis and plan |
+| Nemotron native audio | [Provider plan](providers/custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md) | Long design plan; actual provider behavior comes later from implementations |
+| OmniVoice | [Logic mapping](providers/custom-providers/OMNIVOICE_LOGIC_MAPPING.md), [Map v2](providers/custom-providers/OMNIVOICE_LOGIC_MAP_v2.md), [Post-build logic map](providers/custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md) | Version-specific design reviews; do not automatically apply to a later image |
+| Provider extensibility and probes | [OmniVoice audit](providers/custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md), [Capability probe](providers/custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md) and [Review 2](providers/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md) | The document itself says review 2 demoted the probe-only approach to last-resort |
+| HAMSA and inception evaluation | [HAMSA research](providers/custom-providers/HAMSA_RESEARCH.md), [Behavior](providers/custom-providers/HAMSA_TTS_BEHAVIOR.md), [Inception audit](providers/custom-providers/inception-hamsa-audit.md), [Pod parity](providers/custom-providers/inception-gateway-pod-parity.md) | Dated implementation and behavior evidence |
+| Fish Audio registration | [Registration diagnosis](providers/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md), [Gateway gaps](providers/custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md), [Robust fix design](providers/custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md) | Diagnosis and proposed fix; use the usage guide for supported invocation |
 
 ## HTB, priority, and diagnostics data
 

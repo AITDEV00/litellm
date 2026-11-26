@@ -173,6 +173,28 @@ plugins:
         components/hooks.md: platform/components/hooks.md
         components/patches.md: platform/components/patches.md
         credentials.md: operations/credentials.md
+        custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md: providers/custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md
+        custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md: providers/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md
+        custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS.md: providers/custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS.md
+        custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md: providers/custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md
+        custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md: providers/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md
+        custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md: providers/custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md
+        custom-providers/HAMSA_RESEARCH.md: providers/custom-providers/HAMSA_RESEARCH.md
+        custom-providers/HAMSA_TTS_BEHAVIOR.md: providers/custom-providers/HAMSA_TTS_BEHAVIOR.md
+        custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md: providers/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
+        custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md: providers/custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md
+        custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md: providers/custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md
+        custom-providers/OMNIVOICE_LOGIC_MAPPING.md: providers/custom-providers/OMNIVOICE_LOGIC_MAPPING.md
+        custom-providers/OMNIVOICE_LOGIC_MAP_v2.md: providers/custom-providers/OMNIVOICE_LOGIC_MAP_v2.md
+        custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md: providers/custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
+        custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md: providers/custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
+        custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md: providers/custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
+        custom-providers/README.md: providers/custom-providers/README.md
+        custom-providers/gateway-field-drop-investigation.md: providers/custom-providers/gateway-field-drop-investigation.md
+        custom-providers/inception-gateway-pod-parity.md: providers/custom-providers/inception-gateway-pod-parity.md
+        custom-providers/inception-hamsa-audit.md: providers/custom-providers/inception-hamsa-audit.md
+        custom-routes-plans/CLONE-LOGIC-MAP.md: providers/custom-routes-plans/CLONE-LOGIC-MAP.md
+        custom-routes-plans/VSA-PLAN.md: providers/custom-routes-plans/VSA-PLAN.md
         deployment.md: operations/deployment.md
         discovery-controller/README.md: platform/discovery-controller/README.md
         discovery-controller/logic-map-and-code-smell-audit.md: platform/discovery-controller/logic-map-and-code-smell-audit.md
@@ -287,8 +309,8 @@ nav:
       - Config: platform/components/config.md
       - Hooks: platform/components/hooks.md
       - Custom Routes: platform/components/custom-routes.md
-      - Custom Routes — Clone Logic Map: custom-routes-plans/CLONE-LOGIC-MAP.md
-      - Custom Routes — VSA Plan: custom-routes-plans/VSA-PLAN.md
+      - Custom Routes — Clone Logic Map: providers/custom-routes-plans/CLONE-LOGIC-MAP.md
+      - Custom Routes — VSA Plan: providers/custom-routes-plans/VSA-PLAN.md
       - Patches: platform/components/patches.md
       - Additional Features — Origin (Where OICM Custom Code Lives): platform/additional-features-origin.md
   - Architecture & Deployment:
@@ -496,26 +518,26 @@ nav:
       - OpenCode Pilot Evidence: mcp/opencode-pilot-evidence.md
       - Research Index: mcp/architecture-research-index.md
   - Custom Providers:
-      - HAMSA Research: custom-providers/HAMSA_RESEARCH.md
-      - HAMSA TTS Behavior: custom-providers/HAMSA_TTS_BEHAVIOR.md
-      - LiteLLM Endpoint Architecture: custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
-      - OmniVoice Logic Mapping: custom-providers/OMNIVOICE_LOGIC_MAPPING.md
-      - OmniVoice Logic Map v2: custom-providers/OMNIVOICE_LOGIC_MAP_v2.md
-      - OmniVoice Extensibility Audit: custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md
-      - OmniVoice Test Methods: custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS.md
-      - OmniVoice Post-Build Logic Map: custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
-      - README: custom-providers/README.md
-      - Inception Gateway Pod Parity: custom-providers/inception-gateway-pod-parity.md
-      - Inception HAMSA Audit: custom-providers/inception-hamsa-audit.md
-      - Gateway Field-Drop Investigation: custom-providers/gateway-field-drop-investigation.md
-      - Drama 3 Registration Diagnosis: custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md
-      - Drama 3 Robust Fix Design: custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md
-      - Drama 3 Gateway Gaps: custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md
-      - Capability Registration by Probe: custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md
-      - Capability Registration Review 2: custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md
-      - pyannote Diarization Provider Plan: custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
-      - pyannote Speaker Embeddings Plan: custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
-      - Nemotron Native Audio Implementation Plan: custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md
+      - HAMSA Research: providers/custom-providers/HAMSA_RESEARCH.md
+      - HAMSA TTS Behavior: providers/custom-providers/HAMSA_TTS_BEHAVIOR.md
+      - LiteLLM Endpoint Architecture: providers/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md
+      - OmniVoice Logic Mapping: providers/custom-providers/OMNIVOICE_LOGIC_MAPPING.md
+      - OmniVoice Logic Map v2: providers/custom-providers/OMNIVOICE_LOGIC_MAP_v2.md
+      - OmniVoice Extensibility Audit: providers/custom-providers/OMNIVOICE_EXTENSIBILITY_AUDIT.md
+      - OmniVoice Test Methods: providers/custom-providers/EXAMPLE_OMNIVOICE_TEST_METHODS.md
+      - OmniVoice Post-Build Logic Map: providers/custom-providers/OMNIVOICE_POST_BUILD_LOGIC_MAP.md
+      - README: providers/custom-providers/README.md
+      - Inception Gateway Pod Parity: providers/custom-providers/inception-gateway-pod-parity.md
+      - Inception HAMSA Audit: providers/custom-providers/inception-hamsa-audit.md
+      - Gateway Field-Drop Investigation: providers/custom-providers/gateway-field-drop-investigation.md
+      - Drama 3 Registration Diagnosis: providers/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md
+      - Drama 3 Robust Fix Design: providers/custom-providers/FISHAUDIO_DRAMA3_ROBUST_FIX_DESIGN.md
+      - Drama 3 Gateway Gaps: providers/custom-providers/FISHAUDIO_DRAMA3_GATEWAY_GAPS.md
+      - Capability Registration by Probe: providers/custom-providers/CAPABILITY_REGISTRATION_BY_PROBE.md
+      - Capability Registration Review 2: providers/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md
+      - pyannote Diarization Provider Plan: providers/custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md
+      - pyannote Speaker Embeddings Plan: providers/custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
+      - Nemotron Native Audio Implementation Plan: providers/custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md
   - Usage Guides:
       - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
       - Reasoning Control Guide: usage-guides/REASONING_CONTROL_GUIDE.md

@@ -9,8 +9,8 @@
 > `j-d4398150-0202-4e1c-ae9a-41be01288fd3-86cfd784fd-gcc9m`. Live check
 > passed: keys == speakers, 256 floats, revision `67f963b6…`, and the
 > default response stays byte-identical without the flag.
-> **Related**: [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](../custom-providers/PYANNOTE_DIARIZATION_PROVIDER_PLAN.md)
-> (original provider slice), [usage-guides/PYANNOTE_DIARIZATION_GUIDE.md](../usage-guides/PYANNOTE_DIARIZATION_GUIDE.md)
+> **Related**: [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md)
+> (original provider slice), [usage-guides/PYANNOTE_DIARIZATION_GUIDE.md](../../usage-guides/PYANNOTE_DIARIZATION_GUIDE.md)
 > (current contract + benchmarks).
 
 ---

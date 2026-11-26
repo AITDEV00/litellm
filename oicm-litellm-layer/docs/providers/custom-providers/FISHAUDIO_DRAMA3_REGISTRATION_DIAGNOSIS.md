@@ -12,7 +12,7 @@
 > against dev with a 10-point sentinel suite. The exploration below is kept as
 > the record of the root cause.
 
-Two independent defects surfaced while writing the [Drama 3 usage guide](../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md). They have different root causes and need different fixes, so they are recorded separately here.
+Two independent defects surfaced while writing the [Drama 3 usage guide](../../usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md). They have different root causes and need different fixes, so they are recorded separately here.
 
 The short version: `openapi.json` **is** read correctly. The controller's problem is the order in which it consults the paths it reads. The dropped fields are a separate, gateway-side problem that no amount of controller work will fix.
 

@@ -54,7 +54,7 @@ Diarization-only provider behind the `POST /v1/diarize` route, served by coro de
 | [inception-gateway-pod-parity.md](inception-gateway-pod-parity.md) | Request/response shape parity check: gateway vs pod-direct for inception TTS and STT |
 | [OMNIVOICE_LOGIC_MAPPING.md](OMNIVOICE_LOGIC_MAPPING.md) | Endpoint-by-endpoint analysis of OmniVoice API mapped to LiteLLM 7-layer architecture |
 
-> **Usage guides** (curl examples for calling Hamsa, Inception, OmniVoice, Qwen, etc.) live in [`docs/usage-guides/`](../usage-guides/GATEWAY_GUIDE.md).
+> **Usage guides** (curl examples for calling Hamsa, Inception, OmniVoice, Qwen, etc.) live in [`docs/usage-guides/`](../../usage-guides/GATEWAY_GUIDE.md).
 
 ## Architecture Comparison
 
