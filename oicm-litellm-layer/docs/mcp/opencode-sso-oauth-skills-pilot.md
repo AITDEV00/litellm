@@ -2,7 +2,7 @@
 
 This is the implementation plan for a separate worker. It covers an actual local OpenCode installation that signs a person in through the deployment's Microsoft SSO and then consumes the gateway's MCP servers and private skills with that person's team permissions
 
-**Read [guide 16](16-opencode-dev-pilot-evidence.md) before executing anything. This is a plan, not a capability claim. On 2026-11-24 native MCP sign-in/list was proven on dev and prod. Model credential integration, refresh-after-expiry, D3 through-client execution, and private OpenCode skills remain incomplete. The user separately authorized prod P0/P1; that authorization does not waive gates for remaining phases**
+**Read [the pilot evidence](opencode-pilot-evidence.md) before executing anything. This is a plan, not a capability claim. On 2026-11-24 native MCP sign-in/list was proven on dev and prod. Model credential integration, refresh-after-expiry, D3 through-client execution, and private OpenCode skills remain incomplete. The user separately authorized prod P0/P1; that authorization does not waive gates for remaining phases**
 
 **Dev remains mandatory before additional prod changes. Stop after a failed gate; do not work around it with an admin key, wider MCP grants, `allow_all_keys`, or anonymous skill publication.** The plan is based on source and read-only probes from 2026-11-24. It is not an authorization to change Entra or apply more prod writes without their specific approval
 
@@ -260,7 +260,7 @@ Build a single idempotent pilot process runnable from local command line once th
 
 Include exact configurable gateway/SSO callback, team UUID, and skill catalog/sync location, without embedding tenant secrets, tokens, private skill contents, or raw login sessions in the repository. Run meaningful unit tests for ownership, groups changing, revocation, and ZIP validation. Exercise endpoint changes through the appropriate source-mirroring unit-test tree and any relevant smoke client conventions
 
-Produce `docs/mcp-architecture-qa/16-opencode-dev-pilot-evidence.md` once dev is performed. Show OpenCode before/after screenshots of MCP authentication, tool calls for all intended MCP servers, and loaded private skill. Provide reproduction steps using placeholder variables for secrets. Record the group's `assigned_team_ids`, exact applied manifest diff, and signed test user's effective canonical identity without exposing credentials
+Produce `opencode-pilot-evidence.md` once dev is performed. Show OpenCode before/after screenshots of MCP authentication, tool calls for all intended MCP servers, and loaded private skill. Provide reproduction steps using placeholder variables for secrets. Record the group's `assigned_team_ids`, exact applied manifest diff, and signed test user's effective canonical identity without exposing credentials
 
 Do not automatically generate a PR. Deliberate pilot review should check source/config diff, identity canonicalization, custom OAuth callback semantics, permissions, single team context, private public-index attack surface, and test cleanup. Any known skipped negative test is a failure gate, not a note to ignore
 
@@ -391,7 +391,7 @@ The `mcp_tool_search_enabled` virtual `skill_search` capability is an optional s
 
 ### 2.6 Phase P4: cleanup, operational handoff, and final status
 
-Produce `docs/mcp-architecture-qa/17-opencode-prod-pilot-evidence.md`. Keep evidence short but complete: exact client/server versions, public routes (no query credentials), command excerpts, failure corrections, applied image/digest IDs, assigned groups and resource reconciliation, screenshots of OpenCode UI, and safe before/after skill-loading proof
+After cleanup, record the final evidence in `docs/mcp/opencode-prod-pilot-evidence.md`. Keep it short but complete: exact client/server versions, public routes without query credentials, command excerpts, failure corrections, applied image/digest IDs, assigned groups and resource reconciliation, OpenCode screenshots, and safe before/after skill-loading proof
 
 Complete cleanup consciously:
 

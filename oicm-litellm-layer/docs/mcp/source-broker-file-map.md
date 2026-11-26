@@ -108,8 +108,8 @@ Use this as the index when a later question starts from "where does X live". Gro
 | `oicm-litellm-layer/docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md` | concurrency numbers |
 | `oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/*.md` | enrollment, BYOM, multi-replica debates |
 | `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` | source-broker operator guide, prod vs dev, failure table |
-| `oicm-litellm-layer/docs/mcp-architecture-qa/14-sso-application-integration.md` | application SSO/JWT/API-key and resource-provisioning guide |
-| `oicm-litellm-layer/docs/mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md` | gated OpenCode implementation plan, not completed capability claims |
-| `oicm-litellm-layer/docs/mcp-architecture-qa/16-opencode-dev-pilot-evidence.md` | partial OpenCode run evidence; native MCP sign-in works, full execution and private skills remain unfinished |
+| `oicm-litellm-layer/docs/access-control/sso-application-integration.md` | application SSO/JWT/API-key and resource-provisioning guide |
+| `oicm-litellm-layer/docs/mcp/opencode-sso-oauth-skills-pilot.md` | gated OpenCode implementation plan, not completed capability claims |
+| `oicm-litellm-layer/docs/mcp/opencode-pilot-evidence.md` | partial OpenCode run evidence; native MCP sign-in works, full execution and private skills remain unfinished |
 | `oicm-litellm-layer/docs/docs-map.md` | one-line purpose per doc |
 | `oicm-litellm-layer/mkdocs.yml` | nav tree for the docs site |

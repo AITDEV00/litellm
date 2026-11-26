@@ -2,7 +2,7 @@
 
 Direct answer to "how is MCP parameter input guardrailed, and can a whole tool be denied based on conversation trust state". All three capabilities exist in this source tree. The 2026-11-23 inventory found no guardrails configured in prod; recheck the live configuration before treating that dated absence as current
 
-Related: [`06-permissions-and-scope.md`](06-permissions-and-scope.md) for the access layers, including its correction that public-address eligibility is separate from authorization
+Related: [Permissions and scope](../access-control/permissions-and-scope.md) for the access layers, including its correction that public-address eligibility is separate from authorization
 
 ---
 

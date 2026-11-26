@@ -68,17 +68,32 @@ Where every documentation file lives, so you can find an existing doc quickly.
 | Doc | Location |
 |-----|----------|
 | Full admin REST API guide | `docs/admin-api/LITELLM-ADMIN-REST-API.md` |
+| Administration capability map and scope caveats | `docs/admin-api/ADMIN-CAPABILITY-MAP.md` |
 | Teams, access groups, MCP and semantic tool grants playbook | `docs/admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md` |
 | Athena read-only key guide | `docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` |
+| Complete OpenAPI method register, linked to generated family pages | `docs/admin-api/OPERATION-REGISTER.md`, `docs/admin-api/operations/` (generated) |
 
-## MCP architecture research
+## Identity and access control
 
 | Doc | Location |
 |-----|----------|
-| Dated research index. Code and current deployment win over older findings | `docs/mcp-architecture-qa/00-INDEX.md` |
-| Current application guide for delegated SSO calls to models/MCP, plus proxy-admin organization/team/user/access-group setup | `docs/mcp-architecture-qa/14-sso-application-integration.md` |
-| OpenCode Microsoft SSO/native MCP OAuth and private skills pilot plan with dev/prod gates | `docs/mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md` |
-| Topology, runtime, permissions, key patterns, SSO research, and deployment history | `docs/mcp-architecture-qa/01-*.md` through `13-*.md` |
+| Delegated SSO model/MCP calls and proxy-admin provisioning | `docs/access-control/sso-application-integration.md` |
+| MCP permission layers and scope | `docs/access-control/permissions-and-scope.md` |
+| RBAC, roles, budgets, and authorization granularity | `docs/access-control/rbac-and-full-potential.md` |
+| Key reassignment and historical spend ownership | `docs/access-control/key-reassignment.md` |
+| SSO versus application authentication | `docs/access-control/sso-vs-app-auth.md` |
+| Temporary delegated-key pattern | `docs/access-control/sso-temporary-key-pattern.md` |
+| SAML airgap research and dev SSO deployment evidence | `docs/access-control/microsoft-saml-airgap.md`, `docs/access-control/dev-microsoft-sso-deployed.md` (dated) |
+
+## MCP architecture and source broker
+
+| Doc | Location |
+|-----|----------|
+| Current component record | `docs/mcp-source-broker/running-system/README.md` |
+| Architecture and research reading index | `docs/mcp/architecture-research-index.md` |
+| Topology, runtime, client installation, production cluster, and file map | `docs/mcp/` |
+| MCP input/output guardrailing | `docs/mcp/guardrailing.md` |
+| OpenCode plan and dated pilot evidence | `docs/mcp/opencode-sso-oauth-skills-pilot.md`, `docs/mcp/opencode-pilot-evidence.md` |
 
 ## Rate limiting / priority
 

@@ -1,8 +1,6 @@
-# OpenCode SSO + MCP OAuth Pilot Evidence (dev D2 core + prod P0/P1)
+# OpenCode Dev Pilot Evidence (D2 core)
 
-Record of the OpenCode V2 Microsoft SSO + MCP OAuth pilot executed against the dev gateway on 2026-11-24 (agent-driven) and the prod gateway on 2026-11-24 (user-driven replication, with the user's explicit go-ahead for the prod leg), following [the implementation plan](15-opencode-sso-mcp-skills-pilot.md). Membership provisioning through dqvu is current as of [the integration guide](14-sso-application-integration.md), but does not change any uncompleted gate here. This page documents what was actually run and proven so far. The model-access leg of D2, D3, D4, and D5 are not complete; their statuses are recorded under Remaining D2/D3+ items
-
-## Dev round (agent-driven, ~11:16-11:22 UTC)
+Record of the OpenCode V2 Microsoft SSO + MCP OAuth pilot executed against the dev gateway on 2026-11-24, following [the implementation plan](opencode-sso-oauth-skills-pilot.md). This page documents what was actually run and proven so far. The model-access leg of D2, D3, D4, and D5 are not complete; their status is recorded under Open items
 
 ## Environment
 
@@ -106,11 +104,11 @@ Live evidence, all three observed the same morning:
 | `POST /v1/chat/completions`, model `zai-org/GLM-5.3-Flash`        | pilot team virtual key                               | `HTTP 200` with a real completion                                                                                   |
 | `POST /v1/chat/completions`, model not in the team's permitted list | pilot team virtual key                               | `HTTP 403` `team_model_access_denied`                                                                             |
 
-Note the gateway does have a designed path that mints a true proxy credential (an `sk-...` virtual key bound to user and team) from an authenticated session: the `token-exchange`/proxy-credential grant in the DCR flow (`proxy_credential_response` in `litellm/proxy/_experimental/mcp_server/gateway_dcr_flow.py`, `POST /token` with the appropriate grant/audience). That is how a signed-in person could obtain a model-capable credential without an admin handing them a static key. Whether OpenCode v2.0.27 can be driven to perform that exchange itself (via its provider auth integration, `opencode auth login --method <key-type>`, or a small helper) remains an open compatibility question
+Note the gateway does have a designed path that mints a true proxy credential (an `sk-...` virtual key bound to user and team) from an authenticated session: the `token-exchange`/proxy-credential grant in the DCR flow (`proxy_credential_response` in `litellm/proxy/_experimental/mcp_server/gateway_dcr_flow.py`, `POST /token` with the appropriate grant/audience). That is how a signed-in person could obtain a model-capable credential without an admin handing them a static key. Whether OpenCode v2.0.27 can be driven to perform that exchange itself (via its provider auth integration, `opencode auth login --method <key-type>`, or a small helper) is exactly the open question handed to the search agent below
 
-### Credential-type cause is established; the key's other permission matrix still needs proof
+### Permissions ruled out as the cause (verified 2026-11-24 via admin API + DB)
 
-The identical `llm_session_` rejection on dev/prod matches the missing `/v1` session-admission path. These observations do **not** establish that all jyao models/team access groups were sufficient: the SSO-minted dashboard key belongs to `litellm-dashboard`, not the pilot team. Its success is a virtual-key admission control. The actual pilot-team key tested one allowed model and one model denial, not all intended models or every group. Keep the remaining model/team permissions matrix as part of later D2/P2 testing
+The 401 on `/v1` is not a permission or access-group misconfiguration for `jyao@ecouncil.ae`. All of the following were checked live and are correctly configured:
 
 | Check                                           | Result                                                                                                                                                                                           |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -118,16 +116,16 @@ The identical `llm_session_` rejection on dev/prod matches the missing `/v1` ses
 | Team membership (DB `LiteLLM_TeamMembership`) | `jyao` -> `645ddec6-73d5-4a7f-b54e-c171672e81c3` confirmed                                                                                                                                   |
 | Team models (`/team/info`)                    | `['zai-org/GLM-5.3-Flash']` on the pilot team                                                                                                                                                  |
 | Access groups (DB `LiteLLM_AccessGroupTable`) | `adeogpt-endusers-mcp` (4 server IDs), `adeogpt-endusers-models` (`zai-org/GLM-5.3-Flash`), `adeogpt-endusers-skills` (`opencode-pilot-fixture`), all assigned to team `645ddec6...` |
-| `/v1/models` as pilot team key                | `['zai-org/GLM-5.3-Flash']` for this fixture only, not universal model proof                                                                                                            |
+| `/v1/models` as pilot team key                | exactly `['zai-org/GLM-5.3-Flash']`                                                                                                                                                            |
 
-Positive virtual-key control: the SSO UI login itself mints jyao a real virtual key (row: user `90714f16-39de-400f-9a79-09edd1c48eed`, team `litellm-dashboard`, 24h expiry, created 2026-11-24 11:19:53; the dashboard sends it as `Authorization: Bearer sk-...`). Calling `POST /v1/chat/completions` with that key returned `HTTP 200` with content `MODEL_OK` for `zai-org/GLM-5.3-Flash`. This proves a virtual-key request can reach a permitted model but is not a sufficient ENDUSERS model-access check, because dashboard and ENDUSERS are separate team contexts. The native OpenCode bearer mismatch remains the established problem; model permission assertions must name the specific tested team credential
+Decisive positive test: the SSO UI login itself mints jyao a real virtual key (row: user `90714f16-39de-400f-9a79-09edd1c48eed`, team `litellm-dashboard`, 24h expiry, created 2026-11-24 11:19:53; the dashboard sends it as `Authorization: Bearer sk-...`). Calling `POST /v1/chat/completions` with that key returned `HTTP 200` with content `MODEL_OK` for `zai-org/GLM-5.3-Flash`. So the person's permissions are fully sufficient for model calls; what is missing is only that OpenCode holds the MCP session JWT (which the `/v1` pipeline does not accept) instead of any `sk-...` proxy credential
 
 Two additional observations from this verification, for completeness:
 
 - The dev config has `general_settings.enable_jwt_auth: true` with Entra JWKS (`JWT_PUBLIC_KEY_URL=login.microsoftonline.com/99cf3350-.../discovery/v2.0/keys`, `JWT_AUDIENCE=e1ad1372-fbaa-4013-a288-8547d8b7dbe7`). Any JWT-shaped bearer on `/v1` is routed to that enterprise JWT-auth validator first. That is why the MCP session JWT produced a JWKS/parse error rather than a clean 401, and why the dashboard's cookie JWT (an HS256 UI-session JWT, not an Entra token) also fails if presented raw. The dashboard's actual API calls use the minted `sk-...` key, never the cookie JWT
-- Historical test-route correction: `/access_group/list` and `/access_group/{id}/info` are not the unified access-group APIs on this version, even if an early probe called them. Current source exposes and prod `GET /v1/access_group` returns unified groups, with `GET /v1/access_group/{id}` for one record and `POST /v1/access_group` / `PUT /v1/access_group/{id}` for managed changes. Guide 14 now records the actual 2026-11-24 read-back
+- `/access_group/list` on this build returns an empty list and `/access_group/{id}/info` 404s even for existing groups; the DB table is the reliable read. Treat the access-group REST surface as not-fully-exposed on this gateway version
 
-### Follow-up investigation still required for model credentials
+### What the search agent should investigate
 
 Goal: find the supported way for OpenCode v2.0.27 to authenticate model calls to a LiteLLM gateway as the signed-in user, with no long-lived/static credential in OpenCode's config, no gateway master key, and ideally reusing the SSO identity. Candidate directions, in order:
 
@@ -145,72 +143,15 @@ Reference docs for the agent:
 - LiteLLM gateway DCR/token-exchange source in this checkout: `litellm/proxy/_experimental/mcp_server/gateway_dcr_flow.py` (`proxy_credential_response`, `aggregate_token`), `litellm/proxy/_experimental/mcp_server/outbound_credentials/session_token.py` (token shapes)
 - LiteLLM docs: `https://docs.litellm.ai/` (proxy API key auth, virtual keys, and any OpenCode recipe)
 
-## Prod round (user-driven replication, ~12:35-13:07 UTC, explicitly authorized by the user)
-
-The user authorized the prod leg after the dev evidence. P0/P1 checks and the read-only grant reconciliation were run first; the OAuth flow itself was executed by the user (`opencode mcp auth adeogpt-prod` from their own terminal, browser sign-in as themselves with MFA), which is the strongest form of the evidence: the person, not the agent, drove the prod flow
-
-### P0: discovery, health, and isolation checks (all pass)
-
-| Check | Result |
-|---|---|
-| `GET /.well-known/oauth-protected-resource/mcp` | `HTTP 200` |
-| `GET /.well-known/oauth-authorization-server/mcp` | `HTTP 200`, issuer `https://litellm.ecouncil.ae/mcp`, authorize `/authorize/mcp-session`, token `/token`, register `/register`, PKCE S256, grants include `token-exchange` |
-| `GET /v1/mcp/registry.json` | `HTTP 404` (correctly off) |
-| `GET /.well-known/agent-skills/index.json` | `HTTP 404` (correctly off) |
-| `GET /health/liveliness` | `HTTP 200` in 58ms |
-| `GET /health` (authenticated) | `HTTP 200`: 20 healthy endpoints (including `hosted_vllm/zai-org/GLM-5.3-Flash`), 6 unhealthy (non-pilot: pyannote, clef-flash, hamsa-tts, paddlex, two stale hosted_vllm entries; pre-existing, unrelated to the pilot) |
-| Prod image | `litellm-src:jya0-v1.108.5-prod@sha256:9ff9cd4f...`, 2 replicas (dev parity on version tag; dev runs the non-prod tag, 1 replica) |
-
-### P1 prerequisites: identity and grant reconciliation (read-only, all pass)
-
-- jyao's prod user record is the same canonical row: user_id `90714f16-39de-400f-9a79-09edd1c48eed`, `jyao@ecouncil.ae`, role `internal_user_viewer`. Single row, no duplicate identity
-- Prod teams: `ADEOGPT-ENDUSERS` `b19ad7de-997e-45ec-ba34-f7980dccf621` (models: `all-proxy-models`) and `ADEOGPT-DESKTOP` `d1406939-aef6-4205-a8b2-7616c5a72663` (models include `zai-org/GLM-5.3-Flash`)
-- Access group `adeogpt-endusers-mcp` `922c1bd2-d479-4134-970e-4daf1bd27ca4` is assigned to team `b19ad7de...` and grants exactly 8 servers, matching the plan's expected prod inventory: academic `9cf462a5...`, books `4024fe1a...`, indicators `7bce03cc...`, podcasts `c777ca69...`, spotify `a7df9f47...`, twitter `984aa9c7...`, videos `4300716d...`, web `ab5a8b8a...` (all `prod.mcp.*` sources)
-
-### Prod config and flow
-
-The user's global config `~/.config/opencode/opencode.jsonc` gained a sibling server entry (distinct name so dev and prod profiles cannot be confused):
-
-```jsonc
-"adeogpt-prod": {
-  "type": "remote",
-  "url": "https://litellm.ecouncil.ae/mcp"
-}
-```
-
-No headers, no keys in the MCP block. The flow:
-
-1. `opencode mcp auth adeogpt-prod` -> DCR at the prod `/register` (client `llm_dcrc_XmJw7G...`), loopback listener `http://127.0.0.1:40107/callback` (observed), authorize URL printed
-2. The authorize URL redirected to the **prod Entra app** (client_id `a85030da-4ee8-4ae3-9d24-8b0e693782dd`, distinct from dev's `e1ad1372-...`), callback `https://litellm.ecouncil.ae/sso/callback`, scope `openid User.Read email`. The user completed the interactive Microsoft login as `jyao@ecouncil.ae` with MFA
-3. The prod connect page read `Internal Viewer - signed in as jyao@ecouncil.ae` and listed exactly the 8 granted prod servers with tool counts (academic 4, books 4, indicators 21, podcasts 4, spotify 12, twitter 5, videos 7, web 8). Screenshot captured
-4. The user connected the servers and finished; OpenCode logged `mcp oauth authorization completed` (12:43:44Z and 13:07:33Z for the repeated run) with `hasRefreshToken=true expiresIn=3600`
-5. `opencode mcp list`: `✓ adeogpt-prod connected`
-
-An aborted first attempt at 12:43 UTC (agent-started, superseded by the user's own run at 13:07) minted a valid session too; the user-driven 13:07 round is the one that counts, same as the dev round's discipline
-
-### Prod verification battery (all reproduce the dev findings)
-
-- Credential: stored in OpenCode's credential DB under integration `mcp_0a06aba670249687`, label `adeogpt-prod`, an `llm_session_` JWT (prefix verified, 536 chars) with refresh token (`expiresIn=3600`). Not a Microsoft token, not a virtual key
-- MCP surface accepts it: `POST /mcp` initialize `HTTP 200`, `tools/list` `HTTP 200` returning **65 tools** across exactly the 8 granted servers (4+4+21+4+12+5+7+8), server-prefixed names like `prod.mcp.books...-books_search`. No ungranted server appears
-- Model route rejects it: the same JWT as bearer on `POST /v1/chat/completions` (prod) returns `HTTP 401 auth_error` with the identical parse-error signature seen on dev. The credential-type finding is gateway behavior, not a dev artifact
-- Identity attribution: prod SSO minted only `litellm-dashboard` session rows for user `90714f16...` (12:39:57 and 13:06:40, both +24h expiry) plus a pre-existing `b19ad7de` team key from 07:45. Exactly one `jyao@ecouncil.ae` row in `LiteLLM_UserTable`. No duplicate user, no admin role grant
-
-### Multi-replica note (still open)
-
-Prod ran 2 replicas and the user's public-host browser and MCP request sequence succeeded. That is useful liveness/discovery evidence but does not prove a handover between specific pods without response log/cookie/request correlation. A stateless minted session and shared backend replay state are expected mechanisms, not performance guarantees in the absence of pod-specific measurements. Before closing this gate, perform identified two-pod admission, expiry-triggered refresh, and single-use replay/family rotation checks with redacted correlation evidence. Label this battery as native MCP compatibility, not model compatibility
-
 ## Remaining D2/D3+ items (not model related)
 
-- Refresh after expiry (1h TTL) has not been exercised yet: the dev token from 11:22 UTC expires at 12:22 UTC, the prod token from 13:07 UTC at 14:07 UTC; a re-run of `opencode mcp list` after those moments (or forcing a refresh) plus a gateway log check closes this
-- Multi-replica DCR/session behavior: not closed by request count alone. Verify identified pod admission plus actual refresh and single-use replay/rotation behavior with safe evidence. Dev remains single-replica for the dev-only scope
-- Prod D3 (one real per-server tool call through OpenCode on prod) and prod skills D4 are not started; dev D3/D4/D5 are not started
-- Dated negative/key tests run outside native OpenCode remain separate controls; guide 15's D3 negative-identity channel test has not been proven
-- This file records no later private-skill synchronizer or model-credential integration completion
+- Refresh after expiry (1h TTL) has not been exercised yet: the token from 11:22 UTC expires at 12:22 UTC; a re-run of `opencode mcp list` after that moment (or forcing a refresh) plus a gateway log check closes this
+- Multi-replica DCR/session behavior: dev runs 1 replica; the plan's second-pod check needs a temporary scale-out, pending
+- D3 (per-server native tool calls through OpenCode), D4 (private skills), D5 (unit tests, cleanup record, this doc's final form) are not started
 
 ## Cleanup obligations carried forward
 
 - Delete the `jyao-adeogpt-mcp` virtual key via `/key/delete` once the pilot no longer needs it
 - Rotate the exposed Entra dev client secret per plan step 1.3.8 (user-assisted; requires Entra access)
 - Remove the dev fixture skill rows, `opencode-negative-1`, the pilot team key, and the scratch fixture processes when D5 completes
-- `public_skills_index` and `enable_mcp_registry` remain off throughout; verified off on prod during the P0 round (both `404`)
-- Prod left untouched: no config, grant, key, or Entra changes were made on prod; the only prod writes were the user's own ordinary SSO/MCP session mints
+- `public_skills_index` and `enable_mcp_registry` remain off throughout

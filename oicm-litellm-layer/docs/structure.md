@@ -111,11 +111,16 @@ oicm-litellm-layer/
 │   ├── admin-api/          ← administration capability map, admin REST endpoints, complete operation register
 │   │   ├── ADMIN-CAPABILITY-MAP.md ← UI/OpenAPI capability/source/permission map; default user settings
 │   │   ├── OPERATION-REGISTER.md ← all 761 OpenAPI paths / 1021 methods: source mappings + schema contracts
-│   │   └── operations/ ← primary-tag family method slices (executable operation source & handlers)
-│   ├── mcp-architecture-qa/ ← current MCP/SSO integration guide plus dated architecture/evidence research
-│   │   ├── 14-sso-application-integration.md ← delegated user JWT/model/MCP calls and org/team/group setup
-│   │   ├── 15-opencode-sso-mcp-skills-pilot.md ← gated native OpenCode/private skills plan, not completed support
-│   │   └── 16-opencode-dev-pilot-evidence.md ← partial dev/prod native MCP OAuth run evidence, unfinished gates
+│   │   └── operations/ ← generated primary-tag method slices; edit the generator, not these pages
+│   ├── access-control/    ← permissions, RBAC, key ownership, SSO and application authentication
+│   │   ├── sso-application-integration.md ← delegated JWT/model/MCP calls and org/team/group setup
+│   │   ├── permissions-and-scope.md ← MCP access layers
+│   │   └── key-reassignment.md ← ownership and spend implications
+│   ├── mcp/              ← MCP and source-broker architecture, guardrailing and OpenCode pilot material
+│   │   ├── architecture-research-index.md ← topic and status index
+│   │   ├── opencode-sso-oauth-skills-pilot.md ← gated plan, not completed support
+│   │   └── opencode-pilot-evidence.md ← dated pilot evidence, unfinished gates
+│   ├── mcp-source-broker/ ← source-broker implementation, decisions, deployment and measurements
 │   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
 │   ├── custom-routes-plans/ ← custom-route logic map + VSA implementation plan
 │   ├── dashboard-plan/     ← dashboard/frontend analysis

@@ -107,11 +107,11 @@ curl -sk -X POST "$PROXY_BASE_URL/key/generate" \
   }'
 ```
 
-Give the person a personal key for their default work plus a team-scoped key for each additional team context. The alternative for a JWT caller who holds several memberships is the `x-litellm-team-id` request header under `fallback_to_db_teams: true`, documented with its validation steps in [14-sso-application-integration.md](../mcp-architecture-qa/14-sso-application-integration.md). A virtual key cannot do that switching; only the team it names applies
+Give the person a personal key for their default work plus a team-scoped key for each additional team context. The alternative for a JWT caller who holds several memberships is the `x-litellm-team-id` request header under `fallback_to_db_teams: true`, documented with its validation steps in [14-sso-application-integration.md](../access-control/sso-application-integration.md). A virtual key cannot do that switching; only the team it names applies
 
 ## What actually decides an MCP tool call
 
-Grants resolve in layers, and later layers only narrow. The full treatment with source references is in [06-permissions-and-scope.md](../mcp-architecture-qa/06-permissions-and-scope.md); the short version is what to check when a call is refused
+Grants resolve in layers, and later layers only narrow. The full treatment with source references is in [06-permissions-and-scope.md](../access-control/permissions-and-scope.md); the short version is what to check when a call is refused
 
 | Layer | Control | Failure you will see |
 |---|---|---|
@@ -139,7 +139,7 @@ curl -sk -X POST "$PROXY_BASE_URL/team/permissions_update" \
   }'
 ```
 
-Grant the narrowest set that meets the need, and omit `/key/update` and `/key/delete` unless members genuinely need them. Two further gates matter. Assigning `access_group_ids` to a team key from a member account is default-deny and requires the `KEY_ACCESS_GROUP_ASSIGNMENT` permission, and a non-admin may never reassign a key's `user_id` because that is an ownership change, as recorded in [08-key-reassignment.md](../mcp-architecture-qa/08-key-reassignment.md)
+Grant the narrowest set that meets the need, and omit `/key/update` and `/key/delete` unless members genuinely need them. Two further gates matter. Assigning `access_group_ids` to a team key from a member account is default-deny and requires the `KEY_ACCESS_GROUP_ASSIGNMENT` permission, and a non-admin may never reassign a key's `user_id` because that is an ownership change, as recorded in [08-key-reassignment.md](../access-control/key-reassignment.md)
 
 ## Semantic tools, toolsets, and skills
 
@@ -148,7 +148,7 @@ These are three different things that get conflated
 - `mcp_tool_permissions` is the exact per-server tool allowlist and is the safest default for a shared group. Empty `allowed_tools` on a server means every advertised tool is callable, so being explicit is the conservative choice
 - `mcp_toolsets` are named permission bundles cached in Redis, reused across keys and teams. Use a toolset when "web-read-only" should mean the same list in five places
 - `mcp_tool_search_enabled` hides tools from search until needed, and `search_tools` scopes which search tools a caller may invoke. With `general_settings.search_tool_deny_by_default` on, the key, team, and user layers must each list a search tool before it is callable, so a group grant alone is not enough there
-- `access_skill_names` on an access group is not the same as skill content sharing. Current behavior does not make ordinary teammate skill rows shareable through that field alone, as recorded in [15-opencode-sso-mcp-skills-pilot.md](../mcp-architecture-qa/15-opencode-sso-mcp-skills-pilot.md). Do not promise skill sharing on the strength of an access-group edit
+- `access_skill_names` on an access group is not the same as skill content sharing. Current behavior does not make ordinary teammate skill rows shareable through that field alone, as recorded in [15-opencode-sso-mcp-skills-pilot.md](../mcp/opencode-sso-oauth-skills-pilot.md). Do not promise skill sharing on the strength of an access-group edit
 
 ## Changing a grant without breaking it
 
@@ -225,6 +225,6 @@ Be explicit with requesters about these boundaries rather than discovering them 
 | Baseline member permissions, `KEY_ACCESS_GROUP_ASSIGNMENT` gate | `litellm/proxy/management_helpers/team_member_permission_checks.py` |
 | Search tool key/team/user layering and deny-by-default | `litellm/proxy/auth/auth_checks.py` |
 | Permission field set | `litellm/types/object_permission.py` |
-| Route, server, tool, parameter, and guardrail layers | `oicm-litellm-layer/docs/mcp-architecture-qa/06-permissions-and-scope.md` |
+| Route, server, tool, parameter, and guardrail layers | `oicm-litellm-layer/../access-control/permissions-and-scope.md` |
 | Team versus org admin arbitration | `litellm/proxy/management/teams/authz.py` |
 | What a key inherits from its owner, the MCP-versus-models distinction, and `personal_key_model_access_from_teams` | Upstream docs.litellm.ai "Virtual Keys" and "How Key-Based Auth Works", checked 2026-11-26 |

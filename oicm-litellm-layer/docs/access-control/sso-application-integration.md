@@ -311,7 +311,7 @@ For OpenCode, native MCP OAuth is the browser sign-in pattern documented in guid
 
 OpenCode's generic unauthenticated HTTP skill catalog is not LiteLLM `/v1/skills`. Do not enable `public_skills_index` or `enable_mcp_registry` to make private synchronization work. Existing `/v1/skills` owner scopes select `user:<id>` first when user identity exists, even when the request has a team. Current `access_skill_names` does not make ordinary teammate skill rows shareable and has specific skill-plugin visibility semantics elsewhere. Any private sharing requires explicit owner/team-aware design and denial tests, followed by actual OpenCode content-loading proof
 
-See [the OpenCode plan](15-opencode-sso-mcp-skills-pilot.md) for required dev gates and [the measured evidence](16-opencode-dev-pilot-evidence.md) for what is complete. Treat model credentials, actual per-server tool invocation, refresh-after-expiry, agent-only D3 negative proof, and private skill loading as unfinished according to that record. Membership provisioning alone does not change those pilot statuses
+See [the OpenCode plan](../mcp/opencode-sso-oauth-skills-pilot.md) for required dev gates and [the measured evidence](../mcp/opencode-pilot-evidence.md) for what is complete. Treat model credentials, actual per-server tool invocation, refresh-after-expiry, agent-only D3 negative proof, and private skill loading as unfinished according to that record. Membership provisioning alone does not change those pilot statuses
 
 ## Credential lifecycle and audit secrets
 
