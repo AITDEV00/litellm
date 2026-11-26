@@ -159,7 +159,7 @@ validates, so it must keep the gateway default.
 
 Promote a dev-validated controller tag to prod without rebuilding:
 `make controller-deploy-prod BUILD=0 TAG=<tag>` (see
-[Makefile reference](../Makefile-reference.md)).
+[Makefile reference](../operations/Makefile-reference.md)).
 
 ### Still open
 

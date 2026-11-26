@@ -25,11 +25,11 @@ Use the trust labels in the owning indexes. "Current reference" means the behavi
 | `docs/document-status.md` | Trust levels, ownership layout, and published-doc update requirements |
 | `docs/research-index.md` | Plans, dated investigations, API mapping, audits and measurement index |
 | `docs/structure.md` | Full directory map |
-| `docs/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
-| `docs/deployment.md` | Apply / rollout / cluster access |
-| `docs/Makefile-reference.md` | Makefile variables, primitives, and compositions |
-| `docs/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
-| `docs/runbooks/spend-view-legacy-repair.md` | One-shot operator repair for foreign-owned spend views (2026-11-24 dashboard 500s) |
+| `docs/operations/credentials.md` | **Master key & password contract + rotation runbook + ⚠️ SALT KEY (DO NOT TOUCH) ⚠️** |
+| `docs/operations/deployment.md` | Apply / rollout / cluster access |
+| `docs/operations/Makefile-reference.md` | Makefile variables, primitives, and compositions |
+| `docs/operations/runbooks/postgres-backup-and-recovery.md` | Postgres backup architecture, the org CNPG+MinIO convention, snapshot retirement |
+| `docs/operations/runbooks/spend-view-legacy-repair.md` | One-shot operator repair for foreign-owned spend views (2026-11-24 dashboard 500s) |
 | `docs/components/*.md` | Per-component navigation |
 
 ## Discovery Controller
@@ -66,11 +66,11 @@ Use the trust labels in the owning indexes. "Current reference" means the behavi
 
 | Doc | Location |
 |-----|----------|
-| Postgres disk-full (2026-09-08) | `docs/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions) |
-| Kimi-K3 mid-stream stop (2026-09-21) | `docs/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md` |
-| Spend-log cleanup not running (2026-09-21) | `docs/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md` |
-| Gateway token-limits misreported (2026-11-03) | `docs/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md` |
-| Gateway vision capability undeclared (2026-11-03) | `docs/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md` |
+| Postgres disk-full (2026-09-08) | `docs/operations/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions) |
+| Kimi-K3 mid-stream stop (2026-09-21) | `docs/operations/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md` |
+| Spend-log cleanup not running (2026-09-21) | `docs/operations/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md` |
+| Gateway token-limits misreported (2026-11-03) | `docs/operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md` |
+| Gateway vision capability undeclared (2026-11-03) | `docs/operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md` |
 
 ## Admin API
 
@@ -108,12 +108,12 @@ Use the trust labels in the owning indexes. "Current reference" means the behavi
 
 | Doc | Location |
 |-----|----------|
-| HTB README | `docs/htb-rate-limiting/HTB-README.md` |
-| Priority bridge feasibility | `docs/htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md` |
-| Priority logic map | `docs/htb-rate-limiting/PRIORITY-LOGIC-MAP.md` |
-| Priority queue evidence/results | `docs/htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md`, `PRIORITY-QUEUE-RESULTS-SUMMARY.md` |
-| Priority behaviour | `docs/htb-rate-limiting/priority_behaviour.md` |
-| Executive summary | `docs/htb-rate-limiting/HTB-EXECUTIVE-SUMMARY.md` |
+| HTB README | `docs/operations/rate-limiting/HTB-README.md` |
+| Priority bridge feasibility | `docs/operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md` |
+| Priority logic map | `docs/operations/rate-limiting/PRIORITY-LOGIC-MAP.md` |
+| Priority queue evidence/results | `docs/operations/rate-limiting/PRIORITY-QUEUE-EVIDENCE.md`, `PRIORITY-QUEUE-RESULTS-SUMMARY.md` |
+| Priority behaviour | `docs/operations/rate-limiting/priority_behaviour.md` |
+| Executive summary | `docs/operations/rate-limiting/HTB-EXECUTIVE-SUMMARY.md` |
 
 ## Custom providers
 
@@ -176,16 +176,16 @@ Use the trust labels in the owning indexes. "Current reference" means the behavi
 
 | Doc | Location |
 |-----|----------|
-| Executive summary | `docs/performance/executive-summary.md` |
-| Before / after | `docs/performance/before-optimization.md`, `after-optimization.md` |
-| Perf recovery / session notes | `docs/performance/model-performance-perf-recovery.md` |
-| Analytics reads -> prisma engine OOM logic map | `docs/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md` |
-| Spend-logs UI enrichment window-bound fix | `docs/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md` |
-| Prisma OOM live-data evidence | `docs/performance/live-data/` (README indexes the artifacts) |
-| Retention flags + OOM logic map v2 | `docs/performance/retention-flags-and-oom-LOGIC-MAP-v2.md` |
-| Spend logs + RAM logic map | `docs/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md` |
-| Routing-strategy sync-task leak OOM logic map | `docs/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md` |
-| Spend-view repair plan, dev worker prompt, prod runbook | `docs/performance/spend-view-repair-plan.md` |
+| Executive summary | `docs/operations/performance/executive-summary.md` |
+| Before / after | `docs/operations/performance/before-optimization.md`, `after-optimization.md` |
+| Perf recovery / session notes | `docs/operations/performance/model-performance-perf-recovery.md` |
+| Analytics reads -> prisma engine OOM logic map | `docs/operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md` |
+| Spend-logs UI enrichment window-bound fix | `docs/operations/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md` |
+| Prisma OOM live-data evidence | `docs/operations/performance/live-data/` (README indexes the artifacts) |
+| Retention flags + OOM logic map v2 | `docs/operations/performance/retention-flags-and-oom-LOGIC-MAP-v2.md` |
+| Spend logs + RAM logic map | `docs/operations/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md` |
+| Routing-strategy sync-task leak OOM logic map | `docs/operations/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md` |
+| Spend-view repair plan, dev worker prompt, prod runbook | `docs/operations/performance/spend-view-repair-plan.md` |
 
 ## Custom routes
 
@@ -249,14 +249,14 @@ than hand-edit; each file states its generation date.
 
 | Doc | Location |
 |-----|----------|
-| ADEOGPT model performance (7d) | `docs/reports/ADEOGPT-MODEL-PERFORMANCE.md` |
+| ADEOGPT model performance (7d) | `docs/operations/reports/ADEOGPT-MODEL-PERFORMANCE.md` |
 
 ## Runbooks
 
 | Doc | Location |
 |-----|----------|
-| MkDocs setup | `docs/runbooks/MKDOCS-SETUP.md` |
-| Datasource local validation | `docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md` |
+| MkDocs setup | `docs/operations/runbooks/MKDOCS-SETUP.md` |
+| Datasource local validation | `docs/operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md` |
 
 ## TLS / Certificates
 

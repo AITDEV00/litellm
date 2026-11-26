@@ -30,6 +30,6 @@ When you edit production proxy settings, edit that file, then
 |---------|-------|-------|
 | `model_list` | `litellm-config` ConfigMap | Empty in prod (controller registers models) |
 | `litellm_settings` | `litellm-config` ConfigMap | callbacks, caching, priority reservation, `store_model_in_db`, `require_auth_for_metrics_endpoint` |
-| `general_settings.master_key` | `litellm-config` ConfigMap / `config/*.yaml` | See [Credentials](../credentials.md) |
+| `general_settings.master_key` | `litellm-config` ConfigMap / `config/*.yaml` | See [Credentials](../operations/credentials.md) |
 | `router_settings` | `litellm-config` ConfigMap | routing strategy, `optional_pre_call_checks`, retry policy, timeouts |
 | pass-through endpoints | `litellm-config` ConfigMap | `/vllm/tts` etc. |

@@ -31,7 +31,7 @@ When a document contains multiple statuses, the index should distinguish its cod
 | Admin surface and request schemas | [Admin REST API](admin-api/LITELLM-ADMIN-REST-API.md) | [OpenAPI operation register](admin-api/OPERATION-REGISTER.md), whose family pages are generated |
 | MCP sources, OAuth, connector, runtime | [Source broker](mcp-source-broker/running-system/README.md) | [MCP research index](mcp/architecture-research-index.md), [source agent guide](usage-guides/MCP_SOURCE_AGENT_GUIDE.md) |
 | Calling models and voice APIs | [Gateway guide](usage-guides/GATEWAY_GUIDE.md) | Other provider-specific files under [Usage guides](docs-map.md#usage-guides) |
-| Deploy, rollouts, credentials, database | [Deployment](operations/deployment.md) and [Credentials](credentials.md) | [Runbooks](docs-map.md#runbooks) in the docs map |
+| Deploy, rollouts, credentials, database | [Deployment](operations/deployment.md) and [Credentials](operations/credentials.md) | [Runbooks](docs-map.md#runbooks) in the docs map |
 | Incidents and OOMs | Incident directory by date | [Performance evidence](docs-map.md#performance) in the docs map |
 | Controller and OICM status | [Controller](discovery-controller/README.md) and [OICM status](docs-map.md#oicm-status) | API compat under `openrouter/` |
 | Client distribute/load sources | [Client distribution](client-distribution/PLAN.md) | Deployment, platform matrix, security, and history in that directory |

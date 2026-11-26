@@ -1,6 +1,6 @@
 # Model Performance Tab — Optimization Path Logic Map
 
-> **Technique**: [Logic Mapping](../techniques/logic_mapping_technique.md) —
+> **Technique**: [Logic Mapping](../../techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. This document maps the **entire** data flow
 > that makes the Model Performance tab load faster, from request ingestion to
 > the dashboard response, with exact file:line references.

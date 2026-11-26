@@ -218,7 +218,7 @@ make litellm-local-stop        # stop the local docker container
 
 Behavior checks that run against a **deployed** gateway, not the source tree.
 Mandatory after every upstream merge (Step 7 of the
-[merge technique](techniques/upstream_merge_technique.md)). See
+[merge technique](../techniques/upstream_merge_technique.md)). See
 `tests/smoke/AGENTS.md` for the suite conventions.
 
 ```bash

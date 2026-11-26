@@ -76,14 +76,14 @@ kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller --ti
 Review the complete diff first. Do not add `--prune`. Later-created resources
 need explicit review and deletion. Database records, persistent volumes,
 object-store contents and completed Jobs are not restored. The full
-[rollback runbook](../runbooks/rollback.md) has the inventory, limitations, and commands.
+[rollback runbook](runbooks/rollback.md) has the inventory, limitations, and commands.
 
 ## Apply
 
 The Makefile composes deployments from per-object-group primitives, so you never
 have to apply a whole environment when only one piece changed. Each of these
 takes the usual variables (`TAG`, `BUILD`, `NAMESPACE`, `ROLLOUT_TIMEOUT`), see
-[Makefile reference](../Makefile-reference.md).
+[Makefile reference](Makefile-reference.md).
 
 ```bash
 make controller-deploy-prod     # build, push, pin, apply, roll out the controller
@@ -148,7 +148,7 @@ kubectl -n adeo-litellm rollout status deployment/oicm-discovery-controller
 !!! danger "Rotating the master key breaks both"
     `litellm-master-key` is read by **both** the proxy and the controller. If you
     only restart the proxy, the controller keeps sending the old key and model
-    discovery breaks. See [Credentials](../credentials.md) for the full runbook.
+    discovery breaks. See [Credentials](credentials.md) for the full runbook.
 
 ## Cluster access
 
@@ -158,7 +158,7 @@ only host that can reach the API server. Corporate DNS resolves
 while the tunnel is up. When kubectl fails with
 `dial tcp 127.0.0.1:6443: connection refused`, the tunnel has died; re-open it
 with the command in
-[Datasource Local Validation](../runbooks/DATASOURCE-LOCAL-VALIDATION.md#step-1-open-the-ssh-tunnel).
+[Datasource Local Validation](runbooks/DATASOURCE-LOCAL-VALIDATION.md#step-1-open-the-ssh-tunnel).
 
 The kubeconfig on this machine is `~/.kube/alain-oicm.conf`, which is also the
 Makefile default for `ALAIN_KUBECONFIG`.

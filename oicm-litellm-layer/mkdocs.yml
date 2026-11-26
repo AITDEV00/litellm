@@ -49,7 +49,48 @@ plugins:
       enable_git_follow: false
   - redirects:
       redirect_maps:
-        'deployment.md': 'operations/deployment.md'
+        Makefile-reference.md: operations/Makefile-reference.md
+        SSL/CERT-GUIDELINE.md: operations/ssl/CERT-GUIDELINE.md
+        SSL/LITELLM-ECOUNCIL-RUNBOOK.md: operations/ssl/LITELLM-ECOUNCIL-RUNBOOK.md
+        credentials.md: operations/credentials.md
+        deployment.md: operations/deployment.md
+        htb-rate-limiting/HTB-EXECUTIVE-SUMMARY.md: operations/rate-limiting/HTB-EXECUTIVE-SUMMARY.md
+        htb-rate-limiting/HTB-README.md: operations/rate-limiting/HTB-README.md
+        htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md: operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
+        htb-rate-limiting/PRIORITY-LOGIC-MAP.md: operations/rate-limiting/PRIORITY-LOGIC-MAP.md
+        htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md: operations/rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
+        htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md: operations/rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
+        htb-rate-limiting/live-data/README.md: operations/rate-limiting/live-data/README.md
+        htb-rate-limiting/priority_behaviour.md: operations/rate-limiting/priority_behaviour.md
+        incidents/2026-09-08-postgres-disk-full/executive-summary.md: operations/incidents/2026-09-08-postgres-disk-full/executive-summary.md
+        incidents/2026-09-08-postgres-disk-full/incident-report.md: operations/incidents/2026-09-08-postgres-disk-full/incident-report.md
+        incidents/2026-09-08-postgres-disk-full/resolutions.md: operations/incidents/2026-09-08-postgres-disk-full/resolutions.md
+        incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md: operations/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md
+        incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md: operations/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
+        incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md: operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
+        incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md: operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
+        incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md: operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
+        performance/after-optimization.md: operations/performance/after-optimization.md
+        performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md: operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
+        performance/before-after-correct-configuration.md: operations/performance/before-after-correct-configuration.md
+        performance/before-optimization.md: operations/performance/before-optimization.md
+        performance/executive-summary.md: operations/performance/executive-summary.md
+        performance/live-data/README.md: operations/performance/live-data/README.md
+        performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md: operations/performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
+        performance/model-performance-30d-read-fix-LOGIC-MAP.md: operations/performance/model-performance-30d-read-fix-LOGIC-MAP.md
+        performance/model-performance-optimization-LOGIC-MAP.md: operations/performance/model-performance-optimization-LOGIC-MAP.md
+        performance/model-performance-perf-recovery.md: operations/performance/model-performance-perf-recovery.md
+        performance/retention-flags-and-oom-LOGIC-MAP-v2.md: operations/performance/retention-flags-and-oom-LOGIC-MAP-v2.md
+        performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md: operations/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
+        performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md: operations/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md
+        performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md: operations/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md
+        performance/spend-view-repair-plan.md: operations/performance/spend-view-repair-plan.md
+        reports/ADEOGPT-MODEL-PERFORMANCE.md: operations/reports/ADEOGPT-MODEL-PERFORMANCE.md
+        runbooks/DATASOURCE-LOCAL-VALIDATION.md: operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md
+        runbooks/MKDOCS-SETUP.md: operations/runbooks/MKDOCS-SETUP.md
+        runbooks/postgres-backup-and-recovery.md: operations/runbooks/postgres-backup-and-recovery.md
+        runbooks/rollback.md: operations/runbooks/rollback.md
+        runbooks/spend-view-legacy-repair.md: operations/runbooks/spend-view-legacy-repair.md
 
 # Injects the master key into docs via the {{ master_key }} placeholder, read
 # from the single source of truth: the `litellm-master-key` Secret in
@@ -91,16 +132,16 @@ nav:
   - Plans, Research & Evidence: research-index.md
   - Complete Documentation Catalog: COMPLETE-DOC-CATALOG.md
   - Structure: structure.md
-  - Credentials & Secrets: credentials.md
+  - Credentials & Secrets: operations/credentials.md
   - Incidents:
-      - Postgres Disk Full (2026-09-08): incidents/2026-09-08-postgres-disk-full/incident-report.md
-      - Postgres Disk Full (2026-09-08) — Executive Summary: incidents/2026-09-08-postgres-disk-full/executive-summary.md
-      - Postgres Disk Full (2026-09-08) — Resolutions: incidents/2026-09-08-postgres-disk-full/resolutions.md
-      - Kimi-K3 Mid-Stream Stop (2026-09-21): incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md
-      - Spend-Log Cleanup Not Running (2026-09-21): incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
-      - Gateway Token-Limits Misreported (2026-11-03): incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
-      - Gateway Vision Capability Undeclared (2026-11-03): incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
-      - Nemotron Gateway Transcription Latency (2026-11-18): incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
+      - Postgres Disk Full (2026-09-08): operations/incidents/2026-09-08-postgres-disk-full/incident-report.md
+      - Postgres Disk Full (2026-09-08) — Executive Summary: operations/incidents/2026-09-08-postgres-disk-full/executive-summary.md
+      - Postgres Disk Full (2026-09-08) — Resolutions: operations/incidents/2026-09-08-postgres-disk-full/resolutions.md
+      - Kimi-K3 Mid-Stream Stop (2026-09-21): operations/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md
+      - Spend-Log Cleanup Not Running (2026-09-21): operations/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md
+      - Gateway Token-Limits Misreported (2026-11-03): operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
+      - Gateway Vision Capability Undeclared (2026-11-03): operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
+      - Nemotron Gateway Transcription Latency (2026-11-18): operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
   - Components:
       - Discovery Controller: components/controller.md
       - Config: components/config.md
@@ -112,8 +153,8 @@ nav:
       - Additional Features — Origin (Where OICM Custom Code Lives): additional-features-origin.md
   - Architecture & Deployment:
       - Deployment & Cluster: operations/deployment.md
-      - Production Configuration Rollback: runbooks/rollback.md
-      - Makefile Reference: Makefile-reference.md
+      - Production Configuration Rollback: operations/runbooks/rollback.md
+      - Makefile Reference: operations/Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
       - Secondary Gateway (Edge Mirror) Design: architecture/EDGE-MIRROR-DESIGN.md
       - Agent Platform Fit Assessment: architecture/AGENT-PLATFORM-FIT-ASSESSMENT.md
@@ -131,13 +172,13 @@ nav:
       - Nginx Reverse-Tunnel Pilot: mcp-source-broker/transport/pilot/nginx-reverse-tunnel.md
       - Unified MCP Implementation Guide: mcp-source-broker/history/app-side-mcp-scope/gateway-mcp-execution-guide.md
   - Runbooks:
-      - MkDocs Setup: runbooks/MKDOCS-SETUP.md
-      - Postgres Backup & Recovery: runbooks/postgres-backup-and-recovery.md
-      - Spend View Legacy Repair: runbooks/spend-view-legacy-repair.md
-      - Datasource Local Validation: runbooks/DATASOURCE-LOCAL-VALIDATION.md
+      - MkDocs Setup: operations/runbooks/MKDOCS-SETUP.md
+      - Postgres Backup & Recovery: operations/runbooks/postgres-backup-and-recovery.md
+      - Spend View Legacy Repair: operations/runbooks/spend-view-legacy-repair.md
+      - Datasource Local Validation: operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md
   - TLS / Certificates:
-      - Apply Wildcard Cert Guideline: SSL/CERT-GUIDELINE.md
-      - Serve litellm.ecouncil.ae Runbook: SSL/LITELLM-ECOUNCIL-RUNBOOK.md
+      - Apply Wildcard Cert Guideline: operations/ssl/CERT-GUIDELINE.md
+      - Serve litellm.ecouncil.ae Runbook: operations/ssl/LITELLM-ECOUNCIL-RUNBOOK.md
   - Techniques:
       - Vertical Slices (code layout): techniques/vertical_slice_technique.md
       - Logic Mapping: techniques/logic_mapping_technique.md
@@ -145,31 +186,31 @@ nav:
       - Upstream Pull & Branch Merge: techniques/upstream_merge_technique.md
       - Debug Pod: techniques/debug_pod_technique.md
   - HTB Rate Limiting:
-      - Executive Summary: htb-rate-limiting/HTB-EXECUTIVE-SUMMARY.md
-      - README: htb-rate-limiting/HTB-README.md
-      - Priority Bridge Feasibility: htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
-      - Priority Logic Map: htb-rate-limiting/PRIORITY-LOGIC-MAP.md
-      - Priority Queue Evidence: htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
-      - Priority Queue Results Summary: htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
-      - Priority Behaviour: htb-rate-limiting/priority_behaviour.md
-      - Lua Window-Value Bug — Live Validation Artifacts: htb-rate-limiting/live-data/README.md
+      - Executive Summary: operations/rate-limiting/HTB-EXECUTIVE-SUMMARY.md
+      - README: operations/rate-limiting/HTB-README.md
+      - Priority Bridge Feasibility: operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
+      - Priority Logic Map: operations/rate-limiting/PRIORITY-LOGIC-MAP.md
+      - Priority Queue Evidence: operations/rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
+      - Priority Queue Results Summary: operations/rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
+      - Priority Behaviour: operations/rate-limiting/priority_behaviour.md
+      - Lua Window-Value Bug — Live Validation Artifacts: operations/rate-limiting/live-data/README.md
   - Performance:
-      - Executive Summary: performance/executive-summary.md
-      - Analytics Reads -> Prisma Engine OOM — Logic Map: performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
-      - Analytics Evidence (live-data): performance/live-data/README.md
-      - Spend-Log Retention Flags + OOM — Logic Map v2: performance/retention-flags-and-oom-LOGIC-MAP-v2.md
-      - Spend Logs + RAM + Model Performance — Logic Map: performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md
-      - Routing-Strategy Sync-Task Leak -> OOM — Logic Map: performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
-      - Model Optimization — Logic Map: performance/model-performance-optimization-LOGIC-MAP.md
-      - Model Performance 30d/YTD Read Fix — Logic Map: performance/model-performance-30d-read-fix-LOGIC-MAP.md
-      - Model Performance 30d/YTD Read Fix — Code Smell Audit: performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
-      - Model Performance Perf Recovery: performance/model-performance-perf-recovery.md
-      - Spend-Logs UI Enrichment Window Fix — Logic Map: performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md
-      - Before Optimization: performance/before-optimization.md
-      - After Optimization: performance/after-optimization.md
-      - Before/After Correct Configuration: performance/before-after-correct-configuration.md
+      - Executive Summary: operations/performance/executive-summary.md
+      - Analytics Reads -> Prisma Engine OOM — Logic Map: operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
+      - Analytics Evidence (live-data): operations/performance/live-data/README.md
+      - Spend-Log Retention Flags + OOM — Logic Map v2: operations/performance/retention-flags-and-oom-LOGIC-MAP-v2.md
+      - Spend Logs + RAM + Model Performance — Logic Map: operations/performance/spend-logs-ram-and-model-performance-LOGIC-MAP.md
+      - Routing-Strategy Sync-Task Leak -> OOM — Logic Map: operations/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
+      - Model Optimization — Logic Map: operations/performance/model-performance-optimization-LOGIC-MAP.md
+      - Model Performance 30d/YTD Read Fix — Logic Map: operations/performance/model-performance-30d-read-fix-LOGIC-MAP.md
+      - Model Performance 30d/YTD Read Fix — Code Smell Audit: operations/performance/model-performance-30d-read-fix-CODESMELL-AUDIT.md
+      - Model Performance Perf Recovery: operations/performance/model-performance-perf-recovery.md
+      - Spend-Logs UI Enrichment Window Fix — Logic Map: operations/performance/spend-logs-ui-enrichment-window-fix-LOGIC-MAP.md
+      - Before Optimization: operations/performance/before-optimization.md
+      - After Optimization: operations/performance/after-optimization.md
+      - Before/After Correct Configuration: operations/performance/before-after-correct-configuration.md
   - Reports:
-      - ADEOGPT Model Performance (7d): reports/ADEOGPT-MODEL-PERFORMANCE.md
+      - ADEOGPT Model Performance (7d): operations/reports/ADEOGPT-MODEL-PERFORMANCE.md
   - Persona Drift:
       - Spike Note: persona-drift/SPIKE.md
   - Client Distribution:
@@ -364,15 +405,15 @@ nav:
       - Read This First (research and evidence):
           - file: research-index.md
           - fragment: performance-and-spend-analytics
-      - Spend Dashboard View Repair (plan): performance/spend-view-repair-plan.md
-      - Executive Summary (measurements): performance/executive-summary.md
-      - Before and After Configuration: performance/before-after-correct-configuration.md
-      - Analytics Read OOM (logic map): performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
-      - Routing-Strategy Leak (logic map): performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
-      - HTB Overview and Configuration: htb-rate-limiting/HTB-README.md
-      - Priority Rate-Limit Feasibility (research): htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
-      - Priority Queue Evidence: htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
-      - Priority Queue Results (dated): htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
+      - Spend Dashboard View Repair (plan): operations/performance/spend-view-repair-plan.md
+      - Executive Summary (measurements): operations/performance/executive-summary.md
+      - Before and After Configuration: operations/performance/before-after-correct-configuration.md
+      - Analytics Read OOM (logic map): operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
+      - Routing-Strategy Leak (logic map): operations/performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
+      - HTB Overview and Configuration: operations/rate-limiting/HTB-README.md
+      - Priority Rate-Limit Feasibility (research): operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
+      - Priority Queue Evidence: operations/rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
+      - Priority Queue Results (dated): operations/rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Model Pricing:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md

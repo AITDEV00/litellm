@@ -16,8 +16,8 @@ Code and deployed configuration are authoritative. Read [Documentation trust and
 | MCP source, connector, enrollment, OAuth, tool dispatch | [Source broker running record](mcp-source-broker/running-system/README.md) | [MCP architecture index](mcp/architecture-research-index.md), [source connector guide](usage-guides/MCP_SOURCE_AGENT_GUIDE.md) |
 | MCP tool, schema, parameter, result scanning, denied tools | [MCP permission layers](access-control/permissions-and-scope.md) | [Guardrailing](mcp/guardrailing.md) |
 | OpenCode, private skills, MCP sign-in | [OpenCode pilot plan and status](mcp/opencode-sso-oauth-skills-pilot.md) | [Dated pilot evidence](mcp/opencode-pilot-evidence.md); unfinished gates are not capability claims |
-| Change password, master key, or secrets | [Credentials and secrets](credentials.md) | Follow its rotation contract, do not change only one component |
-| Deploy, roll out, report on dev, query cluster | [Deployment](operations/deployment.md) and [datasource validation](runbooks/DATASOURCE-LOCAL-VALIDATION.md) | [Dev tunnel rule](document-status.md#what-must-remain-true) |
+| Change password, master key, or secrets | [Credentials and secrets](operations/credentials.md) | Follow its rotation contract, do not change only one component |
+| Deploy, roll out, report on dev, query cluster | [Deployment](operations/deployment.md) and [datasource validation](operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md) | [Dev tunnel rule](document-status.md#what-must-remain-true) |
 | Gateway OOM, spend analytics, performance regression | [Performance evidence index](docs-map.md#performance) | [Incidents](docs-map.md#incidents); verify deployment state before changing code |
 | Discovery controller, registered models, pricing, OICM status | [Controller](discovery-controller/README.md) and [component docs](components/controller.md) | [Model pricing](model-pricing/PRICING-LOGIC-MAP.md), [OICM status map](docs-map.md#oicm-status) |
 | Custom-provider implementation or audio payloads | [Custom-provider index](custom-providers/README.md) | [Endpoint architecture](custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md) |

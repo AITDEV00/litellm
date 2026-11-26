@@ -176,5 +176,5 @@ or delete it when you're done.
 
 - [Logic Mapping Technique](logic_mapping_technique.md) — trace the full call
   chain before profiling, so the probe targets the right function.
-- [Model Performance Optimization LOGIC MAP](../performance/model-performance-optimization-LOGIC-MAP.md)
+- [Model Performance Optimization LOGIC MAP](../operations/performance/model-performance-optimization-LOGIC-MAP.md)
   — the read path being debugged.

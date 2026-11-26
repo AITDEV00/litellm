@@ -1,6 +1,6 @@
 # Model Performance Tab — 30d/YTD Read Slowdown Fix — Logic Map
 
-> **Technique**: [Logic Mapping](../techniques/logic_mapping_technique.md) —
+> **Technique**: [Logic Mapping](../../techniques/logic_mapping_technique.md) —
 > trace-through-before-you-build. This document maps the specific fix that made
 > the **large-window (30d / MTD / YTD) Model Performance tab** load fast again,
 > from the slow SQL to the final optimized query, with exact file:line
@@ -22,7 +22,7 @@ read to ~4-5s. The response content is **byte-identical** to the old path.
 ## Why the old read was slow
 
 The write path was already fixed (see
-[model-performance-optimization-LOGIC-MAP.md](./model-performance-optimization-LOGIC-MAP.md)):
+[model-performance-optimization-LOGIC-MAP.md](model-performance-optimization-LOGIC-MAP.md)):
 every request is pre-aggregated into 1-minute buckets in
 `LiteLLM_ModelPerformanceRollup`. The **read** path is the problem this fix
 addresses.
@@ -235,7 +235,7 @@ Latency (debug pod, live data):
 ## What is NOT covered here
 
 - **Write path** (pre-aggregation into 1-minute buckets) is unchanged and is
-  documented in [model-performance-optimization-LOGIC-MAP.md](./model-performance-optimization-LOGIC-MAP.md).
+  documented in [model-performance-optimization-LOGIC-MAP.md](model-performance-optimization-LOGIC-MAP.md).
 - **Entity-scoped** views and **custom ranges under 14d** still read the raw
   spend log (unchanged).
 - **Rollup-vs-raw spend-log deltas** (empty `model_group` excluded, cache-hit

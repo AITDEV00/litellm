@@ -1,6 +1,6 @@
 # HTB Priority-Based Rate Limiting
 
-Status: implemented-system documentation with dated validation results. Recheck enabled configuration before treating requested rates or throughput guarantees as the behavior of any current deployment. Related feasibility, validation, and result documents are indexed in [the research index](../research-index.md#htb-priority-and-diagnostics-data)
+Status: implemented-system documentation with dated validation results. Recheck enabled configuration before treating requested rates or throughput guarantees as the behavior of any current deployment. Related feasibility, validation, and result documents are indexed in [the research index](../../research-index.md#htb-priority-and-diagnostics-data)
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ Status: implemented-system documentation with dated validation results. Recheck 
 - [Test Results](#test-results)
 - [How to Run the Tests](#how-to-run-the-tests)
 - [Troubleshooting](#troubleshooting)
-- [Priority Logic Map (verified file:line trace)](./PRIORITY-LOGIC-MAP.md)
+- [Priority Logic Map (verified file:line trace)](PRIORITY-LOGIC-MAP.md)
 
 ---
 
@@ -30,7 +30,7 @@ The core algorithm is an **HTB (Hierarchical Token Bucket)**, the same class of 
 
 > For a verified, file-and-line-referenced trace of the entire priority flow
 > (entry point to exit point, every function and data contract), see
-> [`PRIORITY-LOGIC-MAP.md`](./PRIORITY-LOGIC-MAP.md). That document is the
+> [`PRIORITY-LOGIC-MAP.md`](PRIORITY-LOGIC-MAP.md). That document is the
 > single source of truth for the implementation; this README is the
 > narrative overview.
 
