@@ -150,7 +150,9 @@ Results:
 | `POST /mcp-rest/tools/call` on podcasts source | `403 access_denied: The key is not allowed to access server c777ca69-...` |
 | `POST /mcp-rest/tools/call` with no `server_id` | `400 missing_parameter: server_id is required` |
 
-This is the correct, intended behavior and it closes the open question from Part 2 finding 2: a key with `allowed_routes: ['llm_api_routes']` cannot reach MCP at all, and even if it could, the empty `mcp_access_groups` yields a clean 403 at the server check. The `available_on_public_internet: true` flag does **not** grant a `/llm_api_routes`-scoped key access. The residual concern in finding 2 stays narrower than it first looked: it applies only to a key with empty or MCP-inclusive `allowed_routes`, which today means the two unlabelled bare keys, not normal users.
+This is the correct, intended behavior and it closes the open question from Part 2 finding 2: those keys reach MCP inference routes, because `llm_api_routes` includes `mcp_inference_routes`, and they are refused at the server check instead. Their empty server grants yield a clean 403 on any tool call, and they see zero servers. The `available_on_public_internet: true` flag does **not** grant access. The residual concern in finding 2 stays narrower than it first looked: it applies only to a key with empty `allowed_routes`, which today means the two unlabelled bare keys, not normal users
+
+Correction, after reading `litellm/proxy/auth/route_checks.py`: an earlier version of this section said `allowed_routes: ['llm_api_routes']` cannot reach MCP at all. That is wrong. `is_llm_api_route` counts `mcp_inference_routes` and `agent_inference_routes` as LLM routes, and `non_proxy_admin_allowed_routes_check` passes `/v1/mcp/` and `/mcp-rest/` through to the MCP layer's own authorization. The route layer only refuses a key whose custom list omits the MCP paths, and it does not grant MCP management reads like `/v1/mcp/server`. Server and tool grants are what actually decide an MCP call.
 
 The original test also used a different list route. In the current source `GET /mcp-rest/tools/list` is the compatible discovery surface, optionally with `server_id`. `POST` is not its listing method, and a method error is not an authorization result
 
@@ -165,7 +167,7 @@ The code has five layers, applied in this order when a tool call arrives. Each o
 - `mcp_inference_routes`: `/mcp-rest/tools/list`, `/mcp-rest/tools/call`, `/v1/mcp/tools`, `/introspect`, `/token`
 - `mcp_management_routes`: `/v1/mcp/server`, `/v1/mcp/server/{path}`, `/v1/mcp/sessions`, `/mcp-sources`, `/mcp-source-broker/install/{grant_id}`, `/mcp-source-link-sources/{path}`
 
-A key with `allowed_routes: ['llm_api_routes']` reaches none of these. A key with empty `allowed_routes` reaches all of them, subject to the next layers. This is why the two bare keys matter.
+A key with `allowed_routes: ['llm_api_routes']` reaches the inference routes, because `llm_api_routes` includes `mcp_inference_routes`, but not the management routes, which need an explicit entry such as `/v1/mcp/server` or a broader list. A key with empty `allowed_routes` reaches all of them, subject to the next layers. Either way the server and tool layers decide whether a call succeeds, so a key that reaches the surface with no grant still gets a 403
 
 ### Layer 2: server-level, which servers may this identity see
 
