@@ -21,7 +21,7 @@ Code and deployed configuration are authoritative. Read [Documentation trust and
 | Gateway OOM, spend analytics, performance regression | [Performance evidence index](docs-map.md#performance) | [Incidents](docs-map.md#incidents); verify deployment state before changing code |
 | Discovery controller, registered models, pricing, OICM status | [Controller](platform/discovery-controller/README.md) and [component docs](platform/components/controller.md) | [Model pricing](platform/model-pricing/PRICING-LOGIC-MAP.md), [OICM status map](docs-map.md#oicm-status) |
 | Custom-provider implementation or audio payloads | [Custom-provider index](providers/custom-providers/README.md) | [Endpoint architecture](providers/custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md) |
-| Install CLI or source agent, artifact distribution | [Client distribution plan](client-distribution/PLAN.md) | Its deployment, security, and history pages |
+| Install CLI or source agent, artifact distribution | [Client distribution plan](distribution/client-distribution/PLAN.md) | Its deployment, security, and history pages |
 | Reusable coding or forensic method | [Techniques index](docs-map.md#techniques) | [Structure](structure.md) for the wider repo layout |
 | Add or move documentation | [Documentation ownership process](document-status.md#discovery-maintenance) | [Complete inventory](docs-map.md) |
 

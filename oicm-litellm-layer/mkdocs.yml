@@ -167,6 +167,20 @@ plugins:
         admin-api/operations/websocket-11160388.md: administration/admin-api/operations/websocket-11160388.md
         admin-api/operations/workflow-management-4dc907b9.md: administration/admin-api/operations/workflow-management-4dc907b9.md
         cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md: administration/cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
+        client-distribution/PLAN.md: distribution/client-distribution/PLAN.md
+        client-distribution/admin-sync.md: distribution/client-distribution/admin-sync.md
+        client-distribution/architecture.md: distribution/client-distribution/architecture.md
+        client-distribution/deployment.md: distribution/client-distribution/deployment.md
+        client-distribution/history/lite-cli-PLAN.md: distribution/client-distribution/history/lite-cli-PLAN.md
+        client-distribution/implementation.md: distribution/client-distribution/implementation.md
+        client-distribution/installer-script.md: distribution/client-distribution/installer-script.md
+        client-distribution/mirror-content.md: distribution/client-distribution/mirror-content.md
+        client-distribution/open-questions.md: distribution/client-distribution/open-questions.md
+        client-distribution/platform-matrix.md: distribution/client-distribution/platform-matrix.md
+        client-distribution/rollout.md: distribution/client-distribution/rollout.md
+        client-distribution/rustfs.md: distribution/client-distribution/rustfs.md
+        client-distribution/security.md: distribution/client-distribution/security.md
+        client-distribution/source-agent-releases.md: distribution/client-distribution/source-agent-releases.md
         components/config.md: platform/components/config.md
         components/controller.md: platform/components/controller.md
         components/custom-routes.md: platform/components/custom-routes.md
@@ -390,19 +404,19 @@ nav:
   - Persona Drift:
       - Spike Note: persona-drift/SPIKE.md
   - Client Distribution:
-      - Design Plan: client-distribution/PLAN.md
-      - Implementation Plan: client-distribution/implementation.md
-      - Architecture: client-distribution/architecture.md
-      - Mirror Content: client-distribution/mirror-content.md
-      - Install Script: client-distribution/installer-script.md
-      - Platform Matrix: client-distribution/platform-matrix.md
-      - Deployment: client-distribution/deployment.md
-      - RustFS Backend: client-distribution/rustfs.md
-      - Admin Sync API: client-distribution/admin-sync.md
-      - Security: client-distribution/security.md
-      - Rollout: client-distribution/rollout.md
-      - Open Questions: client-distribution/open-questions.md
-      - CLI Plan History: client-distribution/history/lite-cli-PLAN.md
+      - Design Plan: distribution/client-distribution/PLAN.md
+      - Implementation Plan: distribution/client-distribution/implementation.md
+      - Architecture: distribution/client-distribution/architecture.md
+      - Mirror Content: distribution/client-distribution/mirror-content.md
+      - Install Script: distribution/client-distribution/installer-script.md
+      - Platform Matrix: distribution/client-distribution/platform-matrix.md
+      - Deployment: distribution/client-distribution/deployment.md
+      - RustFS Backend: distribution/client-distribution/rustfs.md
+      - Admin Sync API: distribution/client-distribution/admin-sync.md
+      - Security: distribution/client-distribution/security.md
+      - Rollout: distribution/client-distribution/rollout.md
+      - Open Questions: distribution/client-distribution/open-questions.md
+      - CLI Plan History: distribution/client-distribution/history/lite-cli-PLAN.md
   - Admin API:
       - Read First: administration/admin-api/README.md
       - LiteLLM Admin REST API: administration/admin-api/LITELLM-ADMIN-REST-API.md

@@ -13,7 +13,7 @@ Check [documentation trust](document-status.md) before executing anything. A pla
 | Gateway OOMs and slow analytics | [Performance evidence index](#performance-and-spend-analytics) | [Dated incident reports](#incidents) |
 | OICM registrations and model status | [OICM status](#oicm-platform-and-model-registration) and [OpenRouter](#openrouter-model-discovery) | Controller code plus current API catalog |
 | UI planning, custom routes, voice providers | [Custom providers](#providers-and-routes) | Their guides and provider README |
-| CLI/source connector distribution | [Current client distribution plan](client-distribution/PLAN.md) | [Completed design history](client-distribution/history/lite-cli-PLAN.md) |
+| CLI/source connector distribution | [Current client distribution plan](distribution/client-distribution/PLAN.md) | [Completed design history](distribution/client-distribution/history/lite-cli-PLAN.md) |
 
 ## Performance and spend analytics
 

@@ -279,7 +279,7 @@ The already-supported source-of-truth design for the general cc-switch path is r
 PUT via the gateway, RustFS-resident templates and active release metadata, validated gateway-
 rendered install script and authenticated-only writes. That pattern is what source-agent must
 use, with its devoted version/hand-off validation and unattended service/lifecycle fixes;
-[source-agent-releases](../../../client-distribution/source-agent-releases.md) defines the concrete
+[source-agent-releases](../../../distribution/client-distribution/source-agent-releases.md) defines the concrete
 contract. There is no reason for a separate direct-S3 route for admin machines, gateway builds
 for each new binary/installer, or any unauthenticated RustFS write endpoint. This design is
 not yet accepted merely because the storage objects can move. There is no release signature
