@@ -52,8 +52,16 @@ plugins:
         Makefile-reference.md: operations/Makefile-reference.md
         SSL/CERT-GUIDELINE.md: operations/ssl/CERT-GUIDELINE.md
         SSL/LITELLM-ECOUNCIL-RUNBOOK.md: operations/ssl/LITELLM-ECOUNCIL-RUNBOOK.md
+        additional-features-origin.md: platform/additional-features-origin.md
+        components/config.md: platform/components/config.md
+        components/controller.md: platform/components/controller.md
+        components/custom-routes.md: platform/components/custom-routes.md
+        components/hooks.md: platform/components/hooks.md
+        components/patches.md: platform/components/patches.md
         credentials.md: operations/credentials.md
         deployment.md: operations/deployment.md
+        discovery-controller/README.md: platform/discovery-controller/README.md
+        discovery-controller/logic-map-and-code-smell-audit.md: platform/discovery-controller/logic-map-and-code-smell-audit.md
         htb-rate-limiting/HTB-EXECUTIVE-SUMMARY.md: operations/rate-limiting/HTB-EXECUTIVE-SUMMARY.md
         htb-rate-limiting/HTB-README.md: operations/rate-limiting/HTB-README.md
         htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md: operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
@@ -70,6 +78,24 @@ plugins:
         incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md: operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md
         incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md: operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
         incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md: operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
+        model-pricing/PRICING-LOGIC-MAP.md: platform/model-pricing/PRICING-LOGIC-MAP.md
+        model-pricing/PRICING-MATCHING-PLAN.md: platform/model-pricing/PRICING-MATCHING-PLAN.md
+        oicm-status/CHANGE-REPORT-2026-10-06-health-table.md: platform/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
+        oicm-status/CODE-SMELL-PASS-2026-10-06.md: platform/oicm-status/CODE-SMELL-PASS-2026-10-06.md
+        oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md: platform/oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md
+        oicm-status/DESIGN-STATUS-PERSISTENCE.md: platform/oicm-status/DESIGN-STATUS-PERSISTENCE.md
+        oicm-status/FEASIBILITY-ANSWERS.md: platform/oicm-status/FEASIBILITY-ANSWERS.md
+        oicm-status/IMPLEMENTATION-CHECKLIST.md: platform/oicm-status/IMPLEMENTATION-CHECKLIST.md
+        oicm-status/LOGIC-MAP-2026-10-07-health-table.md: platform/oicm-status/LOGIC-MAP-2026-10-07-health-table.md
+        oicm-status/OICM-API-CATALOG.md: platform/oicm-status/OICM-API-CATALOG.md
+        oicm-status/OICM-STATUS-FEASIBILITY.md: platform/oicm-status/OICM-STATUS-FEASIBILITY.md
+        oicm-status/PROGRESS-AND-PAUSED-WORK.md: platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md
+        oicm-status/oicm-write-access-blocked.md: platform/oicm-status/oicm-write-access-blocked.md
+        openrouter/IMPLEMENTATION-STUDY.md: platform/openrouter/IMPLEMENTATION-STUDY.md
+        openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md: platform/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
+        openrouter/MAPPING-litellm-to-endpoints.md: platform/openrouter/MAPPING-litellm-to-endpoints.md
+        openrouter/MAPPING-usage-metrics.md: platform/openrouter/MAPPING-usage-metrics.md
+        openrouter/litellm_openrouter_models_design.md: platform/openrouter/litellm_openrouter_models_design.md
         performance/after-optimization.md: operations/performance/after-optimization.md
         performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md: operations/performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
         performance/before-after-correct-configuration.md: operations/performance/before-after-correct-configuration.md
@@ -143,14 +169,14 @@ nav:
       - Gateway Vision Capability Undeclared (2026-11-03): operations/incidents/2026-11-03-gateway-vision-capability-undeclared/incident-report.md
       - Nemotron Gateway Transcription Latency (2026-11-18): operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md
   - Components:
-      - Discovery Controller: components/controller.md
-      - Config: components/config.md
-      - Hooks: components/hooks.md
-      - Custom Routes: components/custom-routes.md
+      - Discovery Controller: platform/components/controller.md
+      - Config: platform/components/config.md
+      - Hooks: platform/components/hooks.md
+      - Custom Routes: platform/components/custom-routes.md
       - Custom Routes — Clone Logic Map: custom-routes-plans/CLONE-LOGIC-MAP.md
       - Custom Routes — VSA Plan: custom-routes-plans/VSA-PLAN.md
-      - Patches: components/patches.md
-      - Additional Features — Origin (Where OICM Custom Code Lives): additional-features-origin.md
+      - Patches: platform/components/patches.md
+      - Additional Features — Origin (Where OICM Custom Code Lives): platform/additional-features-origin.md
   - Architecture & Deployment:
       - Deployment & Cluster: operations/deployment.md
       - Production Configuration Rollback: operations/runbooks/rollback.md
@@ -399,8 +425,8 @@ nav:
       - Observability Implementation Plan: dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md
       - UI Lint & Change Process: dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md
   - Discovery Controller:
-      - README: discovery-controller/README.md
-      - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
+      - README: platform/discovery-controller/README.md
+      - Logic Map & Code Smell Audit: platform/discovery-controller/logic-map-and-code-smell-audit.md
   - Performance and Rate Limiting:
       - Read This First (research and evidence):
           - file: research-index.md
@@ -416,29 +442,29 @@ nav:
       - Priority Queue Results (dated): operations/rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Model Pricing:
-      - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
-      - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
+      - Pricing Logic Map: platform/model-pricing/PRICING-LOGIC-MAP.md
+      - Pricing Matching Plan: platform/model-pricing/PRICING-MATCHING-PLAN.md
   - OpenRouter:
-      - Models Design: openrouter/litellm_openrouter_models_design.md
-      - Implementation Study (historical): openrouter/IMPLEMENTATION-STUDY.md
-      - Endpoints Consumer Logic Map (dated): openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
-      - litellm-to-endpoints Mapping: openrouter/MAPPING-litellm-to-endpoints.md
-      - Usage Metrics Mapping: openrouter/MAPPING-usage-metrics.md
+      - Models Design: platform/openrouter/litellm_openrouter_models_design.md
+      - Implementation Study (historical): platform/openrouter/IMPLEMENTATION-STUDY.md
+      - Endpoints Consumer Logic Map (dated): platform/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
+      - litellm-to-endpoints Mapping: platform/openrouter/MAPPING-litellm-to-endpoints.md
+      - Usage Metrics Mapping: platform/openrouter/MAPPING-usage-metrics.md
   - OICM Status:
       - Read This First (research index):
           - file: research-index.md
           - fragment: oicm-platform-and-model-registration
-      - Feasibility Study (superseded in part): oicm-status/OICM-STATUS-FEASIBILITY.md
-      - Feasibility Answers (dated): oicm-status/FEASIBILITY-ANSWERS.md
-      - Implementation Checklist (progress): oicm-status/IMPLEMENTATION-CHECKLIST.md
-      - Design Status Persistence: oicm-status/DESIGN-STATUS-PERSISTENCE.md
-      - Manual Routing Override (proposed): oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md
-      - Progress and Paused Work (dated): oicm-status/PROGRESS-AND-PAUSED-WORK.md
-      - Change Report (Health Table 2026-10-06): oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
-      - Logic Map (Health Table 2026-10-07): oicm-status/LOGIC-MAP-2026-10-07-health-table.md
-      - Code Smell Pass (2026-10-06): oicm-status/CODE-SMELL-PASS-2026-10-06.md
-      - OICM API Catalog: oicm-status/OICM-API-CATALOG.md
-      - OICM Write Access Blocked (historical finding): oicm-status/oicm-write-access-blocked.md
+      - Feasibility Study (superseded in part): platform/oicm-status/OICM-STATUS-FEASIBILITY.md
+      - Feasibility Answers (dated): platform/oicm-status/FEASIBILITY-ANSWERS.md
+      - Implementation Checklist (progress): platform/oicm-status/IMPLEMENTATION-CHECKLIST.md
+      - Design Status Persistence: platform/oicm-status/DESIGN-STATUS-PERSISTENCE.md
+      - Manual Routing Override (proposed): platform/oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md
+      - Progress and Paused Work (dated): platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md
+      - Change Report (Health Table 2026-10-06): platform/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
+      - Logic Map (Health Table 2026-10-07): platform/oicm-status/LOGIC-MAP-2026-10-07-health-table.md
+      - Code Smell Pass (2026-10-06): platform/oicm-status/CODE-SMELL-PASS-2026-10-06.md
+      - OICM API Catalog: platform/oicm-status/OICM-API-CATALOG.md
+      - OICM Write Access Blocked (historical finding): platform/oicm-status/oicm-write-access-blocked.md
   - Analysis Techniques:
       - Logic Mapping: techniques/logic_mapping_technique.md
       - Code Smell Detection: techniques/code_smell_detection_technique.md

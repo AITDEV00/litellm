@@ -19,7 +19,7 @@ Code and deployed configuration are authoritative. Read [Documentation trust and
 | Change password, master key, or secrets | [Credentials and secrets](operations/credentials.md) | Follow its rotation contract, do not change only one component |
 | Deploy, roll out, report on dev, query cluster | [Deployment](operations/deployment.md) and [datasource validation](operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md) | [Dev tunnel rule](document-status.md#what-must-remain-true) |
 | Gateway OOM, spend analytics, performance regression | [Performance evidence index](docs-map.md#performance) | [Incidents](docs-map.md#incidents); verify deployment state before changing code |
-| Discovery controller, registered models, pricing, OICM status | [Controller](discovery-controller/README.md) and [component docs](components/controller.md) | [Model pricing](model-pricing/PRICING-LOGIC-MAP.md), [OICM status map](docs-map.md#oicm-status) |
+| Discovery controller, registered models, pricing, OICM status | [Controller](platform/discovery-controller/README.md) and [component docs](platform/components/controller.md) | [Model pricing](platform/model-pricing/PRICING-LOGIC-MAP.md), [OICM status map](docs-map.md#oicm-status) |
 | Custom-provider implementation or audio payloads | [Custom-provider index](custom-providers/README.md) | [Endpoint architecture](custom-providers/LITELLM_ENDPOINT_ARCHITECTURE.md) |
 | Install CLI or source agent, artifact distribution | [Client distribution plan](client-distribution/PLAN.md) | Its deployment, security, and history pages |
 | Reusable coding or forensic method | [Techniques index](docs-map.md#techniques) | [Structure](structure.md) for the wider repo layout |

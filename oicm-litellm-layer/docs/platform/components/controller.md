@@ -42,7 +42,7 @@ Deployed via `deploy/prod/discovery-controller.yaml`, pinned to `adeo-gpu-03` (t
 Submariner gateway node) with tolerations and RBAC for reading EndpointSlices.
 The full env var table, build/push steps, and dependency graph live in
 [Discovery Controller](../discovery-controller/README.md); cluster apply /
-rollout steps live in [Deployment & Cluster](../operations/deployment.md).
+rollout steps live in [Deployment & Cluster](../../operations/deployment.md).
 
 ## Tests
 

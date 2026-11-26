@@ -33,7 +33,7 @@ When a document contains multiple statuses, the index should distinguish its cod
 | Calling models and voice APIs | [Gateway guide](usage-guides/GATEWAY_GUIDE.md) | Other provider-specific files under [Usage guides](docs-map.md#usage-guides) |
 | Deploy, rollouts, credentials, database | [Deployment](operations/deployment.md) and [Credentials](operations/credentials.md) | [Runbooks](docs-map.md#runbooks) in the docs map |
 | Incidents and OOMs | Incident directory by date | [Performance evidence](docs-map.md#performance) in the docs map |
-| Controller and OICM status | [Controller](discovery-controller/README.md) and [OICM status](docs-map.md#oicm-status) | API compat under `openrouter/` |
+| Controller and OICM status | [Controller](platform/discovery-controller/README.md) and [OICM status](docs-map.md#oicm-status) | API compat under `openrouter/` |
 | Client distribute/load sources | [Client distribution](client-distribution/PLAN.md) | Deployment, platform matrix, security, and history in that directory |
 
 ## Discovery maintenance

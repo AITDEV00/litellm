@@ -32,4 +32,4 @@ Code wins over every document here. Among the documents, `running-system/` is th
 ## Related
 
 - [`../techniques/vertical_slice_technique.md`](../techniques/vertical_slice_technique.md) — the layout rule this folder follows
-- [`../additional-features-origin.md`](../additional-features-origin.md) — where this feature sits among the fork's other slices
+- [`../additional-features-origin.md`](../platform/additional-features-origin.md) — where this feature sits among the fork's other slices

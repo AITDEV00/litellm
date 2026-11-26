@@ -249,7 +249,7 @@ If a slice grows a second behavior, split it. If two slices drift toward the sam
 
 ## Related
 
-- [`additional-features-origin.md`](../additional-features-origin.md) — this fork's map of custom slices and where each lives
+- [`additional-features-origin.md`](../platform/additional-features-origin.md) — this fork's map of custom slices and where each lives
 - [`logic_mapping_technique.md`](logic_mapping_technique.md) — trace-before-build, which precedes creating a slice
 - [`code_smell_detection_technique.md`](code_smell_detection_technique.md) — detecting a slice that has grown too large or gone dead
 - [Bogard, "Vertical Slice Architecture"](https://www.jimmybogard.com/vertical-slice-architecture/) — the original description and its stated costs

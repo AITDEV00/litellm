@@ -41,23 +41,23 @@ The OICM status folder mixes a documented implementation path with a live compon
 
 | Topic | Documents | Trust |
 |---|---|---|
-| Feasibility and answers | [Study](oicm-status/OICM-STATUS-FEASIBILITY.md), [Q&A answers](oicm-status/FEASIBILITY-ANSWERS.md) | Historical design research |
-| Implementation plan and finished/not-finished work | [Implementation checklist](oicm-status/IMPLEMENTATION-CHECKLIST.md), [Progress and paused work](oicm-status/PROGRESS-AND-PAUSED-WORK.md) | Historical progress; verify any resume against code |
-| Supported status persistence | [Status design](oicm-status/DESIGN-STATUS-PERSISTENCE.md), [Health-table logic map](oicm-status/LOGIC-MAP-2026-10-07-health-table.md) | Design and dated implementation map |
-| Proposed manual routing override | [Override design](oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md) | Proposal, not a claim of implemented overrides |
-| Live OICM catalog | [OICM status REST API](oicm-status/OICM-API-CATALOG.md) | Versioned API catalog, date recorded on page |
-| Prior write-access block | [Write-access root-cause findings](oicm-status/oicm-write-access-blocked.md) | Point-in-time investigation |
-| Earlier controller changes and review | [Health-table change report](oicm-status/CHANGE-REPORT-2026-10-06-health-table.md), [Code-smell pass](oicm-status/CODE-SMELL-PASS-2026-10-06.md) | Historical audit/change record |
+| Feasibility and answers | [Study](platform/oicm-status/OICM-STATUS-FEASIBILITY.md), [Q&A answers](platform/oicm-status/FEASIBILITY-ANSWERS.md) | Historical design research |
+| Implementation plan and finished/not-finished work | [Implementation checklist](platform/oicm-status/IMPLEMENTATION-CHECKLIST.md), [Progress and paused work](platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md) | Historical progress; verify any resume against code |
+| Supported status persistence | [Status design](platform/oicm-status/DESIGN-STATUS-PERSISTENCE.md), [Health-table logic map](platform/oicm-status/LOGIC-MAP-2026-10-07-health-table.md) | Design and dated implementation map |
+| Proposed manual routing override | [Override design](platform/oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md) | Proposal, not a claim of implemented overrides |
+| Live OICM catalog | [OICM status REST API](platform/oicm-status/OICM-API-CATALOG.md) | Versioned API catalog, date recorded on page |
+| Prior write-access block | [Write-access root-cause findings](platform/oicm-status/oicm-write-access-blocked.md) | Point-in-time investigation |
+| Earlier controller changes and review | [Health-table change report](platform/oicm-status/CHANGE-REPORT-2026-10-06-health-table.md), [Code-smell pass](platform/oicm-status/CODE-SMELL-PASS-2026-10-06.md) | Historical audit/change record |
 
 ## OpenRouter model discovery
 
 | Document | Use for | Trust |
 |---|---|---|
-| [Implemented-model design](openrouter/litellm_openrouter_models_design.md) | OpenRouter-compatible model discovery, response mapping, and feature behavior | Reference; verify against source |
-| [Implementation study](openrouter/IMPLEMENTATION-STUDY.md) | Initial design reasoning and compatibility findings | Historical design record |
-| [`/endpoints` consumer logic map](openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md) | Gateway-to-controller contract sequencing | Dated implementation map |
-| [LiteLLM inputs to `/endpoints`](openrouter/MAPPING-litellm-to-endpoints.md) | Input/registration transformation contract | Mechanism mapping |
-| [Usage and telemetry mapping](openrouter/MAPPING-usage-metrics.md) | Latency, throughput, and accuracy limitations | Mechanism mapping with measurement caveats |
+| [Implemented-model design](platform/openrouter/litellm_openrouter_models_design.md) | OpenRouter-compatible model discovery, response mapping, and feature behavior | Reference; verify against source |
+| [Implementation study](platform/openrouter/IMPLEMENTATION-STUDY.md) | Initial design reasoning and compatibility findings | Historical design record |
+| [`/endpoints` consumer logic map](platform/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md) | Gateway-to-controller contract sequencing | Dated implementation map |
+| [LiteLLM inputs to `/endpoints`](platform/openrouter/MAPPING-litellm-to-endpoints.md) | Input/registration transformation contract | Mechanism mapping |
+| [Usage and telemetry mapping](platform/openrouter/MAPPING-usage-metrics.md) | Latency, throughput, and accuracy limitations | Mechanism mapping with measurement caveats |
 
 ## Architecture and session identity
 
