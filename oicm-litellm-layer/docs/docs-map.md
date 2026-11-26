@@ -81,7 +81,7 @@ Use the trust labels in the owning indexes. "Current reference" means behavior i
 
 | Doc | Location |
 |-----|----------|
-| Postgres disk-full (2026-09-08) | `docs/operations/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions) |
+| Postgres disk-full (2026-09-08) | `docs/operations/incidents/2026-09-08-postgres-disk-full/` (incident report, executive summary, resolutions, interactive HTML visualization) |
 | Kimi-K3 mid-stream stop (2026-09-21) | `docs/operations/incidents/2026-09-21-kimi-k3-midstream-stop/incident-report.md` |
 | Spend-log cleanup not running (2026-09-21) | `docs/operations/incidents/2026-09-21-spend-log-cleanup-not-running/incident-report.md` |
 | Gateway token-limits misreported (2026-11-03) | `docs/operations/incidents/2026-11-03-gateway-token-limits-misreported/incident-report.md` |

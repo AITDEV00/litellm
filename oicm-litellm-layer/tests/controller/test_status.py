@@ -20,7 +20,7 @@ from controller.status import (
     is_deployment_available,
 )
 
-_EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "oicm-status" / "evidence"
+_EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "platform" / "oicm-status" / "evidence"
 
 
 def _summary(status, status_detail=(), replicas=1, error_msg=None, inference_task=None):

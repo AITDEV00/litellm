@@ -30,9 +30,10 @@ When adding, moving, or renaming a page:
 1. Put it in the owning directory, and update the owning directory's index with a trust label
 2. Update [docs-map.md](docs-map.md) with its purpose and path
 3. Add it to `../mkdocs.yml` `nav:`, or link it from an owning register when it is generated evidence inventory
-4. Repair inbound links and verify the resolved old and new Markdown source paths. Do not change arbitrary matching filenames in prose or code
+4. Move every file type belonging to the topic, including HTML, scripts, certificates, JSON, and binary evidence. Check incoming links and all physical files under the old path, not only Markdown pages
 5. Add an `mkdocs-redirects` mapping for every moved Markdown page, preserving the old source path as its key
 6. Build using `.venv-docs/bin/mkdocs build` from `oicm-litellm-layer/` and verify the old URL redirects and the new page renders
+7. Run `.venv-docs/bin/python -m unittest discover -s tests/docs` after component ownership moves. Raw artifacts stay byte-identical, and retired directory paths may not remain, even when empty
 
 Do not hand-edit generated files under `administration/admin-api/operations/`. They are snapshots tied to the documented gateway release. Verify OpenAPI route presence does not prove enabled production configuration or an authorized operation
 
