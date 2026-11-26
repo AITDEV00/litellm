@@ -2,7 +2,7 @@
 
 This is the operating guide for the common request "put these people in different teams, some of them in several teams, and let each group reach different MCP servers and semantic tools". It states the object model first, because almost every mistake here comes from assuming a virtual key can behave like a person with several teams at once. It does not. A key carries exactly one `team_id`, and that single value is its resource boundary
 
-Reviewed against LiteLLM `1.108.5` source in this checkout, `litellm/types/access_group.py`, `litellm/proxy/management_endpoints/access_group_endpoints.py`, `litellm/proxy/management_helpers/team_member_permission_checks.py`, and the route contracts recorded in [LITELLM-ADMIN-REST-API.md](LITELLM-ADMIN-REST-API.md). Live production state is described where it is a fact of the deployment, with the date, not as a permanent invariant
+Reviewed against LiteLLM `1.108.5` source in this checkout, `litellm/types/access_group.py`, `litellm/proxy/management_endpoints/access_group_endpoints.py`, `litellm/proxy/management_helpers/team_member_permission_checks.py`, and the route contracts recorded in [LITELLM-ADMIN-REST-API.md](LITELLM-ADMIN-REST-API.md), then cross-checked on 2026-11-26 against the upstream pages "Virtual Keys", "How Key-Based Auth Works", and "Role-based Access Controls". Live production state is described where it is a fact of the deployment, with the date, not as a permanent invariant
 
 ## The object model in one page
 
@@ -123,6 +123,8 @@ Grants resolve in layers, and later layers only narrow. The full treatment with 
 
 Two facts worth internalizing. An explicit `mcp_servers: []` means zero servers even for an admin, while `None` means "fall through to team grants". A legacy `mcp_access_groups` entry holds a source tag such as `mcp-source-<id>` and is not a unified access-group UUID; do not mix the two vocabularies
 
+Upstream draws one distinction here that the layering table hides, and it matters when you inspect a key. For **MCP**, the owner's entitlement is a ceiling and never a grant: an empty key list inherits the team's servers, and admin ownership grants no MCP access at all. For **models**, the same is not true: a unified access group attached to a key can grant models outside the team's direct model list through `assigned_key_ids`, so a key-assigned group is widening rather than another ceiling. The practical consequence is to put shared resource bundles on teams and treat any access group you attach directly to a key as an intentional widening that someone reviews
+
 ## Team member permissions, and why self-service keys fail
 
 Ordinary members get only `/key/info` and `/key/health` on their own team's keys. Provisioning an account and then telling the person to create a key will fail until the team grants the route
@@ -209,7 +211,7 @@ Then, with a real key for the person, prove four things in order. The key sees e
 
 Be explicit with requesters about these boundaries rather than discovering them in production
 
-- A single key cannot see two teams' resources. There is no union, no "primary team plus extras", and no per-request team switching on a virtual key
+- A single key cannot see two teams' resources. There is no union, no "primary team plus extras", and no per-request team switching on a virtual key. One narrow exception exists for standalone keys: `personal_key_model_access_from_teams: true` makes a key with no `team_id` fit model access available through at least one of its owner's teams. It is off by default and it is still not a union, so do not build a multi-team story on it
 - Grants are not per-field lockable. An `org_admin` can edit any team inside their org, including one a proxy admin preconfigured. If a team must stay admin-controlled, structure it into an organization where only proxy admins hold `org_admin`, rather than expecting a field-level lock
 - Access groups do not grant skill content sharing today, and `access_skill_names` should not be sold as if they do
 - `mcp_toolsets` narrow tools but do not replace route-level `allowed_routes`. A correctly granted key behind `llm_api_routes` still reaches nothing
@@ -225,3 +227,4 @@ Be explicit with requesters about these boundaries rather than discovering them 
 | Permission field set | `litellm/types/object_permission.py` |
 | Route, server, tool, parameter, and guardrail layers | `oicm-litellm-layer/docs/mcp-architecture-qa/06-permissions-and-scope.md` |
 | Team versus org admin arbitration | `litellm/proxy/management/teams/authz.py` |
+| What a key inherits from its owner, the MCP-versus-models distinction, and `personal_key_model_access_from_teams` | Upstream docs.litellm.ai "Virtual Keys" and "How Key-Based Auth Works", checked 2026-11-26 |
