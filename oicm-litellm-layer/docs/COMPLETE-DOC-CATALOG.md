@@ -176,7 +176,7 @@ Click a path to open the page. Paths are relative to `oicm-litellm-layer/docs/`.
 | dashboard-plan | [MODEL-PERFORMANCE-DISCOVERY.md](dashboard-plan/MODEL-PERFORMANCE-DISCOVERY.md) | `dashboard-plan/MODEL-PERFORMANCE-DISCOVERY.md` |
 | dashboard-plan | [OBSERVABILITY-IMPLEMENTATION-PLAN.md](dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md) | `dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md` |
 | dashboard-plan | [UI-LINT-AND-CHANGE-PROCESS.md](dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md) | `dashboard-plan/UI-LINT-AND-CHANGE-PROCESS.md` |
-| . | [deployment.md](deployment.md) | `deployment.md` |
+| . | [deployment.md](operations/deployment.md) | `deployment.md` |
 | discovery-controller | [README.md](discovery-controller/README.md) | `discovery-controller/README.md` |
 | discovery-controller | [logic-map-and-code-smell-audit.md](discovery-controller/logic-map-and-code-smell-audit.md) | `discovery-controller/logic-map-and-code-smell-audit.md` |
 | . | [docs-map.md](docs-map.md) | `docs-map.md` |

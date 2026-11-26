@@ -1,6 +1,6 @@
 # Source broker: implementation and deployment record
 
-Scope note updated 2026-11-26: this document carries largely dev verification from 2026-11-17 and 2026-11-18, followed by later design work. Production assembly, which is present in current overlays, is documented separately in [Prod cluster assembly](../mcp/prod-cluster.md). The 2026-11-24 production OpenCode evidence is in [OpenCode pilot evidence](../mcp/opencode-pilot-evidence.md)
+Scope note updated 2026-11-26: this document carries largely dev verification from 2026-11-17 and 2026-11-18, followed by later design work. Production assembly, which is present in current overlays, is documented separately in [Prod cluster assembly](../../mcp/prod-cluster.md). The 2026-11-24 production OpenCode evidence is in [OpenCode pilot evidence](../../mcp/opencode-pilot-evidence.md)
 
 The [Status register](#status-register) below distinguishes completed development work from things still not proven or absent. The [Step evidence trail](#step-evidence-trail) keeps historical evidence in original form and may describe superseded dev-only behavior. Do not treat its parked production-proposal entries as the present deployment status; read the two current-assembly documents above, as well as the current manifests and deployed configuration
 
@@ -43,7 +43,7 @@ Read this before reading any step below. A step that says DONE describes shipped
 | 5. Multi-replica broker ownership | PARKED BY DESIGN | `../decisions/approaches/multi-replica-scaling.md` |
 | 6. Post-revoke recovery tooling | DECIDED (manual revoke) | step 6, this doc |
 | 7. WSS/remotedialer removal | DONE | step 7, this doc |
-| 8. Production overlay assembles the ancillary broker | **PARKED in proposal below, later assembled in prod** | [Current assembly and topology](../mcp/prod-cluster.md); original Step 8 below is historical |
+| 8. Production overlay assembles the ancillary broker | **PARKED in proposal below, later assembled in prod** | [Current assembly and topology](../../mcp/prod-cluster.md); original Step 8 below is historical |
 | 9. Transport standardization on `jhump/grpctunnel` | DONE | step 9, this doc; reverse-h2 deleted |
 | 10. Per-connector in-flight cap removed | DONE | step 10, this doc |
 | Connector-version compatibility gate | DONE | `make -C oicm-litellm-layer mcp-source-link-compat` |
@@ -109,7 +109,7 @@ credential drift traps rather than just checking pending-review ownership
 
 One Go binary, two modes. As `worker` it runs as a sidecar beside the Python broker and owns two listeners. As `connector` it runs on a source host and dials out. All three files below are the same binary at `mcp-source-link/`
 
-The following dev transport section uses dev overlay ports and dev tunnel reachability. It is not a statement that prod has no source broker or public tunnel. Current prod ingress routing is owned by [Prod cluster assembly](../mcp/prod-cluster.md)
+The following dev transport section uses dev overlay ports and dev tunnel reachability. It is not a statement that prod has no source broker or public tunnel. Current prod ingress routing is owned by [Prod cluster assembly](../../mcp/prod-cluster.md)
 
 One transport: `tunnel`, one long-lived `TunnelService/OpenReverseTunnel` gRPC stream over the 8093 listener, with typed `DispatchService/{Admit,Probe,Execute}` RPCs multiplexed inside it by `github.com/jhump/grpctunnel`. The reverse-h2 data plane was deleted along with `internal/reverseh2/`, its long-poll routes, and the wire limits only it used. `MCP_SOURCE_LINK_TRANSPORT` is connector-only and vestigial: the worker has one plane and ignores it, and an empty value means tunnel
 

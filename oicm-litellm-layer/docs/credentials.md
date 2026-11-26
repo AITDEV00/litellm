@@ -203,7 +203,7 @@ to decrypt the shared DB. **To prevent that, BOTH deployments pin
 
 ### CONFIGURATION ROLLBACK
 
-The production configuration snapshot in [deploy/rollback](deployment.md#configuration-rollback)
+The production configuration snapshot in [deploy/rollback](operations/deployment.md#configuration-rollback)
 excludes credential material and retains existing master and salt Secret values
 when applied to the existing production cluster. It does not rotate either
 key. Do not apply it to a fresh cluster before restoring its Secret contents

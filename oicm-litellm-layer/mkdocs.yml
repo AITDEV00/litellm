@@ -47,6 +47,9 @@ plugins:
       enable_creation_date: true
       type: date
       enable_git_follow: false
+  - redirects:
+      redirect_maps:
+        'deployment.md': 'operations/deployment.md'
 
 # Injects the master key into docs via the {{ master_key }} placeholder, read
 # from the single source of truth: the `litellm-master-key` Secret in
@@ -108,7 +111,7 @@ nav:
       - Patches: components/patches.md
       - Additional Features — Origin (Where OICM Custom Code Lives): additional-features-origin.md
   - Architecture & Deployment:
-      - Deployment & Cluster: deployment.md
+      - Deployment & Cluster: operations/deployment.md
       - Production Configuration Rollback: runbooks/rollback.md
       - Makefile Reference: Makefile-reference.md
       - Implementation Plan: architecture/IMPLEMENTATION_PLAN.md
@@ -358,7 +361,9 @@ nav:
       - README: discovery-controller/README.md
       - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
   - Performance and Rate Limiting:
-      - Read This First (research and evidence): research-index.md#performance-and-spend-analytics
+      - Read This First (research and evidence):
+          - file: research-index.md
+          - fragment: performance-and-spend-analytics
       - Spend Dashboard View Repair (plan): performance/spend-view-repair-plan.md
       - Executive Summary (measurements): performance/executive-summary.md
       - Before and After Configuration: performance/before-after-correct-configuration.md
@@ -379,7 +384,9 @@ nav:
       - litellm-to-endpoints Mapping: openrouter/MAPPING-litellm-to-endpoints.md
       - Usage Metrics Mapping: openrouter/MAPPING-usage-metrics.md
   - OICM Status:
-      - Read This First (research index): research-index.md#oicm-platform-and-model-registration
+      - Read This First (research index):
+          - file: research-index.md
+          - fragment: oicm-platform-and-model-registration
       - Feasibility Study (superseded in part): oicm-status/OICM-STATUS-FEASIBILITY.md
       - Feasibility Answers (dated): oicm-status/FEASIBILITY-ANSWERS.md
       - Implementation Checklist (progress): oicm-status/IMPLEMENTATION-CHECKLIST.md

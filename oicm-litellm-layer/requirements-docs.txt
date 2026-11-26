@@ -4,3 +4,4 @@
 # Serve:    mkdocs serve   (http://localhost:8000)
 mkdocs-material>=9.5
 mkdocs-git-revision-date-localized-plugin
+mkdocs-redirects==1.2.3
