@@ -18,9 +18,9 @@
 > `oicm-litellm-layer/mcp-source-link/MULTI-ACCOUNT-TEST-PROCEDURE-PROD.md`
 > (the prod acceptance procedure, and the source of the prod-specific notes
 > here),
-> [running-system/README.md](../mcp/source-broker/running-system/README.md)
+> [running-system/README.md](../../mcp/source-broker/running-system/README.md)
 > (what the broker and connector are),
-> [GATEWAY_GUIDE.md](GATEWAY_GUIDE.md) (calling the gateway generally)
+> [GATEWAY_GUIDE.md](../models-and-voice/GATEWAY_GUIDE.md) (calling the gateway generally)
 
 ---
 

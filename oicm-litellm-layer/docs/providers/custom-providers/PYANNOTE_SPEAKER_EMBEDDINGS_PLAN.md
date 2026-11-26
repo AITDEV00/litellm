@@ -10,7 +10,7 @@
 > passed: keys == speakers, 256 floats, revision `67f963b6…`, and the
 > default response stays byte-identical without the flag.
 > **Related**: [PYANNOTE_DIARIZATION_PROVIDER_PLAN.md](PYANNOTE_DIARIZATION_PROVIDER_PLAN.md)
-> (original provider slice), [usage-guides/PYANNOTE_DIARIZATION_GUIDE.md](../../usage-guides/PYANNOTE_DIARIZATION_GUIDE.md)
+> (original provider slice), [usage-guides/PYANNOTE_DIARIZATION_GUIDE.md](../../guides/models-and-voice/PYANNOTE_DIARIZATION_GUIDE.md)
 > (current contract + benchmarks).
 
 ---

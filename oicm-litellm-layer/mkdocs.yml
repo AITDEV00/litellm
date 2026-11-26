@@ -281,6 +281,20 @@ plugins:
         runbooks/postgres-backup-and-recovery.md: operations/runbooks/postgres-backup-and-recovery.md
         runbooks/rollback.md: operations/runbooks/rollback.md
         runbooks/spend-view-legacy-repair.md: operations/runbooks/spend-view-legacy-repair.md
+        usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE.md: guides/models-and-voice/CLEF_FLASH_SYSTEMONE_GUIDE.md
+        usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md: guides/models-and-voice/FISHAUDIO_DRAMA3_TTS_GUIDE.md
+        usage-guides/GATEWAY_GUIDE.md: guides/models-and-voice/GATEWAY_GUIDE.md
+        usage-guides/HAMSA-TTS-NEW-V1-GUIDE.md: guides/models-and-voice/HAMSA-TTS-NEW-V1-GUIDE.md
+        usage-guides/HAMSA_STT_GUIDE.md: guides/models-and-voice/HAMSA_STT_GUIDE.md
+        usage-guides/INCEPTION_TTS_STT_GUIDE.md: guides/models-and-voice/INCEPTION_TTS_STT_GUIDE.md
+        usage-guides/MCP_SOURCE_AGENT_GUIDE.md: guides/mcp/MCP_SOURCE_AGENT_GUIDE.md
+        usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md: guides/models-and-voice/NEMOTRON_TRANSCRIBE_GUIDE.md
+        usage-guides/OMNIVOICE_TTS_GUIDE.md: guides/models-and-voice/OMNIVOICE_TTS_GUIDE.md
+        usage-guides/PYANNOTE_DIARIZATION_GUIDE.md: guides/models-and-voice/PYANNOTE_DIARIZATION_GUIDE.md
+        usage-guides/QWEN_IMAGE_GUIDE.md: guides/models-and-voice/QWEN_IMAGE_GUIDE.md
+        usage-guides/QWEN_VISION_GUIDE.md: guides/models-and-voice/QWEN_VISION_GUIDE.md
+        usage-guides/REASONING_CONTROL_GUIDE.md: guides/models-and-voice/REASONING_CONTROL_GUIDE.md
+        usage-guides/VIBEVOICE_ASR_GUIDE.md: guides/models-and-voice/VIBEVOICE_ASR_GUIDE.md
 
 # Injects the master key into docs via the {{ master_key }} placeholder, read
 # from the single source of truth: the `litellm-master-key` Secret in
@@ -567,20 +581,20 @@ nav:
       - pyannote Speaker Embeddings Plan: providers/custom-providers/PYANNOTE_SPEAKER_EMBEDDINGS_PLAN.md
       - Nemotron Native Audio Implementation Plan: providers/custom-providers/NEMOTRON_NATIVE_AUDIO_IMPLEMENTATION_PLAN.md
   - Usage Guides:
-      - Gateway Guide: usage-guides/GATEWAY_GUIDE.md
-      - Reasoning Control Guide: usage-guides/REASONING_CONTROL_GUIDE.md
-      - Hamsa STT Guide: usage-guides/HAMSA_STT_GUIDE.md
-      - Hamsa TTS New /v1 Guide: usage-guides/HAMSA-TTS-NEW-V1-GUIDE.md
-      - Inception TTS/STT Guide: usage-guides/INCEPTION_TTS_STT_GUIDE.md
-      - OmniVoice TTS Guide: usage-guides/OMNIVOICE_TTS_GUIDE.md
-      - Fish Audio Drama 3 TTS Guide: usage-guides/FISHAUDIO_DRAMA3_TTS_GUIDE.md
-      - Qwen Image Guide: usage-guides/QWEN_IMAGE_GUIDE.md
-      - Qwen Vision Guide: usage-guides/QWEN_VISION_GUIDE.md
-      - VibeVoice ASR Guide: usage-guides/VIBEVOICE_ASR_GUIDE.md
-      - Nemotron Transcribe Guide: usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md
-      - Pyannote Diarization Guide: usage-guides/PYANNOTE_DIARIZATION_GUIDE.md
-      - Cloudflare clef-flash (SystemOne) Guide: usage-guides/CLEF_FLASH_SYSTEMONE_GUIDE.md
-      - MCP Source Agent Guide: usage-guides/MCP_SOURCE_AGENT_GUIDE.md
+      - Gateway Guide: guides/models-and-voice/GATEWAY_GUIDE.md
+      - Reasoning Control Guide: guides/models-and-voice/REASONING_CONTROL_GUIDE.md
+      - Hamsa STT Guide: guides/models-and-voice/HAMSA_STT_GUIDE.md
+      - Hamsa TTS New /v1 Guide: guides/models-and-voice/HAMSA-TTS-NEW-V1-GUIDE.md
+      - Inception TTS/STT Guide: guides/models-and-voice/INCEPTION_TTS_STT_GUIDE.md
+      - OmniVoice TTS Guide: guides/models-and-voice/OMNIVOICE_TTS_GUIDE.md
+      - Fish Audio Drama 3 TTS Guide: guides/models-and-voice/FISHAUDIO_DRAMA3_TTS_GUIDE.md
+      - Qwen Image Guide: guides/models-and-voice/QWEN_IMAGE_GUIDE.md
+      - Qwen Vision Guide: guides/models-and-voice/QWEN_VISION_GUIDE.md
+      - VibeVoice ASR Guide: guides/models-and-voice/VIBEVOICE_ASR_GUIDE.md
+      - Nemotron Transcribe Guide: guides/models-and-voice/NEMOTRON_TRANSCRIBE_GUIDE.md
+      - Pyannote Diarization Guide: guides/models-and-voice/PYANNOTE_DIARIZATION_GUIDE.md
+      - Cloudflare clef-flash (SystemOne) Guide: guides/models-and-voice/CLEF_FLASH_SYSTEMONE_GUIDE.md
+      - MCP Source Agent Guide: guides/mcp/MCP_SOURCE_AGENT_GUIDE.md
   - Dashboard & Planning:
       - Frontend Analysis Process: dashboard-plan/FRONTEND-ANALYSIS-PROCESS.md
       - Frontend Understanding Technique: dashboard-plan/FRONTEND-UNDERSTANDING-TECHNIQUE.md

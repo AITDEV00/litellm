@@ -2,7 +2,7 @@
 
 > **Scope**: How to call Fish Audio Drama 3 text-to-speech (`fishaudio/drama-3`) through the LiteLLM gateway's `/v1/audio/speech` route, with sample curl commands, expected audio properties, error contracts, the direction-tag vocabulary that works, and which request fields the gateway forwards
 >
-> **Related docs**: [FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md](../providers/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md) (root cause of the original dropped fields and the `chat` mode, plus the proposed fix), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (another OpenAI-shaped TTS model on the same route), [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md) (Hamsa TTS)
+> **Related docs**: [FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md](../../providers/custom-providers/FISHAUDIO_DRAMA3_REGISTRATION_DIAGNOSIS.md) (root cause of the original dropped fields and the `chat` mode, plus the proposed fix), [INCEPTION_TTS_STT_GUIDE.md](INCEPTION_TTS_STT_GUIDE.md) (another OpenAI-shaped TTS model on the same route), [HAMSA-TTS-NEW-V1-GUIDE.md](HAMSA-TTS-NEW-V1-GUIDE.md) (Hamsa TTS)
 
 ---
 
@@ -750,7 +750,7 @@ deploy time, gated on the pod actually mounting the task's native surface. This
 pod declares `Text-to-Speech` and mounts `/v1/audio/speech`, so the declaration
 wins. A pod that declares a non-chat task but does not mount its surface keeps
 the mounted mode, with the declaration preserved as `model_info.oicm_task`. See
-[CAPABILITY_REGISTRATION_REVIEW2.md](../providers/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md#shipped-state-2026-11-03).
+[CAPABILITY_REGISTRATION_REVIEW2.md](../../providers/custom-providers/CAPABILITY_REGISTRATION_REVIEW2.md#shipped-state-2026-11-03).
 
 Consequences for callers:
 
