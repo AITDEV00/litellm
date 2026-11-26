@@ -1,7 +1,8 @@
 # Same-Origin Client Distribution — Design Plan
 
-Status: design, single plan of record. This folder describes serving
-**cc-switch-cli** and its install chain from the OICM gateway, so a
+Status: design plan, not proof that the whole distribution design is implemented or deployed. Legacy implementation notes and remaining milestones live in [implementation.md](implementation.md), with original decisions kept as history; current source and deployed configuration win
+
+This folder describes serving **cc-switch-cli** and its install chain from the OICM gateway, so a
 locked-down developer machine whose only reachable host is
 `litellm.ecouncil.ae` can go from bare OS to a configured coding agent with
 one command and zero external network access.

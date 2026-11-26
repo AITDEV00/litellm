@@ -1,5 +1,7 @@
 # HTB Priority-Based Rate Limiting
 
+Status: implemented-system documentation with dated validation results. Recheck enabled configuration before treating requested rates or throughput guarantees as the behavior of any current deployment. Related feasibility, validation, and result documents are indexed in [the research index](../research-index.md#htb-priority-and-diagnostics-data)
+
 ## Table of Contents
 
 - [What Is This?](#what-is-this)

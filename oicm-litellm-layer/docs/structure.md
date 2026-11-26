@@ -94,13 +94,17 @@ oicm-litellm-layer/
 │       ├── monitoring.yaml             ← production ServiceMonitor
 │       └── access.yaml                 ← Ingress + network policy
 │
-├── docs/                   ← ALL documentation (this site; mkdocs.yml nav is the
-│   │                          registry — every .md must appear in nav)
-│   ├── index.md            ← mkdocs home (quick navigator)
+├── docs/                   ← ALL documentation; indexes add status and context
+│   │                          mkdocs.yml nav is the full browsing registry
+│   ├── index.md            ← task/symptom entry point (start here)
+│   ├── AGENTS.md           ← agent maintenance and ownership rules
+│   ├── document-status.md  ← trust levels: current, dated, plan, evidence, historical
+│   ├── research-index.md   ← plans, logic maps, audits, measurements by concern
+│   ├── COMPLETE-DOC-CATALOG.md ← exhaustive machine-readable page inventory
 │   ├── structure.md
 │   ├── credentials.md
 │   ├── deployment.md
-│   ├── docs-map.md
+│   ├── docs-map.md         ← curated map of every topic directory
 │   ├── additional-features-origin.md  ← every OICM custom feature and where it lives
 │   ├── components/
 │   │   ├── controller.md

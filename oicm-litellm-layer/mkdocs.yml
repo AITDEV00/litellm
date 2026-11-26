@@ -357,28 +357,45 @@ nav:
   - Discovery Controller:
       - README: discovery-controller/README.md
       - Logic Map & Code Smell Audit: discovery-controller/logic-map-and-code-smell-audit.md
-  - Performance:
-      - Spend Dashboard View Repair: performance/spend-view-repair-plan.md
+  - Performance and Rate Limiting:
+      - Read This First (research and evidence): research-index.md#performance-and-spend-analytics
+      - Spend Dashboard View Repair (plan): performance/spend-view-repair-plan.md
+      - Executive Summary (measurements): performance/executive-summary.md
+      - Before and After Configuration: performance/before-after-correct-configuration.md
+      - Analytics Read OOM (logic map): performance/analytics-reads-prisma-engine-oom-LOGIC-MAP.md
+      - Routing-Strategy Leak (logic map): performance/routing-strategy-sync-task-leak-oom-LOGIC-MAP.md
+      - HTB Overview and Configuration: htb-rate-limiting/HTB-README.md
+      - Priority Rate-Limit Feasibility (research): htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md
+      - Priority Queue Evidence: htb-rate-limiting/PRIORITY-QUEUE-EVIDENCE.md
+      - Priority Queue Results (dated): htb-rate-limiting/PRIORITY-QUEUE-RESULTS-SUMMARY.md
   - Cache Invalidation: cache-invalidation/CACHE_INVALIDATION_FIX_TESTING.md
   - Model Pricing:
       - Pricing Logic Map: model-pricing/PRICING-LOGIC-MAP.md
       - Pricing Matching Plan: model-pricing/PRICING-MATCHING-PLAN.md
   - OpenRouter:
       - Models Design: openrouter/litellm_openrouter_models_design.md
-      - Implementation Study: openrouter/IMPLEMENTATION-STUDY.md
-      - Endpoints Consumer Logic Map: openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
+      - Implementation Study (historical): openrouter/IMPLEMENTATION-STUDY.md
+      - Endpoints Consumer Logic Map (dated): openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md
       - litellm-to-endpoints Mapping: openrouter/MAPPING-litellm-to-endpoints.md
       - Usage Metrics Mapping: openrouter/MAPPING-usage-metrics.md
   - OICM Status:
-      - Feasibility Study: oicm-status/OICM-STATUS-FEASIBILITY.md
-      - Feasibility Answers: oicm-status/FEASIBILITY-ANSWERS.md
-      - Implementation Checklist: oicm-status/IMPLEMENTATION-CHECKLIST.md
+      - Read This First (research index): research-index.md#oicm-platform-and-model-registration
+      - Feasibility Study (superseded in part): oicm-status/OICM-STATUS-FEASIBILITY.md
+      - Feasibility Answers (dated): oicm-status/FEASIBILITY-ANSWERS.md
+      - Implementation Checklist (progress): oicm-status/IMPLEMENTATION-CHECKLIST.md
       - Design Status Persistence: oicm-status/DESIGN-STATUS-PERSISTENCE.md
-      - Manual Routing Override Proposal: oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md
-      - Progress & Paused Work: oicm-status/PROGRESS-AND-PAUSED-WORK.md
+      - Manual Routing Override (proposed): oicm-status/DESIGN-MANUAL-ROUTING-OVERRIDE.md
+      - Progress and Paused Work (dated): oicm-status/PROGRESS-AND-PAUSED-WORK.md
       - Change Report (Health Table 2026-10-06): oicm-status/CHANGE-REPORT-2026-10-06-health-table.md
       - Logic Map (Health Table 2026-10-07): oicm-status/LOGIC-MAP-2026-10-07-health-table.md
       - Code Smell Pass (2026-10-06): oicm-status/CODE-SMELL-PASS-2026-10-06.md
       - OICM API Catalog: oicm-status/OICM-API-CATALOG.md
-      - OICM Write Access Blocked (403): oicm-status/oicm-write-access-blocked.md
+      - OICM Write Access Blocked (historical finding): oicm-status/oicm-write-access-blocked.md
+  - Analysis Techniques:
+      - Logic Mapping: techniques/logic_mapping_technique.md
+      - Code Smell Detection: techniques/code_smell_detection_technique.md
+      - Debug Pod Technique: techniques/debug_pod_technique.md
+      - Upstream Merge: techniques/upstream_merge_technique.md
+      - Vertical Slice Design: techniques/vertical_slice_technique.md
+      - MCP Source-Link Audit (2026-11-18): techniques/smell-audit-mcp-source-link.md
   - Docs Map: docs-map.md
