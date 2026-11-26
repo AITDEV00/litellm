@@ -6,7 +6,7 @@ writes them to RustFS with its own store credentials, and clients download them 
 through the same proxy. There is no second transport, no base64-in-JSON bundle, and
 no store credential on an operator machine.
 
-Layout (see ``docs/client-distribution/source-agent-releases.md``):
+Layout (see ``docs/distribution/client-distribution/source-agent-releases.md``):
 
     templates/source-agent-install.sh.tmpl   operator-owned installer logic
     source-agent/<version>/adma             immutable binary bytes

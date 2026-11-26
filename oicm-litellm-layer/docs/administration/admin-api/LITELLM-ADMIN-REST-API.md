@@ -608,7 +608,7 @@ litellm_settings:
 
 These integers are the server-side scheduler priorities (lower = higher
 priority), independent of the `priority_reservation` weights and of LiteLLM's
-internal `DefaultPriorities` enum. See `docs/htb-rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md`.
+internal `DefaultPriorities` enum. See `docs/operations/rate-limiting/PRIORITY-BRIDGE-FEASIBILITY.md`.
 
 ### Browsing and Searching Keys
 
@@ -1785,7 +1785,7 @@ so an alias and its target already record two usage buckets while sharing one
 Value objects may use `{"model": "Qwen/Qwen3.6-35B-A3B-FP8", "hidden": true}`
 when the alias should be omitted from normal model listings.
 
-The helper [model_aliases.sh](../../scripts/models/model_aliases.sh) validates
+The helper [model_aliases.sh](../../../scripts/models/model_aliases.sh) validates
 the target, preserves existing entries, refuses ambiguous/conflicting edits,
 and reads back the whole alias map after a write. Writes, and reads that
 initially appear to be no-ops, are retried against the exact map before success

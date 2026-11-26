@@ -15,10 +15,10 @@ provider contracts in memory or in any agent instruction file.
 - **Keep it there:** when you learn a durable fact (a command, a constraint, a
   live-verified contract), write it into the owning doc and link it from the nav.
   Never duplicate it into `AGENTS.md`, `CLAUDE.md`, or a code comment.
-- **Entry points:** cluster access and rollout is `docs/deployment.md`, the
-  master key contract is `docs/credentials.md`, per-provider request contracts
-  are `docs/usage-guides/`, and Kubernetes debugging is
-  `docs/techniques/debug_pod_technique.md`.
+- **Entry points:** cluster access and rollout is `docs/operations/deployment.md`, the
+  master key contract is `docs/operations/credentials.md`, per-provider request contracts
+  are `docs/guides/models-and-voice/`, and Kubernetes debugging is
+  `docs/engineering/techniques/debug_pod_technique.md`.
 
 ## Docs: navigation starts with mkdocs
 

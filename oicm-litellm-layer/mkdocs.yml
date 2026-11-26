@@ -623,9 +623,7 @@ nav:
       - README: platform/discovery-controller/README.md
       - Logic Map & Code Smell Audit: platform/discovery-controller/logic-map-and-code-smell-audit.md
   - Performance and Rate Limiting:
-      - Read This First (research and evidence):
-          - file: research-index.md
-          - fragment: performance-and-spend-analytics
+      - 'Research Index: Performance and Spend Analytics': research-index.md
       - Spend Dashboard View Repair (plan): operations/performance/spend-view-repair-plan.md
       - Executive Summary (measurements): operations/performance/executive-summary.md
       - Before and After Configuration: operations/performance/before-after-correct-configuration.md
@@ -646,9 +644,7 @@ nav:
       - litellm-to-endpoints Mapping: platform/openrouter/MAPPING-litellm-to-endpoints.md
       - Usage Metrics Mapping: platform/openrouter/MAPPING-usage-metrics.md
   - OICM Status:
-      - Read This First (research index):
-          - file: research-index.md
-          - fragment: oicm-platform-and-model-registration
+      - 'Research Index: OICM Platform and Model Registration': research-index.md
       - Feasibility Study (superseded in part): platform/oicm-status/OICM-STATUS-FEASIBILITY.md
       - Feasibility Answers (dated): platform/oicm-status/FEASIBILITY-ANSWERS.md
       - Implementation Checklist (progress): platform/oicm-status/IMPLEMENTATION-CHECKLIST.md

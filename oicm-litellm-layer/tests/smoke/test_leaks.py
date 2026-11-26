@@ -1,7 +1,7 @@
 """Tier C: leak and boundedness checks. Slower, no inference.
 
 Deterministic counts, not RSS trends: a single request burst cannot surface the
-OOM classes documented in docs/performance. What IS deterministic is that the
+OOM classes documented in docs/operations/performance. What IS deterministic is that the
 asyncio task census stays bounded, and that the in-memory caches report sane
 counts.
 

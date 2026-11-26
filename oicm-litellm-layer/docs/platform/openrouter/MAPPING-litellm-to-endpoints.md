@@ -262,7 +262,7 @@ occupancy does not.
 ## 9. What is still open
 
 Recorded so these are not mistaken for finished. The full register, with
-priorities, is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
+priorities, is in `docs/platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
 
 | Item | Where | Blocks |
 |---|---|---|

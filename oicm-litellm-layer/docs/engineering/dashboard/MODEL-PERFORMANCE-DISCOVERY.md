@@ -323,7 +323,7 @@ Two correct approaches already exist in the repo:
 
 ### 2c. The existing implementation plan already flagged this
 
-`oicm-litellm-layer/docs/dashboard-plan/OBSERVABILITY-IMPLEMENTATION-PLAN.md`
+`oicm-litellm-layer/docs/engineering/dashboard/OBSERVABILITY-IMPLEMENTATION-PLAN.md`
 section 4.3.1 item 2 explicitly records that the 7 core metrics
 (`litellm_deployment_*`) do **not** carry a `model_group` label, only 4 other
 metrics do, and that grouping by `model_group` requires either adding the label

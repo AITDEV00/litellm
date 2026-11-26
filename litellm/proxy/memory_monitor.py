@@ -6,7 +6,7 @@ container logs (and therefore Loki). When RSS grows beyond a threshold
 between samples, opens a bounded tracemalloc window and logs the top growing
 allocation sites — the "which function is causing it" answer.
 
-Overhead design (see docs/performance/retention-flags-and-oom-LOGIC-MAP-v2.md):
+Overhead design (see docs/operations/performance/retention-flags-and-oom-LOGIC-MAP-v2.md):
 - Tier 1 (always): one /proc read + registry walk per sample. ~0% cost.
 - Tier 2 (duty-cycled): tracemalloc depth 1 for a bounded window, only when
   growth is detected, always stopped in a finally block. Never left running.

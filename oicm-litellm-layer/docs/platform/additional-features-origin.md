@@ -1,6 +1,6 @@
 # Additional Features — Origin: Where OICM Custom Code Lives
 
-> **What this document is.** The map of every OICM custom feature added on top of upstream LiteLLM: which file or package holds it, which pattern it follows, and how the runtime wiring is pinned by tests. It answers "where does this fork add behavior" and "where must new custom code go". It is a record of this repository, not a reusable technique; for the reusable method see [`techniques/`](techniques/).
+> **What this document is.** The map of every OICM custom feature added on top of upstream LiteLLM: which file or package holds it, which pattern it follows, and how the runtime wiring is pinned by tests. It answers "where does this fork add behavior" and "where must new custom code go". It is a record of this repository, not a reusable technique; for the reusable method see [vertical slice design](../engineering/techniques/vertical_slice_technique.md).
 
 > **Problem**: OICM custom features (voice routes, voice/script SDK, custom
 > provider config, Prometheus in-flight gauge, HTB rate limiter, team cache
@@ -158,7 +158,7 @@ the native `/tts/stream` surface, which the current hamsa pod does not expose
 JSONL writer (env-gated via `LITELLM_STREAM_TRACE_PATH`) recording
 start/first_chunk/chunk/end with TTFC and per-chunk gaps, wired into
 `CustomStreamWrapper`. Added after the v1.99.1 merge for the Kimi-K3 mid-stream
-investigation; see `docs/incidents/2026-09-21-kimi-k3-midstream-stop/` for usage and
+investigation; see `docs/operations/incidents/2026-09-21-kimi-k3-midstream-stop/` for usage and
 caveats.
 
 ---

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * can delete on its own while the slice code it feeds still exists.
  *
  * Keep this list in sync with
- * ../../oicm-litellm-layer/docs/techniques/upstream_merge_technique.md
+ * ../../oicm-litellm-layer/docs/engineering/techniques/upstream_merge_technique.md
  */
 const REQUIRED_MODULES: readonly { module: string; exports: readonly string[] }[] = [
   {

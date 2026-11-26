@@ -23,7 +23,7 @@ Through the public gateway, burst audio-transcription latency is **~14–160× w
 
 ## 2. Observed problem (measured, 2026-11-18)
 
-Client harness: 10.885 s unique WAV clips (~349 KB multipart each), no retries, success = HTTP 200 + non-empty transcript. Raw per-request evidence in `/tmp/nim-gateway-validation-20261118/burst-gateway-{64,128,256,768}.json` (volatile, not committed; summaries in `docs/usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md` §5).
+Client harness: 10.885 s unique WAV clips (~349 KB multipart each), no retries, success = HTTP 200 + non-empty transcript. Raw per-request evidence in `/tmp/nim-gateway-validation-20261118/burst-gateway-{64,128,256,768}.json` (volatile, not committed; summaries in `docs/guides/models-and-voice/NEMOTRON_TRANSCRIBE_GUIDE.md` §5).
 
 | Burst | Successes | Wall | Client p50 | Client p95 | `x-litellm-response-duration-ms` p50 | Completions/s |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -211,7 +211,7 @@ The change is a single annotation value with no application-side counterpart; re
 
 ## 7. Related documents
 
-- Usage guide with full benchmark context: `docs/usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md`
+- Usage guide with full benchmark context: `docs/guides/models-and-voice/NEMOTRON_TRANSCRIBE_GUIDE.md`
 - Burst harness (env-var auth, no secrets): `examples/usage/nemotron-transcribe/benchmark_gateway.py`
 - Streaming alias (per-request chunked relay, the behavior the delivery tier lacks): `oicm-custom-model-server-guide/examples/NIM-podman-nemotron-transcribe-1.0.0-amd64/oicm_health_alias.py`
 - Session scratch pad with the full verification transcript state: `/memories/session/litellm-gateway-verification.md`

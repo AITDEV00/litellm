@@ -6,7 +6,7 @@ can be unit-tested without an app instance.
 
 The template is a Jinja2 document rendered with a structured context, so the
 script can grow conditionals and loops without the renderer changing. It is
-a **generic orchestrator** (see docs/client-distribution/installer-script.md):
+a **generic orchestrator** (see docs/distribution/client-distribution/installer-script.md):
 
 1. fetch the manifest, then prompt immediately: the gateway key (visible
    input, validated against ``/api/v1/models``, key-scoped with real context

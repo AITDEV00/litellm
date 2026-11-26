@@ -961,7 +961,7 @@ Authorization: Bearer {{ master_key }}
    inc and dec paths plus no write-time floor. Fixed with `_DeploymentInFlightLedger`
    in `litellm/integrations/prometheus.py` (per-`model_id` ledger, gauge driven by
    `set()` from the count, stale series reset to 0, clamped `>= 0`). See
-   `docs/performance/model-performance-perf-recovery.md` → "1 instead of 0" section.
+   `docs/operations/performance/model-performance-perf-recovery.md` → "1 instead of 0" section.
 
 ### D.8 Summary of date-format requirements
 

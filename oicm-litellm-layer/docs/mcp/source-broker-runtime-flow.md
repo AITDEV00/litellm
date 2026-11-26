@@ -152,4 +152,4 @@ Any failure is `Unauthenticated`, and the connector backs off and retries with j
 - `oicm-litellm-layer/mcp-source-link/main.go`
 - `litellm/proxy/mcp_source_broker/remote_store.py`
 - `litellm/proxy/mcp_source_broker/remote_gateway.py`
-- `oicm-litellm-layer/docs/mcp-source-broker/running-system/README.md`
+- `oicm-litellm-layer/docs/mcp/source-broker/running-system/README.md`

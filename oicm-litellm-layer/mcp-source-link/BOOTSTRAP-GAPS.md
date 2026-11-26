@@ -7,11 +7,11 @@ rebuild. This is a follow-up work order. Do not interpret \"bootstrap is impleme
 work here is done\" without closing each item and showing its proof.
 
 Own source has authority about intended behavior:
-`../docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md`. Its earlier
+`../docs/mcp/source-broker/decisions/approaches/connector-owned-enrollment.md`. Its earlier
 exclusion of `/login` specifically concerned using a UI cookie as a connector credential, not
 the requirement to offer human-friendly CLI authentication.
 Runtime/deploy contract:
-`../docs/mcp-source-broker/running-system/README.md`.
+`../docs/mcp/source-broker/running-system/README.md`.
 Neither this document nor tests passing alone is acceptance.
 
 ## Review evidence at the time of writing
@@ -242,7 +242,7 @@ gRPC broker sidecar, which remains a separate server image release when its own 
 
 **Still missing, and required:**
 
-1. Follow `../docs/client-distribution/source-agent-releases.md` rather than maintaining
+1. Follow `../docs/distribution/client-distribution/source-agent-releases.md` rather than maintaining
    another base64-in-JSON release protocol. It specifies the already-existing cc-switch
    pattern: `templates/source-agent-install.sh.tmpl` in RustFS, selected active
    `source-agent/<version>` binary+release metadata, then safe gateway-time rendering with
@@ -493,7 +493,7 @@ Tests: `TestInitializeResumesAfterWorkerFailure`,
 ### B3, lost or revoked identity: DEFINED, terminal by design
 
 Terminal revoke stays manual (decision 2026-11-17 in
-`docs/mcp-source-broker/running-system/README.md`), so replacement is a fresh label
+`docs/mcp/source-broker/running-system/README.md`), so replacement is a fresh label
 through the existing admin worker call, not modified `revoke` semantics.
 `resume_peer` refuses a revoked worker, which is what makes the replacement path
 necessary rather than silent. The connector now separates the two failures an

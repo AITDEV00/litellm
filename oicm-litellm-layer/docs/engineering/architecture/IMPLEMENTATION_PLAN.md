@@ -7,10 +7,10 @@
 > config. Auth is LiteLLM's native virtual-key auth. Component #4 (KEDA callback)
 > exists in `hooks/keda_metrics.py` but is not registered in the deployed
 > callbacks list. Component #6 (embedding patch) is retired (see
-> `docs/components/patches.md`). The `mlops` namespace referenced below is now
+> `docs/platform/components/patches.md`). The `mlops` namespace referenced below is now
 > `adeo-litellm`, and the config now lives at
 > `deploy/base/gateway/config/litellm-config.yaml`. For the current state, see
-> `docs/components/` and `docs/structure.md`.
+> `docs/platform/components/` and `docs/structure.md`.
 
 ## Executive Summary
 
@@ -336,7 +336,7 @@ async def async_pre_call_hook(
 
 ### Limitation: embedding requests
 
-Upstream litellm now flattens `extra_body` for hosted_vLLM embeddings into the request body natively (verified against the v1.102.0 tree), so the old fork patch is retired and this hook is not needed for embeddings either. See `docs/components/patches.md`.
+Upstream litellm now flattens `extra_body` for hosted_vLLM embeddings into the request body natively (verified against the v1.102.0 tree), so the old fork patch is retired and this hook is not needed for embeddings either. See `docs/platform/components/patches.md`.
 
 ### File structure
 
@@ -423,7 +423,7 @@ config/
 
 ## Component #6: Embedding Patch (Retired)
 
-A v1.92.0-era fork patch added `extra_body` merge support to the hosted_vllm embedding handler so vLLM-specific params (like `truncate_prompt_tokens`) were not silently dropped. Upstream has since implemented this natively and the patch no longer applies; it has been removed. See `docs/components/patches.md` for the history.
+A v1.92.0-era fork patch added `extra_body` merge support to the hosted_vllm embedding handler so vLLM-specific params (like `truncate_prompt_tokens`) were not silently dropped. Upstream has since implemented this natively and the patch no longer applies; it has been removed. See `docs/platform/components/patches.md` for the history.
 
 ### File structure
 
@@ -491,7 +491,7 @@ oicm-litellm-layer/
 ├── config/
 │   └── litellm_config.yaml            # Component #5: LiteLLM proxy config
 │
-├── patches/                           # Component #6: retired, see docs/components/patches.md
+├── patches/                           # Component #6: retired, see docs/platform/components/patches.md
 │
 └── deploy/
     ├── discovery-controller.yaml      # K8s manifests for controller

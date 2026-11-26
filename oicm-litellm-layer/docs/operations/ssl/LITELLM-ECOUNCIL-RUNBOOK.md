@@ -61,7 +61,7 @@ default cert), validate, then create the secret.
 Use the generalized script in this folder:
 
 ```bash
-cd oicm-litellm-layer/docs/SSL
+cd oicm-litellm-layer/docs/operations/ssl
 
 ./create-tls-secret-ns.sh \
   'ecouncil.ae-30062026-inter 1.pfx' \

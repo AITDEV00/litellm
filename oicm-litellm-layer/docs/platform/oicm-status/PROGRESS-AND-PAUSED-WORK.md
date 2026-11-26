@@ -38,7 +38,7 @@ for `gateway_status`, freshness at request time, and the auth/visibility rules,
 all verified live on dev. M3's rolling statistics (Step 25) shipped on top of
 that (`15e02f87cf`, `9b6218a2bb`, plus the slice refactor), so the payload now
 carries per-deployment latency, throughput, and uptime from real 30-minute
-Prometheus windows. See `docs/openrouter/` for the mapping and logic map.
+Prometheus windows. See `docs/platform/openrouter/` for the mapping and logic map.
 
 ## Roadmap position
 
@@ -100,7 +100,7 @@ came back empty, not that a doc said so.
 ### LiteLLM: correctness gaps on the `/endpoints` route
 
 All four are documented as findings in
-`docs/openrouter/MAPPING-litellm-to-endpoints.md` §8 and are live-confirmed.
+`docs/platform/openrouter/MAPPING-litellm-to-endpoints.md` §8 and are live-confirmed.
 
 | # | Item | Impact | Fix shape |
 |---|---|---|---|
@@ -769,7 +769,7 @@ openai-compatible adapter constructs `ModelLimits`, and it sets `context_length`
 alone), `data.architecture` is hardcoded empty, runtime detection reports every
 deployment as `openai-compatible` so the vLLM/SGLang adapters never run, and the
 capability enrichment result is discarded on this route. See
-`docs/openrouter/MAPPING-litellm-to-endpoints.md` §8.
+`docs/platform/openrouter/MAPPING-litellm-to-endpoints.md` §8.
 
 ## Still open for the OICM team
 

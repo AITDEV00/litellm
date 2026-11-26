@@ -199,7 +199,7 @@ def test_no_recovery_records_are_reintroduced():
     one rebuilt prod from snapshots, and they only failed because their storage
     request was smaller than the live one. Both the records and the snapshots
     behind them are gone as of 2026-10-08, replaced by the CNPG backup in
-    docs/runbooks/postgres-backup-and-recovery.md.
+    docs/operations/runbooks/postgres-backup-and-recovery.md.
 
     A future recovery record is legitimate during an actual restore, but it must
     not sit in a directory anyone would apply. This pins that no such file is

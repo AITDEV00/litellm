@@ -1,7 +1,7 @@
 # Logic map: OICM status ingestion (gateway + controller)
 
-Built with `docs/techniques/logic_mapping_technique.md` (Phase 1: trace) and
-audited with `docs/techniques/code_smell_detection_technique.md` (L1-L4).
+Built with `docs/engineering/techniques/logic_mapping_technique.md` (Phase 1: trace) and
+audited with `docs/engineering/techniques/code_smell_detection_technique.md` (L1-L4).
 
 Scope: the 2026-10-06 health-table change, audited 2026-10-07. Every function in
 the flow, with file:line refs, inputs/outputs, and side effects.
@@ -137,7 +137,7 @@ Source row: `model_name`=oicm-source-<cluster>, `model_id`=null, `status`=health
 
 Superseded 2026-10-07: this row read "not built" when this map was written. The
 consumer is now live and mapped in full at
-`docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md`.
+`docs/platform/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md`.
 
 ## 9. Audit findings (code smell + logic map, 2026-10-07)
 

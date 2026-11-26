@@ -6,7 +6,7 @@ how accurate is it, and what could populate `latency_last_30m`,
 load-based `status`.
 
 Live verification: prod `https://litellm.ecouncil.ae`, 2026-10-07
-14:41-15:15 UTC, key `sk-05132025` (from `docs/credentials.md`). All
+14:41-15:15 UTC, key `sk-05132025` (from `docs/operations/credentials.md`). All
 findings below were observed on the actual deployment, not inferred.
 
 Companion doc: `MAPPING-litellm-to-endpoints.md` (the field-by-field

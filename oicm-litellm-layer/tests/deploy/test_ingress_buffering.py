@@ -5,7 +5,7 @@ ingress-nginx accepts only ``on`` or ``off`` for ``proxy-buffering`` and
 is silently ignored and nginx falls back to its default ``on``. That made the
 delivery tier buffer every request body in full before forwarding, which is the
 root cause of the transcription burst latency in
-docs/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md.
+docs/operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/incident-report.md.
 
 The prod ingress and its rollback copy are pinned here together: a rollback that
 reverted one without the other would silently reintroduce the buffering bug.

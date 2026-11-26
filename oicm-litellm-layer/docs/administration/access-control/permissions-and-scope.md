@@ -263,4 +263,4 @@ What is **not** supported natively: per-argument JSON Schema validation beyond w
 - `litellm/types/object_permission.py` the permission field set
 - `litellm/proxy/schema.prisma` `blocked_tools`, `allowed_params`
 - `litellm/proxy/auth/route_checks.py` the self-service carve-outs
-- `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` the known-limitation entries
+- `oicm-litellm-layer/docs/guides/mcp/MCP_SOURCE_AGENT_GUIDE.md` the known-limitation entries

@@ -1,14 +1,14 @@
 # Logic map: OpenRouter-compatible `/endpoints` consumer
 
-Built with `docs/techniques/logic_mapping_technique.md` (Phase 1 trace, Phase 2
+Built with `docs/engineering/techniques/logic_mapping_technique.md` (Phase 1 trace, Phase 2
 verify against live data, Phase 4 re-verify) and audited with
-`docs/techniques/code_smell_detection_technique.md` (L1-L4).
+`docs/engineering/techniques/code_smell_detection_technique.md` (L1-L4).
 
 Scope: the consumer side of the OICM status work, i.e. the
 `litellm/proxy/openrouter_compat/` package as of commit `1a0b9d23c4`, plus the
 two commits before it. The producer side (controller polling, the native health
 table writes) is mapped separately in
-`docs/oicm-status/LOGIC-MAP-2026-10-07-health-table.md`; this document picks up
+`docs/platform/oicm-status/LOGIC-MAP-2026-10-07-health-table.md`; this document picks up
 where that one ends and replaces its §8 ("openrouter_compat status ... not
 built").
 
@@ -203,7 +203,7 @@ else _ENDPOINT_STATUS_BY_AVAILABILITY.get(availability)     # degraded -> -2, on
 ```
 
 `-1` is unassigned on purpose (reserved for a load-based signal; see
-`docs/oicm-status/FEASIBILITY-ANSWERS.md`).
+`docs/platform/oicm-status/FEASIBILITY-ANSWERS.md`).
 
 ## 5. Response shape
 
@@ -375,7 +375,7 @@ and mapped with the health-table work, not this consumer map.
 ## 11. What is still open
 
 Verified against the tree on 2026-10-07, not taken from a doc. The full register
-with priorities is in `docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
+with priorities is in `docs/platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md`.
 
 | Item | Status | Notes |
 |---|---|---|

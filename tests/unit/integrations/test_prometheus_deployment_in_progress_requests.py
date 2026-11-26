@@ -11,7 +11,7 @@ We test the inc/dec contract at three levels:
    the gauge after the call completes
 
 Plus the three measured prod leak modes (2026-10-07 audit,
-docs/openrouter/MAPPING-usage-metrics.md):
+docs/platform/openrouter/MAPPING-usage-metrics.md):
 4. Router retries re-enter the pre-call hook but the terminal logging events
    fire once per logical request: an admit keyed by litellm_call_id must be
    idempotent and a repeated release a no-op.

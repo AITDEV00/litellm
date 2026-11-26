@@ -75,7 +75,7 @@ def _render_view_block(definition: SpendViewDefinition) -> str:
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
 """
@@ -117,7 +117,7 @@ def _render_drop_recreate_block(definition: SpendViewDefinition) -> str:
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     ELSE
         DROP VIEW "DailyTagSpend";

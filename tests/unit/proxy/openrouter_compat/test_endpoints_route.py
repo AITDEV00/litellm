@@ -390,7 +390,7 @@ def test_gateway_status_carries_the_controller_status_verbatim():
     """``oicm_status`` is OICM's own string, not a grouped derivative.
 
     Regression: the field that was meant to expose the raw status
-    (``source_status``, per docs/oicm-status/OICM-STATUS-FEASIBILITY.md) was
+    (``source_status``, per docs/platform/oicm-status/OICM-STATUS-FEASIBILITY.md) was
     populated with the native ``healthy``/``unhealthy`` string instead, so a
     consumer could not tell ``Available`` from ``Ready``.
     """
@@ -477,7 +477,7 @@ def test_endpoint_status_mapping(
     """Each OICM lifecycle maps to the agreed OpenRouter numeric status.
 
     These numbers are our own reading of an undocumented enum (see
-    ``docs/oicm-status/FEASIBILITY-ANSWERS.md``), so the mapping is asserted
+    ``docs/platform/oicm-status/FEASIBILITY-ANSWERS.md``), so the mapping is asserted
     here rather than inferred from the spec.
     """
     model = _aggregated([_deployment("dep-1")])

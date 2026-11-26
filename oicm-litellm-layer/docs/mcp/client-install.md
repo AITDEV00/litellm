@@ -116,4 +116,4 @@ Nothing is callable until an admin approves the source in step 6 of the usage gu
 - `litellm/proxy/mcp_source_broker/remote_gateway.py` (workers route)
 - `litellm/proxy/mcp_source_broker/models.py` (target grammar, alias grammar)
 - `litellm/proxy/auth/route_checks.py`
-- `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md`
+- `oicm-litellm-layer/docs/guides/mcp/MCP_SOURCE_AGENT_GUIDE.md`

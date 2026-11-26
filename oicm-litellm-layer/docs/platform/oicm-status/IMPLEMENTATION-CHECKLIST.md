@@ -25,7 +25,7 @@ Create `controller/oicm_status.py` with `OicmStatusSnapshot` (facts only, no pre
 `workspace_id, workload_id, workload_run_id, source_status, workload_status, health_supported, is_ready, health_message, desired_replicas, available_replicas, error_msg, source_version, source_updated_at, previous_source_status, previous_workload_run_id, status_changed_at, observed_at`
 - Use a frozen dataclass / pydantic model, `ReadOnly` fields where a TypedDict is used, per repo rules.
 - `observed_at` set by controller at fetch; `status_changed_at` computed by controller (never from OICM `_updated_at`).
-- Test: construct from the captured fixtures in `docs/oicm-status/evidence/` (`deployment-detail.json`, `deployment-health.json`, `workload-run.json`); assert all fields populate and `Ready`+`is_ready=false` stays two distinct signals.
+- Test: construct from the captured fixtures in `docs/platform/oicm-status/evidence/` (`deployment-detail.json`, `deployment-health.json`, `workload-run.json`); assert all fields populate and `Ready`+`is_ready=false` stays two distinct signals.
 
 ### Step 2 [C] — Enrich `OicmModel` with OICM identity
 **Status: superseded, not done.** No consumer needs the three ids. `deployment_id == workload_id` is the uuid the reconciler already keys on (Step 2 of the design order, `792c09ee60`), and Step 6 dropped `workload_run_id` and `workload_status` outright. Revisit only if a consumer for `workspace_id` or `workload_run_id` appears.
@@ -205,7 +205,7 @@ Create `litellm/proxy/openrouter_compat/mapping/endpoints.py` (alongside `mappin
 - Test: bare form and namespaced form both resolve to the canonical id; wrong author 404s.
 
 ### Step 18 [D] — M1 end-to-end validation on dev
-**Status: done.** Verified live on dev: all 28 canonical `/endpoints` URLs return 200, the bare forms return byte-identical bodies, wrong author 404s, unauthenticated 401, unknown model 404. See `docs/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md` §8 for the full scrape.
+**Status: done.** Verified live on dev: all 28 canonical `/endpoints` URLs return 200, the bare forms return byte-identical bodies, wrong author 404s, unauthenticated 401, unknown model 404. See `docs/platform/openrouter/LOGIC-MAP-2026-10-07-endpoints-consumer.md` §8 for the full scrape.
 
 ---
 
@@ -219,7 +219,7 @@ Create provider interface with `SGLangTelemetryProvider` / `VllmTelemetryProvide
 
 ### Step 20 [L] — Capture real `/metrics` per runtime
 Scrape `/metrics` from the actually-deployed SGLang (0.5.19/0.5.18/0.5.16) and vLLM versions. Do not assume one Prometheus schema; note version differences for: running requests, waiting requests, generation throughput, token throughput, KV/cache utilization, request-latency histogram, TTFT, ITL.
-- Add captures to `docs/oicm-status/evidence/`.
+- Add captures to `docs/platform/oicm-status/evidence/`.
 
 ### Step 21 [L] — Normalize telemetry
 Map runtime names → `RuntimeTelemetrySnapshot: {running_requests, queued_requests, generation_tokens_per_second, prompt_tokens_per_second, kv_cache_utilization, observed_at}`. Absent = `None`, never 0.

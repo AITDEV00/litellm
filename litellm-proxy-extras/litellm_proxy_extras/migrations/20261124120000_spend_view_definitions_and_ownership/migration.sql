@@ -39,7 +39,7 @@ DATE("startTime");
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
     -- Last30dKeysBySpend: correct when absent or already owned by current_user
@@ -75,7 +75,7 @@ total_spend DESC;
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
     -- Last30dModelsBySpend: correct when absent or already owned by current_user
@@ -106,7 +106,7 @@ total_spend DESC;
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
     -- MonthlyGlobalSpendPerKey: correct when absent or already owned by current_user
@@ -136,7 +136,7 @@ api_key;
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
     -- MonthlyGlobalSpendPerUserPerKey: correct when absent or already owned by current_user
@@ -168,7 +168,7 @@ api_key;
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
     -- DailyTagSpend: drop/recreate when absent or owned by current_user
@@ -194,7 +194,7 @@ GROUP BY individual_request_tag, DATE(s."startTime");
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     ELSE
         DROP VIEW "DailyTagSpend";
@@ -230,7 +230,7 @@ LIMIT 100;
     ELSIF object_owner <> current_role THEN
         RAISE EXCEPTION
             'spend view % is owned by %, expected %; refusing to borrow another owner. '
-            'Run the operator repair workflow (oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
+            'Run the operator repair workflow (oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md) as the database superuser, then re-run migrations',
             view_name, object_owner, current_role;
     END IF;
 END

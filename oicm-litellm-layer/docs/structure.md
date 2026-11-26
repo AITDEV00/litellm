@@ -102,46 +102,21 @@ oicm-litellm-layer/
 │   ├── research-index.md   ← plans, logic maps, audits, measurements by concern
 │   ├── COMPLETE-DOC-CATALOG.md ← exhaustive machine-readable page inventory
 │   ├── structure.md
-│   ├── credentials.md
-│   ├── deployment.md
-│   ├── docs-map.md         ← curated map of every topic directory
-│   ├── additional-features-origin.md  ← every OICM custom feature and where it lives
-│   ├── components/
-│   │   ├── controller.md
-│   │   ├── config.md
-│   │   ├── hooks.md
-│   │   ├── custom-routes.md
-│   │   └── patches.md
-│   ├── admin-api/          ← administration capability map, admin REST endpoints, complete operation register
-│   │   ├── ADMIN-CAPABILITY-MAP.md ← UI/OpenAPI capability/source/permission map; default user settings
-│   │   ├── OPERATION-REGISTER.md ← all 761 OpenAPI paths / 1021 methods: source mappings + schema contracts
-│   │   └── operations/ ← generated primary-tag method slices; edit the generator, not these pages
-│   ├── access-control/    ← permissions, RBAC, key ownership, SSO and application authentication
-│   │   ├── sso-application-integration.md ← delegated JWT/model/MCP calls and org/team/group setup
-│   │   ├── permissions-and-scope.md ← MCP access layers
-│   │   └── key-reassignment.md ← ownership and spend implications
-│   ├── mcp/              ← MCP and source-broker architecture, guardrailing and OpenCode pilot material
-│   │   ├── architecture-research-index.md ← topic and status index
-│   │   ├── opencode-sso-oauth-skills-pilot.md ← gated plan, not completed support
-│   │   └── opencode-pilot-evidence.md ← dated pilot evidence, unfinished gates
-│   ├── mcp-source-broker/ ← source-broker implementation, decisions, deployment and measurements
-│   ├── custom-providers/   ← custom provider research/audit/architecture (HAMSA, INCEPTION, OMNIVOICE)
-│   ├── custom-routes-plans/ ← custom-route logic map + VSA implementation plan
-│   ├── dashboard-plan/     ← dashboard/frontend analysis
-│   ├── discovery-controller/
-│   ├── htb-rate-limiting/  ← HTB rate limiting + priority queue (+ live-data/ artifacts)
-│   ├── incidents/          ← dated incident reports (one dir per incident)
-│   ├── model-pricing/      ← pricing logic maps
-│   ├── oicm-status/        ← status-API feasibility + evidence artifacts
-│   ├── usage-guides/       ← how-to call providers/models through the gateway (Hamsa, Inception, OmniVoice, Qwen image/vision, VibeVoice, reasoning control)
-│   ├── performance/        ← performance before/after + OOM logic maps (+ live-data/ evidence)
-│   ├── reports/            ← generated / exported reports (e.g. model performance snapshots)
-│   ├── session-identity/   ← session-id resolver implementation plan
-│   ├── techniques/         ← reusable analysis techniques (logic mapping, code smells)
-│   ├── runbooks/           ← operational runbooks (mkdocs setup, datasource
-│   │                          validation, postgres backup, postgres-in-image)
-│   ├── architecture/       ← integration-layer implementation plan
-│   ├── cache-invalidation/  ← cache invalidation design + testing
+│   ├── docs-map.md         ← curated map of owning documents
+│   ├── platform/           ← components/, discovery-controller/, model-pricing/,
+│   │                         oicm-status/, openrouter/, custom feature origins
+│   ├── administration/     ← admin-api/, access-control/, cache-invalidation/
+│   ├── providers/          ← custom-providers/, custom-routes-plans/
+│   ├── mcp/                ← runtime, guardrails, OpenCode and source-broker/
+│   │   └── source-broker/  ← running-system/, decisions/, measurements/,
+│   │                         transport/, history/ (adjacent live behavior stays explicit)
+│   ├── distribution/       ← client-distribution/ artifacts, releases and storage
+│   ├── guides/             ← models-and-voice/, mcp/ consumer invocation guides
+│   ├── operations/         ← deployment, credentials, ssl/, runbooks/, incidents/,
+│   │                         performance/, rate-limiting/, reports/, supporting evidence
+│   └── engineering/        ← architecture/, dashboard/, session-identity/,
+│                             persona-drift/, techniques/; Model Performance diagnostics
+│                             stay under operations/performance/
 │
 ├── ../ (upstream litellm source tree, co-located OICM slices live there)
 │   ├── litellm/proxy/voice_routes.py                          ← voice routes slice
@@ -191,7 +166,7 @@ oicm-litellm-layer/
 │
 ├── examples/usage/         ← runnable usage tests for gateway endpoints
 │   ├── hamsa-stt/          ← HAMSA STT WebSocket test page
-│   ├── image-generation/   ← Qwen-Image guide (README.md, included into docs/usage-guides/QWEN_IMAGE_GUIDE.md),
+│   ├── image-generation/   ← Qwen-Image guide (README.md, included into docs/guides/models-and-voice/QWEN_IMAGE_GUIDE.md),
 │   │                          gen_image.sh, test_image_endpoints.sh (36 cases), inputs/; out/ is gitignored
 │   └── openrouter/         ← /api/v1/models demo
 │
@@ -220,16 +195,16 @@ oicm-litellm-layer/
 
 | You want to... | Open |
 |----------------|------|
-| Change the proxy master key / UI password | `deploy/base/gateway` (single source) + restart both Deployments. See `docs/credentials.md` |
+| Change the proxy master key / UI password | `deploy/base/gateway` (single source) + restart both Deployments. See `docs/operations/credentials.md` |
 | Edit discovery controller logic | `controller/controller.py`, `controller/reconciler.py`, `controller/sources/*` |
 | Edit controller env defaults | `controller/config.py` |
 | Edit LiteLLM proxy settings | `deploy/base/gateway/config/litellm-config.yaml` (the deployed `litellm-config` ConfigMap) |
 | Add/edit a callback hook | `hooks/*.py` |
-| Review a custom-route plan | `docs/custom-routes-plans/*` (implementation code lives in the litellm source tree per the VSA plan) |
-| Deploy / apply / rollout | `deploy/*.yaml` (see `docs/deployment.md`) |
-| Apply an upstream patch | none active (see `docs/components/patches.md`) |
+| Review a custom-route plan | `docs/providers/custom-routes-plans/*` (implementation code lives in the litellm source tree per the VSA plan) |
+| Deploy / apply / rollout | `deploy/*.yaml` (see `docs/operations/deployment.md`) |
+| Apply an upstream patch | none active (see `docs/platform/components/patches.md`) |
 | Run local proxy | `config/local_dev.yaml` via `Makefile` |
 | Generate / serve mock model data | `mock-data/` |
-| Apply the wildcard TLS cert | `docs/SSL/` runbooks + scripts |
+| Apply the wildcard TLS cert | `docs/operations/ssl/` runbooks + scripts |
 | Find a doc | `docs/docs-map.md` |
-| Read an incident report | `docs/incidents/<date>-<slug>/` |
+| Read an incident report | `docs/operations/incidents/<date>-<slug>/` |

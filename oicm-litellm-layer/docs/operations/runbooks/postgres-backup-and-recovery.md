@@ -306,4 +306,4 @@ That is what step 4 of the removal above does.
 
 - `deploy/prod/litellm-postgres-cluster.yaml`, the deployable cluster spec
 - `deploy/prod/spend-logs-janitor/`, the archival CronJob
-- `docs/incidents/2026-09-08-postgres-disk-full/`, why the janitor exists
+- `docs/operations/incidents/2026-09-08-postgres-disk-full/`, why the janitor exists

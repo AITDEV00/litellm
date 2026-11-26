@@ -3,7 +3,7 @@
 These pin behavior, not structure: each test would fail if the wire parsing or
 the availability decision regressed, independent of how the modules are split.
 The summary-item cases are driven by the live captures in
-``docs/oicm-status/evidence/deployment-summary.json``.
+``docs/platform/oicm-status/evidence/deployment-summary.json``.
 """
 
 import json

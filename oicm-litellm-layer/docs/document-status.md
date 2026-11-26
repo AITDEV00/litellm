@@ -33,12 +33,13 @@ When a document contains multiple statuses, the index should distinguish its cod
 | Calling models and voice APIs | [Gateway guide](guides/models-and-voice/GATEWAY_GUIDE.md) | Other provider-specific files under [Usage guides](docs-map.md#usage-guides) |
 | Deploy, rollouts, credentials, database | [Deployment](operations/deployment.md) and [Credentials](operations/credentials.md) | [Runbooks](docs-map.md#runbooks) in the docs map |
 | Incidents and OOMs | Incident directory by date | [Performance evidence](docs-map.md#performance) in the docs map |
-| Controller and OICM status | [Controller](platform/discovery-controller/README.md) and [OICM status](docs-map.md#oicm-status) | API compat under `openrouter/` |
+| Controller and OICM status | [Controller](platform/discovery-controller/README.md) and [OICM status](docs-map.md#oicm-status) | API compat under `platform/openrouter/` |
 | Client distribute/load sources | [Client distribution](distribution/client-distribution/PLAN.md) | Deployment, platform matrix, security, and history in that directory |
+| Architecture, dashboard and reusable techniques | [Engineering](engineering/architecture/IMPLEMENTATION_PLAN.md) | [Methods](docs-map.md#techniques); research remains under its component family |
 
 ## Discovery maintenance
 
-Place a new document with the behavior or component it owns, rather than by authorship date or the task of the person who generated it. Do not recreate the retired `mcp-architecture-qa/` directory
+Place a new document with the behavior or component it owns, rather than by authorship date or the task of the person who generated it. Do not recreate the retired `mcp-architecture-qa/` directory. Preserve reader-oriented MkDocs navigation when moving physical files; add redirects rather than silently breaking old URLs
 
 When adding or renaming a document:
 

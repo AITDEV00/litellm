@@ -51,7 +51,7 @@ rollout steps live in [Deployment & Cluster](../../operations/deployment.md).
 
 ## Docs
 
-- `docs/discovery-controller/README.md` — what it does, architecture, env vars, deployment
-- `docs/discovery-controller/logic-map-and-code-smell-audit.md` — trace + audit
-- `docs/model-pricing/PRICING-LOGIC-MAP.md` — pricing resolution logic
-- `docs/architecture/IMPLEMENTATION_PLAN.md` — original design (component #1)
+- `docs/platform/discovery-controller/README.md` — what it does, architecture, env vars, deployment
+- `docs/platform/discovery-controller/logic-map-and-code-smell-audit.md` — trace + audit
+- `docs/platform/model-pricing/PRICING-LOGIC-MAP.md` — pricing resolution logic
+- `docs/engineering/architecture/IMPLEMENTATION_PLAN.md` — original design (component #1)

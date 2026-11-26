@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercises every model in docs/usage-guides through the gateway using a
+# Exercises every model in docs/guides/models-and-voice through the gateway using a
 # virtual key, reproducing the exact request shapes those guides document.
 # Master keys bypass allowed_routes, so a master key cannot prove a customer
 # key works; this script exists to be run with a real key_type=llm_api key.

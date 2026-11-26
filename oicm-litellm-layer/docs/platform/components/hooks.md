@@ -47,5 +47,5 @@ resolver are in-tree too.
 
 ## Docs
 
-- `docs/htb-rate-limiting/` — HTB rate limiting + priority bridge
-- `docs/architecture/IMPLEMENTATION_PLAN.md` (components #3, #4)
+- `docs/operations/rate-limiting/` — HTB rate limiting + priority bridge
+- `docs/engineering/architecture/IMPLEMENTATION_PLAN.md` (components #3, #4)

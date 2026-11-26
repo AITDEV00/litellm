@@ -8,7 +8,7 @@ Do not accept the connector as a finished multi-account, multi-source or native-
 
 Implement G1 through G4 first, then G5 through G7, and finish the explicitly deferred functional work. Treat each item as an end-to-end behavior obligation, with executable guards. Do not satisfy it by changing only fixture state, adding structural assertions, or rephrasing a completion record
 
-For each item, cite the failing-before and passing-after regression test. Do a consequential mutation check on the new guard. Do not claim unsupported live acceptance. The ongoing navigation authority is [running-system/README.md](../docs/mcp-source-broker/running-system/README.md), which reflects no newer live native-MCP approval proof than this patch provides
+For each item, cite the failing-before and passing-after regression test. Do a consequential mutation check on the new guard. Do not claim unsupported live acceptance. The ongoing navigation authority is [running-system/README.md](../docs/mcp/source-broker/running-system/README.md), which reflects no newer live native-MCP approval proof than this patch provides
 
 ## Fixed enough to retain, with their verification limits
 

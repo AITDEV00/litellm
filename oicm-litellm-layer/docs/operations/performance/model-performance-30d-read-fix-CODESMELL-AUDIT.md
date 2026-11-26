@@ -5,7 +5,7 @@ Audit target: commit `7e410cffa3` (SQL coarse-bucket read path).
 - `litellm/proxy/model_metrics_endpoints/model_performance_endpoints.py` — `_fetch_db_performance_from_rollup` and `_rollup_coarse_buckets_to_model`
 - `tests/test_litellm/proxy/proxy_server/test_routes_model_performance.py` — coarse-bucket builder tests
 
-Technique applied: the 4-layer code smell detection technique (`docs/techniques/code_smell_detection_technique.md`).
+Technique applied: the 4-layer code smell detection technique (`docs/engineering/techniques/code_smell_detection_technique.md`).
 
 ## L1 - automated tooling
 

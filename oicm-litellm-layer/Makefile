@@ -347,7 +347,7 @@ mcp-source-link-compat:
 
 ## Deprecated: publishes source-agent release assets to RustFS. The live upload
 ## is unproven (BOOTSTRAP-GAPS.md B6) and the intended replacement is
-## `mcp-source-agent-publish` in docs/client-distribution/source-agent-releases.md,
+## `mcp-source-agent-publish` in docs/distribution/client-distribution/source-agent-releases.md,
 ## which is not implemented yet. Keep this until that lands, then delete both.
 ## Requires an explicit target, because a default that silently meant prod is
 ## the failure mode worth designing out:
@@ -654,7 +654,7 @@ litellm-src-deploy-dev: litellm-src-pin dev-gateway
 litellm-src-release-dev: litellm-src-build-push litellm-src-deploy-dev
 
 ## Build the MkDocs documentation site. Requires the docs venv (see
-## requirements-docs.txt). Used by the rotation runbook in docs/credentials.md
+## requirements-docs.txt). Used by the rotation runbook in docs/operations/credentials.md
 ## to re-inject the current master key into the built docs.
 docs:
 	python3 -m venv .venv-docs 2>/dev/null; \
@@ -695,7 +695,7 @@ litellm-local-run:
 ##   make port-forward-datasources
 ## then run this (another terminal). Uses config/local_datasource.yaml + the
 ## env values in .env.datasource (copy from .env.datasource.example). See
-## docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
+## docs/operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md for the full runbook.
 litellm-local-datasource:
 	@if [ ! -f "$(CURDIR)/.env.datasource" ]; then \
 		echo "Missing $(CURDIR)/.env.datasource. Copy from .env.datasource.example and fill in secrets."; \
@@ -716,7 +716,7 @@ litellm-local-datasource:
 
 ## Port-forward the cluster datasources for local validation (Postgres/Redis/
 ## Prometheus). Runs in the foreground; Ctrl+C to stop. See
-## docs/runbooks/DATASOURCE-LOCAL-VALIDATION.md.
+## docs/operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md.
 port-forward-datasources:
 	./scripts/port-forward-datasources.sh --validate
 

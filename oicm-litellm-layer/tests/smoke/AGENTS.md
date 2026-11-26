@@ -5,7 +5,7 @@ This is not CI: it exists so you can run `make smoke-fast` after a merge and
 confirm the gateway's documented behaviors survived, before you trust the tree.
 
 **This suite is a mandatory step of the upstream merge.**
-[`docs/techniques/upstream_merge_technique.md`](../../docs/techniques/upstream_merge_technique.md)
+[`docs/engineering/techniques/upstream_merge_technique.md`](../../docs/engineering/techniques/upstream_merge_technique.md)
 Step 7 requires updating this suite for anything the merge changed, deploying
 the merged image to **dev**, and running `make smoke` against it. A merge is not
 done until that passes.

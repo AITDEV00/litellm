@@ -1319,10 +1319,10 @@ remaining live proof explicitly deferred, and do not mount a dummy route
 
 ### 8.1 Documentation owed with implementation
 
-- Revise `docs/usage-guides/NEMOTRON_TRANSCRIBE_GUIDE.md` after dev proof:
+- Revise `docs/guides/models-and-voice/NEMOTRON_TRANSCRIBE_GUIDE.md` after dev proof:
   native field preservation, native streams, required target_language,
   response_format vs actual media type, cache semantics any operator notes
-- Add plan link to `docs/custom-providers/README.md` and
+- Add plan link to `docs/providers/custom-providers/README.md` and
   `mkdocs.yml` custom-providers section; proposed plan is tracked here already
 - Update the existing docs-map link for this plan and the usage-guide
   purpose; keep other protocols' historical plans separate

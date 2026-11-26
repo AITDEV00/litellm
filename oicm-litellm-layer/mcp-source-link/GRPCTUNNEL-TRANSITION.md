@@ -60,7 +60,7 @@ The BYOM self-service registration change ships in the same coordinated final sl
 because dev has everything needed to test the two together and because they touch the
 same enrollment surface. They stay separate commits, coordinated.
 
-Design input: `../docs/mcp-source-broker/decisions/approaches/byom-self-service.md` (v2).
+Design input: `../docs/mcp/source-broker/decisions/approaches/byom-self-service.md` (v2).
 
 ## What is already true (re-verify before acting)
 
@@ -201,7 +201,7 @@ gets no tool call) separate from the transport proof (approved row serves over t
 The following work order is superseded by tester feedback recorded on the same day
 after the transport proofs. It retains the correct deviations found during that slice
 (e.g. connectivity status) but its remaining bootstrap wording is not the current
-requirement. [`connector-owned-enrollment.md`](../docs/mcp-source-broker/decisions/approaches/connector-owned-enrollment.md)
+requirement. [`connector-owned-enrollment.md`](../docs/mcp/source-broker/decisions/approaches/connector-owned-enrollment.md)
 now owns enrollment and worker identity provisioning: no team-membership gate, the
 connector rather than a cluster-access operator assembles its identity, and the
 origin proof/installer payload requires the decisions recorded there. The original
@@ -235,16 +235,16 @@ These are settled. Do not re-ask for the completed transport slice.
   `approval_status`.
 - Do not couple the BYOM commit and the reverse-h2-deletion commit; coordinate, do not
   merge.
-- Do not implement from `../docs/mcp-source-broker/history/superseded-design-proposal.md`.
+- Do not implement from `../docs/mcp/source-broker/history/superseded-design-proposal.md`.
 - Do not point the build at `evaluate-delete-later/grpctunnel`; the module resolves
   `github.com/jhump/grpctunnel v0.4.0` from the proxy, which is correct.
 - Do not add a GitHub Actions release-gating compat job; it is a local Makefile check.
 
 ## References
 
-- Owning record and status register: `../docs/mcp-source-broker/running-system/README.md`
-- BYOM self-service design (v2): `../docs/mcp-source-broker/decisions/approaches/byom-self-service.md`
-- Open questions: `../docs/mcp-source-broker/decisions/approaches/lifecycle-and-pooling-questions.md`
-- Measurements: `../docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md`
+- Owning record and status register: `../docs/mcp/source-broker/running-system/README.md`
+- BYOM self-service design (v2): `../docs/mcp/source-broker/decisions/approaches/byom-self-service.md`
+- Open questions: `../docs/mcp/source-broker/decisions/approaches/lifecycle-and-pooling-questions.md`
+- Measurements: `../docs/mcp/source-broker/measurements/go-driver-concurrency-2026-11-18.md`
 - Build, lint, and proto regen: `README.md` in this folder
 - Wire contract: `dispatchpb/dispatch.proto`

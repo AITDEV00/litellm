@@ -105,4 +105,4 @@ The CLI login (`/sso/cli/poll`) and the MCP connector both rely on SSO or passwo
 - `litellm/proxy/management_endpoints/jwt_key_mapping_endpoints.py` mapping CRUD
 - `litellm/proxy/utils.py` `get_custom_url` / `PROXY_BASE_URL`
 - `oicm-litellm-layer/deploy/overlays/prod/gateway/config.yaml` and dev counterpart: current JWT settings; this appendix title originated before OIDC/JWT deployment
-- `oicm-litellm-layer/docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` the SSO note
+- `oicm-litellm-layer/docs/administration/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` the SSO note

@@ -18,7 +18,7 @@ stack.
 | `.pfx` password | The export password, e.g. `Adeo@234` |
 | `kubectl` | Configured for the target cluster (`kubectl get ns` works) |
 | `openssl` | For extraction and verification |
-| The script | `docs/SSL/create-tls-secret-ns.sh` in this repo (generalized `.pfx` -> `kubernetes.io/tls` secret helper) |
+| The script | `docs/operations/ssl/create-tls-secret-ns.sh` in this repo (generalized `.pfx` -> `kubernetes.io/tls` secret helper) |
 
 ---
 

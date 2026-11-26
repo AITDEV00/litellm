@@ -1,6 +1,6 @@
 # mcp-source-link
 
-The MCP source broker's Go side. One binary, two modes: `worker` runs as a sidecar beside the Python broker and owns two listeners, `connector` runs on a source host and dials out. What the running system does, the port map, and the transport tradeoffs live in `../docs/mcp-source-broker/running-system/README.md`; this file covers only how to build, test, and change the module
+The MCP source broker's Go side. One binary, two modes: `worker` runs as a sidecar beside the Python broker and owns two listeners, `connector` runs on a source host and dials out. What the running system does, the port map, and the transport tradeoffs live in `../docs/mcp/source-broker/running-system/README.md`; this file covers only how to build, test, and change the module
 
 ## Toolchain
 

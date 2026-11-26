@@ -90,6 +90,6 @@ The Ingress in this snapshot carries
 change set. A rollback reverts the broker and the image pins but keeps the
 unbuffered ingress, because the buffering fix is independent of the broker work and
 reverting it would reintroduce the latency defect in
-`docs/incidents/2026-11-18-nemotron-gateway-transcription-latency/`. If you ever
+`docs/operations/incidents/2026-11-18-nemotron-gateway-transcription-latency/`. If you ever
 need the old buffering behavior back, edit that file explicitly; do not expect this
 rollback to do it.

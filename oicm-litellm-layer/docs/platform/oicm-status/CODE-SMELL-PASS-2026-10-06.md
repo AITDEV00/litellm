@@ -1,6 +1,6 @@
 # Code smell pass: controller (2026-10-06)
 
-Technique: `docs/techniques/code_smell_detection_technique.md`. Scope:
+Technique: `docs/engineering/techniques/code_smell_detection_technique.md`. Scope:
 `oicm-litellm-layer/controller/` and `tests/controller/`.
 
 Result: 14 findings fixed, 3 findings recorded as deliberate. 278 tests pass

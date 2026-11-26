@@ -23,10 +23,10 @@ goes to `./site` (gitignored).
 | `requirements-docs.txt` | Build dependencies for the docs venv |
 | `docs/index.md` | Home / entry page (quick navigator) |
 | `docs/structure.md` | Full directory map (where everything lives) |
-| `docs/credentials.md` | Master key / secret contract + rotation runbook |
-| `docs/deployment.md` | Deploy / apply / rollout to the cluster |
+| `docs/operations/credentials.md` | Master key / secret contract + rotation runbook |
+| `docs/operations/deployment.md` | Deploy / apply / rollout to the cluster |
 | `docs/docs-map.md` | Cross-reference of every existing doc |
-| `docs/components/*.md` | Per-component pages (controller, config, hooks, custom-routes, patches) |
+| `docs/platform/components/*.md` | Per-component pages (controller, config, hooks, custom-routes, patches) |
 | `scripts/mkdocs_master_key.py` | MkDocs hook that injects `{{ master_key }}` from the manifest |
 | `scripts/get_master_key.py` | stdlib-only extractor read by the Makefile, benchmarks, local env |
 | `.gitignore` | Ignore `.venv-docs/` and `oicm-litellm-layer/site/` |
@@ -89,8 +89,8 @@ Key configuration choices:
 The build is strict (validation warnings are surfaced). Two pre-existing broken
 doc links were fixed as part of the initial setup so the build passes cleanly:
 
-- `docs/admin-api/LITELLM-ADMIN-REST-API.md`
-- `docs/dashboard-plan/LOGIC-MAPPING-TECHNIQUE.md`
+- `docs/administration/admin-api/LITELLM-ADMIN-REST-API.md`
+- `docs/engineering/dashboard/LOGIC-MAPPING-TECHNIQUE.md`
 
 ### 5. Single source of truth for the master key
 

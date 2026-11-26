@@ -28,7 +28,7 @@ deploy/
 Postgres recovery is a runbook, not a manifest, because a
 `spec.bootstrap.recovery` cluster spec rebuilds the live database from a snapshot
 and CNPG has no retention for snapshots. See
-`docs/runbooks/postgres-backup-and-recovery.md`.
+`docs/operations/runbooks/postgres-backup-and-recovery.md`.
 
 The dev overlay's two patch files are the single place the dev/prod difference
 lives. `tests/deploy/test_dev_prod_parity.py` renders both overlays and fails if

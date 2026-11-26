@@ -12,7 +12,7 @@ That enum is documented nowhere: OpenRouter's spec lists six bare integers with
 no description, no docs page and no sibling schema, and every published example
 uses only ``0``. The mapping below is therefore our own reading, kept in one
 function so a correction is a single edit. See
-``docs/oicm-status/FEASIBILITY-ANSWERS.md`` for the decision record.
+``docs/platform/oicm-status/FEASIBILITY-ANSWERS.md`` for the decision record.
 
 Freshness is judged per source, not per model: model health is written hourly
 or on change, so its ``observed_at`` is routinely older than the source that

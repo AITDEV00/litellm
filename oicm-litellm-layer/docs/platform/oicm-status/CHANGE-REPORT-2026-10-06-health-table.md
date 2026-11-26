@@ -321,7 +321,7 @@ replaced with a description of the two routes, server-stamped `checked_at`,
 ### 5.1 `deploy/overlays/dev/gateway/config.yaml` (dev ConfigMap)
 
 This key now lives in the dev overlay's config patch; see
-`docs/deployment.md` for the base/overlay layout.
+`docs/operations/deployment.md` for the base/overlay layout.
 
 Added under `general_settings`:
 
@@ -404,9 +404,9 @@ oicm-litellm-layer/tests/controller/test_litellm_client.py        +59
 oicm-litellm-layer/tests/controller/test_status_persister.py      +/- (heartbeat rewrite + health tests)
 oicm-litellm-layer/deploy/dev/discovery-controller-dev.yaml       (image pin)
 oicm-litellm-layer/deploy/overlays/dev/gateway/config.yaml             +4 (retention)
-oicm-litellm-layer/docs/oicm-status/DESIGN-STATUS-PERSISTENCE.md  (health-table design)
-oicm-litellm-layer/docs/oicm-status/IMPLEMENTATION-CHECKLIST.md   (Step 12)
-oicm-litellm-layer/docs/oicm-status/PROGRESS-AND-PAUSED-WORK.md   (status)
+oicm-litellm-layer/docs/platform/oicm-status/DESIGN-STATUS-PERSISTENCE.md  (health-table design)
+oicm-litellm-layer/docs/platform/oicm-status/IMPLEMENTATION-CHECKLIST.md   (Step 12)
+oicm-litellm-layer/docs/platform/oicm-status/PROGRESS-AND-PAUSED-WORK.md   (status)
 ```
 
 ## 9. Data model reference

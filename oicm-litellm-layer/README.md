@@ -55,12 +55,12 @@ using only LiteLLM's public extension points — **no fork required** (except on
 | 4 | KEDA Metrics Callback | Plugin | `hooks/keda_metrics.py` | Emit `ml_model_concurrent_requests` Prometheus gauge for KEDA (present in the repo, not currently registered) |
 | 5 | Config Template | Config | `deploy/base/gateway/config/litellm-config.yaml` | LiteLLM proxy configuration (the deployed `litellm-config` ConfigMap) |
 
-Component #2 (a `custom_auth` handler validating keys against OICM's `api_keys` table) and component #6 (the embedding `extra_body` patch) are both **not in use**. Auth is LiteLLM's native virtual-key auth, and the embedding patch is superseded by upstream (see `docs/components/patches.md`).
+Component #2 (a `custom_auth` handler validating keys against OICM's `api_keys` table) and component #6 (the embedding `extra_body` patch) are both **not in use**. Auth is LiteLLM's native virtual-key auth, and the embedding patch is superseded by upstream (see `docs/platform/components/patches.md`).
 
 ## Quick Start
 
 ```bash
-# 1. Build and push the discovery controller image (versioned tag, see docs/Makefile-reference.md)
+# 1. Build and push the discovery controller image (versioned tag, see docs/operations/Makefile-reference.md)
 make controller-release
 
 # 2. Apply the prod manifests (gateway overlay + controller + sources/exclusions)
@@ -72,13 +72,13 @@ make litellm-src-release
 ```
 
 There is no Helm chart: everything is applied with `kubectl apply` / kustomize
-from `deploy/` (see `docs/deployment.md`). For a dev iteration use
+from `deploy/` (see `docs/operations/deployment.md`). For a dev iteration use
 `make litellm-src-release-dev` and `make controller-deploy-dev`.
 
 Note: the old embedding `extra_body` patch is no longer needed. Upstream
 litellm now passes vLLM embedding `extra_body` params (e.g.
 `truncate_prompt_tokens`) through natively, and the patch file no longer
-applies. See `docs/components/patches.md`.
+applies. See `docs/platform/components/patches.md`.
 
 ## Repository Layout
 

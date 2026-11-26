@@ -103,12 +103,12 @@ Use this as the index when a later question starts from "where does X live". Gro
 
 | Path | Purpose |
 |---|---|
-| `oicm-litellm-layer/docs/mcp-source-broker/README.md` | slice index |
-| `oicm-litellm-layer/docs/mcp-source-broker/running-system/README.md` | owning implementation record, status register, port map, step evidence |
-| `oicm-litellm-layer/docs/mcp-source-broker/measurements/go-driver-concurrency-2026-11-18.md` | concurrency numbers |
-| `oicm-litellm-layer/docs/mcp-source-broker/decisions/approaches/*.md` | enrollment, BYOM, multi-replica debates |
-| `oicm-litellm-layer/docs/usage-guides/MCP_SOURCE_AGENT_GUIDE.md` | source-broker operator guide, prod vs dev, failure table |
-| `oicm-litellm-layer/docs/access-control/sso-application-integration.md` | application SSO/JWT/API-key and resource-provisioning guide |
+| `oicm-litellm-layer/docs/mcp/source-broker/README.md` | slice index |
+| `oicm-litellm-layer/docs/mcp/source-broker/running-system/README.md` | owning implementation record, status register, port map, step evidence |
+| `oicm-litellm-layer/docs/mcp/source-broker/measurements/go-driver-concurrency-2026-11-18.md` | concurrency numbers |
+| `oicm-litellm-layer/docs/mcp/source-broker/decisions/approaches/*.md` | enrollment, BYOM, multi-replica debates |
+| `oicm-litellm-layer/docs/guides/mcp/MCP_SOURCE_AGENT_GUIDE.md` | source-broker operator guide, prod vs dev, failure table |
+| `oicm-litellm-layer/docs/administration/access-control/sso-application-integration.md` | application SSO/JWT/API-key and resource-provisioning guide |
 | `oicm-litellm-layer/docs/mcp/opencode-sso-oauth-skills-pilot.md` | gated OpenCode implementation plan, not completed capability claims |
 | `oicm-litellm-layer/docs/mcp/opencode-pilot-evidence.md` | partial OpenCode run evidence; native MCP sign-in works, full execution and private skills remain unfinished |
 | `oicm-litellm-layer/docs/docs-map.md` | one-line purpose per doc |

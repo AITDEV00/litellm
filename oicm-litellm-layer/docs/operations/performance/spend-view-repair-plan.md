@@ -245,7 +245,7 @@ Branch `jya0-v1.108.5`, plan executed per the worker prompt. All evidence below 
 - `litellm-proxy-extras/litellm_proxy_extras/migrations/20261124120000_spend_view_definitions_and_ownership/migration.sql`: guarded migration. Per view, a DO block resolves the catalog owner and relkind; a foreign owner raises with a pointer to the operator runbook, a non-view relkind raises, and only then CREATE OR REPLACE runs. `DailyTagSpend` is drop/recreated because CREATE OR REPLACE cannot add the `spend_date`/`log_count` columns
 - `scripts/repair_legacy_spend_views.py`: operator-only repair for postgres-owned legacy views. Superuser precheck, local JSON snapshot of pre-repair state (no credentials), bounded lock/idle/statement timeouts, drop/recreate each view, ALTER VIEW OWNER TO the app role, then re-runs the shipped guarded migration under SET ROLE and SELECTs all seven views as the app role
 - `litellm/proxy/spend_tracking/spend_management_endpoints.py`: `/global/spend/tags` and `/global/spend/all_tag_names` now read `LiteLLM_DailyTagSpend` with `date::date` bounds. Response JSON contracts unchanged. `/spend/tags` (the read-scope `get_spend_by_tags` path) is a different endpoint and was deliberately not changed
-- `oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md` plus nav/docs-map entries; `make docs` builds
+- `oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md` plus nav/docs-map entries; `make docs` builds
 - Tests: `tests/unit/proxy/db/test_view_definitions.py` (10, includes migration-matches-renderer drift gate and no-row-rewrite scan), `tests/unit/proxy/db/test_spend_view_ownership_repair.py` (9, real Postgres 16 fixture, skips without `SPEND_VIEW_TEST_PG_URL`/`SPEND_VIEW_TEST_PG_SUPERUSER_URL`), 3 additive endpoint SQL-shape tests in the mapped spend suite. Mapped suites: 283 passed across the four touched files
 
 ### Fixture proof (real Postgres, disposable container)
@@ -282,7 +282,7 @@ The full-history all-tag-name rollup query is far smaller and returns a small re
 
 ### Production handoff prompt for a hardened worker
 
-Implement the prod phase of this plan in `/home/jyao/ADEO/service/litellm` after reading the whole document, `oicm-litellm-layer/docs/runbooks/spend-view-legacy-repair.md`, the recent dev change `df80fd51ce`, and the **Prod promotion gate** above. You have permission to perform the authorized prod view-only repair, not a broad upgrade or arbitrary secret/schema change. Do not work from prior summaries alone, and do not infer prod is safe because dev endpoints passed.
+Implement the prod phase of this plan in `/home/jyao/ADEO/service/litellm` after reading the whole document, `oicm-litellm-layer/docs/operations/runbooks/spend-view-legacy-repair.md`, the recent dev change `df80fd51ce`, and the **Prod promotion gate** above. You have permission to perform the authorized prod view-only repair, not a broad upgrade or arbitrary secret/schema change. Do not work from prior summaries alone, and do not infer prod is safe because dev endpoints passed.
 
 First address the outstanding production-safety findings on `jya0-v1.108.5`:
 
@@ -336,7 +336,7 @@ Fixture proof for the hardening (13 tests, disposable Postgres 16, all passing):
 
 ## End worker prompt (copy verbatim)
 
-Implement only the **dev phase** of `oicm-litellm-layer/docs/performance/spend-view-repair-plan.md` in `/home/jyao/ADEO/service/litellm`, branch `jya0-v1.108.5`.
+Implement only the **dev phase** of `oicm-litellm-layer/docs/operations/performance/spend-view-repair-plan.md` in `/home/jyao/ADEO/service/litellm`, branch `jya0-v1.108.5`.
 
 Everything you need is in that plan and it is the controlling spec. Read it completely before editing, then read `oicm-litellm-layer/mkdocs.yml`, `docs/docs-map.md`, the owning deployment/performance docs, `litellm/proxy/db/create_views.py`, `litellm/proxy/spend_tracking/spend_management_endpoints.py`, `litellm/proxy/db/db_spend_update_writer.py`, and the existing mapped tests. Do not invent an independent design from earlier conversation summaries; if this spec conflicts with a remembered finding, re-check code and DB and surface the issue.
 

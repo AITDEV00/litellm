@@ -37,7 +37,7 @@ What it buys you: tight control and one place to look. That is real, and it is w
 
 ## Part 2: the role ladder, exactly as the code enforces it
 
-From `docs/admin-api/LITELLM-ADMIN-REST-API.md` section 1 and the source:
+From `docs/administration/admin-api/LITELLM-ADMIN-REST-API.md` section 1 and the source:
 
 | Role | Scope | Source of truth |
 |---|---|---|
@@ -192,8 +192,8 @@ The cost up front is real: you must populate org ceilings, team budgets, and tea
 
 ## Source files
 
-- `oicm-litellm-layer/docs/admin-api/LITELLM-ADMIN-REST-API.md` sections 1-4, 8-9
-- `oicm-litellm-layer/docs/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` read-only rules and SSO note
+- `oicm-litellm-layer/docs/administration/admin-api/LITELLM-ADMIN-REST-API.md` sections 1-4, 8-9
+- `oicm-litellm-layer/docs/administration/admin-api/ATHENA-READ-ONLY-KEY-GUIDE.md` read-only rules and SSO note
 - `litellm/proxy/management/teams/authz.py` `TEAM_OR_ORG_ADMIN`, `strongest_role`
 - `litellm/proxy/management_endpoints/organization_endpoints.py` `verify_org_access`, `_enterprise_license_required`
 - `litellm/proxy/management_endpoints/team_endpoints.py` `new_team` and its org scoping

@@ -77,4 +77,4 @@ Multi-host failover is designed for in the pool but has not been exercised with 
 load beyond tens of concurrent requests is unmeasured on the shipped long-poll protocol; the
 dispatch long-poll ties a session to one broker pod, so multi-replica brokering needs a design
 decision before scaling; and only the dev overlay exists, production is untouched. These are
-tracked in the "Next steps" section of `docs/mcp-source-broker/running-system/README.md`.
+tracked in the "Next steps" section of `docs/mcp/source-broker/running-system/README.md`.

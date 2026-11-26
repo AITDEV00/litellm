@@ -169,7 +169,7 @@ The broker Pod has two runtime processes, Chisel relay and broker worker, sharin
 
 The gateway application simply has additional `MCPServer` records pointing at `http://mcp-source-broker.adeo-litellm.svc.cluster.local:9090/sources/<source-id>[/mcp]`. It persists and reloads these records with its existing registry. End-user authorization stays with the existing MCP auth and permission hooks. The broker pool ingress additionally validates a narrowly scoped inter-service credential so another workload in the cluster cannot call an arbitrary upstream without passing MCP admission first.
 
-The existing `oicm-litellm-layer/docs/session-identity/IMPLEMENTATION-PLAN.md` notes that some `1.108.5` session-routing patch work was deferred. Do not rely on an intermediate proposal changing the baseline. The implementation gate is a real `Mcp-Session-Id` capture demonstrating the same owning MCP worker and member, or the explicit one-worker execution lane described above. An operator-configured `X-Litellm-Proxy-Session-Id` would be a separate trusted annotation by the router, not something exposed for clients to forge. Source UUID does not substitute for a downstream MCP session identity
+The existing `oicm-litellm-layer/docs/engineering/session-identity/IMPLEMENTATION-PLAN.md` notes that some `1.108.5` session-routing patch work was deferred. Do not rely on an intermediate proposal changing the baseline. The implementation gate is a real `Mcp-Session-Id` capture demonstrating the same owning MCP worker and member, or the explicit one-worker execution lane described above. An operator-configured `X-Litellm-Proxy-Session-Id` would be a separate trusted annotation by the router, not something exposed for clients to forge. Source UUID does not substitute for a downstream MCP session identity
 
 **Pilot shortcut:** run Chisel and the broker in one network namespace beside one LiteLLM worker, just as the original pilot did. This validates the same protocols but does not claim a production multi-replica session design
 
@@ -213,7 +213,7 @@ The existing `oicm-litellm-layer/docs/session-identity/IMPLEMENTATION-PLAN.md` n
 | `tests/unit/proxy/test_oicm_drop_detection.py` | Pin only app mounting, not substantive business behavior. The behavior belongs in the new slice tests |
 | `tests/e2e/mcp_source_broker/` | Add only per this directory's own harness conventions: real Chisel exchange, reboot persistent connector, non-root restart, outage recovery, pool balance, gateway deploy recovery, distinct-source isolation |
 
-Use captured `initialize`, `tools/list`, and `tools/call` transcripts from a real source host during Phase 2 of the mapping technique, not an invented MCP schema. Save those under `docs/mcp-source-broker/live-data/` with a numbered README only when they are collected. Do not claim a verification step has run by adding placeholder captures
+Use captured `initialize`, `tools/list`, and `tools/call` transcripts from a real source host during Phase 2 of the mapping technique, not an invented MCP schema. Save those under `docs/mcp/source-broker/live-data/` with a numbered README only when they are collected. Do not claim a verification step has run by adding placeholder captures
 
 ## 4. Deduplication and load-balancing algorithm
 
@@ -559,7 +559,7 @@ Reverse listeners use `127.0.0.20` through `127.0.0.254`, never wildcard or publ
 
 ### Phase 1: establish baseline evidence
 
-Create only `tests/e2e/mcp_source_broker/pilot/` harness and `docs/mcp-source-broker/live-data/README.md` once evidence exists. Run the existing pilot against `1.108.5`, save raw startup log, reverse probe, OpenAPI register and direct invocation, `initialize`, `tools/list`, `tools/call`, and reconnect responses. Pin the source origin and no employer-specific service content. Compare the successful request/response to the function map above. Do not build the pool before the source works with Chisel on that baseline
+Create only `tests/e2e/mcp_source_broker/pilot/` harness and `docs/mcp/source-broker/live-data/README.md` once evidence exists. Run the existing pilot against `1.108.5`, save raw startup log, reverse probe, OpenAPI register and direct invocation, `initialize`, `tools/list`, `tools/call`, and reconnect responses. Pin the source origin and no employer-specific service content. Compare the successful request/response to the function map above. Do not build the pool before the source works with Chisel on that baseline
 
 ### Phase 2: enrollment and persistence (vertical slice)
 
