@@ -248,3 +248,13 @@ silently OOMing prod again.
    deployment command and the matching `--granian_workers_lifetime` CLI
    option. Dev intentionally omits the recycle: debug wants stable PIDs.
 
+Rolled out and proven live (2026-11-26): dev first, then prod, both on
+manifest digest `sha256:754159cc12a7...` (image `jya0-v1.108.5-dev` /
+`jya0-v1.108.5-prod`). The killer request that OOMKilled prod on
+2026-11-25 (86-day custom range on `/model/performance`, rollup path)
+was run 4x against prod through `litellm.ecouncil.ae`: every call HTTP
+200, ~605KB payload, both replicas flat at ~2.8-3.0Gi, only the 4 steady
+per-worker engines at 32-58 MiB each, no extra engine spawned, no
+restart. Before the fix the same request produced a ~62MB payload, a
+4.5GB engine high-water mark, and an OOMKill within the hour.
+
