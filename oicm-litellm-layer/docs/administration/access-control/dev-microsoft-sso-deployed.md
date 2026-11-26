@@ -1,6 +1,6 @@
 # Dev Microsoft SSO: what was deployed and what is still blocked
 
-Deployment snapshot from 2026-11-23 using native Microsoft OIDC, not SAML. Gateway pods have Microsoft egress, so OIDC avoids the separate SAML metadata lifecycle. This deployment is now proven to work at the localhost dev callback; [guide 16](../mcp/opencode-pilot-evidence.md) records the human complete Microsoft login with MFA, and its browser-to-localhost-for-dev path supersedes the suspected localhost blocker below
+Deployment snapshot from 2026-11-23 using native Microsoft OIDC, not SAML. Gateway pods have Microsoft egress, so OIDC avoids the separate SAML metadata lifecycle. This deployment is now proven to work at the localhost dev callback; [guide 16](../../mcp/opencode-pilot-evidence.md) records the human complete Microsoft login with MFA, and its browser-to-localhost-for-dev path supersedes the suspected localhost blocker below
 
 Keep this note for its original env/discovery evidence only. Do not repeat its recommendation to move dev testing to prod. Dev gateway evidence must use `http://localhost:14001` after a new `kubectl -n adeo-litellm port-forward svc/litellm-proxy-dev 14001:4000`. Actual dev SSO takeover by a different active browser session is an identity-attribution hazard to avoid with clean profiles
 

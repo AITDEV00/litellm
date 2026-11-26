@@ -27,8 +27,8 @@ When a document contains multiple statuses, the index should distinguish its cod
 
 | Concern | Start here | Other material |
 |---|---|---|
-| Teams, users, keys, access grants | [Teams and access groups](admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md) | [Access control](access-control/sso-application-integration.md), [capability map](admin-api/ADMIN-CAPABILITY-MAP.md) |
-| Admin surface and request schemas | [Admin REST API](admin-api/LITELLM-ADMIN-REST-API.md) | [OpenAPI operation register](admin-api/OPERATION-REGISTER.md), whose family pages are generated |
+| Teams, users, keys, access grants | [Teams and access groups](administration/admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md) | [Access control](administration/access-control/sso-application-integration.md), [capability map](administration/admin-api/ADMIN-CAPABILITY-MAP.md) |
+| Admin surface and request schemas | [Admin REST API](administration/admin-api/LITELLM-ADMIN-REST-API.md) | [OpenAPI operation register](administration/admin-api/OPERATION-REGISTER.md), whose family pages are generated |
 | MCP sources, OAuth, connector, runtime | [Source broker](mcp-source-broker/running-system/README.md) | [MCP research index](mcp/architecture-research-index.md), [source agent guide](usage-guides/MCP_SOURCE_AGENT_GUIDE.md) |
 | Calling models and voice APIs | [Gateway guide](usage-guides/GATEWAY_GUIDE.md) | Other provider-specific files under [Usage guides](docs-map.md#usage-guides) |
 | Deploy, rollouts, credentials, database | [Deployment](operations/deployment.md) and [Credentials](operations/credentials.md) | [Runbooks](docs-map.md#runbooks) in the docs map |

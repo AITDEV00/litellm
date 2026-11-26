@@ -1,6 +1,6 @@
 # Admin surface reference
 
-Use this directory for management routes, role boundaries, and administrative task guidance. Identity mechanisms belong in [Access control](../access-control/README.md); the source broker belongs to [MCP running system](../mcp-source-broker/running-system/README.md)
+Use this directory for management routes, role boundaries, and administrative task guidance. Identity mechanisms belong in [Access control](../access-control/README.md); the source broker belongs to [MCP running system](../../mcp-source-broker/running-system/README.md)
 
 | Document | Use for | Trust |
 |---|---|---|

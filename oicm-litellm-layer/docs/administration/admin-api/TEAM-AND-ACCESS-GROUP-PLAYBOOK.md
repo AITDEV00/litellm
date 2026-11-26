@@ -148,7 +148,7 @@ These are three different things that get conflated
 - `mcp_tool_permissions` is the exact per-server tool allowlist and is the safest default for a shared group. Empty `allowed_tools` on a server means every advertised tool is callable, so being explicit is the conservative choice
 - `mcp_toolsets` are named permission bundles cached in Redis, reused across keys and teams. Use a toolset when "web-read-only" should mean the same list in five places
 - `mcp_tool_search_enabled` hides tools from search until needed, and `search_tools` scopes which search tools a caller may invoke. With `general_settings.search_tool_deny_by_default` on, the key, team, and user layers must each list a search tool before it is callable, so a group grant alone is not enough there
-- `access_skill_names` on an access group is not the same as skill content sharing. Current behavior does not make ordinary teammate skill rows shareable through that field alone, as recorded in [15-opencode-sso-mcp-skills-pilot.md](../mcp/opencode-sso-oauth-skills-pilot.md). Do not promise skill sharing on the strength of an access-group edit
+- `access_skill_names` on an access group is not the same as skill content sharing. Current behavior does not make ordinary teammate skill rows shareable through that field alone, as recorded in [15-opencode-sso-mcp-skills-pilot.md](../../mcp/opencode-sso-oauth-skills-pilot.md). Do not promise skill sharing on the strength of an access-group edit
 
 ## Changing a grant without breaking it
 

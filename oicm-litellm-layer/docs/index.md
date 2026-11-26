@@ -8,13 +8,13 @@ Code and deployed configuration are authoritative. Read [Documentation trust and
 
 | Task, symptom, or keyword | Open first | Then |
 |---|---|---|
-| Multiple teams, user membership, access groups, MCP permissions | [Teams and access-group playbook](admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md) | [MCP permission layers](access-control/permissions-and-scope.md), [RBAC](access-control/rbac-and-full-potential.md) |
-| SSO, Entra, JWT, application authentication, delegated team selection | [SSO application integration](access-control/sso-application-integration.md) | [Authentication alternatives](access-control/sso-vs-app-auth.md) |
-| Key ownership, user rebind, transfer, historical spend | [Key reassignment](access-control/key-reassignment.md) | [Admin REST key operations](admin-api/LITELLM-ADMIN-REST-API.md) |
-| Admin endpoint, role, API schema, request body | [Admin REST reference](admin-api/LITELLM-ADMIN-REST-API.md) and [capability map](admin-api/ADMIN-CAPABILITY-MAP.md) | [Complete operation register](admin-api/OPERATION-REGISTER.md) for all routes, not proof they are enabled |
+| Multiple teams, user membership, access groups, MCP permissions | [Teams and access-group playbook](administration/admin-api/TEAM-AND-ACCESS-GROUP-PLAYBOOK.md) | [MCP permission layers](administration/access-control/permissions-and-scope.md), [RBAC](administration/access-control/rbac-and-full-potential.md) |
+| SSO, Entra, JWT, application authentication, delegated team selection | [SSO application integration](administration/access-control/sso-application-integration.md) | [Authentication alternatives](administration/access-control/sso-vs-app-auth.md) |
+| Key ownership, user rebind, transfer, historical spend | [Key reassignment](administration/access-control/key-reassignment.md) | [Admin REST key operations](administration/admin-api/LITELLM-ADMIN-REST-API.md) |
+| Admin endpoint, role, API schema, request body | [Admin REST reference](administration/admin-api/LITELLM-ADMIN-REST-API.md) and [capability map](administration/admin-api/ADMIN-CAPABILITY-MAP.md) | [Complete operation register](administration/admin-api/OPERATION-REGISTER.md) for all routes, not proof they are enabled |
 | Call a model, TTS, STT, image, or reasoning model | [Gateway usage guide](usage-guides/GATEWAY_GUIDE.md) | Provider guides in the [docs map](docs-map.md#usage-guides) |
 | MCP source, connector, enrollment, OAuth, tool dispatch | [Source broker running record](mcp-source-broker/running-system/README.md) | [MCP architecture index](mcp/architecture-research-index.md), [source connector guide](usage-guides/MCP_SOURCE_AGENT_GUIDE.md) |
-| MCP tool, schema, parameter, result scanning, denied tools | [MCP permission layers](access-control/permissions-and-scope.md) | [Guardrailing](mcp/guardrailing.md) |
+| MCP tool, schema, parameter, result scanning, denied tools | [MCP permission layers](administration/access-control/permissions-and-scope.md) | [Guardrailing](mcp/guardrailing.md) |
 | OpenCode, private skills, MCP sign-in | [OpenCode pilot plan and status](mcp/opencode-sso-oauth-skills-pilot.md) | [Dated pilot evidence](mcp/opencode-pilot-evidence.md); unfinished gates are not capability claims |
 | Change password, master key, or secrets | [Credentials and secrets](operations/credentials.md) | Follow its rotation contract, do not change only one component |
 | Deploy, roll out, report on dev, query cluster | [Deployment](operations/deployment.md) and [datasource validation](operations/runbooks/DATASOURCE-LOCAL-VALIDATION.md) | [Dev tunnel rule](document-status.md#what-must-remain-true) |

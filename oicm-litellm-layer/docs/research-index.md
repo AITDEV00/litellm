@@ -9,7 +9,7 @@ Check [documentation trust](document-status.md) before executing anything. A pla
 | Concern | Owning start | Secondary research/evidence |
 |---|---|---|
 | MCP source broker and OpenCode | [Running system](mcp-source-broker/running-system/README.md) | [MCP research](mcp/architecture-research-index.md), [pilot evidence](mcp/opencode-pilot-evidence.md) |
-| Access grants, team membership, SSO | [Access control](access-control/README.md) | [SAML airgap research](access-control/microsoft-saml-airgap.md), [dev SSO deployment record](access-control/dev-microsoft-sso-deployed.md) |
+| Access grants, team membership, SSO | [Access control](administration/access-control/README.md) | [SAML airgap research](administration/access-control/microsoft-saml-airgap.md), [dev SSO deployment record](administration/access-control/dev-microsoft-sso-deployed.md) |
 | Gateway OOMs and slow analytics | [Performance evidence index](#performance-and-spend-analytics) | [Dated incident reports](#incidents) |
 | OICM registrations and model status | [OICM status](#oicm-platform-and-model-registration) and [OpenRouter](#openrouter-model-discovery) | Controller code plus current API catalog |
 | UI planning, custom routes, voice providers | [Custom providers](#providers-and-routes) | Their guides and provider README |

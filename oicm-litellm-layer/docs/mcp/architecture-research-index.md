@@ -1,6 +1,6 @@
 # MCP architecture and source broker research
 
-Reviewed on 2026-11-24. This folder holds MCP runtime, source-broker architecture, and OpenCode integration material. Authorization, keys, and SSO now live in [Identity and access control](../access-control/sso-application-integration.md)
+Reviewed on 2026-11-24. This folder holds MCP runtime, source-broker architecture, and OpenCode integration material. Authorization, keys, and SSO now live in [Identity and access control](../administration/access-control/sso-application-integration.md)
 
 ## Start here
 
@@ -20,11 +20,11 @@ For current operations, do not repeat old recommendations to disable public MCP 
 
 ## Authorization and identity moved
 
-- [Permissions and tool scope](../access-control/permissions-and-scope.md): the route, server, tool, parameter, and guardrail layers
-- [RBAC and full potential](../access-control/rbac-and-full-potential.md): role boundaries and resource ceilings
-- [Key reassignment](../access-control/key-reassignment.md): ownership rebinding and spend history
-- [SSO application integration](../access-control/sso-application-integration.md): delegated-application provisioning, subject to its marked rollout checks
-- [Temporary key pattern](../access-control/sso-temporary-key-pattern.md): delegated authority for transient application credentials
+- [Permissions and tool scope](../administration/access-control/permissions-and-scope.md): the route, server, tool, parameter, and guardrail layers
+- [RBAC and full potential](../administration/access-control/rbac-and-full-potential.md): role boundaries and resource ceilings
+- [Key reassignment](../administration/access-control/key-reassignment.md): ownership rebinding and spend history
+- [SSO application integration](../administration/access-control/sso-application-integration.md): delegated-application provisioning, subject to its marked rollout checks
+- [Temporary key pattern](../administration/access-control/sso-temporary-key-pattern.md): delegated authority for transient application credentials
 
 The old `mcp-architecture-qa/` folder was retired during the 2026-11-26 documentation reorganization. Do not add files to it
 
