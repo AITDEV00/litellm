@@ -32,3 +32,4 @@ data:
     model_ids:
       - orcarouter/Qwen3.8-27B-Uncensored-FP8
       - M2
+      - zai-org/GLM-5.3-Flash
